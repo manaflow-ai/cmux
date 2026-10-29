@@ -83,8 +83,8 @@ public enum BrowserTabIntent {
     /// A design mode message from the top frame's isolated world (`BrowserDesignModeScript`):
     /// the runtime's `{type, ...}` as JSON. The host's design mode controller reads it.
     case designMode(Data)
-    /// A hosted Chromium page entered (true) or left HTML fullscreen (feature `chromiumHostLocks`, task
-    /// p01-process-229): no host window goes fullscreen, so the host zooms the page's pane to fill its
+    /// A hosted Chromium page entered (true) or left HTML fullscreen (feature `chromiumHostLocks`):
+    /// no host window goes fullscreen, so the host zooms the page's pane to fill its
     /// window and undoes that on exit, as Chrome's tab fullscreen fills the browser window
     /// (chrome/browser/ui/exclusive_access/fullscreen_controller.cc, `EnterFullscreenModeForTab`).
     case contentFullscreen(Bool)

@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-324 (rule 9): the CmuxNextDesign root files take their notices through the app's
+/// The CmuxNextDesign root files take their notices through the app's
 /// event fan-outs (``AppEvents``), one NotificationCenter observer per notice for every subscriber,
 /// delivered in the notice's own turn, instead of a raw observer per object or a Task that reads
 /// the notices one main-queue job later.

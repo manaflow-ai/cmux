@@ -1,7 +1,7 @@
 public import CmuxNextActions
 
 /// The key router's last `KeyContext`, kept while the focus, the app's context bits and the key facts
-/// it was built from are equal (p04-input-053): a run of chords with no change builds it once.
+/// it was built from are equal: a run of chords with no change builds it once.
 @MainActor
 public final class KeyContextMemo<Focus: Equatable, Facts: Equatable> {
     private var last: (focus: Focus, appContext: ActionContext, facts: Facts, context: KeyContext)?

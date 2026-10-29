@@ -2,14 +2,14 @@ import AppKit
 import QuartzCore
 
 /// Where a press lands in a screen: at rest on the views' frames, mid render-server spring where the views
-/// are drawn (chrome-parity p03-rendering-098).
+/// are drawn.
 extension ScreenContentView {
     /// Clicks inside what a docked column covers go to the docked column
     /// (its panes, dividers, handle) or to this view, never to a strip pane
     /// under it (an overlay column's glass shows the strip under it).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        // Render-server springs draw panes and dividers away from their rest frames (p03-rendering-098).
+        // Render-server springs draw panes and dividers away from their rest frames.
         if !isHidden, !renderTracks.isEmpty { return drawnHit(at: local) }
         guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
             // A zoom's covered panes have left the layout: a click there goes to this view.

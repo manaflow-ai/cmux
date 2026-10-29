@@ -3,7 +3,7 @@ import CmuxNextCompat
 import IOSurface
 import Testing
 
-/// Evicted terminals' last frames (``TerminalLastFrames``, p07-memory-035): volatile at the warm
+/// Evicted terminals' last frames (``TerminalLastFrames``): volatile at the warm
 /// set's count, no non-volatile saved bytes at rest (read from the IOSurfaces themselves), every
 /// frame dropped at the critical limit, and a memory report that splits volatile bytes from
 /// footprint.

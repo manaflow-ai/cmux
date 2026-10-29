@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// A composer chip's contents (a pasted screenshot, a PDF, a recording) as a file of its own in a
 /// folder, so the JSON that lists the chips stays small (``AgentPaneRelaunchWake``,
@@ -13,7 +14,6 @@ nonisolated enum AgentPaneAttachmentFiles {
     /// keeps the file `kept` names for it; one that carries bytes and has neither is left out.
     static func moveOut(_ attachments: [Attachment], to folder: URL, within budget: Int,
                         kept: [String: String] = [:]) -> (attachments: [Attachment], files: [String: String], bytes: Int)? {
-        let manager = FileManager.default
         // Attachment ids are the persistence key. A reconnect or a rapid paste/remove race can
         // hand us the same id twice; keeping both entries would make them read back the last
         // file twice and leave the first file orphaned. The latest entry is the authoritative one,
@@ -30,10 +30,10 @@ nonisolated enum AgentPaneAttachmentFiles {
                 let url = folder.appending(path: "\(UUID().uuidString).\(fileExtension(attachment.mimeType))")
                 do {
                     guard bytes <= budget else { throw CocoaError(.fileWriteOutOfSpace) }
-                    try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+                    try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
                     try contents.write(to: url, options: .atomic)
                 } catch {
-                    for url in written { try? manager.removeItem(at: url) }
+                    for url in written { try? FileManager.checked.removeItem(at: url) }
                     return nil
                 }
                 written.append(url)
@@ -42,7 +42,7 @@ nonisolated enum AgentPaneAttachmentFiles {
             } else if attachment.data == nil, let name = kept[attachment.id], let size = size(of: name, in: folder) {
                 bytes += size
                 guard bytes <= budget else {
-                    for url in written { try? manager.removeItem(at: url) }
+                    for url in written { try? FileManager.checked.removeItem(at: url) }
                     return nil
                 }
                 files[attachment.id] = name

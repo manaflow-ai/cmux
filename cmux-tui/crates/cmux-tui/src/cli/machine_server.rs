@@ -129,14 +129,13 @@ pub(super) fn args_for(
 fn with_daemon_noun(args: &[String]) -> Vec<String> {
     let mut out = args.to_vec();
     let mut index = 0;
-    while index < out.len() {
-        let word = out[index].as_str();
-        if VALUE_OPTIONS.contains(&word) {
+    while let Some(word) = out.get_mut(index) {
+        if VALUE_OPTIONS.contains(&word.as_str()) {
             index += 2;
         } else if word.starts_with('-') {
             index += 1;
         } else {
-            out[index] = "daemon".to_owned();
+            *word = "daemon".to_owned();
             break;
         }
     }

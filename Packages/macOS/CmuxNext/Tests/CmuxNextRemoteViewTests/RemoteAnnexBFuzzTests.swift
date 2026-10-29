@@ -6,8 +6,8 @@ import Testing
 
 /// A remote host's access units and stream-carrier bytes reach ``RemoteAnnexB``,
 /// ``RemoteVideoFormat`` and ``RemoteRdStreamSplitter`` before anything else
-/// looks at them. Seeded property tests on CmuxFuzzSupport (p10-stability-024;
-/// long mode: CMUX_FUZZ_SECONDS):
+/// looks at them. Seeded property tests on CmuxFuzzSupport
+/// (long mode: CMUX_FUZZ_SECONDS):
 ///
 /// - ``RemoteAnnexB`` never traps and gives exactly what ``NALModel`` reads from
 ///   the spec (every `00 00 01` starts a NAL unit, ITU-T H.264 B.1.1 and H.265
@@ -26,7 +26,7 @@ import Testing
     ]
     static let dictionary: [Data] = tokens.map { Data($0) }
 
-    /// One input of a property, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of a property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(3) {

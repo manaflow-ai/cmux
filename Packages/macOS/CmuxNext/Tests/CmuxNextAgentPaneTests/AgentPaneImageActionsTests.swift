@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The image viewer's Show in Finder and Open in Browser Pane (cx-ncc.39): the page sends the
 /// image it shows, a `data:` URL, and the host keeps a copy named for the image with its type's
@@ -26,7 +27,7 @@ struct AgentPaneImageActionsTests {
     }
 
     private static func model(_ folder: URL) -> (AgentPaneModel, revealed: () -> [URL], opened: () -> [URL]) {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var revealed: [URL] = []
         var opened: [URL] = []
         model.replyLinks.imageFolder = folder.appendingPathComponent("copies", isDirectory: true)

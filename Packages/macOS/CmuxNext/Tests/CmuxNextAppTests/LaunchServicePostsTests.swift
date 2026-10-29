@@ -2,9 +2,9 @@ import CmuxNextLaunch
 import CmuxNextWakeups
 import Testing
 
-/// The launch work no first frame needs (p08-startup-017): one StartupScheduler post per service at
-/// its stated priority. No later-tab warm-up makes a WebKit view before startup completes
-/// (p08-startup-042): the agent pages' warm-up and the New Tab spare's probe and page are afterStartup.
+/// The launch work no first frame needs: one StartupScheduler post per service at
+/// its stated priority. No later-tab warm-up makes a WebKit view before startup completes:
+/// the agent pages' warm-up and the New Tab spare's probe and page are afterStartup.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct LaunchServicePostsTests {
     @Test func eachServiceIsItsOwnPostAtItsPriority() {
         let f = LaunchOrderFixture()
@@ -51,7 +51,7 @@ import Testing
         #expect(f.order.startup.log.records.allSatisfy { $0.durationNanos != nil }, "one record per task, each with its run")
     }
 
-    /// p08-startup-031: the starts `AppServices.init` made before the first frame are posts: three after the
+    /// The starts `AppServices.init` made before the first frame are posts: three after the
     /// first frame, three after startup, in post order with the launch's other afterStartup posts.
     @Test func initServiceStartsArePostsAtTheirDesignPriority() {
         let f = LaunchOrderFixture()
@@ -83,7 +83,7 @@ import Testing
                 "the updater's reads, server updates and the browser host run after startup, in post order")
     }
 
-    /// p08-startup-029: the platform services, one post each at their startup-DESIGN.md priority. The hot keys
+    /// The platform services, one post each at their startup-DESIGN.md priority. The hot keys
     /// run in the first frame's slot, so a system-wide key works long before the 10 s failsafe.
     @Test func platformServicesPostAtTheirDesignPriority() {
         let f = LaunchOrderFixture()
@@ -129,7 +129,7 @@ import Testing
         #expect(names.first == "Borders.observe")
     }
 
-    /// The limit (p08-startup-042): before startup completes, no later-tab post makes a WebKit view or a
+    /// The limit: before startup completes, no later-tab post makes a WebKit view or a
     /// WebKit process pool, or asks WebKit's setup, however many frames pass after the first one.
     @Test func noLaterTabPostTouchesWebKitBeforeCompletion() {
         let f = LaunchOrderFixture()

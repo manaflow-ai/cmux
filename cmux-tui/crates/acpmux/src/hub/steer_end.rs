@@ -12,6 +12,7 @@
 //! Also the steer itself (`Hub::steer_turn`): a prompt sent into a running turn.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// Whether an agent's answer to a steer says that the turn ended.
 fn ends_turn(answer: &Value) -> bool {
@@ -109,7 +110,7 @@ impl Hub {
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
-        params["_meta"] = json!({"steer": true, "promptId": prompt_id});
+        params.set("_meta", json!({"steer": true, "promptId": prompt_id}));
         // Until the agent answers it, Send now can stop the agent's step for it
         // (`queue_edit.rs`); a queued prompt sent now stops it right away.
         let step_now = {
@@ -119,7 +120,7 @@ impl Hub {
             now.step.remove(&prompt_id)
         };
         if step_now {
-            params["_meta"]["steerNow"] = json!(true);
+            params.set_path(&["_meta", "steerNow"], json!(true));
         }
         let answer = agent_prompt(session, &child, params, turn_id, true).await;
         session

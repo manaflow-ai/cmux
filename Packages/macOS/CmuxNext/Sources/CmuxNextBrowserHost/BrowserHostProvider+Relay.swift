@@ -9,12 +9,17 @@ struct RelaySession {
         /// `cdp.attach` arrived; the app makes the page agent-ready first.
         case preparing
         case relaying
+        /// The Chromium Host relays the tab's CDP to the browser host itself (`cdp.prepare`):
+        /// the app keeps only the tab's agent-ready state and capture votes.
+        case direct
         /// The page could not be made ready in time: commands get errors.
         case failed(String)
     }
 
     let generation: Int
     var phase = Phase.preparing
+    /// Started by `cdp.prepare`: once ready, the tab goes to ``Phase/direct``, never to ``Phase/relaying``.
+    var direct = false
     /// The id map, shared with the link's write queue (replies are mapped back there).
     let table: CDPRelayTable
     /// Host commands that arrived while preparing (bounded).
@@ -41,7 +46,7 @@ extension BrowserHostProvider {
     /// in the background if never shown) before any CDP message reaches it;
     /// host commands wait in a bounded queue until then, or until the
     /// prepare deadline answers them with CDP errors.
-    func attachRelay(_ targetID: String) {
+    func attachRelay(_ targetID: String, direct: Bool = false) {
         // Only a Chromium tab this app announced (never an incognito or
         // another machine's tab): anything else stays unattached, so its
         // commands get CDP errors, and it is never marked or prepared.
@@ -51,6 +56,7 @@ extension BrowserHostProvider {
         relayGeneration += 1
         let gen = relayGeneration
         var session = RelaySession(generation: gen, table: CDPRelayTable(firstRawID: rawIDCursor[targetID]))
+        session.direct = direct
         // An agent's request waits on it: automation, flexible (never sooner).
         let deadline = MainDeadline(owner: "browser-host.relay-prepare", workClass: .automation, scheduler: deadlines)
         deadline.schedule(after: prepareDeadline) { [weak self] in
@@ -68,6 +74,19 @@ extension BrowserHostProvider {
 
     private func prepared(_ targetID: String, _ gen: Int, _ ready: Bool) {
         guard var session = relays[targetID], session.generation == gen, case .preparing = session.phase else { return }
+        if session.direct {
+            guard ready else {
+                prepareFailed(targetID, gen, relay?.prepareFailure(targetID: targetID) ?? "the tab is not a Chromium tab, or its page could not start")
+                return
+            }
+            session.deadline?.cancel()
+            session.deadline = nil
+            session.preparing = nil
+            session.phase = .direct
+            relays[targetID] = session
+            answerDirect(targetID)
+            return
+        }
         guard ready, let relay,
               relay.startRelay(targetID: targetID,
                                onMessage: { [weak self] message in self?.relayFromBrowser(targetID, gen, message) },
@@ -91,6 +110,12 @@ extension BrowserHostProvider {
         session.deadline = nil
         session.preparing?.cancel()
         session.preparing = nil
+        guard !session.direct else {
+            // The browser host holds the commands; it ends the relay and asks again on its next call.
+            relays[targetID] = nil
+            send(.event(name: "tab.relay.failed", payload: .object(["targetId": .string(targetID), "reason": .string(reason)])))
+            return
+        }
         session.phase = .failed(reason)
         let queued = session.queued
         session.queued = []
@@ -116,6 +141,9 @@ extension BrowserHostProvider {
             return
         case .failed(let reason):
             replyError(targetID, to: message, reason)
+            return
+        case .direct:
+            replyError(targetID, to: message, "the tab's CDP goes to the Chromium Host, not the app")
             return
         case .relaying:
             break

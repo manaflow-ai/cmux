@@ -13,7 +13,7 @@ extension HomeRecipientPictures {
     }
 }
 
-/// The CmuxNextHome sweep (p06-scheduler-332; plans/cmux-next/chrome-parity/p06-scheduler.md rule 9): one case per
+/// The CmuxNextHome sweep (plans/cmux-next/chrome-parity/p06-scheduler.md rule 9): one case per
 /// migrated owner class. The avatar read's reply is a `visible` task the scheduler names; the transcript's engine
 /// wakes are a `visible` MainDeadline that aligns while hidden; its window notices reach a hidden transcript (read
 /// receipts are a model change); and its visibility, its theme repaint and `shown(in:)` follow its node, not an

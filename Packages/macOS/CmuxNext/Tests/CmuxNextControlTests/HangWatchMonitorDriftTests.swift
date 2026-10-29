@@ -7,7 +7,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The hang monitor's drift tolerance and its lane counts (p09-observability-067): when the watchdog thread's wait
+/// The hang monitor's drift tolerance and its lane counts: when the watchdog thread's wait
 /// overruns its timeout by more than 100 ms, the monitor blames no scope open then, in either tier, as Chrome's
 /// `HangWatcher::Wait` ignores the deadlines open after a `TimedWait` longer than `kWaitDriftTolerance`
 /// (base/threading/hang_watcher.cc). Only those scopes, and only the wait: a scope that opens later is watched, and

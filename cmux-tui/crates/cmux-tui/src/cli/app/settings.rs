@@ -30,6 +30,7 @@ use serde_json::{Value, json};
 use std::os::unix::net::UnixStream;
 
 use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 /// The verbs of `cmux settings` (and `cmux config`).
 pub(super) const VERBS: &[&str] =
@@ -153,7 +154,10 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     }
     // `--` ends the options: every word after it is a path or value.
     let (options, literal) = match args.iter().position(|arg| arg == "--") {
-        Some(end) => (&args[..end], &args[end + 1..]),
+        Some(end) => {
+            let (options, separator_and_literal) = args.split_at(end);
+            (options, separator_and_literal.get(1..).unwrap_or_default())
+        }
         None => (args, &[][..]),
     };
     let confirm = options.iter().any(|arg| arg == "--confirm");
@@ -173,7 +177,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         _ => return Err(usage()),
     };
     if confirm {
-        params["confirm"] = json!(true);
+        params.insert("confirm", json!(true));
     }
     // With --confirm a person answers: no client deadline cancels the wait.
     let timeout = if confirm { None } else { Some(READ_TIMEOUT) };
@@ -305,7 +309,7 @@ pub(super) fn feature_rows(report: &Value) -> Value {
             "source": feature["source"],
         });
         if let Some(daemon) = feature["daemon"].as_str() {
-            row["daemon"] = json!(format!("{daemon} {}", on_off(&feature["daemon_enabled"])));
+            row.insert("daemon", json!(format!("{daemon} {}", on_off(&feature["daemon_enabled"]))));
         }
         row
     };
@@ -321,7 +325,7 @@ pub(super) fn feature_rows(report: &Value) -> Value {
 /// every key has its default. A file the caller names must exist.
 pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Value> {
     let file = path.display().to_string();
-    let text = match std::fs::read_to_string(path) {
+    let text = match cmux_blocking::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if !named && error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(json!({ "file": file, "exists": false, "valid": true, "diagnostics": [] }));
@@ -350,7 +354,7 @@ pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Val
         }
         lines.push(line);
         let mut entry = serde_json::to_value(diagnostic).unwrap_or(Value::Null);
-        entry["accepted"] = accepted.map_or(Value::Null, |accepted| accepted.to_json());
+        entry.insert("accepted", accepted.map_or(Value::Null, |accepted| accepted.to_json()));
         diagnostics.push(entry);
     }
     Err(json!({

@@ -100,9 +100,9 @@ pub(super) struct DialArgs {
 pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
     let (mut host, mut service, mut socket) = (None, None, None);
     let mut index = 0;
-    while index < args.len() {
+    while let Some(flag) = args.get(index) {
         let value = args.get(index + 1).ok_or(Failure::BadUsage)?;
-        let slot = match args[index].as_str() {
+        let slot = match flag.as_str() {
             "--host" => &mut host,
             "--service" => &mut service,
             "--socket" => &mut socket,
@@ -132,7 +132,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
 pub(super) fn chosen_socket(explicit: Option<&Path>) -> Result<PathBuf, Failure> {
     use std::os::unix::fs::FileTypeExt;
     let Some(path) = explicit else { return Ok(link_socket()) };
-    match std::fs::metadata(path) {
+    match cmux_blocking::fs::metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => Ok(path.to_path_buf()),
         Ok(_) => Err(Failure::BadUsage),
         Err(_) => Err(Failure::LinkUnavailable),

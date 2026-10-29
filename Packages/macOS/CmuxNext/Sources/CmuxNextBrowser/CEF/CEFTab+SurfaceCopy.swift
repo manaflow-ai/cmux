@@ -19,7 +19,7 @@ nonisolated enum CEFSurfaceCopyFormat: Int32 {
     case jpeg = 1
 }
 
-// A tab's picture with no DevTools agent (fork API 38, p13-webui-077 and 078): Chrome copies a tab
+// A tab's picture with no DevTools agent (fork API 40): Chrome copies a tab
 // thumbnail from its surface (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc,
 // `RenderWidgetHostView::CopyFromSurface`) and encodes it on its thread pool, while a
 // `Page.captureScreenshot` attaches a DevTools agent, which ends main-frame renderer reuse for the

@@ -59,7 +59,7 @@ extension AgentPaneView {
     }
 
     /// The page's owner found nothing on the frozen chat's connection waiting for it (no turn runs or
-    /// waits on the person, p13-webui-080): the connection closes until the thaw, if the page is still
+    /// waits on the person): the connection closes until the thaw, if the page is still
     /// frozen (``AgentPaneTransport/closeWhileFrozen()``).
     package func closeTransportWhileFrozen() {
         model.transport.closeWhileFrozen()

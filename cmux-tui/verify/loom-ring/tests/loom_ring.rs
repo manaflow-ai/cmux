@@ -529,7 +529,7 @@ fn a_reads_bytes_are_marked_until_its_end_is_published() {
     reached.assert_all();
 }
 
-/// A release (`Ring::release_before`, p07-memory-094): `drop_before`
+/// A release (`Ring::release_before`): `drop_before`
 /// publishes the new `oldest`, then the holder gives the dropped bytes'
 /// pages to the kernel, which may read them as zeros. A holder killed
 /// anywhere in it leaves a segment whose adopter trusts no given-away byte.

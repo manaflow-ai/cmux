@@ -13,7 +13,7 @@ import Testing
 
 /// Memory pressure releases the terminal warm set and the parked workspaces through the app's memory
 /// coordinator, one surface close and one workspace teardown per release slice, on frames after the
-/// pressure event (p07-memory-096). Before, `memoryPressureDidChange` closed every surface over the
+/// pressure event. Before, `memoryPressureDidChange` closed every surface over the
 /// smaller budget and tore down every parked workspace of every window in the event's turn.
 ///
 /// What a real close or teardown costs on the main thread is not measured here: the fake clock only
@@ -166,7 +166,7 @@ struct SlicedReleaseTests {
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
-                                  visible: false, endpoint: { throw CancellationError() })
+                                  visible: false, connection: { throw CancellationError() })
         return TerminalEntry(validity: "test", session: session, io: io, themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
                              store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)
     }

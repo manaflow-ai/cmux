@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Testing
 
 /// ``ContentDiscardPlanner/plan(_:for:pace:timed:)``: content whose policies set different timeouts
-/// (page tabs, p07-memory-022) plans against each one's own timeout, the most overdue goes first
+/// (page tabs) plans against each one's own timeout, the most overdue goes first
 /// within one pass, and the next look is the soonest one any of them asks for.
 @Suite struct ContentDiscardPlannerTimeoutsTests {
     let planner = ContentDiscardPlanner()

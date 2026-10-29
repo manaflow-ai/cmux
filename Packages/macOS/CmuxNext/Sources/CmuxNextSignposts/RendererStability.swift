@@ -1,7 +1,7 @@
 import CmuxNextMetrics
 public import CmuxNextTrace
 
-/// WebKit content-process ends and Chromium "Page unresponsive" spans as stability events (p09-observability-108).
+/// WebKit content-process ends and Chromium "Page unresponsive" spans as stability events.
 ///
 /// Each event writes three things, none of which names the page (no URL, title or host):
 /// - a trace ring record in the `crash` category: one ``SignpostName/crashWebContentEnd`` instant per content end,

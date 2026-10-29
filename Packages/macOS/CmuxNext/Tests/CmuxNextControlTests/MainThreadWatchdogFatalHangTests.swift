@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// p09-observability-110: the watchdog thread hands every hang episode to its fatal-hang sink, so the run's record
+/// The watchdog thread hands every hang episode to its fatal-hang sink, so the run's record
 /// is on disk from the hang threshold until the main thread answers. Unlike `onHang`, it is not rate-limited: the
 /// hang the app is killed in may come minutes after one it survived. A stall shorter than the threshold gives none.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogFatalHangTests {

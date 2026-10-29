@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// ``AgentPageRedraw/afterNextFrame(_:)`` (p10-stability-085): only the page's frame callback keeps the
+/// ``AgentPageRedraw/afterNextFrame(_:)``: only the page's frame callback keeps the
 /// waiting bodies. A page that drops its callback releases them, so the New Tab capture's
 /// `OnceContinuation` ends abandoned instead of hanging its task, and the next wait asks again.
 @MainActor

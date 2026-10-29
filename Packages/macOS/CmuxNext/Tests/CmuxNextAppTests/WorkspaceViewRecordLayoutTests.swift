@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The layout half of a remount record (p07-memory-033): `LayoutRootView.scrollRecords` records
+/// The layout half of a remount record: `LayoutRootView.scrollRecords` records
 /// only cameras a person could have seen, and `restoreScroll`, given before the root is in its
 /// window (a remount's order), puts an overflowing row column back at its offset in the first
 /// layout pass.

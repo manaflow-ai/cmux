@@ -1,6 +1,6 @@
 import Foundation
 
-// The Chromium Host's busy banner (ChromiumHostBusyBanner, task p01-process-084).
+// The Chromium Host's busy banner (ChromiumHostBusyBanner).
 extension Strings {
     static var chromiumHostBusy: String {
         String(localized: "browser.chromiumHost.busy.title", defaultValue: "Chromium is busy", bundle: .module)

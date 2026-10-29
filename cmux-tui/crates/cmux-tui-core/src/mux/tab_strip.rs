@@ -26,6 +26,7 @@ use crate::state::values::{fresh_upserts, upserted_value};
 use crate::workspace_registry::{
     SavedTabGroupRecord, TabGroupRecord, TabGroupState, WorkspacePresentationUpdate,
 };
+use std::sync::PoisonError;
 
 /// The durable identity of one strip change.
 pub(crate) struct StripRequest {
@@ -121,7 +122,8 @@ impl Mux {
                     state
                         .pane_of(surface)
                         .and_then(|pane| state.screen_of(pane))
-                        .map(|(workspace, _)| state.workspaces[workspace].key.clone())
+                        .and_then(|(workspace, _)| state.workspace_at(workspace).ok())
+                        .map(|workspace| workspace.key.clone())
                 };
                 for (surface, runtime) in &projected.surfaces {
                     let (Some(before), Some(after)) =
@@ -183,7 +185,8 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let registry = self.workspace_registry.lock().unwrap();
+                let registry =
+                    self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
                 self.reload_presentation(&registry)?;
             }
             for (surface, _, key) in retarget {
@@ -317,7 +320,8 @@ pub(crate) fn group_archive(
 ) -> Value {
     let workspace = pane_by_public_id(state, &record.pane_id)
         .and_then(|pane| state.screen_of(pane))
-        .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
+        .and_then(|(workspace, _)| state.workspace_at(workspace).ok())
+        .map(|workspace| workspace.public_id.to_string());
     serde_json::json!({
         "id": id,
         "pane_id": record.pane_id,

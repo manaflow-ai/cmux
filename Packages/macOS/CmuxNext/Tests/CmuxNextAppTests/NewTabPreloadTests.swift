@@ -10,13 +10,13 @@ import CmuxNextPages
 import Foundation
 import Testing
 
-/// The New Tab page on the app's one preload slot (p13-webui-044): when the preload is made (the
-/// launch's at 250 ms, cx-ec99; later ones after quiet input, p04-input-012; none while held,
-/// p08-startup-017, or under memory pressure, p07-memory-047), the take in the open's turn, the
+/// The New Tab page on the app's one preload slot: when the preload is made (the
+/// launch's at 250 ms, cx-ec99; later ones after quiet input; none while held,
+/// or under memory pressure), the take in the open's turn, the
 /// recycle of a closed page, and that New Tab never evicts another page from the one slot.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabPreloadTests {
-    /// Another page held by the slot (Settings, p13-webui-045): it never answers, so it stays held.
+    /// Another page held by the slot (Settings): it never answers, so it stays held.
     @MainActor private final class OtherPage: PreloadablePage {
         let preloadView = NSView()
         var closed = false
@@ -74,7 +74,7 @@ struct NewTabPreloadTests {
         }
     }
 
-    /// p08-startup-017: the launch posts the hooks after the first frame and the warm at afterStartup.
+    /// The launch posts the hooks after the first frame and the warm at afterStartup.
     @Test func aHeldStartMakesNoPreloadUntilWarmingStarts() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-hooks")

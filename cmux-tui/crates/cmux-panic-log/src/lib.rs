@@ -71,7 +71,7 @@ pub type Fields = serde_json::Map<String, serde_json::Value>;
 /// hook. `is_test_thread` marks lines from a debug test trigger (`"test": true`).
 #[cfg(feature = "json")]
 pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) {
-    install_with_opener(move || open_append(&path), fields, is_test_thread);
+    install_with_opener(move || open_log(&path), fields, is_test_thread);
 }
 
 /// Install the hook with a caller-owned secure opener. A daemon whose state
@@ -129,7 +129,7 @@ pub fn record(
 /// Append `record` as one line, unless the log is full. Never panics.
 #[cfg(feature = "json")]
 pub fn append(path: &Path, record: &serde_json::Value) {
-    append_line(&|| open_append(path), format!("{record}\n").as_bytes());
+    append_line(&|| open_log(path), format!("{record}\n").as_bytes());
 }
 
 /// What a panic hook reads from the panic, the same for both writers.
@@ -208,8 +208,11 @@ pub fn trace_context(
     context
 }
 
+/// Opens `path` for appending the way the hook does: created owner-only,
+/// never through a link. A sandboxed process opens it before its sandbox
+/// holds and hands [`install_with_opener`] a clone of the handle.
 #[cfg(any(feature = "json", feature = "minimal"))]
-fn open_append(path: &Path) -> std::io::Result<std::fs::File> {
+pub fn open_log(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import Foundation
@@ -5,7 +6,8 @@ import Foundation
 /// cmux Classic's saved workspaces that have not come over yet: classic's
 /// session file against the migration ledger, as an automatic run would plan
 /// it. A session file over ``maximumSessionBytes`` is not read (the card is
-/// a hint; Import Workspaces from Classic cmux still reads it). Off the main thread.
+/// a hint; Import Workspaces from Classic cmux still reads it). The file read and the plan run
+/// on the files lane at `.bestEffort` (nobody waits for the card).
 nonisolated struct ClassicWorkspaceCount: Sendable {
     static let maximumSessionBytes = 32 * 1024 * 1024
 
@@ -25,19 +27,27 @@ nonisolated struct ClassicWorkspaceCount: Sendable {
             .appending(path: "classic-migration", directoryHint: .isDirectory)
     }
 
-    func count() async -> Int? {
-        let finder = ClassicMigrationSourceFinder(support: support, ownBundleID: bundleID)
-        guard let candidate = finder.candidates().first else { return nil }
-        let size = ((try? FileManager.default.attributesOfItem(atPath: candidate.url.path))?[.size] as? NSNumber)?.intValue ?? 0
-        guard size > 0, size <= Self.maximumSessionBytes,
-              let snapshot = try? ClassicSessionImporter(fileURL: candidate.url).readSnapshot() else { return nil }
+    /// The count; nil when classic left no session file that can be read, or a read was dropped (quit).
+    func count(on lanes: any MayBlockRunner) async -> Int? {
+        let read = try? await lanes.runFiles(.bestEffort) { readSession() }
+        guard let snapshot = read ?? nil else { return nil }
         let ledger: ClassicMigrationLedger?
         switch await ClassicMigrationRepository(directory: ledgerDirectory).load() {
         case .ledger(let saved): ledger = saved
         default: ledger = nil
         }
-        let plan = ClassicMigrationPlanner().plan(snapshot, ledger: ledger, live: [], liveGroups: [], mode: .automatic)
-        return plan.workspaces.count
+        return try? await lanes.runFiles(.bestEffort) {
+            ClassicMigrationPlanner().plan(snapshot, ledger: ledger, live: [], liveGroups: [], mode: .automatic).workspaces.count
+        }
+    }
+
+    /// Classic's session file, when there is one of at most ``maximumSessionBytes`` that reads.
+    private func readSession() -> ClassicSessionSnapshot? {
+        let finder = ClassicMigrationSourceFinder(support: support, ownBundleID: bundleID)
+        guard let candidate = finder.candidates().first else { return nil }
+        let size = ((try? FileManager.default.attributesOfItem(atPath: candidate.url.path))?[.size] as? NSNumber)?.intValue ?? 0
+        guard size > 0, size <= Self.maximumSessionBytes else { return nil }
+        return try? ClassicSessionImporter(fileURL: candidate.url).readSnapshot()
     }
 }
 

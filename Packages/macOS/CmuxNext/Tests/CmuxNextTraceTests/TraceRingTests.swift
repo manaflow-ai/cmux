@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The trace ring v1 tests (p09-observability-003), one serialized suite: the 8-thread tests and the
+/// The trace ring v1 tests, one serialized suite: the 8-thread tests and the
 /// contention measurement must not share the machine with each other. `--filter TraceRingTests` runs all.
 @Suite(.serialized)
 enum TraceRingTests {}

@@ -1,4 +1,4 @@
-//! The scrollback budget under memory pressure (p07-memory-072): the total
+//! The scrollback budget under memory pressure: the total
 //! from installed RAM, the registered consumer, and the pass at each level.
 
 use std::cell::{Cell, RefCell};

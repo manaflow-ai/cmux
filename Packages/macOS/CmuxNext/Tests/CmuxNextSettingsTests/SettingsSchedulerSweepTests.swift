@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextSettings sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-338): one case
+/// The CmuxNextSettings sweep (plans/cmux-next/chrome-parity/p06-scheduler.md): one case
 /// per migrated owner class. A reload's load lands as one `visible` task on the app's scheduler (its read runs off
 /// main); the Channels fact follows through a `visible` ServiceObservation; the diagnostic toasts take a window's
 /// key notice through their presenter (the app's one AppEvents observer).
@@ -82,7 +82,7 @@ import Testing
 @MainActor private final class KeyWindowRecordingPresenter: SettingsDiagnosticPresenting {
     var followers: [@MainActor () -> Void] = []
 
-    func show(_ toast: CmuxToast, onAction: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? { nil }
+    func show(_ notice: SettingsDiagnosticToast, onAction: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? { nil }
 
     func followKeyWindows(_ windowBecameKey: @escaping @MainActor () -> Void) { followers.append(windowBecameKey) }
 }

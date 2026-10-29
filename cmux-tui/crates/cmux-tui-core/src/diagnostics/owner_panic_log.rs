@@ -1,6 +1,6 @@
 //! Where the session owner's panic log lives (cx-urd.59). The owner's panic
-//! hook appends to it (cmux-tui `owner_start/owner_panic.rs`) and
-//! `oracle-state` reports it, so both read the one path rule here. The
+//! hook appends to it (cmux-tui `owner_start/owner_panic.rs`), which reads
+//! the one path rule here. The
 //! owner's hang log lives beside it; the request watchdog writes it
 //! (server/request_watchdog.rs).
 
@@ -18,6 +18,38 @@ pub fn owner_panic_log_path(session: &str) -> Option<PathBuf> {
 /// line per scope busy past its hang tier.
 pub fn owner_hang_log_path(session: &str) -> Option<PathBuf> {
     owner_log_path("owner-hangs", session)
+}
+
+/// The panic logs of the processes the owner's machine runs besides the
+/// owner, one per process kind at the state root beside the owner's log.
+/// Each line carries its writer's `pid`. The cmux-next app reads each one
+/// (`RustDiagnosticsLog.all`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelperPanicLog {
+    /// `cmux-app-host`; the supervisor passes the path (`--panic-log`),
+    /// since the host starts with an empty environment and opens it
+    /// before its sandbox holds.
+    AppHost,
+    /// `cmux-browser-host serve`, started by the daemon (`--panic-log`).
+    BrowserHost,
+    /// `cmux mcp serve`, started by an MCP client.
+    McpServe,
+}
+
+impl HelperPanicLog {
+    /// The log's file name at the state root.
+    pub const fn file_name(self) -> &'static str {
+        match self {
+            Self::AppHost => "app-host-panics.jsonl",
+            Self::BrowserHost => "browser-host-panics.jsonl",
+            Self::McpServe => "mcp-panics.jsonl",
+        }
+    }
+
+    /// The log's path, or `None` with no state directory.
+    pub fn path(self) -> Option<PathBuf> {
+        Some(owner_log_dir()?.join(self.file_name()))
+    }
 }
 
 /// The directory of the owner's logs: the state root (the parent of the

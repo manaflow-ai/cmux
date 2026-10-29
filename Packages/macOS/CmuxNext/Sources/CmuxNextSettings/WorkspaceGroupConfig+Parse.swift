@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 nonisolated extension WorkspaceGroupConfig {
     /// `workspaceGroups` from the file. A missing key is the default with no diagnostic; a bad

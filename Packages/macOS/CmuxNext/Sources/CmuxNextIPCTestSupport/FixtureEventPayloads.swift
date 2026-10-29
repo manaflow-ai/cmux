@@ -1,7 +1,7 @@
 // `DaemonWireEvent` here is CmuxNextWireGen's EventEmitter output for
 // cmux-tui/spec/fixtures/ipc-method-tables/sdk-schema.json, which CmuxNextWireGenPlugin writes into
 // this target at build time; CmuxNextIPCTests' WireEventSetTests decodes with it. These are the
-// payload types it names, the way TypeEmitter (p05-ipc-020) declares them. sdk-schema.json makes
+// payload types it names, the way TypeEmitter declares them. sdk-schema.json makes
 // the `event` literal a required field of every event payload, so each type carries it, and a
 // TYPED_EVENT payload holds it as its line does.
 public nonisolated struct OutputEvent: Decodable, Equatable, Sendable {

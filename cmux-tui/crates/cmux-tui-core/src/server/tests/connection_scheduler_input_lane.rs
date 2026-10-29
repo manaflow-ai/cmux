@@ -1,4 +1,4 @@
-//! Input precedence on a connection's surface scheduler (p04-input-085): a
+//! Input precedence on a connection's surface scheduler: a
 //! person's input runs before other surfaces' queued requests, one surface's
 //! requests keep their order, and a long read runs on the mux's work lane
 //! instead of the connection's control sequence or a thread of its own.

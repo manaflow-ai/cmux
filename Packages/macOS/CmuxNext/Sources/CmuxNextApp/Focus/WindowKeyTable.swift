@@ -86,6 +86,18 @@ struct WindowKeyTable {
             || ["tab", "pane", "workspace", "window", "group"].contains { invocation[$0]?.targetValue != nil }
     }
 
+    /// The close key's close of a window that closes as a whole: its own close (``WindowKeyClosing``), else
+    /// as its close button does, in the key's turn (`closeWithoutButtonFlash`: never `performClose(_:)`, whose
+    /// button flash is a nested run loop of about 100 ms).
+    @MainActor
+    static func closeFromKey(_ window: NSWindow) {
+        if let own = window as? any WindowKeyClosing {
+            own.closeFromKey()
+        } else {
+            window.closeWithoutButtonFlash()
+        }
+    }
+
     /// Installs the table behind the registry's key window hook.
     static func install(_ services: AppServices) {
         let table = WindowKeyTable(registry: services.registry)
@@ -95,7 +107,7 @@ struct WindowKeyTable {
                   let key = services.keyWindowRole else { return nil }
             switch table.behavior(for: id, close: key.close, overRoot: key.overRoot) {
             case .run: return nil
-            case .closeWindow: return .run { [weak root = key.root] in root?.performClose(nil) }
+            case .closeWindow: return .run { [weak root = key.root] in root.map(Self.closeFromKey) }
             case .consume: return .run {}
             case .disabled(let reason): return .disabled(reason: reason)
             }

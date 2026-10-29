@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Dispatch
 import Testing
 
-/// ProcessOnceSlot (p03-rendering-093): the trace hook's app seams, given once and read from Ghostty's threads.
+/// ProcessOnceSlot: the trace hook's app seams, given once and read from Ghostty's threads.
 @Suite struct ProcessOnceSlotTests {
     nonisolated final class Seam: Sendable {
         let id: Int

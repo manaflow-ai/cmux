@@ -1,4 +1,4 @@
-//! `trace-start`, `trace-stop` and `trace-status` (p09-observability-015):
+//! `trace-start`, `trace-stop` and `trace-status`:
 //! the daemon starts, stops or reports its own trace recording and forwards
 //! the call to the holder (only on a TRACE_CONTROL link), to every live
 //! terminal host whose record advertises trace control, and to acpmux when it
@@ -18,7 +18,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::PoisonError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -27,6 +26,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::process_trace::TraceReport;
 
 /// The bytes of recording rings one `trace-start` may have mapped across the
@@ -327,8 +327,8 @@ pub(super) fn run(call: Call, targets: &dyn TraceTargets) -> Value {
         "total_cap_bytes": TOTAL_CAP_BYTES,
     });
     if let Call::Start { categories, keys } = call {
-        reply["categories"] = json!(category_names(categories));
-        reply["keys"] = json!(keys);
+        reply.insert("categories", json!(category_names(categories)));
+        reply.insert("keys", json!(keys));
     }
     reply
 }
@@ -344,7 +344,7 @@ fn category_names(categories: u64) -> Vec<&'static str> {
 
 fn report_json(role: Role, report: &TraceReport) -> Value {
     let mut fields = report.json_fields();
-    fields["role"] = json!(role.as_str());
+    fields.insert("role", json!(role.as_str()));
     fields
 }
 
@@ -418,13 +418,7 @@ impl TraceTargets for LiveTargets<'_> {
     #[cfg(unix)]
     fn holder(&self, op: ControlOp, admit: &mut dyn FnMut() -> bool) -> Option<HolderSent> {
         use crate::holder_runtime::HolderService;
-        let root = self
-            .mux
-            .surface_options
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal_host_root
-            .clone()?;
+        let root = self.mux.terminal_host_paths().root?;
         if !HolderService::may_run(&root) {
             return None;
         }

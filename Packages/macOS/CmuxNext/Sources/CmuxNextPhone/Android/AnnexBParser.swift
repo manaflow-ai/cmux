@@ -62,7 +62,7 @@ struct AnnexBParser {
         var cuts: [Cut] = []
         // One pass over the new bytes with the zero run before each: a `01` after two zeros ends a
         // start code that began two bytes earlier. No position is read by subscript, so no adb
-        // bytes can index past the buffer (p10-stability-093).
+        // bytes can index past the buffer.
         var zeros = 0
         for (position, byte) in zip(buffer.indices.dropFirst(scanned), buffer.dropFirst(scanned)) {
             guard byte == 1, zeros >= 2 else {

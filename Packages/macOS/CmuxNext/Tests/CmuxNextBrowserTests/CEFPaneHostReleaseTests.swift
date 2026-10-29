@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p13-webui-062: a pane host whose last tab left is removed from `CEFRuntime.hosts`, as Chromium
+/// A pane host whose last tab left is removed from `CEFRuntime.hosts`, as Chromium
 /// closes a `Browser` whose tab strip emptied (chrome/browser/ui/browser.cc, `Browser::TabStripEmpty`).
 /// Every cmux page has its own key (`cmux-page-<UUID>`), so a host kept after its page closed
 /// was never used again: 20 opens and closes left 20 hosts. An untaken spare keeps its host.

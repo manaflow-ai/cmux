@@ -146,7 +146,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     }
 
     /// The events a report's `blackbox[]` may carry: the merged rings' records through the upload decoder, so
-    /// no key-timing, per-key PTY or flow record leaves the Mac (``TraceBlackBoxUpload``, p09-observability-128).
+    /// no key-timing, per-key PTY or flow record leaves the Mac (``TraceBlackBoxUpload``).
     public func blackbox(_ records: [TraceBlackBoxUpload.Record]) -> [TraceBlackBoxUpload.Record] {
         TraceBlackBoxUpload().events(records)
     }

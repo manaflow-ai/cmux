@@ -4,8 +4,8 @@ import CmuxNextInput
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The hover card coordinator listens on the app's one input tap, not AppKit event monitors
-/// (p04-input-013): only while a card is pending or shown it holds an observer of key presses and
+/// The hover card coordinator listens on the app's one input tap, not AppKit event monitors:
+/// only while a card is pending or shown it holds an observer of key presses and
 /// clicks and a scroll intercept of order `.popup`, and a key press, click or wheel scroll ends the
 /// card and goes on. An intercept that consumes the key first (a modal's Escape) never hides it.
 @MainActor @Suite(.serialized) struct HoverCardCoordinatorTests {

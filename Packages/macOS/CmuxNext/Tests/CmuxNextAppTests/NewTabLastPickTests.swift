@@ -3,6 +3,7 @@
 import Foundation
 import Observation
 import Testing
+import CmuxNextWakeups
 
 /// The model picked last outlives a relaunch (Leo 2026-10-11, found again on nightly-next
 /// 2026-10-12): an agent page's own storage ends with the launch (its web view's store is not
@@ -23,7 +24,7 @@ struct NewTabLastPickTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         model.onRememberNewTab = { memory.remember($0) }
         _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6-astra", "folder": "/work/a"])
         _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "folder": "/work/b"])

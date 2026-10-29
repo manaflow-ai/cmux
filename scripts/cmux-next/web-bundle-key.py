@@ -63,7 +63,7 @@ IGNORED_NAMES = {".DS_Store"}
 # The pages output's folder that cmux-page://cmux.shared/ serves (PageSharedChunks.bundledRoot).
 # It must sit inside OUTPUTS: the output digest a signed pointer names then covers every shared file,
 # and an update tree holds the `_shared` its own pages import, which an old document kept across a
-# swap goes on loading from (WebBundleOverlay.Pin, chrome-parity p13-webui-071).
+# swap goes on loading from (WebBundleOverlay.Pin).
 SHARED_ROOT = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/_shared"
 assert any(SHARED_ROOT.startswith(top + "/") for top in OUTPUTS), "SHARED_ROOT must be inside OUTPUTS"
 # A name is the longest run of these bytes after the prefix, counted when it ends in .js or .css

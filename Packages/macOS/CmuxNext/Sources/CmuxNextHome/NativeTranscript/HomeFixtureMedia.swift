@@ -43,10 +43,10 @@ nonisolated enum HomeFixtureMedia {
         ctx.setFillColor(CGColor(srgbRed: 0.08, green: 0.1, blue: 0.18, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height) * 0.3))
         guard let image = ctx.makeImage(),
-              let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+              let dest = blockingImageDestination(url: url as CFURL, type: UTType.png.identifier as CFString, count: 1)
         else { throw CocoaError(.fileWriteUnknown) }
         CGImageDestinationAddImage(dest, image, nil)
-        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
+        guard blockingImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
     }
 
     static func writePDF(to url: URL) throws {

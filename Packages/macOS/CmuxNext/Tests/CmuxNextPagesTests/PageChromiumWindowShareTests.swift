@@ -5,7 +5,7 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 
-/// p13-webui-063: a page tab's Chromium page joins its pane's Chromium window (``PageWebView/chromiumWindow``,
+/// A page tab's Chromium page joins its pane's Chromium window (``PageWebView/chromiumWindow``,
 /// ``PageChromiumWindow``). The page is made in the window its view names when its document starts; a live page
 /// moves when its tab shows in another pane; a page whose tab moved while it was being made moves once it attaches.
 @MainActor @Suite(.serialized)

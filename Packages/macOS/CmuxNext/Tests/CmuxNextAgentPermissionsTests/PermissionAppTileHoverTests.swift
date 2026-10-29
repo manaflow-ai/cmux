@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPermissions
 import Testing
 
-/// p14-energy-055b: the permission card floats over System Settings with cmux in the background,
+/// The permission card floats over System Settings with cmux in the background,
 /// so the app tile to drag keeps its hover there (`.activeAlways`, bounded by the card showing),
 /// where an `.activeForHover` area would hear nothing.
 @MainActor @Suite struct PermissionAppTileHoverTests {

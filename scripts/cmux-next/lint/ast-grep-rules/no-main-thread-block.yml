@@ -4,7 +4,7 @@ severity: error
 message: "blocking call: use the async/background API (openInBackground, async reads, an injected Clock), or `// concurrency-allow: <reason>` when it provably never runs on the main thread"
 note: plans/cmux-next/architecture.md 5a, "The main thread never waits" (check-concurrency.sh)
 ignores:
-  - "**/CmuxNextCompat/NSWorkspace+Background.swift"
+  - "**/CmuxNextCompatAppKit/NSWorkspace+Background.swift"
 rule:
   any:
     - pattern: Thread.sleep($$$ARGS)

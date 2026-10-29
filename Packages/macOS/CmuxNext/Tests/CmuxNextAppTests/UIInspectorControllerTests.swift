@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextInput
 import Testing
 
-/// The UI pointer inspector on the app's input tap (p04-input-016): with the picker closed it has no
+/// The UI pointer inspector on the app's input tap: with the picker closed it has no
 /// subscription, whatever the Labs toggle; Inspect Element reads the click that opened its menu from
 /// the tap's last pointer event; picking adds one modal-order intercept that consumes Escape and drops
 /// it when it stops.

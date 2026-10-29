@@ -1,0 +1,15 @@
+[
+ {"name":"FilePageProvider","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],
+  "order":["kind","file","userChose","readOnly","access","host","libraries","images","tableWidths","comments","deadlines","work"]},
+ {"name":"MarkdownLiveShareServer","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],"order":["work","deadlines"]},
+ {"name":"WindowRootView","label":"revealDeadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],
+  "order":["sidebar","reduceTransparency","applyWindowBlur","revealDeadlines","signals","slideHoldsContent","rendersMotionOnServer","bandRendersOnServer"]},
+ {"name":"WebUIHost","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],
+  "order":["chromium","openPanel","memory","registry","deadlines","processGroups","startsPagesAtFirstShow","hoverFrameInput","retirer"]},
+ {"name":"PageWebView","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],"requires":["configuration"],
+  "order":["descriptor","configuration","inputReadiness","routes","route","options","surface","dynamicResources","pooled","load","openRequested","chromium","openPanel","registry","processGroup","startsAtFirstShow","deadlines","trace","chatOpen","origin"]},
+ {"name":"PageWebView","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],"requires":["root"],"excludes":["configuration","request"],
+  "order":["descriptor","root","routes","route","documentAttributes","options","surface","dynamicResources","chromium","deadlines"]},
+ {"name":"PageWebView","label":"deadlines","value":".testing()","paths":["Packages/macOS/CmuxNext/Tests"],"requires":["descriptor"],"excludes":["configuration","request","root"],
+  "order":["descriptor","routes","route","documentAttributes","options","surface","dynamicResources","deadlines"]}
+]

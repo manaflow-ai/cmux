@@ -18,7 +18,7 @@ extension TerminalSurfaceView {
     /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
     /// keep parsing output; Ghostty draws the current content on its `.visible` message. GPU memory
     /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``). A window an
-    /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``, p03-rendering-097).
+    /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``).
     /// A shown surface whose window stays off screen counts as away (``TerminalOffScreenRelease``).
     func updateOcclusion() {
         guard surface != nil else { return }
@@ -34,6 +34,9 @@ extension TerminalSurfaceView {
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if pause == nil { showRecord.unpaused() }
+        #endif
         heldFrame.hold(volatile: pause != nil, in: frameSource)
         TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
     }

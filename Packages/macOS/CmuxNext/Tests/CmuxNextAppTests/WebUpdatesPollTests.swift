@@ -5,10 +5,10 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The web-updates check (p14-energy-032): under Energy Saver it waits four intervals; while no
+/// The web-updates check: under Energy Saver it waits four intervals; while no
 /// cmux window shows it books nothing (an activation brings none in), and a window showing again
 /// books one check, an interval after the last. The booked check is a `background` deadline on the
-/// app's deadline scheduler (p06-scheduler-338): here a rig whose wakes the test fires.
+/// app's deadline scheduler: here a rig whose wakes the test fires.
 @Suite(.serialized, .timeLimit(.minutes(1))) @MainActor struct WebUpdatesPollTests {
     /// Counts the pointer reads, from the fetch closure's thread.
     private nonisolated final class ReadCount: Sendable {
@@ -113,7 +113,7 @@ import Testing
         #expect(rig.booked == nil)
     }
 
-    /// Startup holds the network (p08-startup-077, Chrome's AfterStartupTaskUtils): no channel
+    /// Startup holds the network (Chrome's AfterStartupTaskUtils): no channel
     /// follow, show or activation reads the pointer or books a read before ``WebUpdater/startChecks()``,
     /// which reads it once at once and books the next an interval out.
     @Test func noPointerIsReadBeforeStartupCompletes() async throws {
@@ -168,7 +168,7 @@ import Testing
     }
 
     /// The booked check aligns to the app's hidden wakes (whole seconds) while the app is hidden,
-    /// and is only flexible while it shows (p06-scheduler-338: update checks are hidden-aligned).
+    /// and is only flexible while it shows (update checks are hidden-aligned).
     @Test func theBookedCheckAlignsToTheHiddenAppsWakes() async throws {
         let app = VisibilityNode(root: "app", own: .hidden)
         let rig = try Rig(checkNode: app)

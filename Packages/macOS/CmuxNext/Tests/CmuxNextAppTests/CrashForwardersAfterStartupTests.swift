@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Feature `crashForwardersAfterStartup` (p08-startup-078): with it `AppCrashReporting` hands the launch's
+/// Feature `crashForwardersAfterStartup`: with it `AppCrashReporting` hands the launch's
 /// scheduler to ``CrashForwarders/post(on:)``, so the crash report and panic log forwarders (the
 /// DiagnosticReports listing, the panic logs, finding acpmux) are one afterStartup best-effort files-lane
 /// post: none of their file work runs while the launch loads, it runs once off main after startup completes

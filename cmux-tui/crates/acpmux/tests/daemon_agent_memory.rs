@@ -1,4 +1,4 @@
-//! The daemon's memory per agent while many agents stream at once (p07-memory-064). With
+//! The daemon's memory per agent while many agents stream at once. With
 //! about 110 agents a daemon held 2.6 GB, about 24 MB per agent
 //! (plans/cmux-next/resource-efficiency-DESIGN.md, offender 6): each agent's host connection
 //! queued up to 4096 decoded entries the daemon had not logged yet, and with more than 64

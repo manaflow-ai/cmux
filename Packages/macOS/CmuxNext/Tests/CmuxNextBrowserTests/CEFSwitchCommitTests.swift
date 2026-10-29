@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// p03-rendering-054: a hosted page shows and hides in the switch's own transaction. The switch's turn
+/// A hosted page shows and hides in the switch's own transaction. The switch's turn
 /// only shows or hides the view (the page's layer goes with it); the fork hears the page's visibility,
 /// the shown tab's activation and the input window's place once, after that commit. A hidden page's
 /// frame waits in the app-wide hidden frame list, never per pane. Without Chromium: a fake fork, and

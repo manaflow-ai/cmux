@@ -79,7 +79,7 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     if end < from {
         return Ok((Vec::new(), start + from as u64));
     }
-    let lines = String::from_utf8_lossy(&buf[from..end])
+    let lines = String::from_utf8_lossy(buf.get(from..end).unwrap_or_default())
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(str::to_owned)

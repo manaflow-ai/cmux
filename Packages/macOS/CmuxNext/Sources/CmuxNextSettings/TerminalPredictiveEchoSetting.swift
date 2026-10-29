@@ -1,4 +1,4 @@
-/// `terminal.predictiveEcho` in cmux.json (p04-input-046): whether a terminal shows the characters
+/// `terminal.predictiveEcho` in cmux.json: whether a terminal shows the characters
 /// typed into it before the host echoes them, as mosh does. `off` (the default) makes no prediction
 /// engine at all; `remote` predicts for remote terminals and whenever the measured echo is slow;
 /// `always` predicts in every terminal once an echo confirmed it. A bad value is `off` plus a

@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import struct CmuxSafeConcurrency.Mutex
 import CoreImage
 import UIKit
 
@@ -202,38 +203,24 @@ enum TapbackGlyph {
         }
     }
 
-    /// Recolored art by image name. Filled on first use or ahead of it by
-    /// `warmSelectedImages` (Core Image's first render in a process costs
-    /// ~20 ms, which a row with my tapback paid in the frame it scrolled in).
-    private final class SelectedCache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var images: [String: UIImage] = [:]
-        private var context: CIContext?
+    /// Recolored art by image name, read on the main thread and filled on
+    /// first use or ahead of it by `warmSelectedImages` off it (Core Image's
+    /// first render in a process costs ~20 ms, which a row with my tapback
+    /// paid in the frame it scrolled in). Only the lookup and the store hold
+    /// the lock; the render runs outside it, so the main thread never waits
+    /// for one (two threads that miss the same name both render it, and the
+    /// second store keeps an equal image).
+    nonisolated private static let selectedImages = Mutex<[String: UIImage]>([:])
 
-        func image(_ name: String) -> UIImage? {
-            lock.withLock { images[name] }
-        }
-
-        func store(_ image: UIImage, name: String) {
-            lock.withLock { images[name] = image }
-        }
-
-        /// One Core Image context for every recoloring.
-        func renderContext() -> CIContext {
-            lock.withLock {
-                if let context { return context }
-                let created = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
-                context = created
-                return created
-            }
-        }
-    }
-
-    nonisolated private static let selectedCache = SelectedCache()
+    /// One Core Image context for every recoloring, made on first use.
+    // crash-allow: a let made once (Swift's thread-safe static init) and never reassigned; Core Image Programming Guide: "CIContext and CIImage objects are immutable, which means each can be shared safely among threads", and multiple threads may render with the same context
+    nonisolated(unsafe) private static let selectedRenderContext = CIContext(
+        options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any]
+    )
 
     nonisolated private static func selectedImage(for reaction: ConversationReaction, base: UIImage) -> UIImage? {
         guard let name = chatKitImageName(for: reaction), let m = selectedMatrix(for: reaction) else { return nil }
-        if let cached = selectedCache.image(name) { return cached }
+        if let cached = selectedImages.withLock({ $0[name] }) { return cached }
         guard let cg = base.cgImage else { return nil }
         let filter = CIFilter(name: "CIColorMatrix")
         filter?.setValue(CIImage(cgImage: cg), forKey: kCIInputImageKey)
@@ -243,9 +230,9 @@ enum TapbackGlyph {
         filter?.setValue(CIVector(x: m[15], y: m[16], z: m[17], w: m[18]), forKey: "inputAVector")
         filter?.setValue(CIVector(x: m[4], y: m[9], z: m[14], w: m[19]), forKey: "inputBiasVector")
         guard let output = filter?.outputImage,
-              let rendered = selectedCache.renderContext().createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
+              let rendered = selectedRenderContext.createCGImage(output, from: CIImage(cgImage: cg).extent) else { return nil }
         let image = UIImage(cgImage: rendered, scale: base.scale, orientation: base.imageOrientation)
-        selectedCache.store(image, name: name)
+        selectedImages.withLock { $0[name] = image }
         return image
     }
 

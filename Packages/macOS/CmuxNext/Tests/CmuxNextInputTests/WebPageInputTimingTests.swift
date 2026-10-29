@@ -5,7 +5,7 @@ import Foundation
 import CmuxNextInputCore
 import Testing
 
-/// A WebKit page's presented stage (p04-input-099): the bench script's report, as WebKit hands it to the handler, maps
+/// A WebKit page's presented stage: the bench script's report, as WebKit hands it to the handler, maps
 /// the page's clock to uptime and closes the input's webkitPage slot with source pageEstimated; a report no slot takes
 /// is counted and changes nothing.
 @MainActor

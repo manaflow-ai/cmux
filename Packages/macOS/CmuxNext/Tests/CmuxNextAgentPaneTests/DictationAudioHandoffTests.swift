@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDictation
 
 /// The dictation audio handoffs (the level meter, the tap-to-worker box and the converter feed) are
-/// compiler-checked `Sendable` types over one unfair lock each (p10-stability-053). These drive them
+/// compiler-checked `Sendable` types over one unfair lock each. These drive them
 /// from many threads at once, which is what the TSan run checks, and pin their observable behavior.
 @Suite(.timeLimit(.minutes(1)))
 nonisolated struct DictationAudioHandoffTests {

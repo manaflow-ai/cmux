@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p08-startup-031: `AppServices.init` builds and wires, and starts no service; each start is its own launch
+/// `AppServices.init` builds and wires, and starts no service; each start is its own launch
 /// post (`serviceStartPosts()`). What a control in the first frame needs is wired in init: the updater's
 /// card and tip closures, the Restart cmux-tui… binding, and the notifications' app (the Chief pet the
 /// launch turn makes, a click's read).

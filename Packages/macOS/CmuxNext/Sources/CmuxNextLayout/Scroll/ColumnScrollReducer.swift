@@ -86,7 +86,7 @@ nonisolated extension ColumnScrollState {
         return effects
     }
 
-    /// The strip pan a display frame shows (p04-input-041), or nil when no pan event came since the
+    /// The strip pan a display frame shows, or nil when no pan event came since the
     /// last frame: the gesture's raw offset at `frameTime` through Chromium's resampling
     /// (`InputResampler`, `ui/base/prediction/linear_resampling.cc`; Chrome resamples the frame's
     /// scroll updates at `BeginFrameArgs::frame_time` in `InputHandlerProxy::DeliverInputForBeginFrame`),

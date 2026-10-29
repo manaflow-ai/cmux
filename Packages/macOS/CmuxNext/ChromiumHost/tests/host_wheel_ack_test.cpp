@@ -1,5 +1,5 @@
-// Checks the Chromium Host's wheel acks (src/host_wheel_ack.h, task
-// p01-process-234) alone and through the dispatcher (src/host_dispatch.mm)
+// Checks the Chromium Host's wheel acks (src/host_wheel_ack.h)
+// alone and through the dispatcher (src/host_dispatch.mm)
 // with a fake shim and a fake fork handler: the fork's struct is read with
 // its size; an ack goes out as one CMUX_SHIM_WHEEL_ACK under cmux's id with
 // the input seq of the wheel it answers (the page's oldest unacked one, with

@@ -3,8 +3,8 @@ import Dispatch
 import Foundation
 import Testing
 
-/// A filter built with its default schedule runs its file checks on its own named concurrent queue
-/// (p02-threads-120), not a GCD root queue: a check that stalls on a slow volume holds no later check, in its own
+/// A filter built with its default schedule runs its file checks on its own named concurrent queue,
+/// not a GCD root queue: a check that stalls on a slow volume holds no later check, in its own
 /// terminal or another one. Each test goes through ``TerminalLinkFilter`` itself, so a default schedule that went
 /// back to a root queue (no name) or to a serial queue (one stall holds the rest) fails here.
 struct TerminalLinkFilterQueueTests {

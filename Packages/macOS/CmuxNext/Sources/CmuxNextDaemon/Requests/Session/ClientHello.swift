@@ -40,8 +40,8 @@ public struct ClientHelloRequest: DaemonRequest {
         }
     }
 
-    /// The app's daemon features (process `daemon` or `both`), on the `main` connection only
-    /// (p12-perf-process-150): `values` by name and `hash`, their `FeatureList.daemonValuesHash`.
+    /// The app's daemon features (process `daemon` or `both`), on the `main` connection only:
+    /// `values` by name and `hash`, their `FeatureList.daemonValuesHash`.
     public struct Features: Encodable, Sendable, Equatable {
         public var hash: String
         public var values: [String: Bool]

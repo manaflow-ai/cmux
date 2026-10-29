@@ -7,8 +7,8 @@
 //!
 //! Commands and fields the schema added after the freeze are added to the
 //! frozen family by hand, as the hand-written variant would have declared
-//! them: attach-streams-v1 (p05-ipc-074) `stream` on attach-surface and
-//! snapshot-request, and cancel-stream.
+//! them: attach-streams-v1 `stream` on attach-surface and
+//! snapshot-request, and cancel-stream; set-stream-priority.
 //!
 //! Fixture errors must match too, with two wording differences: a line that misses
 //! several required fields may name another of them (the generated fields are
@@ -214,6 +214,11 @@ enum OldTerminalIo {
     CancelStream {
         stream: u16,
     },
+    /// Rank one client-minted attach stream.
+    SetStreamPriority {
+        stream: u16,
+        priority: String,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -278,6 +283,7 @@ fn generated(request: &Request) -> Option<Value> {
         Command::Subscribe(p) => serde_json::to_value(p),
         Command::AttachSurface(p) => serde_json::to_value(p),
         Command::CancelStream(p) => serde_json::to_value(p),
+        Command::SetStreamPriority(p) => serde_json::to_value(p),
         Command::PasteImage(p) => serde_json::to_value(p),
         Command::UrlOpen(p) => serde_json::to_value(p),
         Command::UrlOpenSubscribe(p) => serde_json::to_value(p),

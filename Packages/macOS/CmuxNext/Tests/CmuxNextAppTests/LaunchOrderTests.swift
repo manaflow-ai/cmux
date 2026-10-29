@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The launch's order owners at the composition root (p08-startup-012, p06-scheduler-204): the
+/// The launch's order owners at the composition root: the
 /// best-effort fence `main()` raises comes down at the launch phase's reveal, through the init every
 /// order is made with (the app's order delegates to it), and nothing else lowers it while launching.
 /// Chrome: `ThreadPoolInstance::BeginBestEffortFence` / `EndBestEffortFence`

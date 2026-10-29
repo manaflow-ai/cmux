@@ -71,6 +71,71 @@ pub fn bind(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
     std::os::unix::net::UnixListener::bind(path)
 }
 
+/// Binds `path` so that the socket is never reachable with a wider mode than
+/// owner read and write (0600): the socket is bound as `s` in a new
+/// owner-only (0700) staging directory beside `path` (`.s<hex>`, no longer
+/// than `path` itself up to a few bytes, so a path that fits fits staged),
+/// set to 0600 there, and then renamed onto `path` (which replaces a stale
+/// socket file there). A socket bound in place and then chmod-ed has the
+/// umask's mode until the chmod, and a peer can connect in that window. The
+/// parent must be a directory of this user that no other user can write. The
+/// caller checks that no live server owns `path` first.
+#[cfg(unix)]
+pub fn bind_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    check_path(path)?;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut staging = None;
+    for _ in 0..8 {
+        let candidate = parent.join(format!(".s{:x}", unique() & 0xffff));
+        match std::fs::DirBuilder::new().mode(0o700).create(&candidate) {
+            Ok(()) => {
+                staging = Some(candidate);
+                break;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let staging = staging
+        .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "no free staging name"))?;
+    // The parent belongs to this user (the staging directory it just made says
+    // which uid that is) and no one else can write it.
+    let owner = std::fs::symlink_metadata(&staging).map(|m| m.uid());
+    let parent_ok = std::fs::symlink_metadata(parent).is_ok_and(|m| {
+        m.is_dir() && owner.as_ref().is_ok_and(|uid| *uid == m.uid()) && m.mode() & 0o022 == 0
+    });
+    if !parent_ok {
+        let _ = std::fs::remove_dir(&staging);
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private directory of this user", parent.display()),
+        ));
+    }
+    let staged = staging.join("s");
+    let result = (|| {
+        check_path(&staged)?;
+        let listener = std::os::unix::net::UnixListener::bind(&staged)?;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::rename(&staged, path)?;
+        Ok(listener)
+    })();
+    let _ = std::fs::remove_file(&staged);
+    let _ = std::fs::remove_dir(&staging);
+    result
+}
+
+/// A per-call number for staging names (time, process and a counter).
+#[cfg(unix)]
+fn unique() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    nanos ^ std::process::id().rotate_left(8) ^ NEXT.fetch_add(1, Ordering::Relaxed).rotate_left(16)
+}
+
 /// `UnixStream::connect` after [`check_path`].
 #[cfg(unix)]
 pub fn connect(path: &Path) -> io::Result<std::os::unix::net::UnixStream> {
@@ -113,4 +178,39 @@ pub fn short_test_dir(prefix: &str) -> TestDir {
         .tempdir_in(root)
         // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
+}
+
+#[cfg(all(test, unix))]
+mod bind_private_tests {
+    use super::*;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    fn dir(mode: u32) -> tempfile::TempDir {
+        let dir = tempfile::Builder::new().prefix("bp").tempdir_in("/tmp").unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_path_that_fits_binds_also_at_the_limit() {
+        let dir = dir(0o700);
+        let base = dir.path().as_os_str().len() + 1;
+        let name = "x".repeat(MAX_PATH_BYTES - base);
+        let path = dir.path().join(name);
+        assert!(fits(&path));
+        let _listener = bind_private(&path).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_parent_others_can_write_is_refused() {
+        let dir = dir(0o777);
+        let error = bind_private(&dir.path().join("a.sock")).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "a staging directory was left"
+        );
+    }
 }

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// p03-rendering-069: the New Tab bar showing or leaving marks the pane, and the page takes the rest
+/// The New Tab bar showing or leaving marks the pane, and the page takes the rest
 /// of the pane in the window's next pass (Chrome lays out once per frame; a forced layout needs a
 /// read in the turn). Before, every bar update laid the whole pane out in its own turn.
 @Suite(.serialized)

@@ -3,8 +3,7 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// The New Tab page's `tab.jump` carries the page's click or Return that picked the place (`inputAt`, Unix ms), and
-/// the host reads it as an `NSEvent.timestamp`, so the switch it makes a turn later reports that input's age
-/// (p12-perf-process-080).
+/// the host reads it as an `NSEvent.timestamp`, so the switch it makes a turn later reports that input's age.
 struct AgentPaneJumpInputTests {
     @Test func aJumpDecodesThePagesInputTime() {
         let picked = AgentPaneRequest(body: ["method": "tab.jump", "params": ["target": "workspace", "id": "w1", "inputAt": 1_700_000_000_250.5]])

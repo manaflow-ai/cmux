@@ -58,7 +58,7 @@ import Testing
         spring.deactivate()
     }
 
-    /// A stalled frame's BeginFrame args (p03-rendering-012): it is shown one link interval after it
+    /// A stalled frame's BeginFrame args: it is shown one link interval after it
     /// starts, as Chrome's synthetic sources set `deadline = frame_time + interval`
     /// (components/viz/common/frame_sinks/begin_frame_source.cc), keeps a nil refresh interval (the
     /// stall mark) and takes the next sequence number.

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextWakeups
 
-/// The main-thread task board the in-process CEF pump runs its passes on (p06-scheduler-048). Each
+/// The main-thread task board the in-process CEF pump runs its passes on. Each
 /// `CefDoMessageLoopWork` call is one task of owner ``ownerName`` on ``budget``: the stall watchdog
 /// names it, the turn meter counts it as scheduled work, and `debug.main_budget owners` shows its
 /// run times, per class. A nested run loop a pass runs (a context menu, a `<select>` popup) is not

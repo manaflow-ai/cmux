@@ -98,7 +98,7 @@ extension MacScreenPages {
                 return hubState
             case "relay_add":
                 guard let path = params["secret_file"]?.stringValue,
-                      let data = await Task.detached(operation: { try? Data(contentsOf: URL(filePath: path)) }).value,
+                      let data = try? await store.runner.runFiles(.userBlocking, { try Data(blockingContentsOf: URL(filePath: path)) }),
                       let secret = try? JSONSerialization.blockingJSONObject(with: data) as? [String: String] else {
                     return ["error": "secret_file must name a readable JSON file"]
                 }

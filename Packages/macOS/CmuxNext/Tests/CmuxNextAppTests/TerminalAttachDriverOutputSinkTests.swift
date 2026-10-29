@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// `TerminalAttachDriver.setOutputSink(_:)` (p04-input-083): the view's output lane reaches the link it pumps,
+/// `TerminalAttachDriver.setOutputSink(_:)`: the view's output lane reaches the link it pumps,
 /// a link it opens later (a reattach), and a nil sink takes it back; the stream's resume marker passes through
 /// the driver's steps as `outputResume`, so the view can resume it in step order.
 @Suite(.timeLimit(.minutes(1))) struct TerminalAttachDriverOutputSinkTests {
@@ -79,7 +79,7 @@ nonisolated private final class SinkLink: TerminalAttachLink {
 
     var sink: TerminalEchoSink? { held.withLock { $0 } }
 
-    func sendInput(_ data: Data) {}
+    func sendInput(_ data: Data, keyFlow: UInt64) {}
     func sendClaim(reporting size: CellSize) {}
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) {}
     func sendHidden(_ hidden: Bool) {}

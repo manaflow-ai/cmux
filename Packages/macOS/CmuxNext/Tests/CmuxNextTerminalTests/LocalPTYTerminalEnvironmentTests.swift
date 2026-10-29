@@ -4,7 +4,7 @@
 import Testing
 
 /// A local shell's terminal identity is built with no file read, so a shell can be spawned from the main
-/// thread (p02-threads-006): it checked 14 terminfo paths through `FileManager.checked` on the caller's
+/// thread: it checked 14 terminfo paths through `FileManager.checked` on the caller's
 /// thread. The table is the test's own, so a check on the main thread shows as a site.
 @MainActor @Suite
 struct LocalPTYTerminalEnvironmentTests {

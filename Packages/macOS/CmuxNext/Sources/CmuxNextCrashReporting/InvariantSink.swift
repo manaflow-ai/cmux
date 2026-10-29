@@ -2,7 +2,7 @@ public import CmuxSafeConcurrency
 public import Foundation
 public import Sentry
 
-/// The app's ``InvariantEventSink`` (p10-stability-099): the first failure of each
+/// The app's ``InvariantEventSink``: the first failure of each
 /// `Invariant.notFatalUntil` / `Invariant.dumpWillBeCheck` site in a launch becomes one Sentry event, built
 /// and sent on the crash-reporting lane, never on the thread that failed.
 ///

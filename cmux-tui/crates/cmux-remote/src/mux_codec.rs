@@ -1,8 +1,24 @@
+//! The bridge's mux codec: the messages of a local mux socket, cut into
+//! `CMXL` packets for the remote lanes and joined again on the other side.
+//!
+//! A message is a JSON line or, with `bridge-frames-v1`, a binary frame of
+//! the daemon's framed IPC (cmux-ipc `FrameHeader`, 16 bytes, magic `0xFF`).
+//! A reader at a message boundary tells them apart by the first byte, as the
+//! daemon's own reader does (cmux-ipc/src/reader.rs): `0xFF` never starts a
+//! UTF-8 line. A frame is read by its header, never split at a `\n` of its
+//! payload, and its header is validated before any payload byte is read, as
+//! Mojo validates a message header first (mojo/core/channel.cc,
+//! `Channel::Message::Deserialize`).
+
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
+use cmux_ipc::{
+    BadMessage, FrameHeader, HEADER_LEN as FRAME_HEADER_BYTES, MAGIC as FRAME_MAGIC,
+    MAX_FRAME_PAYLOAD as MAX_IPC_FRAME_PAYLOAD,
+};
 use cmux_remote_protocol::{
     Lane, MAX_FRAME_PAYLOAD, REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES,
 };
@@ -18,11 +34,24 @@ pub(crate) const MAX_MUX_UPLOAD_LINE_BYTES: usize = REMOTE_CLIENT_MESSAGE_MAX_BY
 pub(crate) const MAX_MUX_DOWNLOAD_LINE_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES + 1;
 pub(crate) const MAX_MUX_LINE_BYTES: usize = MAX_MUX_UPLOAD_LINE_BYTES;
 const MAX_IN_FLIGHT_LINES: usize = 256;
-const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_DOWNLOAD_LINE_BYTES * 2;
+const MAX_IN_FLIGHT_BYTES: usize = max_message_bytes(MAX_MUX_DOWNLOAD_LINE_BYTES) * 2;
 // Keep packet-declared part counts bounded even when callers configure an
 // unusually large byte maximum. `Vec::with_capacity(parts)` allocates before
 // any payload arrives, so the protocol needs an independent entry cap.
-const MAX_PARTS_PER_LINE: usize = MAX_MUX_DOWNLOAD_LINE_BYTES.div_ceil(CHUNK_BYTES);
+const MAX_PARTS_PER_LINE: usize =
+    max_message_bytes(MAX_MUX_DOWNLOAD_LINE_BYTES).div_ceil(CHUNK_BYTES);
+
+/// The largest encoded message under a line `maximum` (payload plus LF). A
+/// frame has the same payload budget, and its framing is its 16-byte header
+/// where a line's is one LF.
+const fn max_message_bytes(maximum: usize) -> usize {
+    maximum.saturating_add(FRAME_HEADER_BYTES - 1)
+}
+
+/// The largest frame payload under a line `maximum`.
+fn max_frame_payload(maximum: usize) -> u32 {
+    u32::try_from(maximum.saturating_sub(1)).unwrap_or(u32::MAX).min(MAX_IPC_FRAME_PAYLOAD)
+}
 
 /// Return the serialized payload size for one JSONL message. A trailing LF is
 /// framing and is not part of the directional payload budget. EOF-terminated
@@ -31,14 +60,86 @@ pub(crate) fn mux_line_payload_len(line: &[u8]) -> usize {
     line.strip_suffix(b"\n").map_or(line.len(), |payload| payload.len())
 }
 
-pub(crate) async fn read_bounded_line<R>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<usize>
+/// Whether `message` is a binary frame rather than a JSON line.
+pub(crate) fn is_mux_frame(message: &[u8]) -> bool {
+    message.first() == Some(&FRAME_MAGIC)
+}
+
+/// The payload size of one mux message against its directional budget: a
+/// line without its LF, a frame without its header.
+pub(crate) fn mux_message_payload_len(message: &[u8]) -> usize {
+    if is_mux_frame(message) {
+        message.len().saturating_sub(FRAME_HEADER_BYTES)
+    } else {
+        mux_line_payload_len(message)
+    }
+}
+
+/// What [`read_mux_message`] put in its buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MuxMessage {
+    /// The reader ended at a message boundary; the buffer is empty.
+    End,
+    /// A JSON line, its LF included when it had one.
+    Line,
+    /// One whole frame, header included.
+    Frame(FrameHeader),
+}
+
+/// Reads the next message of a local mux socket into `message`: a frame by
+/// its header when the first byte is `0xFF`, otherwise a line of at most
+/// `maximum` bytes (the caller checks the line's budget, as before). A frame
+/// whose header is invalid or whose payload is over the same budget fails
+/// with `InvalidData` and its [`BadMessage`] before any payload byte is read;
+/// a reader that ends inside a frame fails with `UnexpectedEof`.
+pub(crate) async fn read_mux_message<R>(
+    reader: &mut R,
+    message: &mut Vec<u8>,
+    maximum: usize,
+) -> io::Result<MuxMessage>
 where
     R: AsyncBufRead + Unpin,
 {
-    read_bounded_line_with_limit(reader, line, MAX_MUX_UPLOAD_LINE_BYTES).await
+    message.clear();
+    let Some(&first) = reader.fill_buf().await?.first() else {
+        return Ok(MuxMessage::End);
+    };
+    if first != FRAME_MAGIC {
+        let size = read_bounded_line_with_limit(reader, message, maximum).await?;
+        return Ok(if size == 0 { MuxMessage::End } else { MuxMessage::Line });
+    }
+    let mut header = [0_u8; FRAME_HEADER_BYTES];
+    if let Err(error) = reader.read_exact(&mut header).await {
+        return Err(if error.kind() == io::ErrorKind::UnexpectedEof {
+            bad_frame(BadMessage::Truncated { have: 0, need: FRAME_HEADER_BYTES })
+        } else {
+            error
+        });
+    }
+    let header = FrameHeader::decode(header, max_frame_payload(maximum)).map_err(bad_frame)?;
+    message.extend_from_slice(&header.encode());
+    // The payload grows as its bytes arrive: a header alone never makes the
+    // bridge allocate its declared length.
+    let payload = u64::from(header.len());
+    let read = reader.take(payload).read_to_end(message).await?;
+    if u64::try_from(read).unwrap_or(u64::MAX) != payload {
+        return Err(bad_frame(BadMessage::Truncated {
+            have: message.len(),
+            need: header.frame_len(),
+        }));
+    }
+    Ok(MuxMessage::Frame(header))
 }
 
-pub(crate) async fn read_bounded_line_with_limit<R>(
+fn bad_frame(error: BadMessage) -> io::Error {
+    let kind = match error {
+        BadMessage::Truncated { .. } => io::ErrorKind::UnexpectedEof,
+        _ => io::ErrorKind::InvalidData,
+    };
+    io::Error::new(kind, error)
+}
+
+async fn read_bounded_line_with_limit<R>(
     reader: &mut R,
     line: &mut Vec<u8>,
     maximum: usize,
@@ -62,7 +163,7 @@ pub(crate) fn encode_line_with_limit(
     line: &[u8],
     maximum: usize,
 ) -> Result<Vec<Bytes>, MuxCodecError> {
-    if mux_line_payload_len(line) > maximum.saturating_sub(1) {
+    if mux_message_payload_len(line) > maximum.saturating_sub(1) {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
     let parts = line.len().max(1).div_ceil(CHUNK_BYTES);
@@ -158,9 +259,10 @@ impl<R> MuxLineAssembler<R> {
         if magic != MAGIC {
             return Err(MuxCodecError::InvalidPacket);
         }
+        let message_bytes = max_message_bytes(self.maximum);
         if parts == 0
             || part >= parts
-            || parts as usize > self.maximum.div_ceil(CHUNK_BYTES)
+            || parts as usize > message_bytes.div_ceil(CHUNK_BYTES)
             || parts as usize > MAX_PARTS_PER_LINE
         {
             return Err(MuxCodecError::InvalidPacket);
@@ -182,7 +284,7 @@ impl<R> MuxLineAssembler<R> {
             return Err(MuxCodecError::InvalidPacket);
         };
         let payload = packet.slice(HEADER_BYTES..);
-        if line.bytes.saturating_add(payload.len()) > self.maximum
+        if line.bytes.saturating_add(payload.len()) > message_bytes
             || self.bytes.saturating_add(payload.len()) > MAX_IN_FLIGHT_BYTES
         {
             return Err(MuxCodecError::LineTooLarge(line.bytes.saturating_add(payload.len())));
@@ -207,11 +309,35 @@ impl<R> MuxLineAssembler<R> {
             joined.extend_from_slice(&part);
         }
         let payload = joined.freeze();
-        if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
+        if is_mux_frame(&payload) {
+            // A frame goes to the local socket as one unit; a header that
+            // disagrees with the message would make its reader take the next
+            // message as payload.
+            validate_frame(&payload, self.maximum)?;
+        } else if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
             return Err(MuxCodecError::LineTooLarge(payload.len()));
         }
         Ok(Some(AssembledMuxLine { lane: line.lane, payload, _retained: line.retained }))
     }
+}
+
+/// Checks that a joined message is exactly one valid frame.
+fn validate_frame(message: &[u8], maximum: usize) -> Result<FrameHeader, MuxCodecError> {
+    let Some((header, _)) = message.split_first_chunk::<FRAME_HEADER_BYTES>() else {
+        return Err(MuxCodecError::BadFrame(BadMessage::Truncated {
+            have: message.len(),
+            need: FRAME_HEADER_BYTES,
+        }));
+    };
+    let header = FrameHeader::decode(*header, max_frame_payload(maximum))
+        .map_err(MuxCodecError::BadFrame)?;
+    if header.frame_len() != message.len() {
+        return Err(MuxCodecError::BadFrame(BadMessage::Truncated {
+            have: message.len(),
+            need: header.frame_len(),
+        }));
+    }
+    Ok(header)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,6 +345,9 @@ pub enum MuxCodecError {
     InvalidPacket,
     LineTooLarge(usize),
     TooManyLines,
+    /// A joined message that starts with the frame magic is not one valid
+    /// frame, or a frame reached a peer that does not carry frames.
+    BadFrame(BadMessage),
 }
 
 impl fmt::Display for MuxCodecError {
@@ -227,8 +356,13 @@ impl fmt::Display for MuxCodecError {
             Self::InvalidPacket => formatter.write_str("invalid mux line packet"),
             Self::LineTooLarge(size) => write!(formatter, "mux line is too large: {size}"),
             Self::TooManyLines => formatter.write_str("too many incomplete mux lines"),
+            Self::BadFrame(error) => write!(formatter, "bad mux frame: {error}"),
         }
     }
 }
 
 impl std::error::Error for MuxCodecError {}
+
+#[cfg(test)]
+#[path = "mux_codec_tests.rs"]
+mod tests;

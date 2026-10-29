@@ -4,7 +4,7 @@ import os
 import Testing
 @testable import MessagesLabSidebar
 
-/// SWIFT 6 (p10-stability-039): the list draws its rows on every core (`concurrentPerform`, the
+/// SWIFT 6: the list draws its rows on every core (`concurrentPerform`, the
 /// search and render queues). Its render threads share only values; the text cache's measurement
 /// (a CTLine and a CTTypesetter, Core Text layout objects that one thread at a time may use) is
 /// lent to one thread at a time; a host's search request answers at most once.

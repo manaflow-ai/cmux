@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInputCore
 import Testing
 
-/// The event an action answers (p04-input-067): the event being dispatched, or a menu or control's
+/// The event an action answers: the event being dispatched, or a menu or control's
 /// tracking event while that dispatch or the menu's action send runs (Option pressed while a menu is
 /// open), never an event AppKit keeps as its current one after the loop or dispatch ended (a CLI or
 /// socket run reads nil).

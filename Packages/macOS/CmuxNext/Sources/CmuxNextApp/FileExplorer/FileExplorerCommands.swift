@@ -1,5 +1,4 @@
 import AppKit
-import struct CmuxNextDaemon.POSIXErrorText
 import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
@@ -15,15 +14,24 @@ import Foundation
 struct FileExplorerCommands {
     let model: FileExplorerModel
     let effects: any FileExplorerEffects
-    var files: any FileOperating = FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord))
+    var files: any FileOperating
     /// The window's undo stack: Move to Trash puts its Put Back there (Edit > Undo, Cmd-Z).
     var undoManager: UndoManager?
+
+    /// `files` defaults to the effects' (the app's files lane).
+    init(model: FileExplorerModel, effects: any FileExplorerEffects, files: (any FileOperating)? = nil,
+         undoManager: UndoManager? = nil) {
+        self.model = model
+        self.effects = effects
+        self.files = files ?? effects.files
+        self.undoManager = undoManager
+    }
 
     /// Makes an empty "untitled" file (numbered when taken) where the selection is and selects it.
     @discardableResult
     func newFile() async throws -> URL {
         let folder = await targetFolder()
-        let file = try await Self.makeFile(in: folder, named: FileExplorerStrings.untitledFile)
+        let file = try await files.newFile(in: folder, named: FileExplorerStrings.untitledFile, contents: Data())
         await model.reload()
         model.selection = file.standardizedFileURL
         return file
@@ -76,18 +84,6 @@ struct FileExplorerCommands {
             return row.url
         }
         return row.url.deletingLastPathComponent()
-    }
-
-    /// An empty file under the first free name from `name` ("untitled 2"); never replaces an item.
-    @concurrent private static func makeFile(in folder: URL, named name: String) async throws -> URL {
-        let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
-        let free = FileNamer().freeName(for: name, style: .number, taken: taken)
-        let file = folder.appendingPathComponent(free)
-        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
-        let descriptor = unsafe Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
-        guard descriptor >= 0 else { throw FileBrowserError.failed(POSIXErrorText(errno).description) }
-        Darwin.close(descriptor)
-        return file
     }
 
     /// Return and Cmd-Down (Finder's Open): a folder expands or collapses, a file opens.

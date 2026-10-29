@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextWakeups
 
-/// The app's presented-time estimate for input latency: CmuxNextWakeups' `PresentationClock` (p04-input-003).
+/// The app's presented-time estimate for input latency: CmuxNextWakeups' `PresentationClock`.
 extension PresentationClock: InputPresentationEstimating {
     public func holdLinkForInput(in window: NSWindow?) {
         if let window { holdForInput(window: window) } else { holdForInput(on: .app) }

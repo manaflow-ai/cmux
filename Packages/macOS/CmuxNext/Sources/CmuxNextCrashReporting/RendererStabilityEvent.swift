@@ -1,7 +1,7 @@
 import Foundation
 public import Sentry
 
-/// The crash-reporting event of one rate-limited renderer stability report (p09-observability-108): a WebKit content
+/// The crash-reporting event of one rate-limited renderer stability report: a WebKit content
 /// process that ended under a page, or a Chromium page that showed "Page unresponsive" and ended. Every field is a
 /// closed-set name or a number (the reporter's `RendererStability.Report`); the event names no page, URL, title or host.
 ///

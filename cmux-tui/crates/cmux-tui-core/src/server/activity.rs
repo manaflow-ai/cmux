@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::{MessageWriter, Mux};
 use crate::request_origin::RequestOrigin;
 use crate::resource::ResourceOperation;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{AgentState, MuxEvent};
 
 pub(crate) const CAPABILITY: &str = "vm-activity-v1";
@@ -96,9 +97,15 @@ impl ActivityStream {
             if !state.worker {
                 state.worker = true;
                 let shared = Arc::clone(&self.shared);
-                std::thread::Builder::new()
-                    .name("cmux-activity".into())
-                    .spawn(move || run_worker(shared))?;
+                supervised::spawn_at(
+                    "cmux-activity",
+                    cmux_threads::ThreadQos::Utility,
+                    Fatal,
+                    ShutdownBehavior::Continue,
+                    move || {
+                        run_worker(shared);
+                    },
+                )?;
             }
             (state.user_input_ms, state.agent_action_ms)
         };

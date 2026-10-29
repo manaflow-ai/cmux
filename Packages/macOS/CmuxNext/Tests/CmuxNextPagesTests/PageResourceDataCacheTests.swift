@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// ``PageResourceDataCache``, the PNGs a page's dynamic resource source served, as one lossless
-/// memory consumer (p07-memory-057): it counts its bytes, holds 0 entries at the critical limit and
+/// memory consumer: it counts its bytes, holds 0 entries at the critical limit and
 /// stores nothing then, and keeps every entry at any other limit.
 @MainActor @Suite struct PageResourceDataCacheTests {
     /// Keeps each registered entry and hands it the default limit, as the coordinator does at normal.

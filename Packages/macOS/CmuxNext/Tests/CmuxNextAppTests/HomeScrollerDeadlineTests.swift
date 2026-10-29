@@ -3,7 +3,7 @@
 import Testing
 
 /// The Home transcript's scroller deadlines (fade-in, widen, hide) are visible-class MainDeadlines on the
-/// app's deadline scheduler, not run-loop timers of their own (p14-energy-052): the fade-in is precise,
+/// app's deadline scheduler, not run-loop timers of their own: the fade-in is precise,
 /// the others flexible, a new schedule replaces the pending one, a cancel drops its wake, and an action
 /// runs once from the queue's fire.
 @MainActor @Suite(.serialized) struct HomeScrollerDeadlineTests {

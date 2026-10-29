@@ -1,5 +1,5 @@
 extension HibernationPlanner.Candidate {
-    /// What the freeze plan gets of this candidate, or nil when it does not freeze now (p07-memory-097).
+    /// What the freeze plan gets of this candidate, or nil when it does not freeze now.
     ///
     /// A neighbor or a page an agent drives stays awake. The page an off-screen window shows (``isActiveTab``) freezes
     /// only with `freezesShownPages` (feature `offScreenWindowPageFreeze`) and when its tab follows no visibility node,

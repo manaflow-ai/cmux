@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// `CmuxApplication.sendEvent`'s observe stage (p04-input-030): the windows' pending continuous input
+/// `CmuxApplication.sendEvent`'s observe stage: the windows' pending continuous input
 /// is flushed before any tap observer sees a discrete event (Chromium's ShouldFlushQueue), so an
 /// observer that subscribed at launch, before the window's consumer existed, still sees the moves first.
 @MainActor @Suite struct CmuxApplicationFrameInputFlushTests {

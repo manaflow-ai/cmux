@@ -393,7 +393,7 @@ async fn tool_client(hub: &Arc<Hub>, meta: &Value) -> (Client, Value) {
     (c, reply)
 }
 
-/// p07-memory-092: with `agentToolsInDaemon` on, the sub-session and secret
+/// With `agentToolsInDaemon` on, the sub-session and secret
 /// tools are the daemon's own (`server/agent_mcp.rs`): `cmux mcp serve`
 /// dials the daemon for them instead of starting two processes per agent, a
 /// harness that runs stdio servers itself gets the byte-copy relay

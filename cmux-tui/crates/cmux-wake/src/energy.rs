@@ -1,5 +1,5 @@
 //! Whether Energy Saver is on for this process, and who to tell when it
-//! changes (p14-energy-020). The daemon's `energy.set` op (task 033) and its
+//! changes. The daemon's `energy.set` op (task 033) and its
 //! own power-source reading ([`super::PowerSource`], task 137) flip it; the
 //! [`super::MaintenanceClock`] and other periodic owners watch it.
 //!

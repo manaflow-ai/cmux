@@ -125,6 +125,7 @@ pub fn request_terminal_host_pty_custody(
     let token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
     let mut stream = connect_with_retry(Path::new(&record.endpoint))
         .with_context(|| format!("connect terminal host at {}", record.endpoint))?;
+    // wakeup-allow: deadline the custody handshake's one bound; the host's reply and the custody frame end the reads first
     stream.set_read_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
     stream.set_write_timeout(Some(HOST_HANDSHAKE_TIMEOUT))?;
     let hello = ClientHello {

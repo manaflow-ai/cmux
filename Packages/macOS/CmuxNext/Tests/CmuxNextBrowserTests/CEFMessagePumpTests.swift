@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The CEF pump's delayed fire dates on the main thread's one deadline queue (p14-energy-016): a
+/// The CEF pump's delayed fire dates on the main thread's one deadline queue: a
 /// Chromium delayed task and the cmux deadlines near it share one wake (Chrome's one
 /// `delayed_work_timer_` per thread, base/message_loop/message_pump_apple.mm), and the CEF pass runs
 /// after the cmux entries of that fire in a run-loop block of its own, never inside the queue's fire.
@@ -150,7 +150,7 @@ import Testing
         }
     }
 
-    /// A fork run time (p14-energy-046) keeps Chromium's leeway on the queue: a flexible 7.9 ms
+    /// A fork run time keeps Chromium's leeway on the queue: a flexible 7.9 ms
     /// request with 8 ms leeway fires in [7.9, 15.9] ms on its own 8 ms grid (not exact, as a
     /// whole-millisecond request under 36 ms is), a precise one exactly at 7.9 ms.
     @Test func anAbsoluteRequestKeepsChromiumsLeewayOnTheQueue() {

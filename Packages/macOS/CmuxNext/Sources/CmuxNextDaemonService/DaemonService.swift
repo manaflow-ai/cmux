@@ -59,6 +59,8 @@ public final class DaemonService {
     }
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
+    /// Tells the local daemon which tabs this app shows (FrontendVisibilityReporter); nil until `reportFrontendVisibility(on:)`.
+    @ObservationIgnored var frontendVisibility: FrontendVisibilityReporter?
     @ObservationIgnored var featureHello: DaemonFeatureHello?  // the local hellos' features (`start`); settled at the first connection
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
@@ -157,8 +159,7 @@ public final class DaemonService {
         }
     }
 
-    /// The app became active: with the App's presence the connection's heartbeat asks once
-    /// (p14-energy-064).
+    /// The app became active: with the App's presence the connection's heartbeat asks once.
     private func becameActive() {
         guard connectionPresence != nil else { return }
         connection?.heartbeat.activated()
@@ -168,6 +169,9 @@ public final class DaemonService {
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
     public private(set) var startup: DaemonStartupState = .connecting
+    /// Whether the launch connect attached a daemon that kept running while the app was gone (``DaemonLaunchAttach``);
+    /// `.reattached` also marks the launch `daemon_reattached`.
+    public private(set) var launchAttach: DaemonLaunchAttach = .pending
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: MainDeadline?
@@ -197,11 +201,13 @@ public final class DaemonService {
     /// `work` (the app's one ``BackgroundWork``). `team`: this process's Team ID, as the prestart got it.
     /// `launchSnapshot` is the snapshot's read `main` began; without one
     /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
-    /// `featureHello`: the app's daemon features for every hello. `terminalStreams`: as in `localConfiguration`.
+    /// `featureHello`: the app's daemon features for every hello. `terminalStreams` and `wireUpgrades`: as in
+    /// `localConfiguration`.
     public func start(work: BackgroundWork, launch: LaunchIdentity, team: String?, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false, terminalStreams: TerminalStreamsDevice? = nil,
+               wireUpgrades: DaemonWireUpgrades = .none,
                prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil,
                featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
@@ -239,7 +245,7 @@ public final class DaemonService {
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
                                                     hangWatch: hangWatch, featureHello: self.featureHello,
-                                                    terminalStreams: terminalStreams)
+                                                    terminalStreams: terminalStreams, wireUpgrades: wireUpgrades)
         // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
         let marks = prestart?.marks ?? Self.launchConnectMarks()
         marks.mark(.connectStarted)
@@ -318,13 +324,15 @@ public final class DaemonService {
                 return
             }
             await marks?.attach(connection)
-            await self.attachConnection(connection, identity: identity)
+            await self.attachConnection(connection, identity: identity, launchStartedDaemon: marks?.startedDaemon)
             await store.run(connection: connection, scheduler: drainScheduler)
         }
     }
 
-    /// The first connection's handshake: it becomes the connection this service runs.
-    private func attachConnection(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// The first connection's handshake: it becomes the connection this service runs. `launchStartedDaemon` is the
+    /// launch marks' answer (nil without marks): noted on main before the connection attaches.
+    private func attachConnection(_ connection: DaemonConnection, identity: DaemonIdentity, launchStartedDaemon: Bool?) {
+        if let launchStartedDaemon { noteLaunchAttach(startedDaemon: launchStartedDaemon) }
         didConnect(connection, identity: identity)
         windowState = WindowStateStore(connection: connection)
         logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
@@ -446,6 +454,14 @@ public final class DaemonService {
         startup = .connected
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
+    }
+
+    /// The launch connect attached its connection: the daemon was running before this launch unless an attempt started
+    /// it (cold, or the handoff's successor). Once per service.
+    private func noteLaunchAttach(startedDaemon: Bool) {
+        guard launchAttach == .pending else { return }
+        launchAttach = startedDaemon ? .started : .reattached
+        if launchAttach == .reattached { Self.launchMark("daemon_reattached") }
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the

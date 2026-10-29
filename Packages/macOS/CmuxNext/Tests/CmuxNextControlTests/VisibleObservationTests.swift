@@ -90,7 +90,7 @@ import Testing
         harness.stop(watch)
     }
 
-    /// p06-scheduler-029: every read, apply and arm lands in `debug.observations` under the owner,
+    /// Every read, apply and arm lands in `debug.observations` under the owner,
     /// so a bench sees what one change cost (without the recording the ledger reads 0 here).
     @Test func theLedgerCountsArmsReadsAppliesAndShowRereads() throws {
         let harness = Harness(own: .visible)
@@ -209,7 +209,7 @@ import Testing
         harness.stop(watch)
     }
 
-    /// The rest of a person's action (p06-scheduler-208): a person flush the pass did not reach
+    /// The rest of a person's action: a person flush the pass did not reach
     /// runs as userBlocking, not visible.
     @Test func aPersonFlushOutsideThePassRunsInTheUserBlockingClass() {
         let harness = Harness(own: .visible)

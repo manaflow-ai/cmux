@@ -2,7 +2,7 @@ import CmuxNextHibernation
 @testable import CmuxNextPages
 import Testing
 
-/// The automatic keep reasons a page's own document sets (p13-webui-089: pageEdits.ts for every
+/// The automatic keep reasons a page's own document sets (pageEdits.ts for every
 /// page, the agent page's composer and dictation) reach ``PageLifecycle`` through
 /// ``PageKeepReasons``, as Chrome's renderer reports form interaction, user edits and a
 /// `beforeunload` handler (discard_eligibility_policy.cc): they block the discard, not the freeze,

@@ -1,5 +1,5 @@
-//! `trace-start`, `trace-status` and `trace-stop` on a real daemon
-//! (p09-observability-015): the daemon records into its state root and
+//! `trace-start`, `trace-status` and `trace-stop` on a real daemon:
+//! the daemon records into its state root and
 //! forwards to its terminal hosts, which record next to their discovery
 //! records, or to its holder (`CMUX_TUI_TERMINAL_HOST_MODEL=holder`), which
 //! records in its holder-lifetime directory. Every ring is on disk, decodes,

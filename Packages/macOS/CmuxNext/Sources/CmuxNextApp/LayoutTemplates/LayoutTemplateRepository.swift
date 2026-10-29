@@ -7,6 +7,14 @@ import Foundation
 /// processes that are not the app). Names are unique ignoring case: saving an existing name
 /// replaces that template's layout and keeps its id.
 actor LayoutTemplateRepository {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.layout-templates`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.layout-templates
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.layout-templates", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     nonisolated private struct Document: Codable {
         var version = 1
         var templates: [LayoutTemplate]

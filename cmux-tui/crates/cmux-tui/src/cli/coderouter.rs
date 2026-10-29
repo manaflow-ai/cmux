@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 mod accounts;
 
@@ -86,7 +87,8 @@ pub(super) fn split(command_args: &[String]) -> Option<(&str, &[String])> {
 fn raw_tail(args: &[String]) -> Vec<String> {
     args.iter()
         .position(|arg| arg == "coderouter" || arg == "cr")
-        .map(|index| args[index + 1..].to_vec())
+        .and_then(|index| args.get(index + 1..))
+        .map(<[String]>::to_vec)
         .unwrap_or_default()
 }
 
@@ -337,7 +339,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
 
 /// The CodeRouter CLI inside the app bundle that holds `exe`.
 pub(super) fn bundled_coderouter(exe: &Path) -> Option<PathBuf> {
-    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let exe = cmux_blocking::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     crate::app_identity::containing_app_bundle(&exe).map(|bundle| bundle.join(BUNDLED_CODEROUTER))
 }
 
@@ -374,7 +376,7 @@ fn exec_bundled(args: &[String]) -> i32 {
         eprintln!("cmux: {}", messages.no_bundle);
         return 127;
     };
-    if !program.is_file() {
+    if !cmux_blocking::fs::metadata(&program).is_ok_and(|metadata| metadata.is_file()) {
         eprintln!(
             "cmux: {}",
             messages.missing_binary.replace("{path}", &program.display().to_string())
@@ -461,7 +463,7 @@ fn run_owned(global: &GlobalArgs, verb: Verb) -> i32 {
                 _ => 1,
             };
             if let Some(message) = error.get("message").and_then(Value::as_str) {
-                error["message"] = json!(redact_emails(message));
+                error.insert("message", json!(redact_emails(message)));
             }
             super::wire::print_local_error(&error, global.output, exit_code)
         }
@@ -618,8 +620,7 @@ impl Options {
         let messages = &crate::localization::catalog().app_control;
         let mut options = Self { values: Vec::new(), flags: Vec::new(), positionals: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = &args[index];
+        while let Some(arg) = args.get(index) {
             index += 1;
             let Some(name) = arg.strip_prefix("--") else {
                 if arg.starts_with('-') && arg != "-" {

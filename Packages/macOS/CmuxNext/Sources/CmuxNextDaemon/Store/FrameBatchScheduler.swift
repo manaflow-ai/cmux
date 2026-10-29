@@ -8,7 +8,7 @@ public protocol FrameBatchScheduler: Sendable {
     func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void)
 }
 
-/// Runs the drain's tail (p06-scheduler-223, ``DrainTail``): the daemon transactions after the last
+/// Runs the drain's tail (``DrainTail``): the daemon transactions after the last
 /// one a person or the app's frontend caused, one budgeted task at a time, in the class of the
 /// cause at the tail's head. The app passes its ``MainWorkScheduler``
 /// (``DaemonStore/drainTailScheduler``); a store with none applies every batch whole in its frame.

@@ -48,9 +48,12 @@ const MAX_AUTH_CHALLENGES: usize = 8;
 
 /// The realm of a `WWW-Authenticate` value (`Basic realm="x"`), or "".
 fn realm(challenge: &str) -> String {
+    // ASCII lowercasing keeps every byte offset, so `at` is one in `challenge` too.
     let lower = challenge.to_ascii_lowercase();
-    let Some(at) = lower.find("realm=") else { return String::new() };
-    let rest = &challenge[at + "realm=".len()..];
+    let Some(rest) = lower.find("realm=").and_then(|at| challenge.get(at + "realm=".len()..))
+    else {
+        return String::new();
+    };
     let value = match rest.strip_prefix('"') {
         Some(quoted) => quoted.split('"').next().unwrap_or(""),
         None => rest.split([',', ' ']).next().unwrap_or(""),
@@ -159,6 +162,9 @@ mod tests {
         assert_eq!(realm("Basic realm=\"parity\", charset=\"UTF-8\""), "parity");
         assert_eq!(realm("Digest realm=intranet, qop=auth"), "intranet");
         assert_eq!(realm("Bearer"), "");
+        // Non-ASCII text before the realm keeps its offsets (ASCII lowercasing).
+        assert_eq!(realm("Basic Ünïcode REALM=\"Größe\""), "Größe");
+        assert_eq!(realm("Basic realm="), "");
     }
 
     #[test]

@@ -29,22 +29,6 @@ import ObjectiveC
 
     private static var associationKey: UInt8 = 0
 
-    /// The notices after which a window's frame, full-screen or miniaturized state, key or main role, screen
-    /// or occlusion may differ, plus the app's screen-parameters notice (a display change moves windows
-    /// between screens). AppKit makes none of these values observable: an owner that waits for a window's
-    /// state (the oracle's `windows` facet) subscribes to these through ``AppEvents``, as Chrome's window
-    /// waiters observe the widget's bounds and state changes (`views::test::WidgetBoundsChangeWaiter`,
-    /// ui/views/test/widget_test.h).
-    public static let stateChanges: [Notification.Name] = [
-        NSWindow.didMoveNotification, NSWindow.didResizeNotification, // raw-observer-allow: this adapter's own notice list
-        NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, // raw-observer-allow: this adapter's own notice list
-        NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, // raw-observer-allow: this adapter's own notice list
-        NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, // raw-observer-allow: this adapter's own notice list
-        NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification, // raw-observer-allow: this adapter's own notice list
-        NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification, // raw-observer-allow: this adapter's own notice list
-        NSApplication.didChangeScreenParametersNotification, // raw-observer-allow: this adapter's own notice list
-    ]
-
     /// Observes `window`'s notifications on `center`. The app uses ``of(_:center:)``, which keeps
     /// one per window; tests make their own.
     ///

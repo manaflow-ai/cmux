@@ -5,7 +5,7 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One real provider behind a real ``PageRouter`` whose page a test hides or freezes
-/// (``PageRouter/holdDelivery()``, p13-webui-023). It records every envelope the router sends,
+/// (``PageRouter/holdDelivery()``). It records every envelope the router sends,
 /// every event the router reports dropped to the provider, and each ``PageDeliveryLifecycle`` call,
 /// so a test shows what the provider's declared ``PageFrozenDelivery`` does to its real events.
 @MainActor

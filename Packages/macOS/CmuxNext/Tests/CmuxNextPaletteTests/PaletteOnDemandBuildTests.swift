@@ -3,7 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextPalette
 import Testing
 
-/// `PaletteOnDemand` (p08-startup-023): sources written before the build reach the palette, the palette is
+/// `PaletteOnDemand`: sources written before the build reach the palette, the palette is
 /// built once with its hooks in order, and a palette action run before the build builds it in that run.
 @MainActor
 @Suite(.paletteRanker)

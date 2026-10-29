@@ -17,6 +17,7 @@ use crate::event_cause::{EventCause, EventCauseScope};
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{HelloRole, RequestOrigin};
 use crate::request_qos::{RequestQos, RequestQosGate};
+use crate::server::line_connection::line_classes;
 use crate::server::terminal_io_wire::ClearHistoryParams;
 use crate::server::{
     BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, MessageWriter,
@@ -37,13 +38,9 @@ fn classified(class: ConnectionClass) -> Arc<ConnectionClassCell> {
     cell
 }
 
-/// The desired QoS of every live thread named `name`.
-fn desired(name: &str) -> Vec<ThreadQos> {
-    cmux_threads::snapshot()
-        .into_iter()
-        .filter(|row| row.name == name)
-        .map(|row| row.desired)
-        .collect()
+/// The classes the lines of `client` entered since the last call.
+fn classes(mux: &crate::Mux, client: u64) -> Vec<ThreadQos> {
+    line_classes::take(mux, client).into_iter().map(|(qos, _)| qos).collect()
 }
 
 #[test]
@@ -287,7 +284,7 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
 /// the automation cause for the connection's lines, and that cause runs its
 /// requests at Utility (crate::request_qos). The control task that posted
 /// the item ran on a shared pool worker inside a scope of the connection's
-/// class, which leaves the worker's row at its declared class (p05-ipc-073).
+/// class, which leaves the worker's row at its declared class.
 #[test]
 fn an_automation_connections_clear_history_runs_at_its_cause_on_the_work_pool() {
     let mux = crate::Mux::new_for_test("connection-qos-dispatch", crate::SurfaceOptions::default());
@@ -343,9 +340,13 @@ fn exchange(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, line: V
 }
 
 /// A connection without a hello is classed when its hello window closes:
-/// `identify` leaves the window open, the first other line closes it, and
-/// the connection, which can no longer become the verified app, is
-/// automation. Its reader follows.
+/// its first line closes it, and the connection, which can no longer become
+/// the verified app, is automation. The connection has no reader thread:
+/// each line runs at the connection's class on the pool
+/// worker that handles it, so the hello gate sees the first line unclassed
+/// and its dispatch, and every later line, runs at utility. (`identify`,
+/// which keeps the window open, reads the registry's revision from SQLite:
+/// a recorded blocking site on a request worker, left out here.)
 #[test]
 fn a_connection_is_classed_when_its_hello_window_closes() {
     let mux = crate::Mux::new_for_test("connection-qos-reader", crate::SurfaceOptions::default());
@@ -354,71 +355,72 @@ fn a_connection_is_classed_when_its_hello_window_closes() {
     client.set_read_timeout(Some(WAIT)).unwrap();
     let handler = {
         let mux = mux.clone();
-        cmux_threads::spawn(
-            "mux-test-qos-conn",
-            crate::server::line_connection::CONNECTION_READER_QOS,
-            move || handle_connection(mux, Box::new(server)),
-        )
-        .unwrap()
+        std::thread::spawn(move || handle_connection(mux, Box::new(server)))
     };
     let mut reader = BufReader::new(client.try_clone().unwrap());
-    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "identify"}));
+    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "ping"}));
     assert_eq!(reply["ok"], true, "{reply}");
     let id = *mux.control_clients.client_ids().first().expect("the connection's client");
-    let class = mux.control_clients.connection_class(id);
-    assert_eq!(class.get(), ConnectionClass::Unclassified, "identify keeps the window open");
+    assert_eq!(mux.control_clients.connection_class(id).get(), ConnectionClass::Automation);
+    assert_eq!(
+        classes(&mux, id),
+        [ThreadQos::UserInitiated, ThreadQos::Utility],
+        "the hello gate sees the line unclassed; its dispatch runs at the class"
+    );
 
     let reply = exchange(&mut client, &mut reader, json!({"id": 2, "cmd": "ping"}));
     assert_eq!(reply["ok"], true, "{reply}");
-    assert_eq!(class.get(), ConnectionClass::Automation);
-    assert_eq!(desired("mux-test-qos-conn"), [ThreadQos::Utility], "the reader follows");
+    assert_eq!(
+        classes(&mux, id),
+        [ThreadQos::Utility, ThreadQos::Utility],
+        "a later line runs at utility"
+    );
+    // `server-threads` names the connection and the class its lines run
+    // at: the QoS audit judges the person's connection by it (RUN-4).
+    let snapshot = serde_json::to_value(crate::server::server_stats::server_threads(&mux)).unwrap();
+    let row = snapshot["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["client"] == id)
+        .cloned()
+        .expect("the connection's row");
+    assert_eq!(
+        (&row["transport"], &row["class"], &row["lines_qos"]),
+        (&json!("unix"), &json!("automation"), &json!("utility")),
+        "{row}"
+    );
 
     client.shutdown(Shutdown::Both).unwrap();
     handler.join().unwrap();
     mux.shutdown();
 }
 
-/// `server-threads` names the connection each connection thread works
-/// for, with the class and the facts it comes from, feature on or off: the
-/// QoS audit (scripts/cmux-next/qos-audit.py) judges the person's
-/// connection threads by it (RUN-4).
+/// A served connection holds no thread (no `mux-conn`,
+/// `mux-line-out` or `mux-events-out` row); its class is still recorded on
+/// its client (its lines and requests run at it on the pool's workers).
 #[test]
-fn server_threads_names_a_connection_threads_connection() {
+fn a_served_connection_holds_no_thread_of_its_own() {
     let mux = crate::Mux::new_for_test("connection-qos-row", crate::SurfaceOptions::default());
     let (server, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(WAIT)).unwrap();
     let handler = {
         let mux = mux.clone();
-        cmux_threads::spawn(
-            "mux-test-qos-row",
-            crate::server::line_connection::CONNECTION_READER_QOS,
-            move || handle_connection(mux, Box::new(server)),
-        )
-        .unwrap()
+        std::thread::spawn(move || handle_connection(mux, Box::new(server)))
     };
     let mut reader = BufReader::new(client.try_clone().unwrap());
     let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "ping"}));
     assert_eq!(reply["ok"], true, "{reply}");
     let id = *mux.control_clients.client_ids().first().expect("the connection's client");
+    assert_eq!(mux.control_clients.connection_class(id).get(), ConnectionClass::Automation);
 
     let snapshot = serde_json::to_value(crate::server::server_stats::server_threads(&mux)).unwrap();
     let rows = snapshot["threads"].as_array().unwrap();
-    let row = rows
-        .iter()
-        .find(|row| row["name"] == "mux-test-qos-row")
-        .unwrap_or_else(|| panic!("the reader has a row: {snapshot}"));
-    let connection = &row["connection"];
-    assert_eq!(connection["client"], id, "{row}");
-    assert_eq!(connection["class"], "automation", "{row}");
-    assert_eq!(connection["transport"], "unix", "{row}");
-    assert_eq!(connection["origin"], "agent", "{row}");
-    assert_eq!(connection["remote_device"], false, "{row}");
-    assert_eq!(connection["peer_pid"], std::process::id(), "{row}");
-    for writer in rows.iter().filter(|row| row["name"] == "mux-line-out") {
-        assert!(
-            writer["connection"].is_null(),
-            "a writer is no reader or request thread: {writer}"
-        );
+    // Thread rows are the process's; other tests' muxes have a client 1 too,
+    // so the check is by name: no reader or writer thread exists.
+    for row in rows {
+        let name = row["name"].as_str().unwrap_or_default();
+        assert!(!matches!(name, "mux-conn" | "mux-line-out" | "mux-events-out"), "{row}");
     }
 
     client.shutdown(Shutdown::Both).unwrap();
@@ -450,9 +452,13 @@ fn a_reader_classes_its_connection_once() {
 /// The app's terminal attachment (TerminalAttachment.swift) sends no hello:
 /// `identify`, `set-client-info {kind: frontend}`, then `attach-surface`, and
 /// it carries the person's keys. From the process of a verified app
-/// connection its reader rests at the echo class, never at utility.
+/// connection its lines run at the echo class, never at utility, and on the
+/// pool's input workers, ahead of automation's lines (the
+/// connection has no reader thread of its own). `identify` is left out here
+/// (a recorded SQLite site on a request worker); `set-client-info` closes
+/// the window in its place.
 #[test]
-fn the_apps_terminal_attachment_reader_rests_at_the_echo_class() {
+fn the_apps_terminal_attachment_lines_run_at_the_echo_class() {
     let mux = crate::Mux::new_for_test("connection-qos-attach", crate::SurfaceOptions::default());
     mux.set_request_qos_for_test(true);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -472,24 +478,13 @@ fn the_apps_terminal_attachment_reader_rests_at_the_echo_class() {
     client.set_read_timeout(Some(WAIT)).unwrap();
     let handler = {
         let mux = mux.clone();
-        cmux_threads::spawn(
-            "mux-test-qos-attach",
-            crate::server::line_connection::CONNECTION_READER_QOS,
-            move || handle_connection(mux, Box::new(server)),
-        )
-        .unwrap()
+        std::thread::spawn(move || handle_connection(mux, Box::new(server)))
     };
     let mut reader = BufReader::new(client.try_clone().unwrap());
-    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "identify"}));
-    assert_eq!(reply["ok"], true, "{reply}");
-    assert_eq!(desired("mux-test-qos-attach"), [ThreadQos::UserInitiated], "not classed yet");
     let info = json!({
-        "id": 2, "cmd": "set-client-info", "name": "cmux-next-terminal", "kind": "frontend",
+        "id": 1, "cmd": "set-client-info", "name": "cmux-next-terminal", "kind": "frontend",
     });
     let reply = exchange(&mut client, &mut reader, info);
-    assert_eq!(reply["ok"], true, "{reply}");
-    let attach = json!({"id": 3, "cmd": "attach-surface", "surface": surface.id});
-    let reply = exchange(&mut client, &mut reader, attach);
     assert_eq!(reply["ok"], true, "{reply}");
     let attachment = mux
         .control_clients
@@ -497,12 +492,163 @@ fn the_apps_terminal_attachment_reader_rests_at_the_echo_class() {
         .into_iter()
         .find(|id| *id != app)
         .expect("the attachment's client");
-    let class = mux.control_clients.connection_class(attachment).get();
-    assert_eq!(class, ConnectionClass::Person);
-    assert_eq!(desired("mux-test-qos-attach"), [ThreadQos::UserInteractive], "the echo class");
+    let entered = classes(&mux, attachment);
+    assert_eq!(entered.first(), Some(&ThreadQos::UserInitiated), "not classed yet: {entered:?}");
+    assert_eq!(mux.control_clients.connection_class(attachment).get(), ConnectionClass::Person);
+
+    let attach = json!({"id": 2, "cmd": "attach-surface", "surface": surface.id});
+    let reply = exchange(&mut client, &mut reader, attach);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let entered = line_classes::take(&mux, attachment);
+    let echo = crate::echo_thread::ECHO_PATH_QOS;
+    assert_eq!(echo, ThreadQos::UserInteractive);
+    assert!(
+        entered.len() == 2 && entered.iter().all(|(qos, _)| *qos == echo),
+        "the echo class: {entered:?}"
+    );
+    assert!(
+        entered.iter().all(|(_, thread)| thread == crate::server::mux_io::MUX_IO_INPUT_THREAD),
+        "the person's lines are routed on the person's IO loop: {entered:?}"
+    );
 
     client.shutdown(Shutdown::Both).unwrap();
     handler.join().unwrap();
+    mux.close_surface(surface.id).unwrap();
+    mux.shutdown();
+}
+
+/// Echo latency under an agent burst (p01-process-203 finding: the person's
+/// keys share the daemon's connection path with automation). The app's
+/// terminal attachment (the person's, classed so from this verified
+/// process) sends a key with `send` and times it to its `output` echo,
+/// 400 times, while 8 automation connections (remote lanes) each keep 32
+/// `ping`s in flight. Prints p50, p95, p99 and max. Run by hand:
+/// `cargo test -p cmux-tui-core --lib -- echo_latency_under_an_agent_burst
+/// --ignored --nocapture`.
+#[test]
+#[ignore = "measurement; run by hand"]
+fn echo_latency_under_an_agent_burst() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const KEYS: usize = 400;
+    // `CMUX_ECHO_BENCH_AGENTS=0` measures the idle path.
+    let agents_count: usize =
+        std::env::var("CMUX_ECHO_BENCH_AGENTS").ok().and_then(|n| n.parse().ok()).unwrap_or(8);
+    const IN_FLIGHT: usize = 32;
+    let options = crate::SurfaceOptions {
+        command: Some(vec!["/bin/cat".to_string()]),
+        ..crate::SurfaceOptions::default()
+    };
+    // A real PTY (the test surface runtime runs no process).
+    let mux = crate::Mux::new(format!("connection-qos-echo-burst-{}", std::process::id()), options);
+    mux.set_request_qos_for_test(true);
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let serve = |server: UnixStream| {
+        let mux = mux.clone();
+        std::thread::spawn(move || handle_connection(mux, Box::new(server)))
+    };
+
+    // Automation first: each a remote lane, so automation from this process.
+    let stop = Arc::new(AtomicBool::new(false));
+    let answered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut agents = Vec::new();
+    for _ in 0..agents_count {
+        let (server, mut client) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(WAIT)).unwrap();
+        let handler = serve(server);
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let before = mux.control_clients.client_ids();
+        assert_eq!(exchange(&mut client, &mut reader, json!({"id": 0, "cmd": "ping"}))["ok"], true);
+        let id = *mux
+            .control_clients
+            .client_ids()
+            .iter()
+            .find(|id| !before.contains(id))
+            .expect("the agent's client");
+        mux.control_clients.mark_remote_device(id);
+        let stop = stop.clone();
+        let answered = answered.clone();
+        let burst = std::thread::spawn(move || {
+            let mut line = String::new();
+            let ping = format!("{}\n", json!({"id": 1, "cmd": "ping"}));
+            while !stop.load(Ordering::Relaxed) {
+                client.write_all(ping.repeat(IN_FLIGHT).as_bytes()).unwrap();
+                for _ in 0..IN_FLIGHT {
+                    line.clear();
+                    reader.read_line(&mut line).unwrap();
+                }
+                answered.fetch_add(IN_FLIGHT, Ordering::Relaxed);
+            }
+            client.shutdown(Shutdown::Both).unwrap();
+        });
+        agents.push((handler, burst));
+    }
+
+    // The app's control connection, verified, from this process.
+    let app = connect_peer(&mux, None);
+    assert!(crate::server::origin_gate::set_hello(
+        &mux,
+        app,
+        HelloRole::Main,
+        Some(own_peer_key()),
+        true,
+        None,
+        false
+    ));
+    let (server, mut client) = UnixStream::pair().unwrap();
+    client.set_read_timeout(Some(WAIT)).unwrap();
+    let handler = serve(server);
+    let mut reader = BufReader::new(client.try_clone().unwrap());
+    let info = json!({"id": 1, "cmd": "set-client-info", "name": "cmux-next-terminal", "kind": "frontend"});
+    assert_eq!(exchange(&mut client, &mut reader, info)["ok"], true);
+    let attach = json!({"id": 2, "cmd": "attach-surface", "surface": surface.id});
+    assert_eq!(exchange(&mut client, &mut reader, attach)["ok"], true);
+    let mut line = String::new();
+    let mut next = |reader: &mut BufReader<UnixStream>| -> Value {
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+    // The attach's `vt-state` came with its reply (`exchange` skips events).
+
+    let mut samples = Vec::with_capacity(KEYS);
+    let (burst_started, answered_before) = (Instant::now(), answered.load(Ordering::Relaxed));
+    for key in 0..KEYS {
+        let id = 100 + key;
+        let send = json!({"id": id, "cmd": "send", "surface": surface.id, "text": "x"});
+        let started = Instant::now();
+        client.write_all(format!("{send}\n").as_bytes()).unwrap();
+        loop {
+            let message = next(&mut reader);
+            if message["event"] == "output" {
+                break;
+            }
+        }
+        samples.push(started.elapsed());
+        // The reply may come after the echo; it is skipped above or here.
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let pings_per_second = (answered.load(Ordering::Relaxed) - answered_before) as f64
+        / burst_started.elapsed().as_secs_f64();
+    stop.store(true, Ordering::Relaxed);
+    let person_loop = cmux_threads::snapshot()
+        .iter()
+        .any(|row| row.name == crate::server::mux_io::MUX_IO_INPUT_THREAD);
+    samples.sort();
+    let at = |q: f64| samples[((samples.len() as f64 * q) as usize).min(samples.len() - 1)];
+    eprintln!(
+        "echo under agent burst: p50 {:?} p95 {:?} p99 {:?} max {:?} ({KEYS} keys, {agents_count} agents x {IN_FLIGHT} pings, {pings_per_second:.0} pings/s, person loop {person_loop})",
+        at(0.50),
+        at(0.95),
+        at(0.99),
+        samples[samples.len() - 1],
+    );
+    client.shutdown(Shutdown::Both).unwrap();
+    handler.join().unwrap();
+    for (handler, burst) in agents {
+        burst.join().unwrap();
+        handler.join().unwrap();
+    }
     mux.close_surface(surface.id).unwrap();
     mux.shutdown();
 }

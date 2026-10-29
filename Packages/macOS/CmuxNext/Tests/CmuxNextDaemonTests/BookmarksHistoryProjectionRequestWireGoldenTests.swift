@@ -3,12 +3,12 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Bookmarks, History,
-/// Projection, Terminals, Machines and Requests/PairingResponseRequest.swift (p05-ipc-040): the line
+/// Projection, Terminals, Machines and Requests/PairingResponseRequest.swift: the line
 /// each one sends today, compared as JSON (key order does not count). The migration to the generated
 /// `<Name>Request` types (CmuxNextWireGen RequestEmitter) must send the same lines.
 ///
 /// Requests/Resource holds no raw protocol command: its `cmux.protocol/2` envelope is pinned by
-/// ResourceRequestLineParityTests, and the generated envelope builder (p05-ipc-024) by
+/// ResourceRequestLineParityTests, and the generated envelope builder by
 /// ResourceRequestLineTests.
 ///
 /// No dictionary-valued field here. `projection` is a `JsonValue` ref, sent as given; a null

@@ -15,7 +15,7 @@ private func json(_ text: String) throws -> SchemaJSON {
 private let fixturePath = "cmux-tui/spec/fixtures/ipc-wire-types/sdk-schema.json"
 private let realPath = "cmux-tui/spec/sdk-schema.json"
 
-/// TypeEmitter (p05-ipc-020): the Swift wire types the `clients: macos`
+/// TypeEmitter: the Swift wire types the `clients: macos`
 /// commands reach, read from cmux-tui/spec/fixtures/ipc-wire-types and from
 /// the real cmux-tui/spec/sdk-schema.json. Six shapes are compared with their
 /// golden text (TypeEmitterGolden); the behavior of the real output is

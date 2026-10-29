@@ -30,6 +30,7 @@ use crate::shell_history::{FinishedCommand, MAX_QUEUED_COMMANDS};
 use crate::state::command_history_store::{
     CommandDeletion, CommandExpiry, CommandHistoryPage, CommandHistoryRow,
 };
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::unix_epoch_ms;
 
 /// Commands stored in one registry transaction.
@@ -286,11 +287,13 @@ impl Mux {
             checkpoint_pending,
             deletes_waiting: Arc::clone(&queue.deletes_waiting),
         };
-        // An upkeep thread (p04-input-084): a pass runs at utility unless a
+        // An upkeep thread: a pass runs at utility unless a
         // client waits for a delete (`Worker::pass`).
-        cmux_threads::spawn(
+        supervised::spawn_at(
             "terminal-command-history",
             crate::request_qos::UPKEEP_THREAD_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || worker.run(receiver, deadline),
         )
         .ok()?;

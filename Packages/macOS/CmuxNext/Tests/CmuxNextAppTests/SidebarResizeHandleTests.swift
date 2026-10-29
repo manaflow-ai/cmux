@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// The sidebar's resize edge at most twice per frame (feature `pointerFrameDrags`, p04-input-031):
-/// with the window's FrameInputCoalescer (p04-input-030) the first drag event of a frame interval
+/// The sidebar's resize edge at most twice per frame (feature `pointerFrameDrags`):
+/// with the window's FrameInputCoalescer the first drag event of a frame interval
 /// resizes in its own turn and the rest resize once more at the frame, to the latest point; the
 /// release lands the pending resize first.
 @MainActor @Suite(.serialized) struct SidebarResizeHandleTests {

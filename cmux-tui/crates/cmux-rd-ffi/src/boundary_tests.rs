@@ -1,6 +1,6 @@
 //! Every export runs its body in cmux-ffi-guard's boundary: a panic returns
 //! the documented error value and is recorded under the export's name, the
-//! process keeps running (p10-stability-152).
+//! process keeps running.
 
 use super::*;
 use cmux_ffi_guard::testing::{panic_through, quiet_boundary, unguarded_exports};

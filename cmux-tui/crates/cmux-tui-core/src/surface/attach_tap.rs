@@ -20,12 +20,14 @@ use std::ops::DerefMut;
 
 mod output_arena;
 mod output_rope;
+mod visibility;
 #[cfg(test)]
 pub(super) use output_arena::OUTPUT_ARENA_BLOCK_BYTES;
 pub(super) use output_arena::OutputArena;
 #[cfg(test)]
 pub(super) use output_rope::OUTPUT_ROPE_COPY_MAX_BYTES;
 pub(super) use output_rope::OutputRope;
+pub(crate) use visibility::TapVisibility;
 
 /// A PTY's attach viewers and the arena their output is cut from, both under
 /// the `pty.taps` lock the reader already holds to fan out.
@@ -440,14 +442,22 @@ pub(super) struct AttachTapState {
     pub(super) queue: Mutex<AttachTapQueue>,
     ready: Condvar,
     /// The viewer's drain task when it runs on a sequence instead of
-    /// blocking on `ready` (attach streams, p05-ipc-079).
+    /// blocking on `ready` (attach streams).
     ready_hook: crate::stream_interrupt::ReadyHook,
+    /// A hidden snapshot viewer (`set-stream-priority hidden`):
+    /// output only marks it dirty and nothing wakes it. Written under the
+    /// queue lock; read after it is released by the wakes.
+    hidden: AtomicBool,
 }
 
 impl AttachTapState {
     /// After a change the receiver acts on: a queued item, a snapshot to
     /// send, the sender gone. Called with the queue lock released.
     fn wake_one(&self) {
+        // A hidden viewer acts on nothing until it shows (`TapVisibility`).
+        if self.hidden.load(Ordering::Acquire) {
+            return;
+        }
         self.ready.notify_one();
         self.ready_hook.wake();
     }
@@ -575,7 +585,9 @@ impl AttachFrameReceiver {
     }
 
     /// Next event of a snapshot viewer: a pending snapshot comes before any
-    /// frame. Blocks until an event, `deadline`, or `interrupt`.
+    /// frame. Blocks until an event, `deadline`, or `interrupt`. Tests only:
+    /// every viewer is a drain that polls `try_viewer_event`.
+    #[cfg(test)]
     pub(crate) fn recv_viewer_event(
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
@@ -695,6 +707,7 @@ impl AttachTap {
             }),
             ready: Condvar::new(),
             ready_hook: Default::default(),
+            hidden: AtomicBool::new(false),
         });
         (
             Self { state: state.clone(), lifecycle: lifecycle.clone() },
@@ -721,6 +734,7 @@ impl AttachTap {
     /// Whether this viewer would take a local-history READY of a resize now.
     pub(super) fn wants_local_ready(&self) -> bool {
         !self.lifecycle.is_canceled()
+            && !self.state.hidden.load(Ordering::Acquire)
             && self
                 .state
                 .queue
@@ -735,6 +749,7 @@ impl AttachTap {
         let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(local) = local
             && queue.takes_local_ready()
+            && !self.state.hidden.load(Ordering::Acquire)
         {
             self.push(queue, QueuedFrame::LocalReady(local.clone()));
             return;
@@ -755,7 +770,7 @@ impl AttachTap {
             && !self.lifecycle.is_canceled()
         {
             let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if queue.takes_local_ready() {
+            if queue.takes_local_ready() && !self.state.hidden.load(Ordering::Acquire) {
                 return self.push(queue, QueuedFrame::LocalReady(local.clone()));
             }
         }
@@ -805,6 +820,14 @@ impl AttachTap {
             return false;
         }
         if queue.snapshot_mode {
+            if self.state.hidden.load(Ordering::Acquire) {
+                // Parsed by the terminal already; the viewer gets a READY of
+                // it when it shows, and nothing before.
+                if !queue.needs_snapshot || !queue.frames.is_empty() {
+                    queue.mark_dirty();
+                }
+                return true;
+            }
             if queue.snapshot_deferred {
                 // Retry the snapshot now that the parser has moved on.
                 queue.snapshot_deferred = false;

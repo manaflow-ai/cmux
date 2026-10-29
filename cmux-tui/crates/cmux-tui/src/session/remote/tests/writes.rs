@@ -542,7 +542,7 @@ fn latency_histogram_reports_fixed_bucket_percentiles() {
     assert_eq!(snapshot.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 5);
 }
 
-/// p04-input-084: the interactive writer carries the person's keys to the
+/// The interactive writer carries the person's keys to the
 /// remote session, so it is an echo path thread.
 #[test]
 fn the_interactive_writer_is_an_echo_path_thread() {

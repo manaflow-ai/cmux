@@ -20,7 +20,7 @@ extension HangReportService {
         /// next send and drops what was recorded).
         public var stillAllowed: @Sendable () -> Bool
         /// The input latency field report (``HangReportInputLatencySource``); nil (the default)
-        /// until the app wires it (p04-input-104). Used only when the builder's wire schema
+        /// until the app wires it. Used only when the builder's wire schema
         /// carries input latency.
         public var inputLatency: (any HangReportInputLatencySource)?
         /// The active time and the main-turn and input-queueing histograms

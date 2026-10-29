@@ -1,6 +1,7 @@
 import CmuxNextInputModel
 import Foundation
 import os
+import CmuxNextCompat
 
 /// A captured focus/keyboard desync (plans/cmux-next/input-spec.md
 /// section 4): the invariants that broke, the observation that showed it,
@@ -16,9 +17,18 @@ nonisolated struct DesyncReport: Hashable, Sendable, Codable {
     var observation: InputObservation
     var journal: [InputJournalEntry]
     var journalStats: InputJournal.Stats
+    /// The action that ran last before the check, with its origin (`InputInvariantMonitor.lastAction`); a focus
+    /// violation names it (plans/cmux-next/focus-invariant.md). Optional for older reports.
+    var lastAction: String?
 
-    /// One line per violation, for logs and `debug.desync`.
-    var summary: [String] { violations.map { "\($0.invariant.rawValue) \($0.window ?? "-"): \($0.detail)" } }
+    /// One line per violation, for logs and `debug.desync`; a focus rule's line names the last action.
+    var summary: [String] {
+        violations.map { violation in
+            let line = "\(violation.invariant.rawValue) \(violation.window ?? "-"): \(violation.detail)"
+            guard InputInvariant.keysRules.contains(violation.invariant) else { return line }
+            return line + " [after \(lastAction ?? "no action")]"
+        }
+    }
 
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -41,19 +51,23 @@ nonisolated struct DesyncReportStore: Sendable {
     static let keep = 50
 
     let directory: URL?
+    /// The app's blocking-work lanes: the report writes run there, never on the pool.
+    let runner: any MayBlockRunner
 
-    init(tag: String?, logs: URL? = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first) {
+    init(tag: String?, runner: any MayBlockRunner,
+         logs: URL? = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first) {
         directory = logs?.appending(path: "Logs/cmux-next/\(tag ?? "release")/desync", directoryHint: .isDirectory)
+        self.runner = runner
     }
 
     func url(for report: DesyncReport) -> URL? {
         directory?.appending(path: "\(report.id).json")
     }
 
-    /// Writes `data` for `report` and prunes old reports, off the main actor.
+    /// Writes `data` for `report` and prunes old reports, on the runner's files lane.
     func write(_ data: Data, for report: DesyncReport) {
         guard let directory, let url = url(for: report) else { return }
-        Task.detached(priority: .utility) {
+        runner.postFiles(.bestEffort, shutdown: .continueOnShutdown) {
             let files = FileManager.default
             do {
                 try files.createDirectory(at: directory, withIntermediateDirectories: true)

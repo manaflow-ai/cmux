@@ -150,7 +150,7 @@ import Testing
         withExtendedLifetime(watchdog) {}
     }
 
-    /// The model changes before one delivery of the state watch (a FrameObservation, p04-input-026) are one page
+    /// The model changes before one delivery of the state watch (a FrameObservation) are one page
     /// event, with no `Task` per change; once the last page left, a change sends nothing.
     @Test func theModelChangesOfOneTurnAreOnePageEvent() async throws {
         let model = DebugSettingsModel(store: TunableStore(), descriptors: [])

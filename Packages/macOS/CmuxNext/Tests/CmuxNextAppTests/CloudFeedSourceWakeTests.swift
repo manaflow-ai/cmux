@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p14-energy-120: a wake that finds the network closes the feed socket that slept and opens one new
+/// A wake that finds the network closes the feed socket that slept and opens one new
 /// connection at once (jitter 0 here), not after the reconnect backoff.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))

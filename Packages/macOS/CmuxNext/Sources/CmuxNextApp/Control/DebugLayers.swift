@@ -16,7 +16,6 @@ import CmuxNextSettings
 /// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
 /// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
 /// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
-/// `frame_sources: true` adds the frame sources no FrameScheduler sees (``frameSources(services:)``).
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -30,15 +29,14 @@ enum DebugLayers {
             "layout_passes": layoutPasses(),
         ]
         if let band = band.flatMap({ JSONValue(foundation: $0) }) { fields["titlebar_band"] = band }
-        if params["frame_sources"]?.boolValue == true { fields["frame_sources"] = frameSources(services: services) }
         return .object(fields)
     }
 
     /// `debug.overlay`: per main window, how often the overlay host re-added its panel above a page
     /// window per main run loop turn (event cycle) since the last `{reset: true}` (`reorders`,
     /// `event_cycles`, `reorders_per_event`); the top level has the largest `reorders_per_event`. With
-    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0
-    /// (p01-process-223). `order_checks` counts the window notices that checked the order.
+    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0.
+    /// `order_checks` counts the window notices that checked the order.
     static func overlay(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let layers = services.windows.controllers.compactMap { ($0.window as? ShellWindow)?.overlayLayer }
         if params["reset"]?.boolValue == true { layers.forEach { $0.resetOverlayStats() } }
@@ -57,23 +55,6 @@ enum DebugLayers {
             "event_cycles": .number(Double(layer.eventCyclesSinceReset)),
             "reorders_per_event": .number(layer.reordersPerEvent),
             "order_checks": .number(Double(layer.orderCheckCount)),
-        ])
-    }
-
-    /// `frame_sources: true`: what ticks with no FrameScheduler client in the
-    /// app's windows and their child windows, per owner view: infinite Core
-    /// Animation loops and playing video layers (``RenderStats/loopingAnimations(in:)``).
-    static func frameSources(services: AppServices) -> JSONValue {
-        var windows: [NSWindow] = []
-        var pending = services.windows.controllers.compactMap(\.window)
-        while let window = pending.popLast() {
-            windows.append(window)
-            pending += window.childWindows ?? []
-        }
-        let counts: ([String: Int]) -> JSONValue = { owners in .object(owners.mapValues { .number(Double($0)) }) }
-        return .object([
-            "looping_animations": counts(RenderStats.loopingAnimations(in: windows)),
-            "playing_videos": counts(RenderStats.playingVideoLayers(in: windows)),
         ])
     }
 
@@ -200,7 +181,7 @@ enum DebugLayers {
             "reorders": .number(Double(layer.reorderCount)),
             "order_checks": .number(Double(layer.orderCheckCount)),
             "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
-            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            // Overlays in the window's own top layer, and whether a panel was ever made.
             "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
             "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),

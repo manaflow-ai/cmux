@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// Host mode (task p01-process-021): a pane's first window waits for the Chromium Host's verdict on its
+/// Host mode: a pane's first window waits for the Chromium Host's verdict on its
 /// browser profile's proxy (#24432). Later asks join the wait, a popup makes no second placeholder, an
 /// applied verdict asks for the window once, and a refused or missing verdict fails every waiting tab.
 /// REPLYs go through the remote shim's sink (``HostRepliesHarness``). Part of

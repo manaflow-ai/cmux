@@ -150,7 +150,7 @@ export class MarkdownStore {
   private readonly unsentPreferences = new Map<string, { value: unknown; cancel: () => void }>();
   private started = false;
   private readonly reporter;
-  /** `user_edits` while the document holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  /** `user_edits` while the document holds edits not on disk: the host keeps the hidden page. */
   private readonly keepAlive: PageKeepAlive;
   /** Whether the document held edits not on disk at the last state change; `user_edits` follows its changes. */
   private dirty = false;

@@ -142,7 +142,7 @@ HOLDER_RS = '''pub fn holder_enabled() -> bool {
     std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
 }
 '''
-# The crate the generated Rust is written against (task p12-perf-process-095): its lib.rs, warnings denied.
+# The crate the generated Rust is written against: its lib.rs, warnings denied.
 RUST_LIB = REPO / "cmux-tui/crates/cmux-features/src/lib.rs"
 
 

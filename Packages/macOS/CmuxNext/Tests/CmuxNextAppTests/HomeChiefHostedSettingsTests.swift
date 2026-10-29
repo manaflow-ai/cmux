@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 @testable import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -280,7 +281,7 @@ struct HomeChiefHostedSettingsTests {
 
     static func engine(_ cloud: FakeBrainRoute) -> HomeChiefHostedEngine {
         HomeChiefHostedEngine(chief: { agent }, send: { method, path, body in try await cloud.answer(method, path, body) },
-                              files: HomeChiefFiles(muxHome: home()))
+                              files: HomeChiefFiles(muxHome: home()), lanes: BackgroundWork(label: "test.hosted-chief"))
     }
 
     /// A card that starts on a source that never answers, as the app's does before `use`.

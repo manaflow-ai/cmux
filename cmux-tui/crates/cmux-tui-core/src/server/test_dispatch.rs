@@ -1,9 +1,18 @@
 //! Native connection test adapters; production uses the admitted connection path.
 use super::*;
 
+/// Serves `stream` and returns once the connection ended, as the reader
+/// thread a connection had did.
 pub(super) fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    let peer = origin_gate::AcceptedPeer::resolve(&mux, &*stream);
-    handle_connection_with_permit(mux, stream, peer, Arc::new(RenderService::new()), None);
+    let _ = serve_connection(
+        mux,
+        stream,
+        Arc::new(RenderService::new()),
+        None,
+        ClientTransport::Unix,
+        Box::new(admission::LocalAdmission),
+        Box::<frame_dispatch::RequestFrames>::default(),
+    );
 }
 
 pub(super) fn handle_message(

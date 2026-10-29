@@ -74,7 +74,7 @@ extension ScreenContentView {
         // And from a fling on the render server, where it shows.
         takeCameraFromServer()
         // Feature `stripPanResampling`: the pan shows at each frame's time (`presentFramePan`). Not under
-        // Reduce Motion, as resampled drags (p04-input-040).
+        // Reduce Motion, as resampled drags.
         scrollState.resamplesPan = trackpad && context.resamplesStripPan && !context.reduceMotion
         scrollState.reduce(.gestureBegan)
     }

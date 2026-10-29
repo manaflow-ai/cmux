@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Visibility from the motion plan (chrome-parity p03-rendering-106). A visibility pass reads the whole way each
+/// Visibility from the motion plan. A visibility pass reads the whole way each
 /// pane goes from now to its rest (``ScreenContentView/displayedSweeps()``), so the pass at a change's apply covers
 /// both ends of its motion and every overshoot between: a pane that enters is visible in the change's turn, one that
 /// leaves stays visible until the motion lands, and the pass at the landing narrows to the rest. This plan is the
@@ -21,7 +21,7 @@ nonisolated struct ScreenVisibilityPlan: Equatable {
     var areas: [SplitID: CGFloat]
     var inFlight: Bool
     var flinging: Bool
-    /// A row or scroll area fling runs on the render server (p04-input-050): the sweep holds its whole way.
+    /// A row or scroll area fling runs on the render server: the sweep holds its whole way.
     var scrollersFlinging: Bool
 }
 

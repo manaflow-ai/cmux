@@ -1,4 +1,4 @@
-//! A hub's sync threads are hang-watched (p09-observability-074): its config writer, session
+//! A hub's sync threads are hang-watched: its config writer, session
 //! record writer and session event-log writer register with the process's hang watch when the hub
 //! starts, and a record write that outlasts its deadline is one hang named for the record writer.
 //!

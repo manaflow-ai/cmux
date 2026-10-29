@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// A watchdog stall or hang before startup completion names the launch phase and the `main()` step or startup
-/// task it ran in (p08-startup-088), in wire schema 3 only (the deployed schema-2 server refuses the key),
+/// task it ran in, in wire schema 3 only (the deployed schema-2 server refuses the key),
 /// through the builder's allow-list.
 struct HangStartupTagTests {
     private static func builder(_ schema: HangReport.WireSchema) -> HangReportBuilder {

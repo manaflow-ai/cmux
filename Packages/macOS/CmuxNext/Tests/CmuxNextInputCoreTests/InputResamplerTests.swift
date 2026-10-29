@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// InputResampler against Chromium's LinearResampling (p04-input-039). The `chromium...` cases port
+/// InputResampler against Chromium's LinearResampling. The `chromium...` cases port
 /// `ui/base/prediction/linear_resampling_unittest.cc` with its own sample vectors, frame times, expected values and
 /// tolerance (`InputPredictorTest::kEpsilon`, `input_predictor_unittest_helpers.h`). The cases after them are cmux
 /// cases: frame-ahead lifting the cap, the gap reset, reset equality, and the direction-change addition, which

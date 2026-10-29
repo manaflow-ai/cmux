@@ -132,25 +132,33 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         .take(MAX_PROBES)
         .collect();
     let next = AtomicUsize::new(0);
-    let results: Vec<(usize, bool)> = std::thread::scope(|scope| {
+    let results: Vec<(usize, bool)> = cmux_threads::scope(|scope| {
+        // A probe that cannot start leaves its targets unprobed (ssh_ok false).
         let workers: Vec<_> = (0..PROBES_AT_ONCE.min(targets.len()))
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut done = Vec::new();
-                    while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst)) {
-                        done.push((*i, ssh(argv).ok));
-                    }
-                    done
-                })
+            .filter_map(|_| {
+                scope
+                    .spawn("acpmux-ssh-probe", cmux_threads::ThreadQos::UserInitiated, || {
+                        let mut done = Vec::new();
+                        while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst))
+                        {
+                            done.push((*i, ssh(argv).ok));
+                        }
+                        done
+                    })
+                    .ok()
             })
             .collect();
         workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
     });
     for &(i, _) in &targets {
-        list[i].ssh_ok = Some(false);
+        if let Some(host) = list.get_mut(i) {
+            host.ssh_ok = Some(false);
+        }
     }
     for (i, ok) in results {
-        list[i].ssh_ok = Some(ok);
+        if let Some(host) = list.get_mut(i) {
+            host.ssh_ok = Some(ok);
+        }
     }
 }
 

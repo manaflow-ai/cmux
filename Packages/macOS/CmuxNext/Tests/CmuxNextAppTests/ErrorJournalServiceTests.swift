@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p14-energy-066a: the error journal harvests once at start, then on the system's background activity
+/// The error journal harvests once at start, then on the system's background activity
 /// scheduler (fired by hand here). A run reads the logs and reports only when a watched folder changed or
 /// one of them stopped at its bound, and the unified log (no change signal) on every run.
 /// Folder changes are sent by hand; finishing the streams ends the watch tasks, so awaiting them proves

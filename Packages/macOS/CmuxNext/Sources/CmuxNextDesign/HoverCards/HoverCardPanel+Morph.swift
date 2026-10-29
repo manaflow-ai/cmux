@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// A resize in flight: the card laid out at the larger of its two sizes, shown through a mask
 /// that grows or shrinks from the last card's size to the next one's.

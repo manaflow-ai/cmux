@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The daemon's launch snapshot (`launch-snapshot-v1`): the last settled
@@ -140,9 +141,9 @@ public struct LaunchSnapshotLocation: Sendable {
     /// (`CMUX_TUI_STATE_DIR`), where cmux-tui keeps each registry in
     /// `<session>-<id>/`: the path when the defaults lost it. Nil without a
     /// directory or a snapshot.
-    public static func find(session: String, in stateDirectory: URL?, files: FileManager = .default) -> String? {
+    public static func find(session: String, in stateDirectory: URL?) -> String? {
         guard let stateDirectory,
-              let entries = try? files.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
+              let entries = try? FileManager.checked.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
         // `<session>-<id>` with one id part, so `cmux-app-a` never takes `cmux-app-a-b`'s registry.
         let ours = entries.filter { entry in
             let name = entry.lastPathComponent
@@ -169,7 +170,7 @@ public struct LaunchSnapshotLocation: Sendable {
 
 /// The launch snapshot's read, begun in `main` on the files lane before AppKit starts (the app: a `LaunchRead`), which
 /// `DaemonService.start` takes over: it applies the snapshot in its own turn when the read has ended, else on the
-/// read's end, so the main thread never reads or decodes the file (p08-startup-074).
+/// read's end, so the main thread never reads or decodes the file.
 public struct LaunchSnapshotPrefetch: Sendable {
     /// The session whose snapshot it reads; a start for another session reads its own.
     public let session: String

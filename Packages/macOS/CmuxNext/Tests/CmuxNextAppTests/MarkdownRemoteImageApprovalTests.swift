@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -49,7 +50,7 @@ import Testing
         let file = folder.appending(path: "privacy.md")
         try Data("![pixel](https://tracker.example/open.png)\n".utf8).write(to: file)
         let images = Images()
-        let provider = FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: images)
+        let provider = FilePageProvider(kind: .markdown, file: file, host: Host(), libraries: nil, images: images, deadlines: .testing())
         defer { provider.close() }
         let page = PageCallContext(page: FilePageKind.markdown.namespace)
         let clicked = PageCallContext(page: FilePageKind.markdown.namespace, userGesture: true)

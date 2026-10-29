@@ -5,12 +5,12 @@
 //! a host, which accepts the waiting connection. The daemon's end (the
 //! supervisor's drop) writes the cancel pipe, and the thread ends.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::fs::File;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::{Inner, PROVIDER_SOCKET_FILE, State, lock};
@@ -18,7 +18,7 @@ use super::{Inner, PROVIDER_SOCKET_FILE, State, lock};
 #[derive(Default)]
 pub(super) struct Activation {
     sockets: Mutex<Option<Sockets>>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Mutex<Option<SupervisedThread<()>>>,
 }
 
 struct Sockets {
@@ -85,7 +85,7 @@ impl Activation {
         }
         let handle = lock(&self.thread).take();
         if let Some(handle) = handle
-            && handle.thread().id() != std::thread::current().id()
+            && !handle.is_current()
         {
             let _ = handle.join();
         }
@@ -136,10 +136,15 @@ pub(super) fn arm(inner: &Arc<Inner>) {
         return;
     }
     let weak = Arc::downgrade(inner);
-    match std::thread::Builder::new()
-        .name("browser-host-activate".into())
-        .spawn(move || run(&weak, agent, cancel))
-    {
+    match supervised::spawn_at(
+        "browser-host-activate",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            run(&weak, agent, cancel);
+        },
+    ) {
         Ok(handle) => *thread = Some(handle),
         Err(error) => eprintln!("cmux-tui: cannot start browser host activation: {error}"),
     }

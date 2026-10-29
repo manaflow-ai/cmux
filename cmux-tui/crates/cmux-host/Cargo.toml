@@ -19,6 +19,8 @@ path = "src/main.rs"
 cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
 cmux-blocking.workspace = true
 cmux-panic-log.workspace = true
 # Roles (the store update check and later app servers) come from

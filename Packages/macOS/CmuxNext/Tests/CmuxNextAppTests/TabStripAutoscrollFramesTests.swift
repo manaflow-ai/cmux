@@ -3,7 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// p03-rendering-107: the tab strip's drag autoscroll is an input-driven frame client. A drag over an
+/// The tab strip's drag autoscroll is an input-driven frame client. A drag over an
 /// overflowing strip runs the window's motion clock only while it sits in an edge fade, as the sidebar's
 /// autoscroll does (`SidebarDragAutoscroll.update(windowPoint:)`); a drag anywhere else on the strip starts
 /// no frames.

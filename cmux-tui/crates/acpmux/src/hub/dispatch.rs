@@ -1,4 +1,5 @@
 use super::*;
+use crate::no_panic::JsonExt;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
 
@@ -49,7 +50,7 @@ impl Briefs {
         }
         let mut row = json!({"briefId": id, "status": "starting"});
         if let Some(key) = key {
-            row["idempotencyKey"] = json!(key);
+            row.set("idempotencyKey", json!(key));
         }
         rows.insert(id.to_owned(), row);
         self.save(&rows);
@@ -71,14 +72,19 @@ impl Briefs {
         }
     }
 
+    /// Records `row` (a peer's brief too); a row that is not an object is logged and not kept.
     pub(crate) fn put(&self, mut row: Value) -> Value {
-        let id = row
+        let Some(fields) = row.as_object_mut() else {
+            tracing::warn!(row = %row, "brief row is not an object; not recorded");
+            return row;
+        };
+        let id = fields
             .get("briefId")
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
-        row["briefId"] = json!(id);
+        fields.insert("briefId".to_owned(), json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.insert(id, row.clone());
         self.save(&rows);

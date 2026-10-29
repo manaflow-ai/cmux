@@ -2,10 +2,12 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextMemory
 @testable import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Every web object follows memory pressure on one path, the app's memory coordinator
-/// (p13-webui-047): ``WebUIHost`` registers its preload slot as a spare, next to Chromium's spare
+/// Every web object follows memory pressure on one path, the app's memory coordinator:
+/// ``WebUIHost`` registers its preload slot as a spare, next to Chromium's spare
 /// windows (`ChromiumWarmup`), and the critical limit runs the one urgent discard pass over tabs,
 /// chats and pages (`BrowserHibernation`). The drop order is the cheapest memory first: warning drops
 /// the slot in the level's turn and only holds the spare windows (Chrome keeps its spare renderer and
@@ -85,7 +87,7 @@ struct WebUIHostPressureTests {
 
         init() {
             let memory = PageTestMemory(), log = DropLog(), deadlines = LifecycleDeadlineRig()
-            let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator)
+            let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator, deadlines: .testing())
             let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: deadlines.scheduler) { move, _ in
                 if move == .drop { log.entries.append("preload slot") }
             }
@@ -157,7 +159,7 @@ struct WebUIHostPressureTests {
     @Test func anInstalledSlotStartsAtTheCurrentLevel() {
         let memory = PageTestMemory()
         memory.send(.warning)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator, deadlines: .testing())
         let deadlines = LifecycleDeadlineRig()
         let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: deadlines.scheduler) { _, _ in }
         host.preload = slot

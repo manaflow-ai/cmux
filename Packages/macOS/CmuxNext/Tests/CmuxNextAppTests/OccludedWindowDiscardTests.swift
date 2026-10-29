@@ -10,7 +10,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Minimized, other-Space or covered windows count as hidden (p07-memory-021, Chrome's
+/// Minimized, other-Space or covered windows count as hidden (Chrome's
 /// `Visibility::OCCLUDED`). The rule is Chrome's `WebContentsOcclusionCheckerMac`
 /// (web_contents_occlusion_checker_mac.mm). The page a pane shows in an off-screen window gets a hidden
 /// clock but stays shown, and the discarder keeps it as its window's active tab (`kActiveTab`,

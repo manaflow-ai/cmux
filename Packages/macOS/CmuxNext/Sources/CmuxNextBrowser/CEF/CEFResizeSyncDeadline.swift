@@ -41,7 +41,7 @@ struct CEFResizeSyncDeadline: Equatable {
     }
 }
 
-/// Host mode (task p01-process-052, ``ChromiumHostResizeFence``): the main thread never waits for
+/// Host mode (``ChromiumHostResizeFence``): the main thread never waits for
 /// a page's frame. The WindowServer holds the window's commit on a fence for at most one display
 /// frame, and a page later than that shows its last frame on its background.
 extension CEFResizeSyncDeadline {

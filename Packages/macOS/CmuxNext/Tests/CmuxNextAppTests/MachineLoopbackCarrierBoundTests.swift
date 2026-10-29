@@ -7,7 +7,7 @@ import Testing
 
 /// The machine loopback carrier's outbox, the frames the transport sends that the stream has not
 /// written for want of daemon credit, holds at most its bound and one frame: at the bound the carrier
-/// is backed up and the producer stops until `.writable`, and no byte is dropped (p07-memory-098). It
+/// is backed up and the producer stops until `.writable`, and no byte is dropped. It
 /// was unbounded, so a host that stopped granting credit grew it with every frame the transport sent.
 @Suite(.serialized, .timeLimit(.minutes(3))) struct MachineLoopbackCarrierBoundTests {
     static let window = 256 << 10

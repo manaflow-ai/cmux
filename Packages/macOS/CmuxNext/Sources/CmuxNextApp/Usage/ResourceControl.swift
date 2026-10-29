@@ -35,7 +35,7 @@ enum ResourceControl {
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
         if let raw = params["tab"]?.stringValue {
             let tab = normalizedTabID(raw)
-            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per request; no walk, no observation
+            // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per request; no walk, no observation
             guard services.locateTab(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }

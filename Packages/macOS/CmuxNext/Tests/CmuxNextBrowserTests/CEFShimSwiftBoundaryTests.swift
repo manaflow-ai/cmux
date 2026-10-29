@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p10-stability-067: every C string, buffer and out-parameter of the shim crosses in ``CEFShimLibrary``
+/// Every C string, buffer and out-parameter of the shim crosses in ``CEFShimLibrary``
 /// (Chromium keeps its `UNSAFE_BUFFERS()` at the boundary, docs/unsafe_buffers.md), so callers pass and get
 /// Swift values. Against a spy shim whose C functions record what they got.
 @Suite(.serialized) struct CEFShimSwiftBoundaryTests {

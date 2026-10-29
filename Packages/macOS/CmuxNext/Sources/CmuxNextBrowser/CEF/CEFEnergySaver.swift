@@ -2,8 +2,8 @@ import CmuxNextWakeups
 import Foundation
 import os
 
-/// Chromium's side of Energy Saver (p14-energy-030): sends the app's saver state to the fork's
-/// `cmux_cef_set_energy_saver` (p14-energy-029) once when Chromium is ready and then on each edge of
+/// Chromium's side of Energy Saver: sends the app's saver state to the fork's
+/// `cmux_cef_set_energy_saver` once when Chromium is ready and then on each edge of
 /// ``EnergyPolicy/isSaver``, as Chrome's `BatterySaverModeManager` calls
 /// `content::StartThrottlingAllFrameSinks` / `StopThrottlingAllFrameSinks` only when the mode changes
 /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc,

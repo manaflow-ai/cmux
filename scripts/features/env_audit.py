@@ -87,7 +87,7 @@ AUTO_NOTES = {
 # Swift: what Release and bench (`scripts/reload.sh --config bench`: -DCMUX_BENCH_HOOKS, no DEBUG) builds
 # define. Other names (CMUX_NO_*, GHOSTTY_GPU_RESIDENT) and arch() are unknown: the line may be compiled.
 # CMUX_BLOCKING_CHECKS is unknown too: the nightly-next Release build defines it (nightly.yml).
-SWIFT_OFF = frozenset({"DEBUG", "CMUX_BENCH_HOOKS", "CMUX_PGO_PROFILE", "CMUX_UI_LAYER_PREVIEW"})
+SWIFT_OFF = frozenset({"DEBUG", "CMUX_BENCH_HOOKS", "CMUX_UI_LAYER_PREVIEW"})
 SWIFT_BENCH_ON = frozenset({"CMUX_BENCH_HOOKS"})
 SWIFT_CONFIGS = (frozenset(), SWIFT_BENCH_ON, frozenset({"DEBUG"}))  # the names on in (release, bench, debug)
 SWIFT_PLATFORM = {"os": {"macOS"}}

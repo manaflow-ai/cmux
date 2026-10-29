@@ -5,7 +5,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The daemon's `server-diagnostic-site` events end to end on the app side (p02-threads-233): a scripted daemon
+/// The daemon's `server-diagnostic-site` events end to end on the app side: a scripted daemon
 /// on the real JSON-lines transport sends its sites, a duplicate and a holder-link hang to a connection that
 /// reports them; they pass the connection's reader, its relay and the service's relay (``DaemonDiagnosticSiteRelay/forward(to:)``,
 /// as `DaemonService.didConnect` wires it) into the app's ``BlockingReportSink`` and its collector. Each site is

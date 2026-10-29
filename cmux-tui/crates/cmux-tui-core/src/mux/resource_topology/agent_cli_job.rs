@@ -57,8 +57,11 @@ impl Mux {
             }
             Some(ResourceCreationPreparation::Blocked { .. }) => {
                 let resolved = registry.resolve_resource_creation(&correlation)?;
-                let state =
-                    if resolved["state"] == "pending" { "pending" } else { "indeterminate" };
+                let state = if resolved.get("state").and_then(Value::as_str) == Some("pending") {
+                    "pending"
+                } else {
+                    "indeterminate"
+                };
                 json!({"state":state})
             }
         })
@@ -114,7 +117,8 @@ impl Mux {
                 // A changed installation cannot silently retarget a resume.
                 let argv = prepare()?;
                 anyhow::ensure!(
-                    intent["fields"]["argv"] == json!(argv),
+                    intent.get("fields").and_then(|fields| fields.get("argv"))
+                        == Some(&json!(argv)),
                     "agent update installation changed after preparation"
                 );
             }

@@ -29,7 +29,7 @@ enum RemoteLocalhostHandlers {
 extension RemoteLocalhostService {
     /// The app's remote localhost (`AppServices.remoteLocalhost`), made on first use (a remote
     /// machine's browser tab: its route, store or loopback chip; a machine browser; a remote
-    /// machine's connection), never in init (p08-startup-021). It takes the current settings in
+    /// machine's connection), never in init. It takes the current settings in
     /// the turn it is made, so its first route follows them.
     static func made(for services: AppServices) -> RemoteLocalhostService {
         let made = services.machines.makeRemoteLocalhost(following: services.settings, mainWork: services.mainWork)

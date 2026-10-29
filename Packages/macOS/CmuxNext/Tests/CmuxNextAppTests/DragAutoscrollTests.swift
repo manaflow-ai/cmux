@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import Testing
 
 /// A tab drag's edge auto-scroll of a columns screen (LayoutRootView+DragAutoscroll.swift): the
-/// drag resolves the target once per pointer delivery and steps it once per frame with no hit test
-/// (p04-input-032), as Blink's AutoscrollController sets its target from the drag event and scrolls
+/// drag resolves the target once per pointer delivery and steps it once per frame with no hit test,
+/// as Blink's AutoscrollController sets its target from the drag event and scrolls
 /// it on the animation timer.
 @MainActor
 struct DragAutoscrollTests {

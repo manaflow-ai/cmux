@@ -10,7 +10,7 @@ import Testing
 /// scripts/measure/split-spring.sh --suite=pane-bench); the others run under a plain `swift test`.
 nonisolated private let onScreenBench = ProcessInfo.processInfo.environment["CMUX_PANE_BENCH"] == "1"
 
-/// A screen switch on the render server (chrome-parity p03-rendering-030, `motion.renderServer` on): the
+/// A screen switch on the render server (`motion.renderServer` on): the
 /// switch puts both screens at their rest frames and opacities in its turn, and Core Animation shows the
 /// new screen sliding and fading in and the old one out, with the rings and dims of their panes. No CPU
 /// spring steps, the window's MotionClock never runs for it, the switch lands once (where the old screen

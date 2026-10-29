@@ -39,7 +39,6 @@ use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -69,11 +68,11 @@ use crate::NotificationSource;
 use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::TreeDeltaKind;
+#[cfg(test)]
+use crate::browser::BrowserFrameUpdate;
 use crate::browser::BrowserMouseDispatch;
 #[cfg(test)]
 use crate::browser::BrowserPointerOwner;
-#[cfg(test)]
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
@@ -129,10 +128,6 @@ pub use window_title::window_title_osc;
 mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
-/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
-#[cfg(any(debug_assertions, feature = "oracle"))]
-#[path = "server/oracle_state_command.rs"]
-mod oracle_state_command;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
@@ -172,9 +167,15 @@ pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod pending_streams;
 mod renderer_grant;
+#[cfg(test)]
+use line_connection::serve_connection;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
 };
+#[cfg(unix)]
+mod mux_io;
+#[cfg(unix)]
+pub(crate) use mux_io::MuxIo;
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
@@ -215,6 +216,7 @@ use remote_relay::handle_connection_message;
 mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
+mod stream_priority;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
 mod cmd_frontend;
@@ -309,11 +311,13 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
-/// `energy.set` and `energy.status` (p14-energy-033).
+/// `energy.set` and `energy.status`.
 pub(crate) mod energy_op;
-/// The app's Energy Saver rule for the daemon's own reading (p14-energy-137).
+/// The app's Energy Saver rule for the daemon's own reading.
 pub(crate) mod energy_rule;
-/// `memory.limit`: the app's memory limit (p07-memory-109).
+/// `frontend.visibility.set`: the verified app's visible surfaces scope its subscriptions.
+pub(crate) mod frontend_visibility;
+/// `memory.limit`: the app's memory limit.
 pub(crate) mod memory_limit;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
@@ -738,14 +742,7 @@ tabs = tabs_wire;
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify {
-        #[serde(default)]
-        machine_metadata: bool,
-        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
-        /// `install` and `update_command` (server/api_revision_wire.rs).
-        #[serde(default)]
-        revisions: bool,
-    },
+    Identify(cmd_server::IdentifyParams),
     BrowserHostProvider,
     SubscribeActivity,
     /// The Chief memory inspector's read-only API, for the owner's trusted
@@ -760,16 +757,16 @@ enum Command {
     },
     /// Wait and hold time of the registry and state locks per caller class
     /// and request op (diagnostics/daemon_locks.rs; the plan's
-    /// `debug.daemon_locks`, p06-scheduler-226). Owner-only diagnostics,
+    /// `debug.daemon_locks`). Owner-only diagnostics,
     /// never journaled.
     DebugDaemonLocks,
     /// Every registered daemon thread (declared, desired and kernel QoS,
     /// scheduler priority), the work lanes and the process task role (the
-    /// plan's `server.threads`, p02-threads-203). Owner-only diagnostics,
+    /// plan's `server.threads`). Owner-only diagnostics,
     /// never journaled.
     ServerThreads,
     /// The blocking calls made on threads that disallow blocking, by call
-    /// site (the plan's `server.blocking`, p02-threads-203). Owner-only
+    /// site (the plan's `server.blocking`). Owner-only
     /// diagnostics, never journaled.
     ServerBlocking,
     /// Start a trace recording in the daemon, the holder, every terminal host
@@ -2408,9 +2405,13 @@ use connection_scheduler::{
 
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
+#[cfg(not(unix))]
+use bounded_outbound::write_counted_turn;
+#[cfg(unix)]
+use bounded_outbound::{BatchPoll, count_sent, write_batch_nonblocking};
 use bounded_outbound::{
-    BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_counted_batch,
+    BoundedOutbound, ConnectionPermit, InlineSocket, OutboundItem, QueuedSink, SinkControl,
+    SynchronizedTcpStream, claim_connection,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
@@ -2471,8 +2472,6 @@ mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
-#[cfg(any(debug_assertions, feature = "oracle"))]
-pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,
@@ -2513,9 +2512,10 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, connection_caller, constant_time_eq, debug_assert_off_reader,
-    handle_connection_frame_at, handle_request_with_cancellation, lock_caller_scope,
-    pairing_request, zeroize_string,
+    FramedBodyMismatch, FramedMethod, FramedRequest, auth_token, connection_caller,
+    constant_time_eq, debug_assert_off_reader, decode_framed_request, handle_connection_frame_at,
+    handle_framed_request_at, handle_request_with_cancellation, lock_caller_scope, pairing_request,
+    zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
@@ -2619,8 +2619,8 @@ use terminal_colors::terminal_colors_json;
 mod render_messages;
 use render_messages::{
     AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
-    encode_browser_attach_update, render_state_message, send_encoded_browser_attach_update,
-    styled_run_json, write_output_flow_json, write_pending_sequence_json,
+    render_state_message, styled_run_json, write_output_flow_json, write_output_key_stages_json,
+    write_pending_sequence_json,
 };
 #[cfg(test)]
 use render_messages::{browser_frame_json, render_graphics_message};
@@ -2629,8 +2629,8 @@ mod attach_lifecycle;
 use attach_lifecycle::{
     AttachWorkerCommit, MarkedClientAttach, attach_overflow_json, attach_response,
     commit_client_attach_and_start_worker, detach_committed_attach, handle_attach_send_error,
-    mark_client_attached, mark_resource_client_attached, report_attach_overflow,
-    rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
+    mark_client_attached, mark_resource_client_attached, rollback_failed_attach,
+    wait_for_initial_browser_resize,
 };
 #[cfg(test)]
 use attach_lifecycle::{cleanup_failed_attach, commit_client_attach};

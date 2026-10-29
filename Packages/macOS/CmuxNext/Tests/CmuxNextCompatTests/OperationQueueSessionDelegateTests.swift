@@ -2,7 +2,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// A URLSession's delegate queue (p02-threads-120) has the name and QoS it was given and runs one operation at a
+/// A URLSession's delegate queue has the name and QoS it was given and runs one operation at a
 /// time, as the unnamed serial queue a nil `delegateQueue:` makes, so delegate calls keep their order.
 struct OperationQueueSessionDelegateTests {
     @Test func theQueueHasItsNameItsQoSAndRunsOneOperationAtATime() {

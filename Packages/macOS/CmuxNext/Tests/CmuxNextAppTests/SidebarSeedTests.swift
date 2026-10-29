@@ -89,7 +89,7 @@ struct SidebarSeedTests {
         #expect(!seed.isReadyForReveal([bars], launching: true), "placeholder bars alone are not the sidebar's rows")
     }
 
-    /// The grace is a `visible` deadline on the app's placer (p06-scheduler-329, R-timer): no bars before its 300 ms, one
+    /// The grace is a `visible` deadline on the app's placer (R-timer): no bars before its 300 ms, one
     /// rows pass (`onEnd`) when it fires, and a section that stops loading cancels its wake.
     @Test func theGraceIsAVisibleDeadlineThatEndsOnceAndCancelsWithItsSection() {
         let rig = MainDeadlineRig()

@@ -7,6 +7,7 @@ use rusqlite::Transaction;
 use serde::Serialize;
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history_store::{flush_pending_group, new_closed_id, pend_group};
 use crate::state::commit::{StateEffects, state_not_found, workspace_identity};
 use crate::state::personal_state_store as personal;
@@ -121,7 +122,7 @@ pub(crate) fn all_groups(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Va
     Ok(personal::workspace_group_snapshots(transaction, None)?
         .into_iter()
         .map(|group| {
-            let id = group["id"].as_str().unwrap_or_default().to_string();
+            let id = group.field("id").as_str().unwrap_or_default().to_string();
             state_upsert("workspace_group", &id, group)
         })
         .collect())
@@ -131,7 +132,7 @@ pub(crate) fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Val
     Ok(personal::room_snapshots(transaction)?
         .into_iter()
         .map(|room| {
-            let id = room["id"].as_str().unwrap_or_default().to_string();
+            let id = room.field("id").as_str().unwrap_or_default().to_string();
             state_upsert("room", &id, room)
         })
         .collect())
@@ -140,8 +141,8 @@ pub(crate) fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Val
 /// A placement snapshot as its `workspace_placement` change.
 pub(crate) fn placement_change(placement: Value) -> Value {
     let id = personal::placement_id(
-        placement["workspace"]["session_id"].as_str().unwrap_or_default(),
-        placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
+        placement.field("workspace").field("session_id").as_str().unwrap_or_default(),
+        placement.field("workspace").field("workspace_ref").as_str().unwrap_or_default(),
     );
     state_upsert("workspace_placement", &id, placement)
 }
@@ -161,8 +162,8 @@ pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Ve
         .into_iter()
         .map(|placement| {
             let id = personal::placement_id(
-                placement["workspace"]["session_id"].as_str().unwrap_or_default(),
-                placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
+                placement.field("workspace").field("session_id").as_str().unwrap_or_default(),
+                placement.field("workspace").field("workspace_ref").as_str().unwrap_or_default(),
             );
             state_upsert("workspace_placement", &id, placement)
         })
@@ -243,7 +244,7 @@ fn apply_personal(
     let before = personal::workspace_group_snapshots(tx, None)?;
     let mut applied = apply_personal_change(tx, session, workspace_key, change)?;
     for group in personal::workspace_group_snapshots(tx, None)? {
-        let id = group["id"].as_str().unwrap_or_default().to_string();
+        let id = group.field("id").as_str().unwrap_or_default().to_string();
         let published = applied
             .changes
             .iter()

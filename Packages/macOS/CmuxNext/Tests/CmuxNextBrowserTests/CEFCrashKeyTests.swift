@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Chromium runtime names its state in the crash keys (p10-stability-207, ``CrashKeySlots/Key/cefState``):
+/// The Chromium runtime names its state in the crash keys (``CrashKeySlots/Key/cefState``):
 /// each state change (`in_pump` while a pass runs is the pump's: `CEFMessagePumpCrashKeyTests`).
 @MainActor
 @Suite(.serialized) struct CEFCrashKeyTests {

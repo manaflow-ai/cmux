@@ -62,9 +62,6 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
-    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
-    /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
-    public var oracleStateChanged: (@MainActor () -> Void)?
     #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
@@ -156,13 +153,6 @@ public final class PageRouter {
     package var keepAlive: (@MainActor (PageLifecyclePlanner.KeepReason, Bool) -> Void)?
 
     private func call(_ op: String, params: JSONValue, opid: String?, document: UInt64) async throws -> JSONValue {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if op == Self.oracleStateChangedOp {
-            guard !closed else { throw PageError.closed }
-            oracleStateChanged?()
-            return .object([:])
-        }
-        #endif
         if op == PageNativeOp.keepAlive {
             // Its document ended before the call ran (its task was cancelled, but a cancelled task
             // still runs): the next document's reasons are its own.

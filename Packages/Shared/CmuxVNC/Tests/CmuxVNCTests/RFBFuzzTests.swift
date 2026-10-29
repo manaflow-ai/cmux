@@ -10,7 +10,7 @@ import Testing
 /// limits, or a wait for more bytes; never a trap. A rectangle outside the framebuffer, a
 /// subrectangle outside its rectangle or tile, a CopyRect source outside the framebuffer and a
 /// screen outside the new framebuffer are refused, never clipped, as TigerVNC refuses them.
-/// Seeded property tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS); p10-stability-023.
+/// Seeded property tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS).
 @Suite struct RFBFuzzTests {
     /// One input of any property, its choices read from `data`.
     static func oneInput(_ data: Data) async throws {

@@ -1,8 +1,10 @@
 //! NAT-safe outbound registration and stream relay for user-owned machines.
 
+mod error_code;
 mod identity;
 mod protocol_io;
 mod runtime;
+mod stream_flow;
 mod transport;
 
 use std::fmt;
@@ -219,7 +221,8 @@ struct StderrReporter {
 }
 
 fn open_pairing_terminal() -> Option<File> {
-    let terminal = OpenOptions::new().write(true).open("/dev/tty").ok()?;
+    let terminal =
+        crate::blocking::fs::open_with(OpenOptions::new().write(true), "/dev/tty").ok()?;
     if !terminal.is_terminal() {
         return None;
     }

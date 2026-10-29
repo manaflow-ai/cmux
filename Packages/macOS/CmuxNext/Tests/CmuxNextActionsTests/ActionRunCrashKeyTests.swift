@@ -2,7 +2,7 @@
 import CmuxNextWakeups
 import Testing
 
-/// The action timing names the running action in the crash keys (p10-stability-207, Chrome's
+/// The action timing names the running action in the crash keys (Chrome's
 /// `ScopedCrashKeyString`): set for the run's synchronous work, the outer value back after it.
 @MainActor
 struct ActionRunCrashKeyTests {

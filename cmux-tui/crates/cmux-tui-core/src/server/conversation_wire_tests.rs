@@ -1,5 +1,5 @@
 //! The lines the macOS app sends for its Conversations requests reach the owner as it
-//! reads them (p05-ipc-041). spec/fixtures/conversation-requests/lines.json records them
+//! reads them. spec/fixtures/conversation-requests/lines.json records them
 //! before their migration to the generated `<Name>Request` types;
 //! ConversationsRequestWireGoldenTests (CmuxNextDaemonTests) proves the app encodes exactly
 //! these lines. Here every line goes through the connection's own `Request` parse, and every

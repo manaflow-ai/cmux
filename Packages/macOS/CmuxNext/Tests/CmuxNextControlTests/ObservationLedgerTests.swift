@@ -4,7 +4,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Testing
 
-/// The observation ledger's per-owner counts and `debug.observations` (p06-scheduler-029).
+/// The observation ledger's per-owner counts and `debug.observations`.
 @Suite struct ObservationLedgerTests {
     @Test func countsArePerOwner() throws {
         let ledger = ObservationLedger()

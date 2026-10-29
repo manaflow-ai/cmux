@@ -299,7 +299,7 @@ import Testing
         #expect(startup.settleCause == .references)
     }
 
-    /// p06-scheduler-204: raising the launch fence only counts: a best-effort item that already runs is not
+    /// Raising the launch fence only counts: a best-effort item that already runs is not
     /// waited on and finishes while the fence is up. A raise that waited for it would never return: the item
     /// waits for the test's release, sent after the raise. The reveal lowering the fence, user-visible work
     /// running at once and the held items' post order are LaunchOrderTests (CmuxNextAppTests), where the

@@ -135,7 +135,7 @@ fn refused(stream: &UnixStream, reader: &mut wire::Reader) -> (u16, u16) {
     (input.u16().unwrap(), input.u16().unwrap())
 }
 
-/// The shipped holder binary starts its black box (p09-observability-015),
+/// The shipped holder binary starts its black box,
 /// so it answers the corpus HELLO granting both bits and takes the corpus
 /// TRACE_START and TRACE_STOP. The HELLO of a daemon older than the bits
 /// (no `wanted` field) is granted nothing: a TRACE_START there is an

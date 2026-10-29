@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The remote shim's mirror cache (task p01-process-016b), with no build:
+# The remote shim's mirror cache, with no build:
 #  1. the generated host dispatch refreshes go_back's pending keys between
 #     the call and its ACK, the order the C++ test's fixture host sends;
 #  2. the cache through the generated client exports

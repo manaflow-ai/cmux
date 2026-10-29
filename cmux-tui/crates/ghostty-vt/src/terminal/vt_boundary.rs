@@ -270,9 +270,11 @@ impl C1Normalizer {
         while index < data.len() {
             if self.utf8_remaining == 0 {
                 let next = byte_scan::find_high(data, index);
-                if next != index {
+                if let Some(ascii) = data.get(index..next)
+                    && !ascii.is_empty()
+                {
                     if let Some(output) = output.as_mut() {
-                        output.extend_from_slice(&data[index..next]);
+                        output.extend_from_slice(ascii);
                     }
                     index = next;
                     continue;
@@ -296,7 +298,9 @@ impl C1Normalizer {
     #[inline(always)]
     fn normalize_byte(&mut self, data: &[u8], index: usize, output: &mut Option<Vec<u8>>) {
         {
-            let byte = data[index];
+            let Some((before, &[byte, ..])) = data.split_at_checked(index) else {
+                return;
+            };
             let continuation = if self.utf8_remaining != 0 && matches!(byte, 0x80..=0xbf) {
                 self.utf8_remaining -= 1;
                 true
@@ -316,7 +320,7 @@ impl C1Normalizer {
             if let Some(replacement) = replacement {
                 let output = output.get_or_insert_with(|| {
                     let mut output = Vec::with_capacity(data.len() + 1);
-                    output.extend_from_slice(&data[..index]);
+                    output.extend_from_slice(before);
                     output
                 });
                 output.extend_from_slice(&[0x1b, replacement]);
@@ -351,10 +355,14 @@ impl EmptyKittyProbeFilter {
         // a match exactly when `windows(..).any(..)` does.
         let bytes = data.as_ref();
         let mut at = byte_scan::find_esc(bytes, 0);
-        while at < bytes.len() && !bytes[at..].starts_with(Self::EMPTY_PROBE) {
-            at = byte_scan::find_esc(bytes, at + 1);
-        }
-        if at == bytes.len() {
+        let found = loop {
+            match bytes.get(at..) {
+                Some(rest) if rest.starts_with(Self::EMPTY_PROBE) => break true,
+                Some([_, ..]) => at = byte_scan::find_esc(bytes, at + 1),
+                _ => break false,
+            }
+        };
+        if !found {
             return data;
         }
         self.write_matched(data)
@@ -376,14 +384,14 @@ impl EmptyKittyProbeFilter {
 
         let data = data.as_ref();
         let mut output = Vec::with_capacity(data.len());
-        let mut cursor = 0;
-        while cursor < data.len() {
-            if data[cursor..].starts_with(EMPTY_PROBE) {
-                cursor += EMPTY_PROBE.len();
+        let mut rest = data;
+        while let Some((byte, after_byte)) = rest.split_first() {
+            if let Some(after_probe) = rest.strip_prefix(EMPTY_PROBE) {
+                rest = after_probe;
                 continue;
             }
-            output.push(data[cursor]);
-            cursor += 1;
+            output.push(*byte);
+            rest = after_byte;
         }
         Cow::Owned(output)
     }

@@ -92,14 +92,14 @@ embed Debug
 [[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Debug embed has not the host build's remote shim"
 cmp -s "$crash_config" "$ROOT/scripts/cmux-next/chromium-host-crash-reporter.cfg" ||
   fail "a Debug embed has not chromium-host-crash-reporter.cfg as Contents/Resources/crash_reporter.cfg"
-# Each embedded binary's dSYM is beside the app, outside the bundle (p09-observability-085).
+# Each embedded binary's dSYM is beside the app, outside the bundle.
 kept_dsym() { cat "$TMP/build/$1.dSYM/Contents/Resources/DWARF/$1" 2>/dev/null; }
 for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-host=host libcmux_cef_shim_remote.dylib=remote; do
   [[ "$(kept_dsym "${pair%%=*}")" == "${pair#*=}" ]] || fail "a Debug embed keeps no dSYM for ${pair%%=*}: $(ls "$TMP/build")"
 done
 [[ ! -e "$TMP/CEF-dSYMs" ]] || fail "a Debug embed unpacked Chromium's dSYM"
 
-# 2. Release (and so RC and NIGHTLY, p01-process-088) on a fresh bundle: the
+# 2. Release (and so RC and NIGHTLY) on a fresh bundle: the
 # host and its remote shim, as in Debug, for sign-cef.sh to sign as nested code.
 rm -rf "$TMP/build/app.app" "$TMP/derived" "$TMP/host-builds"
 embed Release

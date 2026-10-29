@@ -42,8 +42,7 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
     let mut allow_loopback = false;
     let mut allow_remote_network = false;
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         match argument.as_str() {
             "--allowed-host" => {
                 let value =
@@ -286,7 +285,7 @@ async fn serve_connect_connection(
         if read == 0 {
             return Ok(());
         }
-        request.extend_from_slice(&buffer[..read]);
+        request.extend_from_slice(crate::panic_free::reported_prefix(&buffer, read)?);
         if request.len() > 16 * 1024 {
             return Err(anyhow!("proxy request headers too large"));
         }
@@ -294,8 +293,10 @@ async fn serve_connect_connection(
             break position + 4;
         }
     };
-    let header = std::str::from_utf8(&request[..header_end])
-        .map_err(|_| anyhow!("proxy request is not UTF-8"))?;
+    let (header, initial_payload) = request
+        .split_at_checked(header_end)
+        .ok_or_else(|| anyhow!("proxy request headers ended early"))?;
+    let header = std::str::from_utf8(header).map_err(|_| anyhow!("proxy request is not UTF-8"))?;
     let mut lines = header.split("\r\n");
     let request_line = lines.next().ok_or_else(|| anyhow!("missing proxy request line"))?;
     let mut request_parts = request_line.split_whitespace();
@@ -310,7 +311,7 @@ async fn serve_connect_connection(
         policy.allow_loopback,
         policy.allow_remote_network,
     )?;
-    let initial_payload = request[header_end..].to_vec();
+    let initial_payload = initial_payload.to_vec();
     let auth = lines.find_map(|line| {
         line.split_once(':')
             .filter(|(name, _)| name.eq_ignore_ascii_case("Proxy-Authorization"))
@@ -427,7 +428,8 @@ async fn serve_connect_connection(
                 stream.close().await?;
                 return Ok::<(), anyhow::Error>(());
             }
-            stream.send(Bytes::copy_from_slice(&buffer[..read])).await?;
+            let chunk = crate::panic_free::reported_prefix(&buffer, read)?;
+            stream.send(Bytes::copy_from_slice(chunk)).await?;
         }
     };
     let download = async {
@@ -610,7 +612,8 @@ async fn serve_websocket_bridge(
                 stream.close().await?;
                 return Ok::<(), anyhow::Error>(());
             }
-            stream.send(Bytes::copy_from_slice(&buffer[..read])).await?;
+            let chunk = crate::panic_free::reported_prefix(&buffer, read)?;
+            stream.send(Bytes::copy_from_slice(chunk)).await?;
         }
     };
     let download = async {
@@ -644,7 +647,7 @@ async fn read_http_headers(
         if read == 0 {
             return Err(anyhow!("invalid WebSocket headers"));
         }
-        data.extend_from_slice(&buffer[..read]);
+        data.extend_from_slice(crate::panic_free::reported_prefix(&buffer, read)?);
         if !data.windows(4).any(|part| part == b"\r\n\r\n") && data.len() > 32 * 1024 {
             return Err(anyhow!("WebSocket headers too large"));
         }
@@ -661,10 +664,12 @@ fn split_http_headers(data: Vec<u8>) -> anyhow::Result<(String, Vec<u8>)> {
     if end > 32 * 1024 {
         return Err(anyhow!("WebSocket headers too large"));
     }
-    let header = std::str::from_utf8(&data[..end])
+    let (header, rest) =
+        data.split_at_checked(end).ok_or_else(|| anyhow!("incomplete WebSocket headers"))?;
+    let header = std::str::from_utf8(header)
         .map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?
         .to_owned();
-    Ok((header, data[end..].to_vec()))
+    Ok((header, rest.to_vec()))
 }
 
 fn application_protocols(header: &str, authentication: &str) -> String {
@@ -690,10 +695,10 @@ pub(super) fn parse_connect_authority_with_options(
     allow_remote_network: bool,
 ) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
-        let host = &rest[..end];
+        let (host, after_host) =
+            rest.split_once(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
         let port =
-            rest[end + 1..].strip_prefix(':').ok_or_else(|| anyhow!("CONNECT port is required"))?;
+            after_host.strip_prefix(':').ok_or_else(|| anyhow!("CONNECT port is required"))?;
         (host, port)
     } else {
         authority.rsplit_once(':').ok_or_else(|| anyhow!("CONNECT port is required"))?

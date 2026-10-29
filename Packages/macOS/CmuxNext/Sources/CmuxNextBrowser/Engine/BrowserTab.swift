@@ -53,6 +53,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// capture than `snapshot()`; the default is `snapshot()`.
     func thumbnail() async throws -> CGImage
 
+    /// ``thumbnail()`` asked of the engine in the caller's turn, so a picture asked for just before the page
+    /// hides is of the shown page: Chromium cannot picture a hidden page, and refuses to. The default asks when
+    /// the request is awaited (WebKit pictures a hidden page).
+    func beginThumbnail() -> BrowserPictureRequest
+
     /// Evaluates a script and returns its completion value.
     /// - Parameters:
     ///   - world: The page's world or an isolated one.
@@ -117,6 +122,8 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
 extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
+
+    public func beginThumbnail() -> BrowserPictureRequest { BrowserPictureRequest { try await self.thumbnail() } }
 
     /// Engines without Chromium password autofill have nothing to withhold.
     /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the

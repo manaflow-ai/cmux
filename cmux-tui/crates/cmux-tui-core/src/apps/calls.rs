@@ -3,6 +3,7 @@
 //! thread (storage, egress, or the daemon's own dispatcher), answered back
 //! to the host that asked if it is still the same process.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -16,6 +17,7 @@ use super::host::HostProcess;
 use super::mirror::Origin;
 use super::provider;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
@@ -45,7 +47,8 @@ impl Supervisor {
         mut params: Value,
         options: Value,
     ) -> Vec<Out> {
-        let host = inner.hosts.get(key).expect("host");
+        // Only the current host's messages get here (on_host_message); none left, nobody to answer.
+        let Some(host) = inner.hosts.get(key) else { return vec![] };
         let Some(process) = host.process.clone() else { return vec![] };
         let grant = host.grant.clone();
         let generation = host.generation;
@@ -131,22 +134,33 @@ impl Supervisor {
                 Err(body) => reject(body),
             };
         }
-        inner.hosts.get_mut(key).expect("host").inflight += 1;
+        let Some(host) = inner.hosts.get_mut(key) else {
+            return reject(error("operation.failed", "the app host is gone"));
+        };
+        host.inflight += 1;
         let work =
             Work { app: key.app.clone(), op, params, idempotency_key, origin, grant, generation };
         let me = self.me.clone();
         let host_key = key.clone();
         let answer_to = process.clone();
-        let spawned = std::thread::Builder::new().name("cmux-app-call".into()).spawn(move || {
-            let Some(me) = me.upgrade() else { return };
-            let (ok, body) = match me.execute(&host_key, work) {
-                Ok(body) => (true, body),
-                Err(body) => (false, body),
-            };
-            me.answer(&host_key, generation, &answer_to, ToHost::Resolve { cb, ok, body });
-        });
+        let spawned = supervised::spawn_at(
+            "cmux-app-call",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let Some(me) = me.upgrade() else { return };
+                let (ok, body) = match me.execute(&host_key, work) {
+                    Ok(body) => (true, body),
+                    Err(body) => (false, body),
+                };
+                me.answer(&host_key, generation, &answer_to, ToHost::Resolve { cb, ok, body });
+            },
+        );
         if let Err(e) = spawned {
-            inner.hosts.get_mut(key).expect("host").inflight -= 1;
+            if let Some(host) = inner.hosts.get_mut(key) {
+                host.inflight = host.inflight.saturating_sub(1);
+            }
             return reject(
                 json!({ "code": "operation.failed", "message": format!("no worker thread: {e}"), "retryable": true }),
             );
@@ -159,7 +173,7 @@ impl Supervisor {
         if op.starts_with("app.storage.") {
             // Under the supervisor lock: an uninstall (which drops the
             // table under the same lock) cannot interleave with this write.
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             let current = inner
                 .hosts
                 .get(key)
@@ -192,7 +206,7 @@ impl Supervisor {
     /// Writes the answer if the host that asked is still the current process.
     fn answer(&self, key: &HostKey, generation: u64, process: &Arc<HostProcess>, message: ToHost) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) else {
                 return;
             };

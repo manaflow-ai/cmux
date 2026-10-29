@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextSignposts
 import CmuxNextWakeups
 import ObjectiveC
+import CmuxNextAppearance
 
 /// Whether one window looks inactive (the keyboard left its family), tracked once per window.
 ///

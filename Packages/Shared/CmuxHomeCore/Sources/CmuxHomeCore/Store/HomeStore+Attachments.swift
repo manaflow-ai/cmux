@@ -21,6 +21,7 @@ extension HomeStore {
         let root = blobCacheDirectory
         let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root, keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
+        scheduleBlobCachePrune()
         return prepared
     }
 
@@ -34,6 +35,7 @@ extension HomeStore {
         let prepared = try await AttachmentMedia.prepare(data: data, typeIdentifier: typeIdentifier, root: root,
                                                          keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
+        scheduleBlobCachePrune()
         return prepared
     }
 
@@ -46,6 +48,7 @@ extension HomeStore {
         defer { preparing -= 1 }
         let prepared = try await Self.makeLinkPreviewImage(fileURL, root: blobCacheDirectory)
         localFiles[prepared.ref.hash] = prepared.files
+        scheduleBlobCachePrune()
         return prepared
     }
 

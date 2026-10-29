@@ -31,8 +31,8 @@ pub fn hostname() -> String {
         // SAFETY: `buf` is a writable buffer of the length passed; gethostname
         // writes at most that many bytes.
         if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
-            let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-            return String::from_utf8_lossy(&buf[..end]).into_owned();
+            let name = buf.split(|&b| b == 0).next().unwrap_or_default();
+            return String::from_utf8_lossy(name).into_owned();
         }
     }
     let _ = &mut buf;

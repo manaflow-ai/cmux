@@ -21,6 +21,7 @@
 //! a card withdrawn that way is logged as a cancelled decision and the session's status is
 //! settled, as for any answered prompt, so the chat drops the card and stops asking for input.
 
+use crate::no_panic::JsonExt;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex as StdMutex;
@@ -384,7 +385,9 @@ impl Hub {
         let folder = cwd.to_string_lossy().into_owned();
         let _ = crate::daemon::spawn_blocking(move || {
             let inherited = crate::trust::get(&paths, &folder).is_ok_and(|reply| {
-                reply["level"] == "trusted" && reply["decided"] == true && reply["via"].is_string()
+                reply.field("level") == "trusted"
+                    && reply.field("decided") == true
+                    && reply.field("via").is_string()
             });
             if inherited {
                 Ok(serde_json::Value::Null)

@@ -469,6 +469,22 @@ enum RelayCircuitCommand {
     Close(oneshot::Sender<Result<(), LinkError>>),
 }
 
+/// What `send_message` sends: a frame or a WebSocket message. Close has its
+/// own path (`FrameLink::close`), so it is not one of these.
+enum RelayOutbound {
+    Frame(Bytes),
+    Message(Message),
+}
+
+impl From<RelayOutbound> for RelayCircuitCommand {
+    fn from(outbound: RelayOutbound) -> Self {
+        match outbound {
+            RelayOutbound::Frame(frame) => Self::Frame(frame),
+            RelayOutbound::Message(message) => Self::Message(message),
+        }
+    }
+}
+
 impl RelayCircuitLink {
     fn new_with_framing(
         description: impl Into<String>,
@@ -504,10 +520,10 @@ impl RelayCircuitLink {
     async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
         let encoded = serde_json::to_string(control)
             .map_err(|error| LinkError::Protocol(format!("invalid relay control: {error}")))?;
-        self.send_message(RelayCircuitCommand::Message(Message::Text(encoded.into()))).await
+        self.send_message(RelayOutbound::Message(Message::Text(encoded.into()))).await
     }
 
-    async fn send_message(&self, command: RelayCircuitCommand) -> Result<(), LinkError> {
+    async fn send_message(&self, command: RelayOutbound) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::Closed);
         }
@@ -515,17 +531,14 @@ impl RelayCircuitLink {
             return Err(error);
         }
         let result = match (&self.sender, command) {
-            (RelayCircuitSender::Direct(sender), RelayCircuitCommand::Frame(frame)) => {
+            (RelayCircuitSender::Direct(sender), RelayOutbound::Frame(frame)) => {
                 sender.lock().await.send(Message::Binary(frame)).await.map_err(relay_link_error)
             }
-            (RelayCircuitSender::Direct(sender), RelayCircuitCommand::Message(message)) => {
+            (RelayCircuitSender::Direct(sender), RelayOutbound::Message(message)) => {
                 sender.lock().await.send(message).await.map_err(relay_link_error)
             }
-            (RelayCircuitSender::Direct(_), RelayCircuitCommand::Close(_)) => {
-                unreachable!("direct relay close bypasses the command queue")
-            }
             (RelayCircuitSender::Batched(sender), command) => sender
-                .send(command)
+                .send(command.into())
                 .await
                 .map_err(|_| self.terminal.borrow().clone().unwrap_or(LinkError::Closed)),
         };
@@ -584,14 +597,15 @@ fn encode_relay_batch(frames: &[Bytes]) -> Result<Bytes, LinkError> {
 }
 
 fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>, LinkError> {
-    if encoded.len() < RELAY_BATCH_HEADER_BYTES
-        || encoded[..4] != RELAY_BATCH_MAGIC
-        || encoded[4] != RELAY_BATCH_VERSION
-        || encoded[6..8] != [0, 0]
-    {
+    let Some(([m0, m1, m2, m3, version, count, 0, 0], _)) =
+        encoded.split_first_chunk::<RELAY_BATCH_HEADER_BYTES>()
+    else {
+        return Err(LinkError::Protocol("relay batch header is invalid".into()));
+    };
+    if [*m0, *m1, *m2, *m3] != RELAY_BATCH_MAGIC || *version != RELAY_BATCH_VERSION {
         return Err(LinkError::Protocol("relay batch header is invalid".into()));
     }
-    let count = usize::from(encoded[5]);
+    let count = usize::from(*count);
     if count == 0 || count > MAX_RELAY_BATCH_FRAMES {
         return Err(LinkError::Protocol("relay batch has an invalid frame count".into()));
     }
@@ -600,9 +614,13 @@ fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>,
     for _ in 0..count {
         let length_end = offset
             .checked_add(RELAY_BATCH_ENTRY_HEADER_BYTES)
-            .filter(|end| *end <= encoded.len())
             .ok_or_else(|| LinkError::Protocol("relay batch is truncated".into()))?;
-        let length = u32::from_be_bytes(encoded[offset..length_end].try_into().unwrap()) as usize;
+        let length = encoded
+            .get(offset..length_end)
+            .and_then(|length| <[u8; RELAY_BATCH_ENTRY_HEADER_BYTES]>::try_from(length).ok())
+            .ok_or_else(|| LinkError::Protocol("relay batch is truncated".into()))?;
+        let length = usize::try_from(u32::from_be_bytes(length))
+            .map_err(|_| LinkError::Protocol("relay batch frame length overflowed".into()))?;
         if length == 0 || length > maximum {
             return Err(LinkError::FrameTooLarge { actual: length, maximum });
         }
@@ -732,7 +750,7 @@ impl FrameLink for RelayCircuitLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         ensure_relay_frame_size(frame.len(), self.maximum)?;
-        self.send_message(RelayCircuitCommand::Frame(frame)).await
+        self.send_message(RelayOutbound::Frame(frame)).await
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
@@ -800,7 +818,7 @@ impl FrameLink for RelayCircuitLink {
                     }
                 }
                 Some(Ok(Message::Ping(payload))) => {
-                    self.send_message(RelayCircuitCommand::Message(Message::Pong(payload))).await?;
+                    self.send_message(RelayOutbound::Message(Message::Pong(payload))).await?;
                 }
                 Some(Ok(Message::Pong(_))) => {}
                 Some(Ok(Message::Close(_))) | None => {
@@ -1739,6 +1757,9 @@ fn random_capability() -> Result<String, ProviderError> {
         .map_err(|error| ProviderError::Transport(format!("randomness failed: {error}")))?;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
+
+#[cfg(test)]
+mod batch_tests;
 
 #[cfg(test)]
 mod tests {

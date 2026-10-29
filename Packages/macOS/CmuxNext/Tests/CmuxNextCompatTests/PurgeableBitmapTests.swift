@@ -5,7 +5,7 @@ import ImageIO
 import Testing
 import UniformTypeIdentifiers
 
-/// Pictures in purgeable pages (p07-memory-107), on real `VM_FLAGS_PURGABLE` regions: volatile while no
+/// Pictures in purgeable pages, on real `VM_FLAGS_PURGABLE` regions: volatile while no
 /// image of them lives, locked while one does, and a region emptied while volatile (``VirtualMemoryPurgeablePages/purge()``,
 /// as memory pressure would) gives no image, never a blank one. Locked bytes reach the owner's ledger apart from volatile ones.
 @Suite struct PurgeableBitmapTests {

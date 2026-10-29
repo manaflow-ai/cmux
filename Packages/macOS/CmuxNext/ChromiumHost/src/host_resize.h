@@ -1,6 +1,5 @@
 // A hosted page's resize and its Core Animation fence, from cmux to the
-// Chromium Host (plans/cmux-next/chrome-parity/p01-process.md 3.1 and 3.3,
-// task p01-process-052).
+// Chromium Host (plans/cmux-next/chrome-parity/p01-process.md 3.1 and 3.3).
 //
 // cmux resizes a page view in one main-thread turn and holds that turn's
 // Core Animation commit on a fence port of its window's context

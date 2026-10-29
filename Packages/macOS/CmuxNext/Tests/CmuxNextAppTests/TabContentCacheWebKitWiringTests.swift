@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-323: the cache's WebKit engine is built on the app's one `MainDeadline` placer and its one
+/// The cache's WebKit engine is built on the app's one `MainDeadline` placer and its one
 /// ``AppEvents`` (`AppServices.mainDeadlines`, `AppServices.appEvents`), never on instances of its own.
 @MainActor @Suite(.serialized) struct TabContentCacheWebKitWiringTests {
     @Test func theWebKitEngineUsesTheInjectedPlacerAndEvents() {

@@ -2,7 +2,7 @@ import CmuxNextSettings
 @testable import CmuxNextPages
 import Testing
 
-/// The router hold (p13-webui-023, webui-DESIGN.md "Lifecycle"): while a page is hidden or frozen,
+/// The router hold (webui-DESIGN.md "Lifecycle"): while a page is hidden or frozen,
 /// no event envelope reaches its script pipeline; each stream keeps what its
 /// ``PageFrozenDelivery`` says; release sends the rest in arrival and `seq` order; each drop calls
 /// `eventDeliveryDropped` once; a built-in command or a host call thaws the page first, then goes

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `AgentPaneShell.run` awaits its spawn on the shell's ``ChildProcessLauncher`` (p02-threads-037): a run
+/// `AgentPaneShell.run` awaits its spawn on the shell's ``ChildProcessLauncher``: a run
 /// whose spawn is in flight holds a slot of the cap, a failed spawn gives it back, and a command still spawning
 /// when the pane closes is hung up as soon as it starts. A gate holds the shell's launcher so the spawns stay in
 /// flight until the test opens it; main-actor tasks start in the order they are made.

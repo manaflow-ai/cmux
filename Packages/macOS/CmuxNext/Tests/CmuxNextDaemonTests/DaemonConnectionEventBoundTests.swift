@@ -4,9 +4,9 @@ import Testing
 
 /// A ``DaemonConnection``'s event backlog holds at most the route's high water of line bytes its
 /// stream consumer has not taken: past it the reader thread waits, so the socket stops draining and
-/// the daemon's bounded outbound queue acts, until the consumer takes the backlog (p07-memory-098).
+/// the daemon's bounded outbound queue acts, until the consumer takes the backlog.
 /// The stream was unbounded, so a consumer that stalled grew it without limit; the backlog's own
-/// count bound (p05-ipc-093) would collapse it into a resync instead of slowing the daemon.
+/// count bound would collapse it into a resync instead of slowing the daemon.
 /// The reader waits only for a live consumer: before the stream is taken and after its consumer
 /// stopped, the replies the reader reads on the same connection must still get through.
 @Suite(.serialized, .timeLimit(.minutes(2))) struct DaemonConnectionEventBoundTests {

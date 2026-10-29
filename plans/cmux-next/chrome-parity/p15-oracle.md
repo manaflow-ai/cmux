@@ -350,6 +350,18 @@ patch files (10 app, 10 daemon) applied in the job worktree (task 026); nothing 
   Geometry-only files use `import Foundation` (corelibs defines CGFloat/CGPoint/CGRect), not `#if canImport`.
 - All pure `git mv` moves and their Package.swift edits land in **one coordinated commit** (task 119) in
   hours 0-3 after the owners agree. If an owner does not agree, that target leaves the tier for the push.
+- The 119 commit (cp/p15-oracle-119) moved only Compat (121), BrowserCore's imports (140, file part) and the
+  Compat tests (143, Compat part). The other moves are not pure: the code that stays names the files that
+  would move (moving them is a cycle). So each of these tasks lands its seam first and then its moves, in its own
+  commit, and these targets stay out of the tier until it lands. Every target that depends on one of them waits
+  too (most of waves 1-3 depend on Wakeups).
+  - 125 Wakeups: a display-link seam in Wakeups that MainWorkScheduler's and FrameClient's users depend on.
+  - 128 Actions: after 127, a menu seam for ActionRegistry, its +Choices and +ConfiguredRows, and
+    ContextMenuCatalog (they name ShortcutRecorder, ActionMenuTarget, makeMenuItem and makeContextMenu).
+  - 133 Settings: the protocols that replace SettingsApplier, ShortcutBinding and SettingsDiagnosticToasts.
+  - 136 Control: the watchdog protocol that ControlRouter, ControlService, QuitDeadline, HangLog and the
+    ActionBudget files use in place of MainThreadWatchdog.
+  - 143: the Actions, Control and Settings test moves follow 128, 136 and 133.
 - `swift-tier.sh --errors-queue` is the Jarred-style compiler queue.
 
 ### I. Lifecycle of a refactor under the oracle
@@ -733,7 +745,8 @@ FSEvent, sysctl, os_unfair_lock, OSAllocatedUnfairLock, DistributedNotificationC
 ci-target-graph.json. Acceptance: order-independent output; the 17 `import os.log`-style files are caught. Test: run at base and tip.
 
 **119 One coordinated Linux move commit.** Files: Package.swift, `plans/cmux-next/architecture-layers.json`, `plans/cmux-next/OWNERS.md`,
-the moved files of tasks 121, 125, 128, 133 (file part), 136, 140 (file part), 143. Change: after owners agree, one agent
+the moved files of tasks 121, 140 (file part) and 143 (Compat part); 125, 128, 133, 136 and the rest of 143 are not
+pure moves and land later in their own commits (section H). Change: after owners agree, one agent
 does every pure `git mv` and its target edits in one commit in hours 0-3. Acceptance: renames, imports and manifest/layer
 edits only; owners named in the commit. Test: fleet compile-check of the app and package tests at that commit.
 
@@ -1474,21 +1487,21 @@ Unchanged from the draft unless noted. Each: Darwin path unchanged; fleet compil
 
 - **120** Compat Platform: Libc, Logger shim, Mutex. **121** Compat AppKit/QuartzCore files to CmuxNextCompatAppKit (in the 119 commit).
 - **122** Compat Threading on Linux (MachO/XPC parts as `canImport` whole files). **123** Compat misc (MacName, OpenFileLimit, ChildSignalDefaults, ObservationStream).
-- **124** Signposts no-op OSSignposter, MetricKit mirror `canImport`. **125** Wakeups display files to CmuxNextWakeupsDisplay (in 119; tell Performance Lead and PL-typing).
+- **124** Signposts no-op OSSignposter, MetricKit mirror `canImport`. **125** Wakeups display files to CmuxNextWakeupsDisplay (display-link seam first, then the moves in its own commit, section H; tell Performance Lead and PL-typing).
 - **126** PlatformEvents, FolderChanges (inotify), UnixSocketPeer (SO_PEERCRED), ProcessUsage (/proc); no polling added.
-- **127** Actions `KeyModifiers` value type; action-surfaces export byte-identical. **128** Actions menus/recorder to CmuxNextActionsAppKit (in 119).
+- **127** Actions `KeyModifiers` value type; action-surfaces export byte-identical. **128** Actions menus/recorder to CmuxNextActionsAppKit (menu seam first, then the moves in its own commit, section H).
 - **129** Daemon transport (MSG_NOSIGNAL, Logger, PlatformEvents). **130** Daemon crypto, `InstallKeyStoring` (0600 file on Linux, injected), CZlib inflate.
 - **131 (revised)** DesignTokens: replace `import CoreGraphics` with `import Foundation` in geometry-only files (rg queue); remaining CG API in one
   `CmuxNextCompat/Platform` file. Acceptance: 0 `canImport(CoreGraphics)` in DesignTokens.
 - **132** Leaf targets (Focus, TerminalGeometry, CopyMode, TerminalFind, ProcessEnvironment, HostPressure with /proc/meminfo + PSI, WorkspaceRepair).
-- **133** Settings AppKit files out behind protocols (file moves in 119). **134** Settings off Design and Icons: Settings->Design and Settings->Icons
+- **133** Settings AppKit files out behind protocols (the protocols first, then the file moves in its own commit, section H). **134** Settings off Design and Icons: Settings->Design and Settings->Icons
   edges gone in ci-target-graph.json. **231** MQ-settings-design queue (Motion and Theme value families to DesignTokens; tell the motion-gate owner).
 - **135** Control socket server (PeerCredentials, /proc ancestry, inotify); authorization unchanged; high-risk note in the PR.
-- **136** Control diagnostics (watchdogs, stack sampler) to CmuxNextControlDiagnostics (in 119).
+- **136** Control diagnostics (watchdogs, stack sampler) to CmuxNextControlDiagnostics (the watchdog protocol first, then the moves in its own commit, section H).
 - **137** ErrorJournal, HangReports, VSCodeServer. **138** Files (FileKind seam), RemoteFetch (FoundationNetworking for URLSession), ChromiumRuntime.
 - **139** BrowserImport, ImportSuggestions (Crypto, system sqlite, CZlib; Keychain cookie decrypt macOS-only).
 - **140** BrowserCore (3 AppKit files to CmuxNextBrowser; tell PL-engine). **141** Cloud, CodeRouter, Remote, Devices (`SecretStore`, `UserPresence` injected).
-- **142** Mobile, Hibernation. **143** AppKit/UI-importing test files to *AppKitTests (count of `@Test` on macOS equal before and after).
+- **142** Mobile, Hibernation. **143** AppKit/UI-importing test files to *AppKitTests (count of `@Test` on macOS equal before and after; CmuxNextCompatAppKitTests landed in 119, the Actions, Control and Settings moves follow 128, 136 and 133).
 - **227** Bridge off UI edges (ResizeCoordinator to a UI target; Layout/Sidebar/Tabs/Icons uses replaced); unblocks WorkspaceNaming (51 tests).
 - **226** Wave 3 UI-free targets; tier-imports.py lists each as in-tier or names its blocking edge.
 

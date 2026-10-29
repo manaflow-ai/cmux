@@ -165,36 +165,33 @@ pub(super) fn sidebar_layout_for_state(
     if needs_width_collapse || needs_hysteresis_collapse {
         specs.sort_unstable_by_key(|spec| (spec.priority, spec.view_index));
 
-        while retained_count > 0
-            && width
-                < MIN_CONTENT_WIDTH
+        for spec in specs.iter_mut() {
+            if width
+                >= MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
-        {
-            specs[collapsed_count].collapsed = true;
+            {
+                break;
+            }
+            spec.collapsed = true;
             collapsed_count += 1;
             retained_count -= 1;
         }
     }
 
     if let Some(previous) = previous {
-        let mut candidate_index = collapsed_count;
+        let mut candidates = specs.iter_mut().skip(collapsed_count);
         while width
             < MIN_CONTENT_WIDTH
                 .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
                 .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            while candidate_index < specs.len()
-                && (specs[candidate_index].collapsed
-                    || previous.rail(specs[candidate_index].kind).is_some())
-            {
-                candidate_index += 1;
-            }
-            if candidate_index == specs.len() {
+            let Some(spec) =
+                candidates.find(|spec| !spec.collapsed && previous.rail(spec.kind).is_none())
+            else {
                 break;
-            }
-            specs[candidate_index].collapsed = true;
+            };
+            spec.collapsed = true;
             collapsed_count += 1;
-            candidate_index += 1;
             retained_count -= 1;
         }
     }

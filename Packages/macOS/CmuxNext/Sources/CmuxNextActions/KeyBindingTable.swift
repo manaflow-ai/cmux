@@ -111,8 +111,8 @@ public nonisolated struct KeyBindingTable: Sendable {
     }
 
     /// The entry `keys` runs: ``resolve(_:in:isRunnable:accepts:)``'s winner, with no
-    /// candidate list and the compiled `when` clauses, so a key-down allocates nothing here
-    /// (p04-input-055). Pass `CollectionOfOne(key)` for one key. Chromium finds an accelerator's
+    /// candidate list and the compiled `when` clauses, so a key-down allocates nothing here.
+    /// Pass `CollectionOfOne(key)` for one key. Chromium finds an accelerator's
     /// targets with one map lookup that copies nothing the same way
     /// (ui/base/accelerators/accelerator_map.h, `AcceleratorMap::Find`).
     // perf-hot: 0.5ms key-dispatch (every chord key-down)

@@ -2,6 +2,8 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -49,7 +51,7 @@ import Testing
     /// and the only folder offered as a root is home itself (never a root).
     private static func provider(_ kind: FilePageKind, _ url: URL, userChose: Bool = false, readOnly: Bool = false) -> FilePageProvider {
         let host = Host(roots: FileWorkspaceRoots(folders: [NSHomeDirectory()]))
-        return FilePageProvider(kind: kind, file: url, userChose: userChose, readOnly: readOnly, host: host, libraries: nil, images: NoImages())
+        return FilePageProvider(kind: kind, file: url, userChose: userChose, readOnly: readOnly, host: host, libraries: nil, images: NoImages(), deadlines: .testing())
     }
 
     private static func call(_ provider: FilePageProvider, _ name: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {

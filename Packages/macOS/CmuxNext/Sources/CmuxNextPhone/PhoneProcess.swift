@@ -91,7 +91,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         }
         if let stdoutFile {
             FileManager.default.createFile(atPath: stdoutFile.path, contents: nil)
-            process.standardOutput = try FileHandle(forWritingTo: stdoutFile)
+            process.standardOutput = try FileHandle.blockingForWriting(to: stdoutFile)
         } else if captureStdout {
             let outPipe = Pipe()
             process.standardOutput = outPipe

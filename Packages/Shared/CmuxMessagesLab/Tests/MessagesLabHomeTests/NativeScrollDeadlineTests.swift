@@ -4,7 +4,7 @@ import Testing
 
 /// The scroller's three one-shot deadlines (fade-in, widen, hide) come from the host's timer
 /// (`ChatWakeScheduler.makeDeadline`, CmuxNext: a visible-class MainDeadline), the fade-in exact and
-/// the others flexible, and none repeats (p14-energy-052).
+/// the others flexible, and none repeats.
 @MainActor @Suite(.serialized) struct NativeScrollDeadlineTests {
     /// A deadline the test fires by hand; it records what it was asked for.
     @MainActor final class HandDeadline: ViewDeadline {

@@ -121,7 +121,7 @@ export function readPageState<T>(host: PageStateHost = windowPageStateHost()): T
 // third_party/blink/renderer/core/page/page.cc SetPageFrozen, per the Page Lifecycle API; WebKit has
 // no freeze event and stays hidden). There is no cmux lifecycle stream. Native guarantees the order:
 // hidden before freeze, resume before visible. The engine is the one source of truth: a parked or
-// preloaded page is hidden when native hides its view (p13-webui-028, 043), as a background or
+// preloaded page is hidden when native hides its view, as a background or
 // prerendered Chrome page reads `visibilityState` "hidden" from its renderer.
 //
 // Timers and animation loops go through `startPageInterval` / `startPageAnimationFrame` (or their

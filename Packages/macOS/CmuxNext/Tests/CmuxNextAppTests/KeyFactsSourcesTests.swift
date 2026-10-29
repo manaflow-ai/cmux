@@ -7,11 +7,13 @@ import CmuxNextFocusUI
 @testable import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
 
-/// Each source of the key router's cached key facts (p04-input-053), through the real router under an equal
+/// Each source of the key router's cached key facts, through the real router under an equal
 /// focus: an input the lookups are built from rebuilds them once and names itself; a flag of an object a build
 /// found follows that object on the next key with no rebuild. A unit test has no terminal, browser or page pane
 /// for a build to find, so the copy mode, suggestion list, readiness and Chromium page window tests put those
@@ -134,7 +136,7 @@ struct KeyFactsSourcesTests {
         let url = folder.appending(path: "transcript.md")
         try Data("# Transcript\n".utf8).write(to: url)
         // A file the host opens read only (a chat transcript): its config says so.
-        let file = FilePageProvider(kind: .markdown, file: url, readOnly: true, host: FileHost(), libraries: nil, images: NoImages())
+        let file = FilePageProvider(kind: .markdown, file: url, readOnly: true, host: FileHost(), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { file.close() }
         _ = try await file.call(FilePageKind.markdown.op("config"), params: .object([:]),
                                 context: PageCallContext(page: FilePageKind.markdown.namespace))
@@ -155,7 +157,7 @@ struct KeyFactsSourcesTests {
     @Test func theEditorsKeySequenceFollowsItsTab() async throws {
         let harness = try KeyContextCacheTests.harness()
         defer { harness.close() }
-        let file = FilePageProvider(kind: .editor, file: nil, host: FileHost(), libraries: nil, images: NoImages())
+        let file = FilePageProvider(kind: .editor, file: nil, host: FileHost(), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { file.close() }
         let clock = Uptime()
         file.uptime = { clock.now }

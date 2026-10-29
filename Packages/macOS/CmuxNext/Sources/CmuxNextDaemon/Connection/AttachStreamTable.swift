@@ -11,7 +11,7 @@ enum AttachStreamDelivery: Sendable {
     case lost(TransportCloseReason)
 }
 
-/// Where one attach stream's items go. The reader only routes them (p05-ipc-144): each item runs on the connection's
+/// Where one attach stream's items go. The reader only routes them: each item runs on the connection's
 /// ``DecodeLane`` in wire order, weighed as the stream's `dispatch` says, and the reader runs the stream's
 /// ``EventDispatch/readerWait`` after the item, outside its hang scope, so a lane item never waits on the view.
 struct AttachStreamSink: Sendable {
@@ -33,7 +33,7 @@ struct AttachStreamHandle: Sendable, Hashable {
     let epoch: UInt64
 }
 
-/// The client-minted attach streams of one connection (p05-ipc-095), kept in the transport's state
+/// The client-minted attach streams of one connection, kept in the transport's state
 /// under its one lock. Chrome's `MultiplexRouter` works the same way: the side that associates an
 /// endpoint picks its id, every message names it, and the id is forgotten only once the peer's
 /// closed notification arrived (mojo/public/cpp/bindings/lib/multiplex_router.cc,
@@ -71,6 +71,9 @@ struct AttachStreamTable {
     }
 
     private var entries: [UInt16: Entry] = [:]
+    /// The epochs of the ids whose opener went as a REQUEST frame naming the id in its header:
+    /// the daemon knows those streams and takes INPUT frames on them (pending_streams.rs).
+    private var announced: [UInt16: UInt64] = [:]
     private var lastMinted: UInt16 = 0
     private var epochs: UInt64 = 0
     /// Set when the connection ended; no id is minted after it.
@@ -101,6 +104,19 @@ struct AttachStreamTable {
         return true
     }
 
+    /// The handle's opener went out as a REQUEST frame whose header names its id.
+    mutating func announce(_ handle: AttachStreamHandle) {
+        guard entries[handle.id]?.epoch == handle.epoch else { return }
+        announced[handle.id] = handle.epoch
+    }
+
+    /// Whether the daemon knows the handle's stream from its opener's header, while the stream is open on this
+    /// side (a cancelled stream is ending on the daemon, which drops INPUT on it).
+    func isAnnounced(_ handle: AttachStreamHandle) -> Bool {
+        guard case .open(let epoch, _)? = entries[handle.id], epoch == handle.epoch else { return false }
+        return announced[handle.id] == handle.epoch
+    }
+
     /// Stops delivery to the handle's stream; the id stays taken until its `stream-end` or the reply of the
     /// `cancel-stream` this asks for. True when the stream was not cancelled yet (that `cancel-stream` is due),
     /// false when it ended or was cancelled already.
@@ -116,12 +132,16 @@ struct AttachStreamTable {
     mutating func release(_ handle: AttachStreamHandle) {
         guard entries[handle.id]?.epoch == handle.epoch else { return }
         entries[handle.id] = nil
+        announced[handle.id] = nil
     }
 
     /// Where an item of stream `id` goes; `ended` (its `stream-end`) frees the id.
     mutating func route(_ id: UInt16, ended: Bool) -> Route {
         guard let entry = entries[id] else { return epochs == 0 ? .unknown : .dropped }
-        if ended { entries[id] = nil }
+        if ended {
+            entries[id] = nil
+            announced[id] = nil
+        }
         guard case .open(_, let sink) = entry else { return .dropped }
         return .deliver(sink)
     }
@@ -135,6 +155,7 @@ struct AttachStreamTable {
             return sink
         }
         entries.removeAll()
+        announced.removeAll()
         return sinks
     }
 }

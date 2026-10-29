@@ -50,6 +50,10 @@ extension ThreadRegistry {
         // Energy: the power-source notifications and their IOKit reads (CmuxNextEnergy PowerSourceMonitor).
         ThreadDeclaration("com.cmuxterm.next.energy.power-source", qos: .utility),
         ThreadDeclaration("com.cmuxterm.home.cache", qos: .userInitiated),
+        // File-owning actors' executors (p02-threads-141..144): their file calls block these queues, never the pool.
+        ThreadDeclaration("com.cmuxterm.next.files.table-widths", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.onboarding.classic-migration", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.agent-pane.saved-environments", qos: .userInitiated),
         // Remote and mobile. The remote view's render queue is on the closed user-interactive list: a
         // compositor-class motion path (Chrome's kDisplayCritical, base/threading/platform_thread.h).
         ThreadDeclaration("com.cmuxterm.next.remote-localhost", qos: .userInitiated),
@@ -60,7 +64,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.remote-view.mock-host", qos: .userInitiated),
         ThreadDeclaration("cmux.next.mobile.unix-lane", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.phone-process.stdin", policy: .perItem),
-        // Shared packages the app links (p02-threads-146): Mac Screen sharing, the VNC link and demo server, Home's
+        // Shared packages the app links: Mac Screen sharing, the VNC link and demo server, Home's
         // attachment thumbnails, and the iOS shell's attachment and dictation queues (shared with the app's packages).
         ThreadDeclaration("cmux.screen.capture", qos: .userInitiated),
         ThreadDeclaration("cmux.vnc.peer-close", qos: .userInitiated),
@@ -109,6 +113,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.invariant-sink", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.renderer-stability", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.crash-reporting.app-hangs", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.sentry-recorder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.typing-probe", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.blocking-drain", qos: .utility),

@@ -119,7 +119,7 @@ fn malformed_requests_and_other_commands() {
 }
 
 /// The route is found by the line's decoded `cmd`, never a substring of the
-/// raw line (p05-ipc-070): a `script-*` name spelled with a JSON escape
+/// raw line: a `script-*` name spelled with a JSON escape
 /// answers as its plain spelling, and every line takes two parses (the
 /// head and the route's one decode).
 #[test]

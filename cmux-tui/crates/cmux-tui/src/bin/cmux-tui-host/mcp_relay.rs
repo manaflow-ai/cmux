@@ -74,7 +74,10 @@ fn copy(mut from: impl Read, mut to: impl Write) {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(_) => return,
         };
-        if to.write_all(&buffer[..read]).is_err() {
+        // A read that reports more than the buffer holds broke the `Read`
+        // contract: stop relaying instead of panicking.
+        let Some(chunk) = buffer.get(..read) else { return };
+        if to.write_all(chunk).is_err() {
             return;
         }
     }

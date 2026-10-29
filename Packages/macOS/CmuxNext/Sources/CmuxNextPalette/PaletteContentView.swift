@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
@@ -24,6 +24,8 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// The result list's scroll view (`PaletteController.debugResultsScrollView`).
+    var resultsScrollView: NSScrollView { list }
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)

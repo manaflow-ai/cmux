@@ -1,4 +1,4 @@
-// The inputs and the counters of intent prewarm (p04-input-042/043/044), beside its state in IntentPrewarm.swift.
+// The inputs and the counters of intent prewarm, beside its state in IntentPrewarm.swift.
 
 /// The power inputs a prewarm reads. The composition root pushes Energy Saver's inputs
 /// (`EnergyMonitor.follow`) into the service's `power`; CmuxNextInput does not import CmuxNextEnergy.
@@ -31,7 +31,7 @@ public struct IntentPrewarmCounters: Sendable, Equatable {
     public var hits: [IntentPrewarmTrigger: Int] = [:]
     /// Prewarms cancelled by critical memory pressure.
     public var cancelledByPressure = 0
-    /// Key-step prewarms cancelled by a step the other way (p04-input-044).
+    /// Key-step prewarms cancelled by a step the other way.
     public var cancelledByDirection = 0
     /// Dwells and presses that started nothing because of Low Power Mode on battery.
     public var skippedForPower = 0

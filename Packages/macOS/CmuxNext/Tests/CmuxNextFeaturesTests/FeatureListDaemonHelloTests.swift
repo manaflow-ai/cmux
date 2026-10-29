@@ -1,7 +1,7 @@
 import CmuxNextFeatures
 import Testing
 
-/// The daemon features the app's `client-hello` sends (p12-perf-process-150) and their hash, which must
+/// The daemon features the app's `client-hello` sends and their hash, which must
 /// equal the daemon's `cmux_features::values_hash` (the Rust test `the_hash_is_fnv1a_of_the_ordered_values`).
 struct FeatureListDaemonHelloTests {
     @Test func theHashMatchesTheDaemonVector() {

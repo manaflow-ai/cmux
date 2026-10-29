@@ -10,7 +10,7 @@ import Testing
     @ObservationIgnored var reads = 0
 }
 
-/// Sleepy Mode's scene wakes only for what it shows (p14-energy-057): the HH:MM clock once a
+/// Sleepy Mode's scene wakes only for what it shows: the HH:MM clock once a
 /// minute, and the agent line when an observed agent fact changes. It used to run a
 /// once-a-second timeline that read the count and redrew both every second.
 @MainActor @Suite(.serialized) struct SleepySceneWakeTests {

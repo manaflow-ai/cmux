@@ -1,4 +1,4 @@
-// TypeEmitter's support files (p05-ipc-020): the typed ids, the opaque JSON
+// TypeEmitter's support files: the typed ids, the opaque JSON
 // value and the decoding helpers every generated file uses.
 
 /// A typed id of the naming map. A scalar member is this id, not a bare integer

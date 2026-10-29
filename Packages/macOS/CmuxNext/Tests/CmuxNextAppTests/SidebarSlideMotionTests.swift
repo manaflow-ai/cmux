@@ -4,10 +4,11 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// The sidebar's show and hide on the render server (chrome-parity p03-rendering-100, `motion.renderServer`
+/// The sidebar's show and hide on the render server (`motion.renderServer`
 /// on). The toggle's turn sets the width constant once and lays the window out once at rest, so the
 /// content takes its final size once, in that turn, while nothing is in pane motion (a terminal sends its
 /// final grid now, one grid per toggle); then additive `RenderSpring`s carry the clip, the panel, the
@@ -59,7 +60,7 @@ struct SidebarSlideMotionTests {
 
         init(renderServer: Bool) {
             _ = NSApplication.shared
-            root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
+            root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing(),
                                   slideHoldsContent: { true }, rendersMotionOnServer: { renderServer })
             window.isReleasedWhenClosed = false
             window.titlebarAppearsTransparent = true

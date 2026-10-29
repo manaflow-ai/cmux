@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// Visibility from the motion plan (chrome-parity p03-rendering-106): the pass at a change's apply reads where
+/// Visibility from the motion plan: the pass at a change's apply reads where
 /// each pane shows now and where it rests, so a pane that enters is visible in the change's turn and one that
 /// leaves stays visible until the motion lands; the frame that lands narrows to the rest. No display frame in
 /// between runs the pass (`debug.layout_counters` `update_visibility` <= 2 per spring, p03-rendering DC2), and

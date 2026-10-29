@@ -1,4 +1,4 @@
-//! A request's cause and QoS class, entered together (p06-scheduler-035).
+//! A request's cause and QoS class, entered together.
 //!
 //! Every place that runs a request on a thread enters a [`CauseScope`]: the
 //! connection reader, the dispatcher and its workers, an `origin` claim that
@@ -102,14 +102,14 @@ impl RequestQos {
     /// dispatcher's class, never at the class it would inherit (the echo
     /// class of a person's reader), and with the feature on runs at the
     /// class of the request's cause, as Chromium posts a task with the
-    /// priority of the work it serves (base/task/task_traits.h). `stack`
-    /// is its stack size in bytes, `None` for the platform default.
+    /// priority of the work it serves (base/task/task_traits.h). It runs
+    /// under the process's supervisor with the
+    /// platform's default stack.
     pub(crate) fn spawn_helper<F, T>(
         self,
         name: &str,
-        stack: Option<usize>,
         f: F,
-    ) -> std::io::Result<std::thread::JoinHandle<T>>
+    ) -> std::io::Result<crate::supervised::SupervisedThread<T>>
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
@@ -119,10 +119,13 @@ impl RequestQos {
             let _class = class.map(WorkQos::enter);
             f()
         };
-        match stack {
-            Some(bytes) => cmux_threads::spawn_with_stack(name, REQUEST_HELPER_QOS, bytes, body),
-            None => cmux_threads::spawn(name, REQUEST_HELPER_QOS, body),
-        }
+        crate::supervised::spawn_at(
+            name,
+            REQUEST_HELPER_QOS,
+            crate::supervised::Fatal,
+            crate::supervised::ShutdownBehavior::Continue,
+            body,
+        )
     }
 }
 

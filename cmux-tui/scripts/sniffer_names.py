@@ -53,7 +53,6 @@ SNIFFER_MODULES: frozenset[str] = frozenset(
         "debug_crash_inject.rs",
         "fs_wire.rs",
         "loopback_forward.rs",
-        "oracle_state_command.rs",
         "page_router.rs",
         "scripts.rs",
     }

@@ -167,7 +167,9 @@ struct PageFactory {
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
-        provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
+        provider.devicesWatching = { [weak services] on in
+            if on { services?.macScreenTabs.hubNeeded(); devices.beginWatching() } else { devices.endWatching() }
+        }
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
@@ -221,7 +223,7 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .settings)
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
-            BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
+            BackdropImagesPageProvider(images: images.images, files: services.work, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }

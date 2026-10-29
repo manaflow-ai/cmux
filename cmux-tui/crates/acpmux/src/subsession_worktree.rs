@@ -106,7 +106,11 @@ fn output_by(
     let stdin = match child.stdin.take().zip(input) {
         Some((mut stdin, input)) => {
             let writer = move || stdin.write_all(&input);
-            match crate::supervised::scoped_thread("acpmux-git-stdin", writer) {
+            match crate::supervised::scoped_thread(
+                "acpmux-git-stdin",
+                cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+                writer,
+            ) {
                 Ok(writer) => Some(writer),
                 Err(e) => {
                     let _ = child.kill();
@@ -131,13 +135,17 @@ fn output_by(
     ] {
         let tx = tx.clone();
         // One that cannot start drops its sender: the wait below ends in an error.
-        let _ = crate::supervised::scoped_thread("acpmux-git-output", move || {
-            let mut got = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut got);
-            }
-            let _ = tx.send((is_stdout, got));
-        });
+        let _ = crate::supervised::scoped_thread(
+            "acpmux-git-output",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut got = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut got);
+                }
+                let _ = tx.send((is_stdout, got));
+            },
+        );
     }
     drop(tx);
     let stop = |child: &mut std::process::Child| {
@@ -357,7 +365,11 @@ fn fetch_missing(
 /// [`remove_worktree`] on a thread of its own: the caller (a drop) does not wait for git.
 pub fn remove_worktree_in_background(folder: PathBuf, worktree: Worktree) {
     let remove = move || remove_worktree(&folder, &worktree);
-    if let Err(e) = crate::supervised::scoped_thread("acpmux-worktree-remove", remove) {
+    if let Err(e) = crate::supervised::scoped_thread(
+        "acpmux-worktree-remove",
+        cmux_threads::ThreadQos::Utility,
+        remove,
+    ) {
         tracing::warn!("a worktree that was not used stays: {e}");
     }
 }

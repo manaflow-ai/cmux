@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// Launch milestones by temperature and completion reasons (p08-startup-009): bucketed, split by
+/// Launch milestones by temperature and completion reasons: bucketed, split by
 /// temperature, interrupted launches left out of the durations, saved with the pending aggregate,
 /// off records nothing, a schema-3 report's JSON holds them and passes the leak scan, and a
 /// schema-2 report (what the server accepts today) never carries them.

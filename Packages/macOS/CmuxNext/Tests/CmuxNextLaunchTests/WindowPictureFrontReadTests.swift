@@ -7,7 +7,7 @@ import Foundation
 import Testing
 import UniformTypeIdentifiers
 
-/// The launch's read of the front window's picture (p08-startup-058), of the files the quit writes
+/// The launch's read of the front window's picture, of the files the quit writes
 /// (`WindowPictureStore.write`, p08-startup-057: `<profile>/<window>.heic|json`): read and decoded off the main
 /// thread, only the front window's in its profile's folder, nothing at all when no picture was saved, handed to
 /// the first frame once and never waited for, and dropped at startup complete when nobody took it.

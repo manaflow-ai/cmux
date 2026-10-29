@@ -41,8 +41,11 @@ test("the turn footer actions sit on the left, and Debug Settings can put them o
 });
 
 test("disclosure rows are keyed by their chat (#21344)", () => {
-  expect(app).toContain("<ToolRows row={row} sessionId={sessionId} />");
-  expect(app).toContain("<EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />");
+  // Each row renderer has its own module under rows/ (audit P10).
+  expect(read("rows/ToolActivityRow.tsx")).toContain("<ToolRows row={row} sessionId={sessionId} />");
+  expect(read("rows/EditedFilesRow.tsx")).toContain(
+    "<EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />",
+  );
 });
 
 test("the quick surface mounts the Chief Dock when its experiment is on (#21194)", () => {

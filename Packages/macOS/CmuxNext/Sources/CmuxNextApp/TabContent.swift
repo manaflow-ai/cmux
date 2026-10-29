@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -40,7 +41,7 @@ enum TabContent {
     }
 
     /// Hands the content's appearance readers the app's signals and its tab's node: Reduce Motion
-    /// and display option changes reach a hidden tab once, when it shows (p06-scheduler-043).
+    /// and display option changes reach a hidden tab once, when it shows.
     @MainActor func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode) {
         switch self {
         case .terminal(let entry): entry.session.view.followAppearance(signals, node: node)
@@ -51,7 +52,7 @@ enum TabContent {
     }
 
     /// Hands the content's gated SwiftUI (``VisibilityGatedHostingView``) its tab's node: it leaves the window
-    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`, p06-scheduler-214).
+    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`).
     @MainActor func followVisibility(_ node: VisibilityNode, services: AppServices) {
         guard services.features.isEnabled(.visibilityGatedHosting) else { return }
         let content: NSView? = switch self {
@@ -132,6 +133,9 @@ final class TerminalEntry {
     private(set) var themeKey: TerminalThemeKey
     /// A provisional view follows its tab's surface until the daemon's arrives (``TabContentCache/awaitConfirm(_:of:daemon:)``).
     var confirmation: ServiceObservation<Bool>?
+    /// The daemon terminal this view shows, whatever the daemon's generation (its `term_` id or the tab's content id,
+    /// else its surface handle): a replacement view of the same terminal keeps showing this one's frame (``TabContentCache/terminal(for:daemon:)``).
+    var terminalIdentity: String?
     weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
@@ -142,6 +146,15 @@ final class TerminalEntry {
     private let mainWork: MainWorkScheduler
     /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
     var textBox: TextBoxController?
+    /// A New Terminal Tab stand-in's link to its daemon tab: the terminal id its create chose and its daemon. The
+    /// daemon's tab carrying that id adopts this entry (`TabContentCache.adoptStandIn`), once. Nil for every other
+    /// terminal, and after the adoption.
+    var standIn: StandInLink?
+
+    struct StandInLink {
+        let terminal: TerminalID
+        weak var daemon: DaemonService?
+    }
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).

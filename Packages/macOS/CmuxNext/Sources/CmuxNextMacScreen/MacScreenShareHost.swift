@@ -1,5 +1,6 @@
 public import AppKit
 import ApplicationServices
+import CmuxNextCompatAppKit
 public import CmuxNextWakeups
 import CoreGraphics
 public import Observation

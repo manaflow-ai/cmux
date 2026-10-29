@@ -180,7 +180,7 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    /// This Mac's install id, kept once known (no file I/O per focus move): the launch's read has it (p08-startup-076).
+    /// This Mac's install id, kept once known (no file I/O per focus move): the launch's read has it.
     func localDeviceID() throws(CloudDeviceIDError) -> String {
         try deviceID.id()
     }

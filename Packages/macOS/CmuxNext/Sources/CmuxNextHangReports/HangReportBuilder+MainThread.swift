@@ -1,5 +1,5 @@
-/// The main-thread part of a report (p12-perf-process-043): `active_seconds` and the watchdog's
-/// main-turn and input-queueing histograms (p12-perf-process-031, `MainTurnHistogram` in
+/// The main-thread part of a report: `active_seconds` and the watchdog's
+/// main-turn and input-queueing histograms (`MainTurnHistogram` in
 /// CmuxNextControl) as two more ``IntervalHistogram`` entries in category
 /// ``HangReport/mainThreadCategory``, so the wire gains no histogram type. Counts and bucket edges
 /// only. A turn is Chromium's `kExecutionOnly` interval, input queueing the queue part of its

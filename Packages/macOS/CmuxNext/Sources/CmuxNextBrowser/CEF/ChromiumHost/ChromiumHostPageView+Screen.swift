@@ -45,7 +45,7 @@ extension ChromiumHostPageView {
             screenEvents = []
             return
         }
-        let events = WindowEvents.of(window, center: pageUpdateCenter)
+        let events = WindowEvents.of(window, center: windowEventCenter)
         let reread: @MainActor () -> Void = { [weak self] in self?.screenMayHaveChanged() }
         screenEvents = [
             events.subscribe(NSWindow.didChangeScreenNotification, owner: "ChromiumHostPageView.screen", reread),

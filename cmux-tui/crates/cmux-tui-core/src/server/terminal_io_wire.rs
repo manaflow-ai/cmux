@@ -1,4 +1,4 @@
-//! The `terminal-io` family's request params (p05-ipc-026), generated at build
+//! The `terminal-io` family's request params, generated at build
 //! time from spec/sdk-schema.json by cmux-ipc build.rs: one struct per command
 //! with fields, named `<Command>Params`. server.rs appends the family's
 //! `Command` variants with `cmux_ipc::server_command_enum!`.

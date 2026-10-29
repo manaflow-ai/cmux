@@ -402,8 +402,7 @@ done
 # the framework and the helpers. From its own Frameworks/<Product> Chromium
 # Host.app every helper failed to load the framework and the host aborted
 # (2026-10-24). Every configuration carries it: Release, RC and NIGHTLY sign it as
-# nested code before the app and notarize it with the app (sign-cef.sh, task
-# p01-process-088).
+# nested code before the app and notarize it with the app (sign-cef.sh).
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 # The remote shim goes with it: the shim ABI cmux loads instead of
 # libcmux_cef_shim.dylib in host mode (p01-process.md 3.2), from the same build.

@@ -58,7 +58,7 @@ pub(super) fn forward_mux_events(
         // retained while every event accepted before overflow is delivered.
         let next_session_events = event_source.events();
         {
-            let mut stop = stop_receiver.lock().unwrap();
+            let mut stop = stop_receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if tx.cancellation.stop.load(Ordering::Acquire) {
                 next_session_events.close();
                 return;
@@ -259,7 +259,7 @@ pub(super) struct RetainedMuxTitle {
 impl MuxTitleIngress {
     /// Returns true when the app channel needs one wake event.
     pub(super) fn push(&self, surface: SurfaceId, title: impl Into<Arc<str>>) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.epoch = state.epoch.saturating_add(1);
         let epoch = state.epoch;
         state.titles.insert(surface, RetainedMuxTitle { title: title.into(), epoch });
@@ -273,13 +273,13 @@ impl MuxTitleIngress {
     }
 
     pub(super) fn remove(&self, surface: SurfaceId) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.titles.remove(&surface);
         state.dirty.remove(&surface);
     }
 
     pub(super) fn take_dirty(&self) -> HashMap<SurfaceId, Arc<str>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.wake_queued = false;
         let dirty = std::mem::take(&mut state.dirty);
         dirty
@@ -291,16 +291,16 @@ impl MuxTitleIngress {
     }
 
     pub(super) fn snapshot(&self) -> HashMap<SurfaceId, Arc<str>> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.titles.iter().map(|(surface, retained)| (*surface, retained.title.clone())).collect()
     }
 
     pub(super) fn current_epoch(&self) -> u64 {
-        self.state.lock().unwrap().epoch
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).epoch
     }
 
     pub(super) fn rearm_wake(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.wake_queued = false;
         if state.dirty.is_empty() {
             false
@@ -311,7 +311,7 @@ impl MuxTitleIngress {
     }
 
     pub(super) fn reconcile_authoritative(&self, through_epoch: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.titles.retain(|_, retained| retained.epoch > through_epoch);
         let retained_surfaces = state.titles.keys().copied().collect::<HashSet<_>>();
         state.dirty.retain(|surface| retained_surfaces.contains(surface));
@@ -332,7 +332,7 @@ pub(super) struct PtyFailureIngressState {
 impl PtyFailureIngress {
     /// Returns true when the app channel needs one wake event.
     pub(super) fn push(&self, failure: PtyOperationFailure) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if failure.kind == Some(PtyInputKind::Motion)
             && let Some(existing) = state.failures.iter_mut().find(|existing| {
                 existing.kind == Some(PtyInputKind::Motion)
@@ -364,7 +364,7 @@ impl PtyFailureIngress {
     }
 
     pub(super) fn take(&self) -> VecDeque<PtyOperationFailure> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.wake_queued = false;
         std::mem::take(&mut state.failures)
     }

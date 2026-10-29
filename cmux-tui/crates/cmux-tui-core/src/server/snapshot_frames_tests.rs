@@ -1,4 +1,4 @@
-//! SNAPSHOT/SNAPSHOT_MORE/REPLAY frames (p05-ipc-077): on five fixture
+//! SNAPSHOT/SNAPSHOT_MORE/REPLAY frames: on five fixture
 //! terminals, every snapshot event (READY, history and images chunks, a
 //! local-history READY) and the `vt-state` replay, sent as frames through the
 //! connection's chunking writer and read back by the frame reader, equal the

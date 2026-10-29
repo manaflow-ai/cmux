@@ -1,4 +1,4 @@
-// cmux-page:// first-party pages through the Chromium Host (task p01-process-070), end to end: the
+// cmux-page:// first-party pages through the Chromium Host, end to end: the
 // real dispatcher (src/host_dispatch.mm, the generated cases) with a fake shim on one end of a
 // socket pair, the real remote shim (client/remote_shim.mm, loaded as the shared library cmux
 // loads) on the other.

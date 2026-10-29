@@ -4,8 +4,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+use cmux_threads::sync::Condvar;
 
 use super::super::dev_orphan_exit::{OrphanClock, OrphanFacts, OrphanWatch, WatchState};
 use super::*;

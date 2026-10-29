@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextSidebar/Views sweep, first half (plans/cmux-next/chrome-parity/p06-scheduler.md, task
-/// p06-scheduler-327, rule 9): one case per migrated owner class.
+/// The CmuxNextSidebar/Views sweep, first half (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 9): one case per migrated owner class.
 /// - Hidden: the Priority view's minute redraw is a deadline aligned on the sidebar's node, and a minute that comes
 ///   while the sidebar is hidden redraws once, on show, and wakes no more until then (R-timer, rule 4).
 /// - Visible: a shown sidebar's minute redraws in its wake and arms the next one.

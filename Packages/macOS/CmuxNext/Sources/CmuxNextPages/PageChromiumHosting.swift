@@ -40,7 +40,7 @@ public protocol PageChromiumHosting: AnyObject {
     func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void)
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
-    /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
+    /// (``ChromiumPageHostBridge/setUp(documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
     /// - Parameters:
@@ -65,7 +65,7 @@ public protocol PageChromiumHosting: AnyObject {
     func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void)
 }
 
-/// The Chromium window a page tab shows in (p13-webui-063): the page tabs of one cmux pane of one main
+/// The Chromium window a page tab shows in: the page tabs of one cmux pane of one main
 /// window share one, as a Chrome `Browser` holds every tab of its tab strip in one window
 /// (chrome/browser/ui/browser.h, `Browser::tab_strip_model`). A second page in the pane joins that
 /// window instead of building one. A page with none (the update card, the icon picker panel, a
@@ -88,14 +88,24 @@ public nonisolated struct PageChromiumWindow: Hashable, Sendable {
 /// One Chromium page the page host shows. The page host drives it only through this protocol
 /// (scripts through ``evaluate(_:)``, pictures through ``copySurface(maxPixelSize:done:)``, clicks
 /// and moves through ``sendClick(at:)`` and ``sendMouseMove(at:)``; the DevTools protocol,
-/// ``devTools(_:params:)``, only where the engine has no such path), so a CEF tab or a fake in tests both fit.
+/// ``devTools(_:params:)``, only where the engine has no such path), so a CEF tab or a fake in tests both
+/// fit. On the fork's renderer paths (``usesRendererPaths``) the page host opens no DevTools session at all.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
     var contentView: NSView { get }
-    /// Receives the page's raw DevTools protocol events and its load and crash events. Set it
-    /// before the first ``devTools(_:params:)`` call.
+    /// Receives the page's events: its load and crash events, its posts to the page host on the
+    /// page channel (``PageChromiumEvent/pageHostPost(_:sender:)``), and its raw DevTools protocol
+    /// events (none on renderer paths). Set it before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
+    /// The page runs on the fork's renderer paths (fork API 29, with the feature
+    /// `chromiumPageRendererPaths` on when Chromium started): its renderer already has the page
+    /// script and the shared document scripts in every `cmux-page:` main frame at document start,
+    /// its posts come as ``PageChromiumEvent/pageHostPost(_:sender:)``, its document events come from
+    /// the browser, and ``evaluate(_:)`` runs scripts. The page host then makes no
+    /// ``devTools(_:params:)`` call for setup, messages or typed edits: a DevTools agent keeps
+    /// Chromium from sharing the page's renderer. False otherwise.
+    var usesRendererPaths: Bool { get }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
@@ -161,7 +171,7 @@ public protocol PageChromiumPage: AnyObject {
     /// paths (fork API 29), so it makes no DevTools call there.
     func copySelection()
     /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
-    /// fork API 39) and the app turned it on (feature `pagePushChannel`).
+    /// fork API 43) and the app turned it on (feature `pagePushChannel`).
     var pushesToPage: Bool { get }
     /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
     /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
@@ -172,7 +182,7 @@ public protocol PageChromiumPage: AnyObject {
     /// - Parameter text: UTF-8 text, no NUL.
     func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
-    /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
+    /// agent: the fork's surface copy (`cmux_browser_capture`), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
     /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one

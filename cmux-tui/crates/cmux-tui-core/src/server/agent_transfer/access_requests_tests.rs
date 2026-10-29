@@ -1,5 +1,5 @@
 //! The `access-request*` frames decode through the one `cmd`-tagged
-//! `Command` enum that spec/sdk-schema.json types (p05-ipc-019): each schema'd
+//! `Command` enum that spec/sdk-schema.json types: each schema'd
 //! command is served, an unknown or command-bearing param and a non-string
 //! value are a bad request, and a null optional param is absent.
 

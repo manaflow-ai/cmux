@@ -1,5 +1,6 @@
 public import Foundation
 import Darwin
+import CmuxNextCompat
 
 /// Previous app versions kept for rollback (`updates.keepPreviousVersions`):
 /// `<root>/<build>/<App>.app`, cloned (APFS clonefile, no extra disk until
@@ -16,11 +17,10 @@ nonisolated public struct KeptVersionStore: Sendable {
 
     /// Keeps `bundle` as `build`, then prunes to the newest `limit`.
     public func keep(bundle: URL, build: String, limit: Int) throws {
-        let files = FileManager.default
         guard limit > 0 else { return prune(limit: 0) }
         let folder = root.appending(path: build, directoryHint: .isDirectory)
-        if files.fileExists(atPath: folder.path) { try files.removeItem(at: folder) }
-        try files.createDirectory(at: folder, withIntermediateDirectories: true)
+        if FileManager.checked.fileExists(atPath: folder.path) { try FileManager.checked.removeItem(at: folder) }
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appending(path: bundle.lastPathComponent)
         // Cloned under a name `list()` never reads, then renamed: a keep cut
         // short (the app exits for the update while it runs) never leaves a
@@ -29,19 +29,18 @@ nonisolated public struct KeptVersionStore: Sendable {
         // APFS clone of the whole tree; a plain copy where cloning fails
         // (another volume, an old file system).
         if clonefile(bundle.path, partial.path, 0) != 0 {
-            try files.copyItem(at: bundle, to: partial)
+            try FileManager.checked.copyItem(at: bundle, to: partial)
         }
-        try files.moveItem(at: partial, to: target)
+        try FileManager.checked.moveItem(at: partial, to: target)
         prune(limit: limit)
     }
 
     /// Kept versions, newest build first.
     public func list() -> [KeptVersion] {
-        let files = FileManager.default
-        guard let builds = try? files.contentsOfDirectory(atPath: root.path) else { return [] }
+        guard let builds = try? FileManager.checked.contentsOfDirectory(atPath: root.path) else { return [] }
         return builds.compactMap { build -> KeptVersion? in
             let folder = root.appending(path: build, directoryHint: .isDirectory)
-            guard let app = (try? files.contentsOfDirectory(atPath: folder.path))?.first(where: { $0.hasSuffix(".app") }) else { return nil }
+            guard let app = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path))?.first(where: { $0.hasSuffix(".app") }) else { return nil }
             let bundle = folder.appending(path: app, directoryHint: .isDirectory)
             let info = NSDictionary(contentsOf: bundle.appending(path: "Contents/Info.plist")) as? [String: Any] ?? [:]
             let schemas = (info["CmuxStoreSchemas"] as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.intValue }

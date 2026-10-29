@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// What the host's own socket to acpmux needs (``AgentPaneTransport``). It holds both tokens, so it
@@ -69,10 +70,10 @@ nonisolated enum AcpmuxLocalAppToken {
     }
 
     /// The token (64 lowercase hex characters, whitespace trimmed), or nil when the file is
-    /// missing, unreadable or malformed. Never cached; never logged. Runs on the caller's
-    /// executor: callers are off the main actor (``AcpmuxHost`` is an actor).
+    /// missing, unreadable or malformed. Never cached; never logged. It reads the disk on the
+    /// caller's thread: ``AcpmuxHost``'s own queue.
     public static func read(home: URL) -> String? {
-        guard let data = FileManager.default.contents(atPath: path(home: home).path), data.count <= 256 else { return nil }
+        guard let data = FileManager.checked.contents(atPath: path(home: home).path), data.count <= 256 else { return nil }
         let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.utf8.count == 64, text.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
         return text

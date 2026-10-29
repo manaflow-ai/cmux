@@ -1,4 +1,4 @@
-//! acpmux's periodic upkeep on one [`MaintenanceClock`] (p14-energy-034).
+//! acpmux's periodic upkeep on one [`MaintenanceClock`].
 //!
 //! The model catalog refresh (`catalog/`), the agent CLI health check
 //! (`hub/health_view.rs`) and the upload age-cap sweep

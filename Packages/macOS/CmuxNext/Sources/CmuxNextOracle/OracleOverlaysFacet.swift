@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The `overlays` facet (p15-oracle-038, schemas/oracle/snapshot-v1.schema.json `overlays`): the layers above each
+/// The `overlays` facet: the layers above each
 /// window's content, the palette, the dialog, the hover card and the find bar. The host reads them from the
 /// controllers that own them (never a view tree) in the snapshot's main-actor turn; this type orders them into the
 /// stack and gives them the schema's shape. Chromium's UI tests read the same from their owners: omnibox matches

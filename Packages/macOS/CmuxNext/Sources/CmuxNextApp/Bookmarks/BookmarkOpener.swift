@@ -44,7 +44,7 @@ struct BookmarkOpener {
 extension AppServices {
     /// The pane controller that shows tab `key`, in any window.
     func paneShowing(tab key: String) -> PaneController? {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         guard let (_, pane) = locateTab(key) else { return nil }
         return paneController(for: pane)
     }

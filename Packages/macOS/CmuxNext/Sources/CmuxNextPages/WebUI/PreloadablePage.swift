@@ -2,12 +2,12 @@ public import AppKit
 public import CoreGraphics
 
 /// A page the preload slot (``PagePreloadSlot``) can load ahead out of sight, park and hand to a tab:
-/// a cmux page (``PageWebView``, p13-webui-045) or the New Tab agent pane (p13-webui-044), on either
+/// a cmux page (``PageWebView``) or the New Tab agent pane, on either
 /// engine.
 ///
 /// The slot drives the page in Chrome's order (webui_contents_preload_manager.cc): it loads visible,
 /// so its resources and first paint run at once, then hides; a freeze comes only after the hide, and
-/// a thaw comes before the page is shown again (p13-webui-028). Every call is O(1) on the main actor
+/// a thaw comes before the page is shown again. Every call is O(1) on the main actor
 /// and none waits: the two callbacks run in a later turn.
 @MainActor
 public protocol PreloadablePage: AnyObject {

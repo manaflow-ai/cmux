@@ -17,7 +17,7 @@ import CmuxNextWakeups
 /// - With an armed deadline already due, it goes through (the timer may be firing now).
 /// - A delayed request is kept, with no wake, only while the armed deadline is in the future and
 ///   not later than the request's own. Both are uptime nanoseconds: a fork that reports absolute run
-///   times (p14-energy-046) is compared as sent, a whole-millisecond delay from the caller's now.
+///   times is compared as sent, a whole-millisecond delay from the caller's now.
 /// - A fork's "no delayed work" keeps nothing and wakes nothing: an armed fire then runs one pass that
 ///   finds nothing due.
 ///

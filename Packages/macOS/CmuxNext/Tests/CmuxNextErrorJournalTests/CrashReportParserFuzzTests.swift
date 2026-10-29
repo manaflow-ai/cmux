@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextErrorJournal
 
-/// p10-stability-029: the journal reads bytes other programs wrote (`.ips` crash and hang
+/// The journal reads bytes other programs wrote (`.ips` crash and hang
 /// reports, acpmux and Chief logs) and its own files, which a crash or a person can damage
 /// (`segment-*.ndjson`, the cursors in `cursors.json`). Any input gives events, nothing, a
 /// skipped line or a fresh start; never a trap and never a wait. Seeded property tests on
@@ -85,7 +85,7 @@ import Testing
         )
     }
 
-    /// One input of a parser, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of a parser, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         let directory = scratch

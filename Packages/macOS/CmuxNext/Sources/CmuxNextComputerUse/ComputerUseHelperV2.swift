@@ -270,10 +270,16 @@ public final class ComputerUseHelperV2 {
         controlLog?.cancel()
         controlLog = nil
         child.closeInput()
-        let spawner = self.spawner
+        await Self.terminate(child.pid, after: exitGrace, spawner: spawner, clock: clock)
+    }
+
+    /// SIGTERM to `pid` when it still runs `grace` after its stdin closed: off main, so the wait wakes no main job.
+    @concurrent nonisolated static func terminate(_ pid: pid_t, after grace: Duration, spawner: any ComputerUseHelperV2Spawning,
+                                                  clock: any Clock<Duration>) async {
         // wakeup-allow: deadline of the grace before SIGTERM: a step stop() awaits in order, not a DemandTimer
-        try? await clock.sleep(for: exitGrace, tolerance: WakeLeeway.window(delay: exitGrace).tolerance)
-        if kill(child.pid, 0) == 0 { spawner.terminate(child.pid) }
+        // timer-class-allow: off main (@concurrent): one grace before SIGTERM of the helper's exact pid; it posts no main-thread job
+        try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
+        if kill(pid, 0) == 0 { spawner.terminate(pid) }
     }
 
     /// App quit: close the helper's stdin now (it exits on EOF; the kernel
@@ -397,22 +403,14 @@ public final class ComputerUseHelperV2 {
     /// The `socket` of the helper's first `ready` line, or nil after `within`.
     nonisolated static func readySocket(of child: ComputerUseHelperV2Child, within: Duration,
                                         clock: any Clock<Duration>) async -> String? {
-        await withTaskGroup(of: String?.self) { group in
-            group.addTask {
-                for await line in child.lines {
-                    if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
-                       object["type"] as? String == "ready" { return object["socket"] as? String }
-                }
-                return nil
+        // The read races the limit (R-timer's Deadline helper): the loser is cancelled, and nothing waits for it.
+        let socket: String?? = await Deadline(within, clock: clock).value("computer-use-v2.ready") {
+            for await line in child.lines {
+                if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
+                   object["type"] as? String == "ready" { return object["socket"] as? String }
             }
-            group.addTask {
-                // wakeup-allow: deadline of the helper's ready line: a task-group race with the read, not a DemandTimer
-                try? await clock.sleep(for: within, tolerance: WakeLeeway.window(delay: within).tolerance)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            return nil
         }
+        return socket ?? nil
     }
 }

@@ -2,7 +2,7 @@ import CmuxNextControl
 import CmuxNextInputCore
 import Testing
 
-/// The off-main half of input latency (p04-input-002): batches handed over without waiting are
+/// The off-main half of input latency: batches handed over without waiting are
 /// folded on the reporter's reader, a snapshot sees every accepted batch, and a batch a full
 /// stream pushes out (or one sent after the end) counts as dropped.
 @Suite struct InputLatencyReporterTests {
@@ -63,7 +63,7 @@ import Testing
     }
 
     @Test func theFieldReportCountsOnlyWhileOnAndACommittedTakeStartsOver() async {
-        // p04-input-010: the opt-in report's own ledger; debug.input's reset never changes it.
+        // The opt-in report's own ledger; debug.input's reset never changes it.
         let reporter = InputLatencyReporter()
         let reader = Task.detached(priority: .utility) { await reporter.run() }
         reporter.submit(Self.batch(2, droppedTotal: 1))

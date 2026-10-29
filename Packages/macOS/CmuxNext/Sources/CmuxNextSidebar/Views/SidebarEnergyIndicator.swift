@@ -4,7 +4,7 @@ public import CmuxNextWakeups
 
 extension SidebarView {
     /// Shows Energy Saver's leaf while the policy of `deadlines`' scheduler (`MainWorkScheduler.energy`)
-    /// is in the saver (p14-energy-026). `deadlines` is the app's one deadline scheduler: the card's close
+    /// is in the saver. `deadlines` is the app's one deadline scheduler: the card's close
     /// grace runs on it. `batteryPercent` reads the battery's charge for the low-battery card line (the
     /// App's one energy monitor); the card reads it when it opens, nothing polls it. The App calls this
     /// once per sidebar.
@@ -29,7 +29,7 @@ extension SidebarView {
     }
 }
 
-/// Energy Saver's leaf in the sidebar footer (p14-energy-026): a leaf glyph at the trailing end of
+/// Energy Saver's leaf in the sidebar footer: a leaf glyph at the trailing end of
 /// the footer's first line while the saver is on, and nothing at all while it is off. Pointing at it
 /// or clicking it shows a card in the app's one hover card window with why the saver is on and
 /// "Turn Off for Now". Full Keyboard Access reaches the leaf (Tab, then Space) and VoiceOver presses
@@ -55,7 +55,7 @@ final class SidebarEnergyIndicator: NSView {
     let card = SidebarEnergyCardView()
     /// The coordinator of the app's one hover card window (the App injects it into the sidebar).
     var hoverCards: () -> HoverCardCoordinator? = { nil }
-    /// "Turn Off for Now" was pressed: the App runs `energy.saver.turnOffForNow` (p14-energy-025).
+    /// "Turn Off for Now" was pressed: the App runs `energy.saver.turnOffForNow`.
     var onTurnOffForNow: (() -> Void)?
     /// The battery's charge in percent, read when the card opens or its content changes (the App
     /// reads its one energy monitor); nil names no number.

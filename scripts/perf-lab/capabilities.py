@@ -70,8 +70,7 @@ SWIFT_SOURCES = f":(glob){SOURCES}/**/*.swift"
 
 # The -D flags of each build config (scripts/reload.sh --config: bench is Release + CMUX_BENCH_HOOKS with no DEBUG,
 # bench-checks adds CMUX_BLOCKING_CHECKS). A flag that is not listed is unknown to the lab: its blocks stay in.
-_OFF = {"DEBUG": False, "CMUX_BENCH_HOOKS": False, "CMUX_BLOCKING_CHECKS": False, "CMUX_PGO_PROFILE": False,
-        "CMUX_UI_LAYER_PREVIEW": False}
+_OFF = {"DEBUG": False, "CMUX_BENCH_HOOKS": False, "CMUX_BLOCKING_CHECKS": False, "CMUX_UI_LAYER_PREVIEW": False}
 CONFIG_FLAGS: dict[str, dict[str, bool]] = {
     "debug": {**_OFF, "DEBUG": True, "CMUX_UI_LAYER_PREVIEW": True},
     "bench": {**_OFF, "CMUX_BENCH_HOOKS": True},

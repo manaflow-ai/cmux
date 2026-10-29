@@ -25,7 +25,7 @@ import os
 /// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
 /// main connection as before, with a logged warning that they are not narrowed.
 ///
-/// The page host keeps the channels (``WebUIHost/relayChannels``, p13-webui-066), and a channel
+/// The page host keeps the channels (``WebUIHost/relayChannels``), and a channel
 /// holds its daemon connection only while it is used: ``PageRelayIdleClose/delay`` after its last
 /// listener and call end, it closes it, and the next call or listen opens a new one. A frozen page
 /// pauses its listeners (``PageRelayStreams``), so the daemon has no page-relay client for pages

@@ -36,13 +36,13 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
         guard let page = await agentReadyPage(tab) else { return false }
         if !page.agentRelay.hasBrowser { page.agentRelay.createBrowser() }
         let created = await page.agentRelay.browserCreated()
-        if created { keepRendering(targetID) }
+        if created { keepRendering(targetID: targetID) }
         return created
     }
 
     /// A driven Chromium tab whose pane window is in no app window renders
     /// in the off-screen render window (``AgentRenderWindows``).
-    private func keepRendering(_ targetID: String) {
+    func keepRendering(targetID: String) {
         guard let services, let renderWindows, let entry = services.cache.existingBrowser(targetID),
               let page = entry.tab as? CEFTab, page.agentRelay.needsRenderWindow else { return }
         _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome, webView: nil)
@@ -111,12 +111,18 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
 
     func send(targetID: String, message: String) -> CEFDevToolsRawSend {
         // A pane that showed the tab may have let it go since the last call.
-        if relayed[targetID]?.page?.agentRelay.needsRenderWindow == true { keepRendering(targetID) }
+        if relayed[targetID]?.page?.agentRelay.needsRenderWindow == true { keepRendering(targetID: targetID) }
         return relayed[targetID]?.page?.agentRelay.send(message) ?? .noBrowser
     }
 
     func stopRelay(targetID: String) {
         relayed.removeValue(forKey: targetID)?.page?.agentRelay.set(onMessage: nil, onEnd: nil)
+    }
+
+    /// A prepared tab whose page the Chromium Host relays to the browser host itself: its
+    /// raw DevTools never pass this relay, so its sends cost the main thread nothing.
+    func directTarget(targetID: String) -> CEFAgentDirectTarget? {
+        (services?.cache.existingBrowser(targetID)?.tab as? CEFTab)?.agentRelay.directTarget
     }
 }
 

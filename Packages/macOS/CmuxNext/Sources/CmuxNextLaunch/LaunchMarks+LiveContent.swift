@@ -1,4 +1,4 @@
-/// The launch's first live content frame (p08-startup-002): a pane's first frame of its own live content in a
+/// The launch's first live content frame: a pane's first frame of its own live content in a
 /// visible window, not a saved picture. The first of them is also `first_live_content_frame`, Chrome's
 /// `RecordFirstWebContentsNonEmptyPaint` (components/startup_metric_utils/browser/startup_metric_utils.h).
 ///

@@ -2,10 +2,12 @@ import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p13-webui-078: a Chromium page's pictures (window image, cover snapshot, debug snapshot), debug
+/// A Chromium page's pictures (window image, cover snapshot, debug snapshot), debug
 /// click and hover, menu Copy and selected text go through the engine's paths that attach no DevTools agent
 /// (the fork's surface copy, native click and move, and `tabEvaluate`), because one DevTools agent ends
 /// main-frame renderer reuse for the whole browser. DevTools stays only where the engine has no such
@@ -27,7 +29,7 @@ struct PageChromiumDevToolsFreeTests {
 
     private func started() async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = NSRect(x: 0, y: 0, width: 30, height: 20)
@@ -119,7 +121,7 @@ struct PageChromiumDevToolsFreeTests {
     }
 
     /// A debug hover is the native mouse move at the element's CSS center times the zoom, says so, and
-    /// counts only once the page reports `:hover`; with no native move (a fork before API 38) it is a
+    /// counts only once the page reports `:hover`; with no native move (a fork before API 40) it is a
     /// DevTools `mouseMoved`, reported as DevTools.
     @Test func aDebugHoverIsTheNativeMouseMove() async throws {
         defer { try? FileManager.default.removeItem(at: root) }

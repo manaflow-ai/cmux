@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 import Foundation
 
-/// The daemon's capabilities and its socket, for callers that open their own connection.
+/// The daemon's capabilities, its control connection and its socket.
 extension DaemonService {
     /// The current (or last) daemon's identity. The store owns it and
     /// replaces it on every handshake, so capabilities follow a daemon that
@@ -12,12 +12,20 @@ extension DaemonService {
         store.supports(capability)
     }
 
-    /// The socket for dedicated terminal attachments (re-read on reconnect).
+    /// The socket for callers that open a connection of their own (re-read on reconnect).
     public func endpoint() async throws -> DaemonEndpoint {
+        guard let endpoint = try await machineConnection().endpoint else { throw DaemonError.notConnected }
+        return endpoint
+    }
+
+    /// This machine's control connection, which its terminal views attach on (`TerminalAttachment.attach(on:)`):
+    /// as streams when the connection streams terminals, else each on a connection of its own to
+    /// the connection's current endpoint. Waits for the first connect while the service starts.
+    public func machineConnection() async throws -> DaemonConnection {
         if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
         if connection == nil, startup == .connecting, isStarting { await firstConnection() }
-        guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
-        return endpoint
+        guard let connection else { throw DaemonError.notConnected }
+        return connection
     }
 }
 

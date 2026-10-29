@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// A split on the render server (chrome-parity p03-rendering-022a, `motion.renderServer` on): Cmd-D
+/// A split on the render server (`motion.renderServer` on): Cmd-D
 /// puts every pane it moves at its rest frame in the key's turn, its content told its rest size first,
 /// and Core Animation shows the panes springing there from where they showed. No CPU spring steps, the
 /// window's MotionClock never runs for it, the landing runs once, Reduce Motion lands in the turn, and
@@ -258,7 +258,7 @@ struct SplitRenderMotionTests {
     }
 
     /// A zoom before the split lands: the split's render-server springs come back to the CPU frames and the
-    /// zoom takes the zooming pane on from what shows, on the render server too (p03-rendering-027); its
+    /// zoom takes the zooming pane on from what shows, on the render server too; its
     /// content hears one landing, when the zoom lands.
     @Test func aZoomBeforeTheSplitLandsSettlesOnceWhenTheZoomLands() async throws {
         try await Self.withMotion {

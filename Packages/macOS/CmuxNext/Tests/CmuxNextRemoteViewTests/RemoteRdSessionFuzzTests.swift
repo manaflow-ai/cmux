@@ -7,7 +7,7 @@ import Testing
 /// by ``RemoteRdStreamSplitter``, pushed into the shared Rust core
 /// (``RemoteRdSession``, cmux-rd-ffi), then access units, messages, control JSON
 /// and feedback taken out through the Swift side of the C ABI. Seeded property
-/// tests on CmuxFuzzSupport (p10-stability-024; long mode: CMUX_FUZZ_SECONDS):
+/// tests on CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS):
 ///
 /// - a host's valid stream (video frames in one or more shards, `cmux.rd/1`
 ///   layout from cmux-rd-proto datagram.rs and frame.rs, control frames and
@@ -18,7 +18,7 @@ import Testing
 ///   bounded by what went in: no access unit or message larger than the bytes
 ///   pushed, no more of them than stream frames pushed.
 @Suite nonisolated struct RemoteRdSessionFuzzTests {
-    /// One input, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try SessionCase(&rng).check(&rng)

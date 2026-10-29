@@ -37,7 +37,7 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
 
     /// This host in the visibility tree (recipe R-hide, ``ViewVisibility``): under its window's node,
     /// hidden while the host is hidden or in no window. The app polls GitHub only while one feed host's
-    /// node is visible (p14-energy-066b). A theme change while it is hidden resolves the colors once, on show.
+    /// node is visible. A theme change while it is hidden resolves the colors once, on show.
     private let visibility: ViewVisibility
     public var visibilityNode: VisibilityNode { visibility.node }
 

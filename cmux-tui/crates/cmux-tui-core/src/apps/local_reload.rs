@@ -9,6 +9,7 @@
 //! host never takes the daemon down. The customization app installs itself
 //! with its required scopes when it first appears (the user wrote it).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ use serde_json::json;
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
 use super::supervisor::{Out, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
@@ -41,12 +43,18 @@ impl Supervisor {
         let local = self.config.sources.local.clone();
         let customize = self.config.sources.customize.clone();
         let prints = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             local_prints(inner.catalog.packages.values())
         };
-        let spawned = std::thread::Builder::new()
-            .name("apps-local-reload".into())
-            .spawn(move || watch(&me, local, customize, prints));
+        let spawned = supervised::spawn_at(
+            "apps-local-reload",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                watch(&me, local, customize, prints);
+            },
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }
@@ -68,7 +76,7 @@ impl Supervisor {
             return next;
         }
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let mut outs = Vec::new();
             for (dir, issue) in &catalog.rejected {
                 if is_local_dir(&self.config.sources, dir) {

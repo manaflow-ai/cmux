@@ -19,7 +19,7 @@ extension ScreenContentView {
     }
 
     /// The offset `pane`'s host is laid out at in its area: the area's pan base while a pan shows on the
-    /// area's container (p04-input-050), else ``areaOffset(of:)``.
+    /// area's container, else ``areaOffset(of:)``.
     func areaLayoutOffset(of pane: PaneID) -> CGFloat {
         baseGeometry.scrollAreaOfPane[pane].flatMap { areaScrolls[$0]?.layoutOffset } ?? 0
     }

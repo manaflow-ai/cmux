@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::key_text;
 use crate::hub::{Hub, Session};
+use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// The longest preview sent, in characters: one sidebar line and some.
@@ -85,8 +86,8 @@ pub fn activity_fields(session: &Session) -> Value {
 pub fn activity_change(hub: &Hub, session: &Session) -> Option<Value> {
     let key = session_chat_key(session)?;
     let mut change = hub.chat_activity_fields(session);
-    change["kind"] = json!("activity");
-    change["key"] = json!(key_text(&key));
+    change.set("kind", json!("activity"));
+    change.set("key", json!(key_text(&key)));
     Some(change)
 }
 
@@ -122,7 +123,7 @@ impl Hub {
             }
             Err(_) => parent,
         });
-        fields["parent"] = json!(parent);
+        fields.set("parent", json!(parent));
         fields
     }
 

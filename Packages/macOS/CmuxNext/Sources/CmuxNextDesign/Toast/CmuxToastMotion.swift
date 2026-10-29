@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// How a toast arrives, restacks and leaves (cx-f6i7). It rises from the
 /// window's bottom edge, where toasts live, as it fades in; when a toast

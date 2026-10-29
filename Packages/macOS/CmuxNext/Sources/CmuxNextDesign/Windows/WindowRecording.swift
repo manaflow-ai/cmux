@@ -54,9 +54,9 @@ public nonisolated final class WindowRecording: Sendable {
                 return series.times.count - 1
             }
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
-            guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+            guard let dest = blockingImageDestination(url: url as CFURL, type: UTType.jpeg.identifier as CFString, count: 1) else { return }
             CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-            CGImageDestinationFinalize(dest)
+            _ = blockingImageDestinationFinalize(dest)
         }
         return true
     }

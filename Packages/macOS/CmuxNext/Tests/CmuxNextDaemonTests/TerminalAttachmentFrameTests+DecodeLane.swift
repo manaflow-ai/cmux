@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 extension TerminalAttachmentFrameTests {
-    /// An attach connection's reader only routes (p05-ipc-144): a snapshot or a replay always decodes on the
+    /// An attach connection's reader only routes: a snapshot or a replay always decodes on the
     /// connection's decode lane, a small output inline while the lane is idle, and an output behind a snapshot still
     /// reaches the view after it.
     @Suite(.serialized, .timeLimit(.minutes(1))) struct DecodeLaneRouting {

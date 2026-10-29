@@ -1,4 +1,4 @@
-//! p02-threads-221: requests whose work waits on another thread answer from
+//! Requests whose work waits on another thread answer from
 //! that work, never by waiting on their request thread. Each test runs the
 //! request on a thread that disallows blocking, in the detector's panic mode.
 

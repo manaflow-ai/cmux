@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// Work an action starts off main keeps the action's scopes (p06-scheduler-310, R-hop). A
+/// Work an action starts off main keeps the action's scopes (R-hop). A
 /// `BackgroundWork.task` is detached and inherits no task local, and the main steps it posts run
 /// outside any task tree, so the personal group commit and the incognito create carry the caller's
 /// ``DaemonCommandScope`` and ``ActionRunScope`` across the hop: `action.run` waits for what they

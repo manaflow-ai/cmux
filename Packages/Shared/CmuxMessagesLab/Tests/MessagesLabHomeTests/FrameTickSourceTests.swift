@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import MessagesLabHome
 
-/// FrameTick's frames come from the host's ``FrameTickSource`` (p14-energy-050): CmuxNext passes its
+/// FrameTick's frames come from the host's ``FrameTickSource``: CmuxNext passes its
 /// FrameScheduler, so the controller makes no display link of its own. Work waits for the source's
 /// next frame, runs at its start, and the stream stops on the first frame that finds no work.
 @MainActor @Suite struct FrameTickSourceTests {

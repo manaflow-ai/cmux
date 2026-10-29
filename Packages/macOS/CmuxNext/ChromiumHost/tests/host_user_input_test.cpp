@@ -1,5 +1,5 @@
 // Checks the host's input queue choice and event time scope
-// (ChromiumHost/src/host_user_input.h, task p04-input-065;
+// (ChromiumHost/src/host_user_input.h;
 // scripts/cmux-next/tests/chromium-host-wire.test.sh).
 #include <cstdio>
 #include <functional>

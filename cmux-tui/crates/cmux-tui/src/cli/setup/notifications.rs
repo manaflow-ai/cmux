@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 use super::super::GlobalArgs;
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 
 const TASK: &str = "notifications";
 
@@ -47,90 +48,94 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "user_action": Value::Null,
     });
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.insert("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let before = match read(global) {
         Ok(status) => status,
         Err(action) => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
-    report["before"] = before.clone();
-    if before["authorization"] != "not_determined" {
+    report.insert("before", before.clone());
+    if before.field("authorization") != "not_determined" {
         let action = next_step(&before);
-        report["state"] = json!(if action.is_some() { "needs_user" } else { "ok" });
-        report["after"] = before;
-        report["user_action"] = action.unwrap_or(Value::Null);
+        report.insert("state", json!(if action.is_some() { "needs_user" } else { "ok" }));
+        report.insert("after", before);
+        report.insert("user_action", action.unwrap_or(Value::Null));
         return Ok(Outcome { report, failed: false });
     }
     if dry_run {
-        report["state"] = json!("planned");
+        report.insert("state", json!("planned"));
         set_undo(&mut report, &before);
         return Ok(Outcome { report, failed: false });
     }
     eprintln!("cmux: setup notifications: waiting for the person to allow notifications for cmux");
-    let after = match super::super::mcp::agent_app(
-        global,
-        REQUEST_METHOD,
-        json!({}),
-        APPROVAL_TIMEOUT,
-        None,
-    ) {
-        Ok(status) => status,
-        // The app bounds the prompt (600 s): left unanswered, it ends `timeout`.
-        Err(error) if error["code"] == "timeout" => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = json!({
+    let after =
+        match super::super::mcp::agent_app(
+            global,
+            REQUEST_METHOD,
+            json!({}),
+            APPROVAL_TIMEOUT,
+            None,
+        ) {
+            Ok(status) => status,
+            // The app bounds the prompt (600 s): left unanswered, it ends `timeout`.
+            Err(error) if error.field("code") == "timeout" => {
+                report.insert("state", json!("needs_user"));
+                report.insert("user_action", json!({
                 "kind": "declined",
                 "text": "Notifications were not allowed: the person did not answer the macOS \
                          prompt in time; ask the person before running `cmux setup \
                          notifications` again",
                 "command": Value::Null,
                 "url": Value::Null,
-            });
-            return Ok(Outcome { report, failed: false });
-        }
-        // macOS failed the request itself: nothing for the person to do.
-        Err(error) if error["code"] == "internal_error" => {
-            report["state"] = json!("failed");
-            report["error"] = error;
-            return Ok(Outcome { report, failed: true });
-        }
-        Err(error) => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = app_problem(&error);
-            return Ok(Outcome { report, failed: false });
-        }
-    };
-    report["after"] = after.clone();
-    match after["authorization"].as_str().unwrap_or_default() {
+            }));
+                return Ok(Outcome { report, failed: false });
+            }
+            // macOS failed the request itself: nothing for the person to do.
+            Err(error) if error.field("code") == "internal_error" => {
+                report.insert("state", json!("failed"));
+                report.insert("error", error);
+                return Ok(Outcome { report, failed: true });
+            }
+            Err(error) => {
+                report.insert("state", json!("needs_user"));
+                report.insert("user_action", app_problem(&error));
+                return Ok(Outcome { report, failed: false });
+            }
+        };
+    report.insert("after", after.clone());
+    match after.field("authorization").as_str().unwrap_or_default() {
         // Allowed, with banners off: the grant still has its undo.
         "authorized" | "provisional" if next_step(&after).is_some() => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = next_step(&after).unwrap_or(Value::Null);
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", next_step(&after).unwrap_or(Value::Null));
             set_undo(&mut report, &before);
         }
         "authorized" | "provisional" => {
-            report["state"] = json!("changed");
+            report.insert("state", json!("changed"));
             set_undo(&mut report, &before);
         }
         "denied" => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = json!({
-                "kind": "declined",
-                "text": "The person did not allow notifications for cmux; ask them before \
-                         running `cmux setup notifications` again (macOS shows its prompt only \
-                         once: after that it is their switch in System Settings)",
-                "command": Value::Null,
-                "url": Value::Null,
-            });
+            report.insert("state", json!("needs_user"));
+            report.insert(
+                "user_action",
+                json!({
+                    "kind": "declined",
+                    "text": "The person did not allow notifications for cmux; ask them before \
+                             running `cmux setup notifications` again (macOS shows its prompt only \
+                             once: after that it is their switch in System Settings)",
+                    "command": Value::Null,
+                    "url": Value::Null,
+                }),
+            );
         }
         _ => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = next_step(&after).unwrap_or(Value::Null);
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", next_step(&after).unwrap_or(Value::Null));
         }
     }
     Ok(Outcome { report, failed: false })
@@ -144,7 +149,7 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
     match read(global) {
         Ok(status) => {
             let action = next_step(&status);
-            let state = match (&action, status["authorization"].as_str()) {
+            let state = match (&action, status.field("authorization").as_str()) {
                 (_, Some("not_determined")) => "needs_setup",
                 (Some(_), _) => "needs_user",
                 (None, _) => "ok",

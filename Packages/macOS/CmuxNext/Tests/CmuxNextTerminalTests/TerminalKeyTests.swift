@@ -5,7 +5,7 @@ import Testing
 
 /// A Command or Control chord that `performKeyEquivalent` passed on comes back to `keyDown`, whose
 /// `interpretKeyEvents` may end in `doCommand`: that re-sends the key down being interpreted, stored at
-/// `keyDown` (p04-input-068, DC7), never AppKit's current event, which after the key's dispatch is
+/// `keyDown` (DC7), never AppKit's current event, which after the key's dispatch is
 /// whatever came last.
 @MainActor @Suite(.serialized)
 struct TerminalKeyTests {

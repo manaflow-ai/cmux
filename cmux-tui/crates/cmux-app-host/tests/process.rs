@@ -145,7 +145,7 @@ mod apps {
         assert_eq!(host.child.wait().expect("wait").code(), Some(0));
     }
 
-    /// p09-observability-095: the host maps its black box before it enters
+    /// The host maps its black box before it enters
     /// the sandbox (which refuses opening files), so a sandboxed host that
     /// serves has its ring file, with its pid and role.
     #[test]

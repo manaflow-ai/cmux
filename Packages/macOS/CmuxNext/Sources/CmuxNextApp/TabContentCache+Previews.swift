@@ -15,12 +15,12 @@ extension TabContentCache {
     /// page on screen is pictured on demand when its version moved since its
     /// last picture (once per navigation or load); a hidden one returns its
     /// last picture (the engine cannot picture it; nil: the card shows its
-    /// placeholder). `captureIfMissing` (a tab drag) also pictures a hidden
-    /// page that has none.
+    /// placeholder). `captureIfMissing` (a tab drag) also asks for a hidden
+    /// page that has none (Chromium gives none of a hidden page).
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
             guard entry.session.showsOutput else { return nil } // a new shell's prompt: nothing to picture
-            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(await previews.picture(of: image), for: key); return image }
+            if let image = await entry.session.shownFrameInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(await previews.picture(of: image), for: key); return image }
         } else if let image = await lastFrames[key]?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             return image // an evicted terminal: its last frame, pictured on demand
         }
@@ -44,16 +44,20 @@ extension TabContentCache {
     /// starts on the main thread, so it happens once here, on leave, and
     /// never on a hover; the image is scaled off the main thread and kept
     /// in `pageThumbnails` only while this hide is still the tab's latest
-    /// transition and the tab still has this page.
+    /// transition and the tab still has this page. The engine is asked in this
+    /// turn, before the conceal hides the page: Chromium pictures only a shown
+    /// page, and a copy of a hidden one crashed it (P0 #1, 2026-10-28).
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
-        guard keepsPageThumbnails else { return }
+        guard keepsPageThumbnails, pageCapturesInFlight.insert(key).inserted else { return }
+        let request = entry.tab.beginThumbnail(), version = Self.pageVersion(entry)
         // The capture awaits the engine: the task is nonisolated, and the capture's main steps are the engine's.
-        Task { @concurrent [weak self] in await self?.capturePagePreviewNow(entry, key: key, token: token) }
+        Task { @concurrent [weak self] in await self?.capturePagePreviewNow(request, version: version, entry: entry, key: key, token: token) }
     }
 
-    /// The capture ``capturePagePreview(_:key:token:)`` starts, kept only while `token` is the tab's latest transition.
-    private func capturePagePreviewNow(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) async {
-        _ = await capturePage(entry, key: key) { [weak self] in
+    /// The capture ``capturePagePreview(_:key:token:)`` started, kept only while `token` is the tab's latest transition.
+    private func capturePagePreviewNow(_ request: BrowserPictureRequest, version: Int, entry: BrowserEntry, key: String,
+                                       token: ContentLifecycle<String>.Token) async {
+        _ = await finishPageCapture(request, version: version, key: key) { [weak self] in
             guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
                 self?.trace(key, "preview \(token) dropped (stale)")
                 return false
@@ -76,10 +80,16 @@ extension TabContentCache {
     /// without a version, so the next leave or hover tries again.
     private func capturePage(_ entry: BrowserEntry, key: String, accepts: @escaping () -> Bool) async -> CGImage? {
         guard pageCapturesInFlight.insert(key).inserted else { return nil }
+        return await finishPageCapture(entry.tab.beginThumbnail(), version: Self.pageVersion(entry), key: key, accepts: accepts)
+    }
+
+    /// Awaits a capture `key` has in flight (asked for at page `version`) and keeps it when `accepts`; then ends it.
+    private func finishPageCapture(_ request: BrowserPictureRequest, version: Int, key: String,
+                                   accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
-        let page = entry.tab, version = Self.pageVersion(entry), budget = pageCaptureDeadline
+        let budget = pageCaptureDeadline
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
-            try await page.thumbnail()
+            try await request.image()
         }) else { return nil }
         let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
         let picture = await pageThumbnails.picture(of: fitted)
@@ -117,7 +127,7 @@ extension TabContentCache {
     }
 }
 
-/// The browser pages' pictures from the last quit (`BrowserLaunchPictures`, p08-startup-043): saved at quit for
+/// The browser pages' pictures from the last quit (`BrowserLaunchPictures`): saved at quit for
 /// the pages on screen, drawn over their panes at launch until each page shows its first content.
 extension TabContentCache {
     /// Uses the launch's read of the pictures when the feature `browserLaunchPictures` is on, and drops the ones no

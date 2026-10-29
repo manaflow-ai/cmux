@@ -24,7 +24,7 @@ enum CoalesceKey: Hashable {
     }
 }
 
-/// One daemon transaction as the drain cuts a batch (p06-scheduler-223, ``DrainTail``), which it never
+/// One daemon transaction as the drain cuts a batch (``DrainTail``), which it never
 /// splits across tasks or frames: close twelve panes and their layout change never show half applied.
 /// The daemon emits a request's events in a row but tags only some of them with the client's
 /// `transaction` (a browser create's `screen-added` and `layout-changed` go untagged, its `tab-added`
@@ -66,8 +66,8 @@ struct TransactionRun {
 }
 
 extension DaemonEvent {
-    /// A connection change or an event that asks for a snapshot: the drain applies it in its frame
-    /// (p06-scheduler-223), as it does the snapshot that follows; the drain's tail never holds it.
+    /// A connection change or an event that asks for a snapshot: the drain applies it in its frame,
+    /// as it does the snapshot that follows; the drain's tail never holds it.
     var drainsInFrame: Bool {
         switch self {
         case .connected, .disconnected, .daemonShutdown, .overflow, .treeChanged, .layoutChanged(_, .none, _): true

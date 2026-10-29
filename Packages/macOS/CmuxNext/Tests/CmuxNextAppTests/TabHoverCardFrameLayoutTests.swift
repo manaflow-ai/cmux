@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// p03-rendering-073: the tab hover card lays out by frames from ``TabHoverCardLayout``, a pure
+/// The tab hover card lays out by frames from ``TabHoverCardLayout``, a pure
 /// function of its metrics and its measured content, and reports that size to the panel that hosts
 /// it, as a Chromium view does (`CalculatePreferredSize` and `Layout()`). Before, every hover
 /// retarget solved the card's constraints on the main thread.

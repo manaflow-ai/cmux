@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The remote shim's local class (task p01-process-014b), with no build:
+# The remote shim's local class, with no build:
 #  1. through the generator (gen-chromium-host-wire.py): --check-ops passes
 #     (it refuses a function-pointer argument outside local/policy and a
 #     local/policy export with no reason); the generated client, written fresh

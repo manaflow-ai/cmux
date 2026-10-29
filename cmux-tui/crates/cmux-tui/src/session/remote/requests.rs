@@ -1,6 +1,17 @@
 //! Requests to the server, their deadlines, and transport shutdown.
 
 use super::*;
+use crate::json_fields::JsonFields;
+
+/// How a request waits for its response.
+#[derive(Clone, Copy)]
+enum ResponseWait {
+    /// At most this long.
+    Within(Duration),
+    /// The attach deadline: progress past `epoch` (the attach progress when
+    /// the request was written) extends it up to the attach maximum.
+    Attach { epoch: u64 },
+}
 
 impl RemoteSession {
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
@@ -23,12 +34,17 @@ impl RemoteSession {
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
-        let attach_progress = matches!(deadline, RequestDeadline::Attach)
-            .then(|| self.attach_progress.load(Ordering::Acquire));
+        let wait = match deadline {
+            RequestDeadline::Standard => ResponseWait::Within(REMOTE_REQUEST_TIMEOUT),
+            RequestDeadline::Fixed(timeout) => ResponseWait::Within(timeout),
+            RequestDeadline::Attach => {
+                ResponseWait::Attach { epoch: self.attach_progress.load(Ordering::Acquire) }
+            }
+        };
         let attach_surface = matches!(deadline, RequestDeadline::Attach)
             .then(|| cmd.get("surface").and_then(Value::as_u64))
             .flatten();
-        cmd["id"] = json!(id);
+        cmd.insert("id", json!(id));
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
@@ -37,34 +53,34 @@ impl RemoteSession {
         }
 
         let (tx, rx) = channel();
-        self.pending.lock().unwrap().insert(
+        self.pending.lock().recover_poison().insert(
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
         );
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.lock().recover_poison().remove(&id);
                 return Err(self.classify_transport_error(error).into());
             }
         };
         if let Err(error) = self.wait_for_ordered_write(sequence) {
-            self.pending.lock().unwrap().remove(&id);
+            self.pending.lock().recover_poison().remove(&id);
             return Err(self.classify_transport_error(error).into());
         }
 
         if self.shutdown.load(Ordering::Acquire) {
-            self.pending.lock().unwrap().remove(&id);
+            self.pending.lock().recover_poison().remove(&id);
             return Err(self.shutdown_error().into());
         }
 
-        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
+        let response = match self.wait_for_response(rx, wait, progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
-                self.pending.lock().unwrap().remove(&id);
+                self.pending.lock().recover_poison().remove(&id);
                 return Err(error.into());
             }
         };
@@ -95,31 +111,21 @@ impl RemoteSession {
     fn wait_for_response(
         &self,
         rx: Receiver<Value>,
-        deadline: RequestDeadline,
+        wait: ResponseWait,
         progress: Arc<AtomicU64>,
-        attach_progress: Option<u64>,
     ) -> Result<Value, RemoteRequestError> {
-        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) = deadline {
-            let timeout = match deadline {
-                RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
-                RequestDeadline::Fixed(timeout) => timeout,
-                RequestDeadline::Attach => unreachable!(),
-            };
-            return match rx.recv_timeout(timeout) {
-                Ok(response) => Ok(response),
-                Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
-                Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(self.shutdown_error())
-                }
-                Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
-            };
-        }
+        let attach_epoch = match wait {
+            ResponseWait::Attach { epoch } => epoch,
+            ResponseWait::Within(timeout) => {
+                return self.wait_within(&rx, timeout);
+            }
+        };
 
         let started = Instant::now();
         let mut deadline = AttachResponseDeadline::new(
             started,
             progress.load(Ordering::Acquire),
-            attach_progress.expect("attach response wait requires an attach progress epoch"),
+            attach_epoch,
             REMOTE_ATTACH_IDLE_TIMEOUT,
             REMOTE_ATTACH_MAX_TIMEOUT,
         );
@@ -132,7 +138,7 @@ impl RemoteSession {
             let Some(wait) = deadline.next_wait(now, request_progress, attach_progress) else {
                 return Err(RemoteRequestError::Timeout);
             };
-            match rx.recv_timeout(wait) {
+            match crate::blocking::sync::remote_reply_timeout(&rx, wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
                     return Err(self.shutdown_error());
@@ -146,6 +152,22 @@ impl RemoteSession {
         }
     }
 
+    /// The response within `timeout`.
+    fn wait_within(
+        &self,
+        rx: &Receiver<Value>,
+        timeout: Duration,
+    ) -> Result<Value, RemoteRequestError> {
+        match crate::blocking::sync::remote_reply_timeout(rx, timeout) {
+            Ok(response) => Ok(response),
+            Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
+            Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
+                Err(self.shutdown_error())
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
+        }
+    }
+
     /// Write latency-sensitive input in order without waiting for the mux
     /// command acknowledgement. The response reader still drains the reply;
     /// its unknown request id is intentionally ignored. Reliable remote
@@ -155,11 +177,11 @@ impl RemoteSession {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        cmd["id"] = json!(id);
+        cmd.insert("id", json!(id));
         // The local remote bridge replaces eligible sends with compact binary
         // MuxInput packets. Direct/older mux servers ignore this hint and keep
         // the existing JSON response behavior.
-        cmd["no_reply"] = json!(true);
+        cmd.insert("no_reply", json!(true));
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
@@ -213,7 +235,7 @@ impl RemoteSession {
 
     pub fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         let server_supports_fallback = {
-            let capabilities = self.capabilities.lock().unwrap();
+            let capabilities = self.capabilities.lock().recover_poison();
             capabilities.contains(CLEAR_HISTORY_CAPABILITY)
                 && capabilities.contains(CLEAR_HISTORY_KEY_CAPABILITY)
         };
@@ -221,7 +243,7 @@ impl RemoteSession {
             && self
                 .tree
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .view
                 .surface(surface)
                 .is_some_and(|tab| tab.supports_clear_history_key_fallback)
@@ -253,7 +275,7 @@ impl RemoteSession {
         fallback_key: Option<ProtocolKeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
         require_capability(
-            &self.capabilities.lock().unwrap(),
+            &self.capabilities.lock().recover_poison(),
             CLEAR_HISTORY_CAPABILITY,
             "clear-history",
         )
@@ -286,11 +308,14 @@ impl RemoteSession {
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
-        matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::ExpectedRemoteShutdown)
+        matches!(
+            &*self.disconnect_state.lock().recover_poison(),
+            DisconnectState::ExpectedRemoteShutdown
+        )
     }
 
     pub(super) fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
-        match &*self.disconnect_state.lock().unwrap() {
+        match &*self.disconnect_state.lock().recover_poison() {
             DisconnectState::LocalShutdown => Some(RemoteRequestError::Shutdown),
             DisconnectState::ExpectedRemoteShutdown => Some(RemoteRequestError::DaemonShutdown),
             DisconnectState::Active | DisconnectState::Remote(_) => None,
@@ -308,7 +333,7 @@ impl RemoteSession {
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
-        let pending = std::mem::take(&mut *self.pending.lock().unwrap());
+        let pending = std::mem::take(&mut *self.pending.lock().recover_poison());
         for (_, request) in pending {
             let _ = request.response.send(json!({"shutdown": true}));
         }
@@ -335,7 +360,7 @@ impl RemoteSession {
     }
 
     pub(in crate::session) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
-        let mut state = self.disconnect_state.lock().unwrap();
+        let mut state = self.disconnect_state.lock().recover_poison();
         if matches!(&*state, DisconnectState::Active) {
             *state = match reason {
                 Some(reason) => DisconnectState::Remote(reason),
@@ -350,7 +375,7 @@ impl RemoteSession {
 
     /// Returns the first reason recorded when the remote reader stopped.
     pub fn transport_disconnect_reason(&self) -> Option<String> {
-        match &*self.disconnect_state.lock().unwrap() {
+        match &*self.disconnect_state.lock().recover_poison() {
             DisconnectState::Remote(reason) => Some(reason.clone()),
             DisconnectState::Active
             | DisconnectState::LocalShutdown

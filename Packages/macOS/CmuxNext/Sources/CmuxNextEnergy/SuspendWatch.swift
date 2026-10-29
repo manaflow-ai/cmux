@@ -2,7 +2,7 @@ internal import AppKit
 public import CmuxNextWakeups
 internal import Network
 
-/// The Mac's sleep, wake and display sleep, observed once for the app (p14-energy-120): the
+/// The Mac's sleep, wake and display sleep, observed once for the app: the
 /// composition root's ``EnergyMonitor`` follows the app's one watch and publishes its ``State`` as
 /// ``EnergyPolicy/suspended``, ``EnergyPolicy/screensAsleep`` and ``EnergyPolicy/networkResumes``.
 ///

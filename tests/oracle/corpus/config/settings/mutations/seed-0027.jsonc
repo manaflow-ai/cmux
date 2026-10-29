@@ -1,8 +1,0 @@
-{/* {"k": 1} */ "editor":{// note
-"wordWrapColumn":"1"},/* // inside */ "ui":{"animations":{/* // inside */ "cursor":false}},// url: https://localhost/x
-"notifications":{// note
-"mutedWorkspaces":[""],"sources":{// "quoted"
-"agent":{"dismissal":"keystroke"}}},"sidebar":{"hoverCards":{// "quoted"
-"groups":{/* block */ "tabGroups":true}},"workspaceRow":{"pullRequest":"true","terminal":{/* block */ "process":1}}},// a { brace
-"browser":{"hostsToOpenInEmbeddedBrowser":[]},"appearance":{"surfaces":{// url: https://localhost/x
-"sidebar":{"opacity":2}}},"markdown":{/* * */ "font":{"preset":"__not_a_choice__"}},/* * */ "updates":{"downloadAutomatically":true},"agents":{/* {"k": 1} */ "subsessions":{"enabled":null}}}

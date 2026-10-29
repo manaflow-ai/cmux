@@ -18,6 +18,7 @@ use notify::Watcher as _;
 use crate::mux::Mux;
 use crate::state::project_sources::{self, Layout, SourceScan, WATCHED_NAMES};
 use crate::state::projects::Observation;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Starts the import and the watch on its own thread; returns at once.
 pub(crate) fn start(mux: &Arc<Mux>) {
@@ -34,17 +35,18 @@ pub(crate) fn start(mux: &Arc<Mux>) {
 }
 
 /// Starts `body` on the `mux-project-sources` thread: a watcher, utility
-/// through `spawn_raisable` (p05-ipc-080), so the registry lock a request
+/// through `spawn_raisable`, so the registry lock a request
 /// waits for raises it. With `daemonRequestQos` on, each import pass also
-/// runs as a utility `WorkQos` (`import_changed`, p04-input-084), so a pass
+/// runs as a utility `WorkQos` (`import_changed`), so a pass
 /// is lowered where the thread could only start at default.
 pub(crate) fn spawn_thread(
     body: impl FnOnce() + Send + 'static,
-) -> std::io::Result<std::thread::JoinHandle<()>> {
-    crate::thread_qos::spawn_raisable(
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_raisable(
         "mux-project-sources",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         body,
     )
 }
@@ -191,7 +193,7 @@ mod tests {
     }
 
     /// An import pass runs at utility with `daemonRequestQos` on, and at
-    /// the declared class with it off (p04-input-084).
+    /// the declared class with it off.
     #[test]
     fn an_import_pass_runs_at_utility_with_the_feature_on() {
         use crate::request_qos::tests::take_entered;

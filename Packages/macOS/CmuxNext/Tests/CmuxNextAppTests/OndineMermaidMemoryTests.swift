@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import CoreGraphics
 import Testing
 
-/// Home chat's Mermaid renderer as a memory consumer (p07-memory-082): its render and image caches
+/// Home chat's Mermaid renderer as a memory consumer: its render and image caches
 /// are bounded, a lower limit trims the images but keeps the working set, critical pressure drops the
 /// JavaScriptCore context, and so does an idle deadline; the next layout loads it again and gives the
 /// same size.

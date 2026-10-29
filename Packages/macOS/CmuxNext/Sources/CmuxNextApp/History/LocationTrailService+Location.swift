@@ -39,7 +39,7 @@ extension LocationTrailService {
     func isAvailable(_ location: HistoryLocation) -> Bool {
         guard let services else { return false }
         if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
         return services.daemon(for: pane).machineID == location.key.machine
     }

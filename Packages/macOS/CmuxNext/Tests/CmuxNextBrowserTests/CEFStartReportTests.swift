@@ -2,7 +2,7 @@
 import CmuxNextTrace
 import Testing
 
-/// `debug.cef`'s `ready_after_launch_s`: wall-clock seconds since the kernel's process start (p09-observability-046).
+/// `debug.cef`'s `ready_after_launch_s`: wall-clock seconds since the kernel's process start.
 @Suite struct CEFStartReportTests {
     private static let second: UInt64 = 1_000_000_000
 

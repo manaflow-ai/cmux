@@ -2,6 +2,7 @@
 //! JavaScript dialog handling.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub fn back(&self) -> anyhow::Result<()> {
@@ -39,14 +40,14 @@ impl BrowserSurface {
             }
         };
         let next = history.current_index as isize + delta;
-        if next < 0 || next as usize >= history.entries.len() {
+        let Some(entry) = usize::try_from(next).ok().and_then(|next| history.entries.get(next))
+        else {
             self.restore_pointer_frame_after_failed_command(invalidation);
             anyhow::bail!(
                 "browser has no {} history entry",
                 if delta < 0 { "back" } else { "forward" }
             );
-        }
-        let entry = &history.entries[next as usize];
+        };
         self.finish_navigation_command(
             invalidation,
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
@@ -92,7 +93,7 @@ impl BrowserSurface {
         }
         if !self.dead.swap(true, Ordering::AcqRel) {
             self.close_taps();
-            if let Some(session) = self.session.lock().unwrap().take() {
+            if let Some(session) = self.session.lock().recover_poison().take() {
                 if session.runtime.source() == BrowserSource::Provider {
                     session.runtime.close_surface_detached(&session.target_id, &session.session_id);
                 } else {

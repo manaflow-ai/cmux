@@ -1,7 +1,7 @@
 @testable import CmuxNextSettings
 import Testing
 
-/// `launch.savedPicture` (``LaunchSavedPictureSetting``, p08-startup-063): on by default, off only for a literal
+/// `launch.savedPicture` (``LaunchSavedPictureSetting``): on by default, off only for a literal
 /// `false`, one toggle row off the page while its feature is off, and refused to agents (the pictures hold
 /// terminal text and pages).
 struct LaunchSavedPictureSettingTests {

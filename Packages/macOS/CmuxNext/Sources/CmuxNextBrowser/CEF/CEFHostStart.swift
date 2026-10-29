@@ -65,12 +65,19 @@ final class CEFHostStart {
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
     /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
-    /// navigation decides from those acks and probes no page (task p01-process-234).
+    /// navigation decides from those acks and probes no page.
     private(set) var acksWheels = false
+    /// The attached host opens its own provider link and relays agent CDP (``CEFAttachedHost/relaysAgents``).
+    private(set) var relaysAgents = false
+    /// The browser host's relay link for every host of the session (``ChromiumHostRelayLink``); nil: none.
+    private(set) var agentRelayLink: ChromiumHostRelayLink?
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The attached host's pid (``CEFAttachedHost/hostPID``), whose children are the Chromium helpers; nil while
+    /// none is attached.
+    private(set) var hostPID: pid_t?
     /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
-    /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
+    /// `CEFRuntime.watchHostHangs(reports:)`); nil without it. One for every host:
     /// each attached host that acks its input dispatch reports to it.
     var hangMonitor: ChromiumHostHangMonitor?
     /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.
@@ -109,6 +116,8 @@ final class CEFHostStart {
         replies = CEFHostReplies(clock: clock)
         supervisor.observeHostEnds { [weak self] in self?.ended() }
         replies.onWireEnded = { [weak self] in self?.ended() }
+        // The supervisor hands each host the browser host's relay link.
+        (supervisor as? any ChromiumHostAgentRelaying)?.agentRelay.observe { [weak self] link in self?.setAgentRelayLink(link) }
     }
 
     /// The host ended: its runtime's ``onHostGone``, or for a start no runtime owns, the dead wire
@@ -130,10 +139,13 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd, hostPID) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false, host.hostPID)
+        relaysAgents = host.relaysAgents
         startInputRoute(host)
         // A host that acks its dispatch counts waiting input for the busy banner; one that does not never shows it.
         if let hangMonitor, host.watchesHangs { watchesHangs = host.remote.watchHost(hangMonitor) }
+        // The remote shim keeps the link for later hosts itself; the first attach is the first time it can take it.
+        if startsAttach, let agentRelayLink { host.remote.setAgentRelayLink(agentRelayLink) }
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
@@ -173,9 +185,19 @@ final class CEFHostStart {
     func hostEnded() {
         endInputRoute()
         remote?.detach()
-        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes, hostPID) = (nil, nil, false, false, true, nil, nil)
+        relaysAgents = false
         watchesHangs = false
         generation += 1
+    }
+
+    /// Gives the Chromium Host the browser host's relay link, now when a host is attached and to every later host
+    /// (the remote shim keeps it); nil ends it.
+    func setAgentRelayLink(_ link: ChromiumHostRelayLink?) {
+        guard link != agentRelayLink else { return }
+        agentRelayLink = link
+        guard let remote else { return }
+        remote.setAgentRelayLink(link)
     }
 
     /// The supervisor can end a running host so a new one starts (the busy banner's Reload Chromium).
@@ -251,7 +273,9 @@ final class CEFHostStart {
                                        locale: locale, loadDuration: elapsed.now - started,
                                        mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
                                        acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
-                                       watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName))
+                                       relaysAgents: hostExports.contains(CEFAttachedHost.providerLinkHelloName),
+                                       watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName),
+                                       hostPID: attachment.hostPID())
             host.inputRingFD = attachment.inputRingFD
             #if DEBUG || CMUX_BENCH_HOOKS
             if routesInput, attachment.inputRingFD >= 0, let name = attachment.inputDoorbellName {
@@ -286,9 +310,14 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
+    /// The host opens its own provider link to the browser host and relays agent CDP for the pages it is
+    /// told to (its HELLO lists ``providerLinkHelloName``; HOST/src/host_provider_link.h).
+    var relaysAgents = false
     /// The host acks the input its UI thread dispatched and reports its UI hangs (its HELLO lists
     /// ``hangWatchHelloName``; HOST/src/host_hang_watcher.h): the busy banner counts on it.
     var watchesHangs = false
+    /// The host's pid, read after its hello (``ChromiumHostAttachment/hostPID()``): the parent of its helpers.
+    var hostPID: pid_t?
     /// The host's input ring (``ChromiumHostAttachment/inputRingFD``), -1 while it passed none.
     var inputRingFD: Int32 = -1
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -301,6 +330,8 @@ nonisolated struct CEFAttachedHost: Sendable {
     static let clientIDsHelloName = "cmux_host_client_ids"
     /// `cmux_host::kWheelAcksHelloName` (HOST/src/host_wheel_ack.h).
     static let wheelAcksHelloName = "cmux_host_wheel_acks"
+    /// `cmux_host::kProviderLinkHelloName` (HOST/src/host_provider_link.h).
+    static let providerLinkHelloName = "cmux_host_provider_link"
     /// `cmux_host::hang::kHangWatchHelloName` (HOST/src/host_hang_watcher.h).
     static let hangWatchHelloName = "cmux_host_hang_watch"
 }

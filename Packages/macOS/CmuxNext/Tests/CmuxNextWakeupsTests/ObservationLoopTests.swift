@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import Testing
 
-/// ObservationLoop (p04-input-029): a render loop on FrameObservation. One scheduled render per
+/// ObservationLoop: a render loop on FrameObservation. One scheduled render per
 /// dirty period and one per frame, never a task per change; a person-caused change renders in the
 /// input-response pass before any frame; a hidden node renders nothing until it shows; an
 /// automation loop renders with no display link; a cancelled loop renders nothing.

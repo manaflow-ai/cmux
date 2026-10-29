@@ -6,7 +6,7 @@ import CoreGraphics
 import QuartzCore
 import Testing
 
-/// Rows pan by translation (p04-input-050): with `motion.renderServer` on, the hosts and dividers of a
+/// Rows pan by translation: with `motion.renderServer` on, the hosts and dividers of a
 /// strip column whose rows overflow sit in the row's motion container and their rings in its chrome
 /// plane, and a row pan event sets the translation of those two layers: no host, divider or ring frame
 /// set, no tracking area or cursor rect rebuilt. A press during the pan lands the rows where they show

@@ -10,7 +10,7 @@ import Foundation
 /// (`browserDidClose`). Stay keeps the tab as it was. A page that hangs in
 /// its handler is closed by Chromium's own beforeunload timeout.
 ///
-/// In host mode the page decides in the host (task p01-process-064): `try_close` is an async op whose
+/// In host mode the page decides in the host: `try_close` is an async op whose
 /// answer comes later, so the tab stays and Chromium's BEFORE_CLOSE closes it whether the page asked or
 /// not, as Chrome's tab strip keeps a tab until its `WebContents` runs its unload handlers
 /// (chrome/browser/ui/tabs/tab_strip_model.cc, `CloseWebContentses` and `RunUnloadListenerBeforeClosing`).

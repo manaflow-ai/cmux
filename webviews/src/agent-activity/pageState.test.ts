@@ -1,5 +1,5 @@
-// Agent Activity keeps its filter, its layout and the scroll of its lists across a discard
-// (p13-webui-082). The host owns the selection and sends it back in its first snapshot.
+// Agent Activity keeps its filter, its layout and the scroll of its lists across a discard.
+// The host owns the selection and sends it back in its first snapshot.
 import { describe, expect, test } from "bun:test";
 import { restoredPageInputs } from "../pages/shared/pageState";
 import { pageRoundTrip, scrollOf } from "../pages/shared/pageStateTesting";

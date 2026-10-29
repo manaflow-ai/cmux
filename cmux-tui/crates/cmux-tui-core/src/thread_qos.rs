@@ -32,9 +32,9 @@
 //! (mux-seq-control) serve automation clients too, so they stay below
 //! InputCritical until the client's class is known (p02-threads task 224).
 //! The cmux-tui client's key writers (remote-input-writer, relay-input) are
-//! InputCritical too (p04-input-084). The terminal resource stream writer
+//! InputCritical too. The terminal resource stream writer
 //! (mux-resource-terminal-attach) is not: it waits for its attach to commit,
-//! so it is a control stream at Interactive (p05-ipc-080). Watchers and
+//! so it is a control stream at Interactive. Watchers and
 //! best-effort writers are Utility: sqlite-wal-sync,
 //! mux-session-journal-fanout, terminal-host-record-mirror and
 //! cmux-config-watch (cmux-config's `watch::WATCH_THREAD_QOS`, kept equal

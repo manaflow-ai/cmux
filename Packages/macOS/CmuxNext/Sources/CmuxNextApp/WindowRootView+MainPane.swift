@@ -36,8 +36,8 @@ final class MainPaneCardView: NSView {
         onFrameChange?()
     }
 
-    /// Takes workspaces hidden past a grace out of the card (feature `hiddenWorkspaceDetachAfterGrace`,
-    /// p03-rendering-096); nil hides only: a hidden workspace stays here, withdrawn hidden, until its
+    /// Takes workspaces hidden past a grace out of the card (feature `hiddenWorkspaceDetachAfterGrace`);
+    /// nil hides only: a hidden workspace stays here, withdrawn hidden, until its
     /// controller tears it down.
     var hiddenDetach: HiddenWorkspaceDetach? {
         didSet { hiddenDetach?.host = self }

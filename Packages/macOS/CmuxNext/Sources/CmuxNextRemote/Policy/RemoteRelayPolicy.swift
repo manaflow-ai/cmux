@@ -24,7 +24,7 @@ public indirect enum RelayValue: Hashable, Sendable {
 ///
 /// Rules: deny unless the method is allowlisted; methods that run commands,
 /// type input, spawn or respawn terminals, evaluate scripts or open URLs,
-/// and every `debug.*` method, can never be allowlisted; command-bearing params are denied on every
+/// every `debug.*` method and every memory diagnostic, can never be allowlisted; command-bearing params are denied on every
 /// method; every workspace, surface and tab id param (arrays and
 /// `*_workspace_id`-shaped names included) must name an object the remote
 /// session owns, and ref forms never resolve.
@@ -66,9 +66,13 @@ public struct RemoteRelayPolicy: Sendable {
     /// covers `link.open` (cmux:// deep links), which navigates this Mac's
     /// windows; `run` covers `action.run`, which reaches every action;
     /// `debug` covers every `debug.*` method (DEBUG builds' diagnostics,
-    /// which read local state and seed it).
+    /// which read local state and seed it); `memory` and `discards` cover
+    /// the memory diagnostics under any name (`debug.memory`,
+    /// `debug.discards`, the daemon's `memory-report`), which read this
+    /// Mac's processes, footprints and tab states.
     static let neverAllowedWords: Set<String> = ["send", "text", "key", "keys", "input", "paste", "spawn", "respawn", "eval", "exec",
-                                                 "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug"]
+                                                 "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug",
+                                                 "memory", "discards"]
     /// Creating or splitting one of these starts a terminal or loads a page.
     static let spawningNouns: Set<String> = ["workspace", "tab", "pane", "surface", "terminal", "browser", "window", "screen", "column"]
     static let spawningVerbs: Set<String> = ["create", "new", "split", "open", "duplicate", "fork", "reopen", "move"]

@@ -14,7 +14,7 @@ import Foundation
 import Testing
 import CmuxNextWakeups
 
-/// Page policies batch 5 (p07-memory-028): the App Store, CodeRouter, Cloud, Mobile Pairing, Mac
+/// Page policies batch 5: the App Store, CodeRouter, Cloud, Mobile Pairing, Mac
 /// Screen, Phone and Inbox pages each declare when their hidden tab's view may go, and a discard
 /// closes the page it drops. Mobile Pairing keeps its page while a step the person started runs,
 /// Cloud while a change the person approved runs, Mac Screen and Phone go once their stream
@@ -106,7 +106,7 @@ import CmuxNextWakeups
         }
         let rig = Rig(cloud)
         let discarded = try await Self.discard(rig)
-        services.webUI.retirer.closeRetired() // the engine page ends at the retirer's deadline (p13-webui-064)
+        services.webUI.retirer.closeRetired() // the engine page ends at the retirer's deadline
         #expect(web.hosting.made.first?.closed == true, "the discarded page's engine session outlived it")
         #expect(await Self.isClosed(discarded))
 
@@ -160,7 +160,7 @@ import CmuxNextWakeups
         let services = MachineIconTests.services()
         var opened: PageWebView?
         let pairing = MobilePairingPageService(services: services) { request in
-            opened = PageWebView(descriptor: Self.pairingDescriptor, root: web.folder, routes: request.routes, chromium: nil)
+            opened = PageWebView(descriptor: Self.pairingDescriptor, root: web.folder, routes: request.routes, chromium: nil, deadlines: .testing())
             return opened
         }
         let key = "mobile-pairing-batch5"
@@ -301,7 +301,7 @@ import CmuxNextWakeups
     /// A page in `web`'s fake Chromium host, opened on `route`.
     static func testPage(_ web: WebRig, route: String?, deadlines: MainDeadlineScheduler) -> PageWebView? {
         let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
-                               root: web.folder, routes: [], route: route, chromium: web.hosting)
+                               root: web.folder, routes: [], route: route, chromium: web.hosting, deadlines: .testing())
         // The engine's no-message deadline never runs out here.
         page?.chromiumDeadlines = deadlines
         return page
@@ -354,7 +354,7 @@ import CmuxNextWakeups
 
     static func macScreenPages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     static func phones() -> PhoneService {

@@ -1,4 +1,4 @@
-//! Single-parse dispatch (p05-ipc-062): a line's head is read once and the
+//! Single-parse dispatch: a line's head is read once and the
 //! line goes to the one handler the head names, which parses it once more.
 //! Parses are counted where they start (crate::line_parses), so these
 //! counts are the real ones. No route name is a `Command`'s and no
@@ -83,7 +83,6 @@ const ROUTE_LINES: &[&str] = &[
     r#"{"id":12,"cmd":"apps-nope"}"#,
     r#"{"id":13,"cmd":"script-nope"}"#,
     r#"{"id":14,"cmd":"fs.stat","path":"/"}"#,
-    r#"{"id":15,"cmd":"oracle-state","x":1}"#,
 ];
 
 #[test]
@@ -236,8 +235,6 @@ fn connection_frame_routes_find_every_sniffed_cmd() {
         let route = routes::find(cmd).unwrap_or_else(|| panic!("no route for {cmd}"));
         assert_eq!(route.stage, stage, "{cmd}");
     }
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    assert!(routes::find("oracle-state").is_some());
     for cmd in [
         "ping",
         "agent-inventor",

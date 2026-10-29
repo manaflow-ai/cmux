@@ -44,7 +44,7 @@ final class CEFDevToolsDivider: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The resize cursor across the dock's side (p04-input-090: set when the pointer enters, no cursor rects).
+    /// The resize cursor across the dock's side (set when the pointer enters, no cursor rects).
     var resizeCursor: NSCursor { devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown }
 
     override func cursorUpdate(with event: NSEvent) { resizeCursor.set() }

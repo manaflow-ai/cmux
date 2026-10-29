@@ -1,4 +1,4 @@
-// An expanded tray row's live tail is a page poll (p13-webui-069, MQ4b): while the agent page is
+// An expanded tray row's live tail is a page poll (MQ4b): while the agent page is
 // hidden it reads nothing and arms no timer, and on show it waits one period before it reads again,
 // since a show reads nothing in the agent page (scripts/cmux-next/check-switch-fetches.py).
 import { afterEach, expect, test } from "bun:test";

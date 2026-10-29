@@ -86,7 +86,9 @@ fn group_color(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError>
     if let Some(color) = flags.take("color") {
         let hex = color.len() == 7
             && color.starts_with('#')
-            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+            && color
+                .strip_prefix('#')
+                .is_some_and(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()));
         if !hex && !GROUP_COLORS.contains(&color.as_str()) {
             return Err(UsageError::new(format!(
                 "--color must be one of {} or #RRGGBB",

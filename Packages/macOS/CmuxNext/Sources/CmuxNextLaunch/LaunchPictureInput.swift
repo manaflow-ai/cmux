@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
-/// Input while the first window shows its launch picture (p08-startup-061): the edges of the picture phase
+/// Input while the first window shows its launch picture: the edges of the picture phase
 /// (``LaunchPicturePhase``) reach the key router's stand-in buffer (``LaunchPictureKeys``), and a click on a part of
 /// the picture still over the live root (``LaunchPictureRegions``) is held (``LaunchPictureClicks``).
 /// - `launch_picture_shown` (this init): the buffer begins for the window; a key or a click raises the window's

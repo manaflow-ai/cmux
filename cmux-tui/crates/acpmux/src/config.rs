@@ -665,10 +665,21 @@ pub struct WebSocketConfig {
     /// builds did, in `_acpmux/status`). Set, it never rotates again.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub token_rotated: u32,
+    /// `allowInsecureNetwork`: bind a network (non-loopback) `listen`
+    /// address. The listener speaks plain ws://, so the token crosses that
+    /// network in clear; without it such an address stops the daemon
+    /// (`server/ws_auth.rs`). `--insecure-network-listen` is the same for
+    /// one run.
+    #[serde(default, alias = "allow_insecure_network", skip_serializing_if = "is_false")]
+    pub allow_insecure_network: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_palette_prefix() -> String {
@@ -1009,8 +1020,8 @@ impl Config {
                     return Ok(p.clone());
                 }
             }
-            if members.len() == 1 {
-                return Ok(members[0].clone());
+            if let [only] = members.as_slice() {
+                return Ok(only.clone());
             }
             if members.iter().any(|m| m == head) {
                 return Ok(head.to_owned());

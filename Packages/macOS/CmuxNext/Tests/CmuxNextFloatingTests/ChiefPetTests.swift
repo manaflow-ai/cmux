@@ -305,7 +305,7 @@ import Testing
         #expect(bubble.isVisible)
     }
 
-    /// chrome-parity p03-rendering-105: a new notice fades its capsules' layer in on the render
+    /// A new notice fades its capsules' layer in on the render
     /// server; the bubble window's alpha stays 1, so the window server gets no call per frame.
     @Test func aNewNoticeFadesTheCapsulesLayerNotTheWindow() throws {
         let defaults = Self.defaults()
@@ -357,7 +357,7 @@ import Testing
         controller.sync(false)
     }
 
-    /// The follow is a `ServiceObservation` (p06-scheduler-337, rule 3): the current setting applies
+    /// The follow is a `ServiceObservation`: the current setting applies
     /// in `start`'s own turn, with no window or node, and a burst of changes applies once, the last.
     @Test func startAppliesTheSettingAtOnceAndABurstOnce() {
         let flag = Flag(true)

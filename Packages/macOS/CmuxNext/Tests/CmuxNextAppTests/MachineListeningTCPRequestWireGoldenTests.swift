@@ -5,7 +5,7 @@ import Testing
 
 private typealias WireJSON = CmuxNextDaemon.JSONValue
 
-/// The wire golden of CmuxNextApp's one hand-written request (p05-ipc-043, with
+/// The wire golden of CmuxNextApp's one hand-written request (with
 /// CmuxNextDaemonTests/StragglerRequestWireGoldenTests for the daemon's): `machine-listening-tcp`
 /// sends no fields and is ungated, while the schema gates it on `machine-listening-tcp-v1`, which
 /// the generated type takes from MethodTable.

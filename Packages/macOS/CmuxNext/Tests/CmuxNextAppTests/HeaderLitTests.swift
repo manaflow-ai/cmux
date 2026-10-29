@@ -37,7 +37,7 @@ struct HeaderLitTests {
         #expect(pushed.map(\.lit) == [[]])
     }
 
-    /// The header watch is one FrameObservation (p04-input-026): the changes of one turn reach the page as one push,
+    /// The header watch is one FrameObservation: the changes of one turn reach the page as one push,
     /// with no `Task` per change.
     @Test func theChangesOfOneTurnArePushedOnce() async {
         let row = Row(), toggles = AgentChatSplitToggles()

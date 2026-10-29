@@ -10,7 +10,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p07-memory-083: with `memorySmallAppStores`, the launch reads of the last quit's terminal frames and agent pages
+/// With `memorySmallAppStores`, the launch reads of the last quit's terminal frames and agent pages
 /// go once the launch settled and no agent page waits behind its last frame (`LaunchSettle.dropLaunchReads`), not at
 /// their 30 s keep deadline. Without the feature they keep their deadline.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct LaunchSettleDropsLaunchReadsTests {

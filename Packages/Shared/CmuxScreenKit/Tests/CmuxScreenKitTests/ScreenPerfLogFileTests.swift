@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p02-threads-146: the timing log opens and appends to its file on its own queue, never on the main actor that
+/// The timing log opens and appends to its file on its own queue, never on the main actor that
 /// records the timings, and keeps the lines in the order they were recorded.
 struct ScreenPerfLogFileTests {
     private func temporaryURL() -> URL {

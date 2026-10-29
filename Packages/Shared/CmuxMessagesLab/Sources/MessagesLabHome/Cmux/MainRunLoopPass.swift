@@ -1,4 +1,4 @@
-// cmux (p10-stability-044): main-actor work for a later pass of the main run loop. Not a vendored file.
+// cmux: main-actor work for a later pass of the main run loop. Not a vendored file.
 import Foundation
 
 /// Runs main-actor work on a later pass of the main run loop in the given modes (`RunLoop.main.perform`).

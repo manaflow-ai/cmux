@@ -4,7 +4,10 @@ import CmuxNextDaemon
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
+import CmuxNextTrace
+import CmuxNextWakeups
 import Foundation
+import os
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
 /// commands the tabs' view store sends, and where it looks up their records.
@@ -118,13 +121,21 @@ extension AgentTabStore {
                                  daemonFeatures: services.features.daemonEnvironment)
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
+        // A pane freed without close() (2026-10-28, handoff/cef-parent-tracker-crash.md): a fault and a crash key name its maker.
+        tabs.onFreedUnclosed = { [weak services] maker in
+            services?.crashKeys?.page.set(.unclosedAgentPaneMaker, CrashKeySlot.unclosedAgentPane(
+                maker: UInt8(truncatingIfNeeded: maker.rawValue), uptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)))
+            Logger(subsystem: "com.cmuxterm.app.next", category: "agent.pane")
+                .fault("agent pane freed without close(); maker=\(maker.name, privacy: .public)")
+        }
         tabs.createTabs = services.cache.createTabs
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host,
+                                    work: services.work) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)

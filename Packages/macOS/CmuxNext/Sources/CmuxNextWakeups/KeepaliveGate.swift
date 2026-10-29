@@ -1,6 +1,6 @@
 import CmuxNextCompat
 
-/// A socket owner's reading of the Mac's sleep and wake in the ``EnergyPolicy`` (p14-energy-120):
+/// A socket owner's reading of the Mac's sleep and wake in the ``EnergyPolicy``:
 /// its keepalive holds while its ``Hold`` says so (the Mac sleeps, or also its displays), and
 /// each new ``EnergyPolicy/networkResumes`` (a wake that found a satisfied network path) closes the
 /// open connection once when it was open through the sleep, so the owner's retry loop reconnects

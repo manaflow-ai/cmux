@@ -27,7 +27,7 @@ import Testing
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(), visible: false,
-                                  endpoint: { throw CancellationError() })
+                                  connection: { throw CancellationError() })
         services.cache.terminals[tab.id] = TerminalEntry(validity: "test", session: session, io: io,
                                                          themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
                                                          store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)

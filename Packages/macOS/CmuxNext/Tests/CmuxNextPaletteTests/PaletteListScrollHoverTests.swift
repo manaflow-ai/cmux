@@ -4,8 +4,8 @@ import CmuxNextDesign
 import Testing
 
 /// A scroll under a still pointer moves hover to the row now under it, pushed from the list's clip
-/// (p03-rendering-039; before, from a NotificationCenter observer of the clip). The palette's edge fade
-/// and scroll fit share that clip (p03-rendering-038), so the list's push must survive them attaching.
+/// (before, from a NotificationCenter observer of the clip). The palette's edge fade
+/// and scroll fit share that clip, so the list's push must survive them attaching.
 @MainActor
 struct PaletteListScrollHoverTests {
     private static func item(_ index: Int) -> PaletteRow {

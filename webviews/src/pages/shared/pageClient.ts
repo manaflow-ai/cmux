@@ -8,7 +8,6 @@
 
 import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
-import { serveOracleState } from "../../protocol/oracle-state";
 import { watchPageEdits } from "./pageEdits";
 
 export interface PageError extends Error {
@@ -100,7 +99,7 @@ export const RECEIVE_NAME = "__cmuxPageReceive";
 /** The batch form: the host sends one frame's envelopes as one script (PageScriptPipeline). */
 export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
 /**
- * The page push channel (Chromium, p13-webui-079): where the host's page script defines it, the
+ * The page push channel (Chromium): where the host's page script defines it, the
  * client registers its receiver of envelope runs with it, and the host sends each run as data
  * instead of a `__cmuxPageReceiveMany` script, as Chrome's WebUI pages get Mojo messages
  * (ChromiumPageHostBridge.pushReceiverScript). The script globals stay for every other host.
@@ -123,7 +122,7 @@ export const PARKED_NAME = "__cmuxPageParked";
 export const CLAIM_OP = "cmux.page.claim";
 
 /**
- * Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own keep
+ * Built in for every page: `{reason, on}` sets or ends one of the page's own keep
  * reasons, which keep it from being frozen or discarded while hidden. The host refuses any other
  * reason; the page can only add reasons, and they end with its document (reload, crash).
  */
@@ -526,8 +525,6 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
-    // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
-    serveOracleState(client);
     // Edits and form input keep the hidden page from being discarded, for every page with no page
     // code (pageEdits.ts).
     if (typeof document !== "undefined") watchPageEdits(document, window, pageKeepAliveFor(client));

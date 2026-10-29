@@ -82,7 +82,7 @@ import Testing
         #expect(sites.map(\.context) == [.cpuLane])
     }
 
-    @Test(arguments: [BlockingLane.files, .system])
+    @Test(arguments: [BlockingLane.files, .system, .bulkFiles])
     func aFileReadInAMayBlockLaneJobRecordsNothing(lane: BlockingLane) async throws {
         let table = BlockingViolationTable(mode: .record, poolMode: .record)
         let work = BackgroundWork(cpuWidth: 1, label: "test.wrong-lane.\(lane)")

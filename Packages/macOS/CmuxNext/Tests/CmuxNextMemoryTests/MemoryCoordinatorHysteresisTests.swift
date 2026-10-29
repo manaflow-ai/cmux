@@ -3,7 +3,7 @@ import CmuxNextMemory
 import CmuxNextWakeups
 import Testing
 
-/// p07-memory-070: the working set and hysteresis of ``MemoryCoordinator``. A limit applies only to
+/// The working set and hysteresis of ``MemoryCoordinator``. A limit applies only to
 /// entries not used in the last 2 s (``MemoryLimit/scale(_:inUse:)``), and after a fall in level the
 /// lossless limits rise only once the level has not changed for 30 s, on one ``MainDeadline`` one-shot,
 /// so warning/normal flaps (DC17) make one release pass and no refill between them; only limits a

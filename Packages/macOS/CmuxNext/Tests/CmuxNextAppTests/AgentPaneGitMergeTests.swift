@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Merge from the PR chip (cx-ncc.77.4, Codex desktop's): `git.pullRequest {action: "merge",
 /// number}` merges the branch's pull request with the GitHub CLI, only after a real click, only
@@ -75,7 +76,7 @@ struct AgentPaneGitMergeTests {
     }
 
     private static func model(_ folder: String) -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [folder] }
         model.gitWritesHere = { true }
         return model

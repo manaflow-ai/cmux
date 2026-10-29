@@ -85,7 +85,7 @@ public struct InputLatencyLedger: Sendable, Equatable {
     /// The stages an input passes through, in declaration order. ``InputStage/lastGenerated`` is
     /// left out: as Chrome's `last_input_generation_ts`, it feeds scroll jank only, and every stage
     /// delta is measured from the oldest event (cc/metrics/compositor_frame_reporter.cc).
-    private static let pipelineStages = InputStage.allCases.filter { $0 != .lastGenerated }
+    static let pipelineStages = InputStage.allCases.filter { $0 != .lastGenerated }
 
     /// The rows.
     public private(set) var rows: [Key: Row] = [:]
@@ -202,21 +202,28 @@ public struct InputLatencyLedger: Sendable, Equatable {
     }
 
     /// The time from the stage `slot` reached just before `stage` to `stage`, or nil when `stage`
-    /// was skipped or is ``InputStage/lastGenerated``. Stages are ordered by time, not by
-    /// declaration: a terminal key's echo comes back before its frame is submitted. Equal times
-    /// keep declaration order.
+    /// was skipped or is ``InputStage/lastGenerated``: ``interval(to:in:)`` without its start.
     static func delta(of stage: InputStage, in slot: InputLatencySlot) -> UInt64? {
+        interval(to: stage, in: slot)?.nanos
+    }
+
+    /// The stage `slot` reached just before `stage` and the time from it to `stage`, or nil when
+    /// `stage` was skipped, is ``InputStage/lastGenerated`` or has no stage before it. Stages are
+    /// ordered by time, not by declaration: a terminal key's echo comes back before its frame is
+    /// submitted. Equal times keep declaration order. The stage histograms and
+    /// ``InputLatencySlot/dominantStage`` both read it.
+    static func interval(to stage: InputStage, in slot: InputLatencySlot) -> (from: InputStage, nanos: UInt64)? {
         let time = slot[stage]
         guard time != 0, stage != .lastGenerated else { return nil }
-        var previous: UInt64 = 0
+        var previous: (stage: InputStage, time: UInt64)?
         for other in pipelineStages where other != stage {
             let otherTime = slot[other]
             guard otherTime != 0 else { continue }
             let before = otherTime < time || (otherTime == time && other.rawValue < stage.rawValue)
-            if before, otherTime >= previous { previous = otherTime }
+            if before, otherTime >= previous?.time ?? 0 { previous = (other, otherTime) }
         }
-        guard previous != 0 else { return nil }
-        return time - previous
+        guard let previous else { return nil }
+        return (previous.stage, time - previous.time)
     }
 
     // MARK: scroll jank

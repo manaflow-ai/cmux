@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-212: with `chromiumTabVisibility` each mounted Chromium page follows its tab's visibility tree node
+/// With `chromiumTabVisibility` each mounted Chromium page follows its tab's visibility tree node
 /// (`TabContentCache.node(for:)`), so the hide reaches Chromium before the hibernation's freeze; off, no page follows
 /// and the freeze works as before. The follower is the `follower` seam's recorder.
 @MainActor @Suite(.serialized)

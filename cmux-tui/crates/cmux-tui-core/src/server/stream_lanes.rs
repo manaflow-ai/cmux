@@ -1,7 +1,7 @@
 //! A connection's stream sequences and the stream barrier
-//! (plans/cmux-next/chrome-parity/p05-ipc.md section 3.4, task p05-ipc-073).
+//! (plans/cmux-next/chrome-parity/p05-ipc.md section 3.4).
 //!
-//! Each stream a connection opens (attach-streams, p05-ipc-074) is its own
+//! Each stream a connection opens (attach-streams) is its own
 //! [`Sequence`] on the daemon-wide pool, at the stream's priority: its items
 //! run in order, and a stream whose PTY write waits for POLLOUT holds only
 //! its own sequence, never another stream's or the connection's control

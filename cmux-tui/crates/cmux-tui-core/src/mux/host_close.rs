@@ -11,6 +11,8 @@
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+
 #[cfg(any(unix, windows))]
 use std::collections::VecDeque;
 #[cfg(any(unix, windows))]
@@ -87,10 +89,16 @@ impl TerminalHostCloses {
             return;
         }
         let closes = self.clone();
-        if std::thread::Builder::new()
-            .name("terminal-host-close".into())
-            .spawn(move || closes.work())
-            .is_err()
+        if supervised::spawn_at(
+            "terminal-host-close",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                closes.work();
+            },
+        )
+        .is_err()
         {
             // Thread exhaustion must not strand a queued close: finish the
             // queue on this thread instead.
@@ -273,14 +281,14 @@ impl Mux {
                 }
                 return;
             }
-            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
+            let TerminalHostPaths { root: host_root, panic_log } = self.terminal_host_paths();
             self.terminal_host_closes.enqueue(PendingHostClose {
                 runtime: runtime.clone(),
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
                 owner: self.work_owner(),
-                panic_log: self.host_panic_log(),
+                panic_log,
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -297,8 +305,7 @@ impl Mux {
     pub(super) fn terminate_terminal_runtimes_deferred(&self, runtimes: Vec<Arc<Surface>>) {
         #[cfg(any(unix, windows))]
         {
-            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
-            let panic_log = self.host_panic_log();
+            let TerminalHostPaths { root: host_root, panic_log } = self.terminal_host_paths();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
                 if let Some(identity) = identity.as_ref() {

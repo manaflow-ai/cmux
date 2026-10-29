@@ -21,7 +21,7 @@ extension CEFHostView {
     /// between the host taking a size and the page laying out at it
     /// (scripts/ci/frame-pacing/golden.py `browser_resize`). `hidden` is 1 while a spring hides a page in its
     /// own window (`ChildWindowPageFallback.hidesForSpring`): its window frame is not what shows then, so a
-    /// bench comparing page window and host frames skips those samples (p03-rendering-036), else 0.
+    /// bench comparing page window and host frames skips those samples, else 0.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let host = view as? CEFHostView else { return nil }
         guard let window = host.window, !host.isHiddenOrHasHiddenAncestor, !host.bounds.isEmpty else { return [:] }

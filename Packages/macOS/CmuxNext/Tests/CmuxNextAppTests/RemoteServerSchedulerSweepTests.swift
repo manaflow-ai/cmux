@@ -7,8 +7,8 @@ import Observation
 import Testing
 @testable import CmuxNextApp
 
-/// The CmuxNextApp/{Remote,RemoteView,Server} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task
-/// p06-scheduler-313, rule 9): a person's pairing answer is one userBlocking task that needs no frame; an install's
+/// The CmuxNextApp/{Remote,RemoteView,Server} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 9): a person's pairing answer is one userBlocking task that needs no frame; an install's
 /// step posted before the install ended never shows after it; a machine whose daemon connection was remade or replaced
 /// is a new link value, so its browser status is read again. ServerReachAdmissionTests has the service observations,
 /// the read's visible apply and the link file's automation yield.

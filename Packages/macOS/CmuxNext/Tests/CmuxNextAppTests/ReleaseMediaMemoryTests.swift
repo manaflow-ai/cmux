@@ -4,7 +4,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-/// p07-memory-083: the changelog page's memo of inlined pictures (`ReleaseMediaStore.memoryConsumer`) is one lossless
+/// The changelog page's memo of inlined pictures (`ReleaseMediaStore.memoryConsumer`) is one lossless
 /// memory consumer that reports the bytes of its `data:` URLs. A release drops the oldest pictures, and a page that
 /// asks again reads them from the disk cache, never the network.
 @MainActor @Suite struct ReleaseMediaMemoryTests {

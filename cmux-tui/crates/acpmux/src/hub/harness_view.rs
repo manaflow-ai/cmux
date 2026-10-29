@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. The `_acpmux/harnesses` reply.
 
 use super::*;
+use crate::no_panic::{JsonExt, LockExt};
 
 use crate::config::folder_profiles::{self, FolderProfile};
 
@@ -28,7 +29,7 @@ impl Hub {
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }
-                if let Some(r) = self.probe_errors.lock().unwrap().get(name) {
+                if let Some(r) = self.probe_errors.lock_or_recover().get(name) {
                     o.insert("probeError".into(), json!(r));
                 }
                 let d = cfg.defaults_for(name);
@@ -55,7 +56,7 @@ impl Hub {
         // (`_acpmux/new_chat_picks_set`): a remote device's New Agent Chat
         // starts there, as the app's does.
         if let Some(picks) = self.person.new_chat_picks() {
-            view["lastPicks"] = picks;
+            view.set("lastPicks", picks);
         }
         view
     }
@@ -91,7 +92,7 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
-        view["folderProfiles"] = Value::Array(rows);
+        view.set("folderProfiles", Value::Array(rows));
         Ok(view)
     }
 }
@@ -109,15 +110,15 @@ fn folder_profile_row(fp: &FolderProfile) -> Value {
     });
     if let Some(meta) = &fp.meta {
         if let Some(name) = &meta.display_name {
-            row["displayName"] = json!(name);
+            row.set("displayName", json!(name));
         }
         if let Some(icon) = &meta.icon {
-            row["icon"] = json!(icon);
+            row.set("icon", json!(icon));
         }
     }
     if let Some(profile) = &fp.profile {
-        row["kind"] = json!(profile.kind);
-        row["family"] = json!(crate::config::derive_family(&fp.id, profile));
+        row.set("kind", json!(profile.kind));
+        row.set("family", json!(crate::config::derive_family(&fp.id, profile)));
     }
     row
 }

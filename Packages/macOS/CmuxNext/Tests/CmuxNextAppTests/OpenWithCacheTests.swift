@@ -6,6 +6,7 @@ import CmuxNextActions
 #else
 import CmuxNextCompat
 #endif
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextPages
@@ -93,7 +94,7 @@ struct OpenWithCacheTests {
     }
 
     /// A cold Open With (no kept list) shows Loading, asks Launch Services off main, and fills the submenu
-    /// in one posted userBlocking task when it answers (p06-scheduler-337: no main-actor task waits on it).
+    /// in one posted userBlocking task when it answers (no main-actor task waits on it).
     @Test func theFileMenusColdOpenWithFillsWhenTheLaneAnswers() {
         let system = OpenWithWorkspace(apps: [Self.textEdit, Self.xcode], defaultApp: Self.textEdit)
         let apps = Self.apps(system)

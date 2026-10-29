@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The summary panel's Attach files or folders (`chat.attach.choose`): the open panel opens only
 /// after a real gesture in the pane and only for a chat on this Mac, and answers what the user
@@ -13,7 +14,7 @@ struct AgentPaneAttachChooseTests {
 
     /// A pane whose open panel answers `picks`, counting how often it opened.
     private final class Rig {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var picks: [URL] = []
         var opened = 0
 

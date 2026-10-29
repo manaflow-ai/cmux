@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-097: Chrome's checker pass feeds every window's ``WindowOcclusionFamily``. macOS does
+/// Chrome's checker pass feeds every window's ``WindowOcclusionFamily``. macOS does
 /// not report a window covered by a same-size window of the same app (crbug.com/883031), so a fake
 /// system state that says both windows are visible still leaves the back one occluded.
 @MainActor @Suite struct WindowOcclusionFamilyFeedTests {

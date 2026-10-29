@@ -1,5 +1,7 @@
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -28,7 +30,7 @@ struct PageCrashReloadsPerPageTests {
     private func openThree(_ hosting: FakeChromiumHosting, now: Date) async throws -> [PageWebView] {
         var views: [PageWebView] = []
         for _ in 0..<3 {
-            let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: nil, chromium: hosting))
+            let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: nil, chromium: hosting, deadlines: .testing()))
             view.chromiumDeadlines = LifecycleDeadlineRig.never
             view.now = { now }
             await view.chromiumStart?.value

@@ -1,4 +1,4 @@
-// Automatic keep reasons for every page (p13-webui-089). Chrome learns from Blink, for every page and
+// Automatic keep reasons for every page. Chrome learns from Blink, for every page and
 // with no page code, that a document had form interaction or user edits
 // (DocumentResourceCoordinator::SetHadFormInteraction and SetHadUserEdits); discard_eligibility_policy.cc
 // then refuses to discard the page. A cmux page learns the same in its own document: one capture-phase

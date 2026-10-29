@@ -12,7 +12,7 @@ struct OcclusionHold {
     var restores = 0
 }
 
-/// Occluded windows make no frames (p03-rendering-097, rendering-DESIGN R6).
+/// Occluded windows make no frames (rendering-DESIGN R6).
 ///
 /// A window scheduler follows its window's ``WindowOcclusionFamily`` (``forWindow(_:)``), which flips
 /// only while its source runs (feature `windowOcclusionFamily`). While the window is occluded its animation

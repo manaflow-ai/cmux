@@ -1,3 +1,0 @@
-{"sidebar":{// note
-"side":"left",/* * */ "workspaceRow":{"terminal":{/* block */ "process":null}}},// a { brace
-"tabs":{"newTabWidgets":{"actions":false}},"ui":{"animations":{"home":"true"}},/* * */ "editor":{/* {"k": 1} */ "fontFamily":true},"oracleUnknown":{"nested":{/* {"k": 1} */ "key":1, "oracle": "a\u0000b"}

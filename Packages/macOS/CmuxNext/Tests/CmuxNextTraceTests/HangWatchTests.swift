@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Darwin
 import Testing
 
-/// The hang-watch slot table and its monitor rule (p02-threads-016, p09-observability 066 and 067's rule),
+/// The hang-watch slot table and its monitor rule (p09-observability 066 and 067's rule),
 /// on a clock that moves only when the test moves it: Chrome's `base::HangWatcher`
 /// (base/threading/hang_watcher.cc) with a monitor that parks while nothing opens.
 @Suite("Hang watch slots") struct HangWatchTests {
@@ -122,7 +122,7 @@ import Testing
         #expect(wakes.count == 2)
     }
 
-    /// Two tiers (p10-stability-031): a jank at the budget, then a hang `hangAfterBudget` (2 s) later,
+    /// Two tiers: a jank at the budget, then a hang `hangAfterBudget` (2 s) later,
     /// each once; the jank plans the scan of the hang, so a quiet monitor sleeps to it.
     @Test func aScopeJanksAtItsBudgetAndHangsTwoSecondsLater() {
         let (watch, now, _) = Self.monitored()
@@ -282,7 +282,7 @@ import Testing
         #expect(race.reportedAfterClose.load(ordering: .relaxed) == 0)
     }
 
-    /// "No syscall on scope enter or exit in steady state" (p10-stability-031): a lane busy for 20 scan
+    /// "No syscall on scope enter or exit in steady state": a lane busy for 20 scan
     /// periods (2,000 scopes, all closed before each scan) wakes the monitor once, at the first open
     /// after the park; the monitor keeps its period, and parks after the first quiet period.
     @Test func aBusyLaneMakesNoWakeCallInSteadyState() {

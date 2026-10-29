@@ -867,7 +867,7 @@ async fn acp_steps(
                 "launch",
                 StepStatus::Fail,
                 &e.to_string(),
-                Some(install_hint(cfg, id, &spawn.argv[0])),
+                Some(install_hint(cfg, id, spawn.argv.first().map_or("", String::as_str))),
             );
             return;
         }
@@ -889,7 +889,7 @@ async fn acp_steps(
                 break;
             }
             if let Ok(mut t) = tail.lock() {
-                t.extend_from_slice(&buf[..n]);
+                t.extend_from_slice(buf.get(..n).unwrap_or(&buf));
                 let len = t.len();
                 if len > 64 * 1024 {
                     t.drain(..len - 64 * 1024);
@@ -934,7 +934,7 @@ async fn acp_steps(
     let text =
         stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
-    let last = lines[lines.len().saturating_sub(15)..].join("\n");
+    let last = lines.rchunks(15).next().unwrap_or_default().join("\n");
     let silent = opts.prompt && wire.reply.trim().is_empty();
     if let Some(kind) = endpoint
         && (!outcome || silent)
@@ -970,13 +970,13 @@ fn endpoint_prompt_verdict(
     stderr: &str,
 ) {
     let at = r.steps.iter().rposition(|s| s.step == "prompt");
-    let detail = at.map(|i| r.steps[i].detail.clone()).unwrap_or_default();
+    let detail = at.and_then(|i| r.steps.get(i)).map(|s| s.detail.clone()).unwrap_or_default();
     let problem = crate::byo_endpoint::classify(&format!("{detail}\n{stderr}"));
     let fix = r.mask(&crate::byo_endpoint::fix(problem, kind, id));
     // No prompt step: the handshake stopped before it, and that step has the fix.
-    if let Some(i) = at {
-        r.steps[i].status = StepStatus::Fail;
-        r.steps[i].fix = Some(fix);
+    if let Some(step) = at.and_then(|i| r.steps.get_mut(i)) {
+        step.status = StepStatus::Fail;
+        step.fix = Some(fix);
     }
 }
 

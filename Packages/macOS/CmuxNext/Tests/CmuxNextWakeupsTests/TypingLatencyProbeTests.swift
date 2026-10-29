@@ -5,7 +5,7 @@ import Testing
 
 /// Key flows start at run time, each press in flight gets its own chain, a write and a send go to their
 /// surface's oldest pending press, an echo marks only the press it names and only its own chunk, and a
-/// surface's frame marks only the presses on it (p09-observability-019).
+/// surface's frame marks only the presses on it.
 struct TypingLatencyProbeTests {
     /// Every `key.flow` hop a probe emits, in order.
     private final class Hops: Sendable {

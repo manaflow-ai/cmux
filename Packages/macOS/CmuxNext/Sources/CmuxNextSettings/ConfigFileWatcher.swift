@@ -18,7 +18,7 @@ public import Foundation
 /// thread), as Chrome's `FilePathWatcher` sets up its kqueue on a sequence that may
 /// block (base/files/file_path_watcher_kqueue.cc).
 ///
-/// In Debug and bench builds the watch is in the launch's arm census (startup-queue.py arms, p08-startup-085): its
+/// In Debug and bench builds the watch is in the launch's arm census (startup-queue.py arms): its
 /// first arm and its first event, under the line that made the watcher.
 public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the sources and what they watch change only on the serial `queue` (arm, disarm, the event handlers) and in deinit; `run` is a Mutex, the rest is immutable
     public let url: URL
@@ -248,7 +248,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
         events: DispatchSource.FileSystemEvent,
         handler: @escaping @Sendable (DispatchSource.FileSystemEvent) -> Void
     ) -> (any DispatchSourceFileSystemObject)? {
-        let descriptor = open(path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = blockingOpen(path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: events, queue: queue)
         source.setEventHandler { [weak source] in
@@ -293,7 +293,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
 
     private static func identity(of path: String) -> (dev: dev_t, ino: ino_t)? {
         var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
+        guard blockingStat(path, &info) == 0 else { return nil }
         return (info.st_dev, info.st_ino)
     }
 }

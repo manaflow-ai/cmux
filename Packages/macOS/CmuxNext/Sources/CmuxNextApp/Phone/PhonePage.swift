@@ -66,7 +66,7 @@ final class PhonePageTab: InternalPageProvider {
         opens.forget(key)
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Released once hidden 20 s, as a hidden Mac screen ends its session: its frames stop at hide
     /// (``PhoneTabView``), and switching tabs back and forth keeps the view and runs no `xcrun` on

@@ -12,6 +12,8 @@
 //! The MCP tools `agents_terminal_list` and `agents_terminal_send`
 //! (mcp/terminal_talk_tools.rs) run the same code.
 
+use crate::cli::json_fields::JsonFields;
+
 pub(in crate::cli) mod reply;
 pub(in crate::cli) mod roster;
 pub(in crate::cli) mod send;
@@ -160,10 +162,10 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
         Ok(receipt) => receipt,
         Err(failure) => return fail(global, &failure.failure, failure.exit),
     };
-    let timed_out = receipt["timed_out"] == true;
+    let timed_out = receipt.field("timed_out") == true;
     match global.output {
         OutputMode::Human => {
-            let output = receipt["output"].as_str().unwrap_or_default();
+            let output = receipt.field("output").as_str().unwrap_or_default();
             if !output.is_empty() {
                 println!("{output}");
             }
@@ -172,7 +174,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     "cmux: the terminal was still busy after {}; the output so far is above",
                     humantime(request.timeout)
                 );
-            } else if receipt["state"] == "waiting-for-input" {
+            } else if receipt.field("state") == "waiting-for-input" {
                 eprintln!("cmux: the agent now waits on a dialog (agents_dialog_list shows it)");
             }
         }

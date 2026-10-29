@@ -3,7 +3,7 @@ import CmuxNextInput
 import Testing
 
 /// Events and one dispatch through an ``InputEventTap`` the way `CmuxApplication.sendEvent` runs it,
-/// for the Design owners that subscribe to the tap (p04-input-013).
+/// for the Design owners that subscribe to the tap.
 @MainActor
 struct InputTapTestEvents {
     let tap = InputEventTap()

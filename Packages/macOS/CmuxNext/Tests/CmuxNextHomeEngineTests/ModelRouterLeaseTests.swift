@@ -5,7 +5,7 @@ import Foundation
 import os
 import Testing
 
-/// p14-energy-066c: the model router lease waits on one one-shot DemandTimer per pass. The renewal is a flexible
+/// The model router lease waits on one one-shot DemandTimer per pass. The renewal is a flexible
 /// deadline 90 s before the token's expiry that may come early but never late; a retry after a failure is never early.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct ModelRouterLeaseTests {

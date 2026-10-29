@@ -5,7 +5,7 @@ import Testing
 
 /// Each ``FrameTick`` carries BeginFrame args (Chrome's `viz::BeginFrameArgs`,
 /// components/viz/common/frame_sinks/begin_frame_args.h): the frame's time, the time it is shown
-/// (`targetTimestamp`, the deadline), the refresh interval and a sequence number (p03-rendering-012).
+/// (`targetTimestamp`, the deadline), the refresh interval and a sequence number.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerBeginFrameTests {
     @Test func aLinkFrameCarriesItsTargetTimestampAndASequence() {
         let scheduler = FrameScheduler.testing(mediaTime: { 500 }) { _ in BeginFrameFakeLink() }

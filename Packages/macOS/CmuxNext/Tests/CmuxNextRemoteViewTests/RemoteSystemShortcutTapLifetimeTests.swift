@@ -2,9 +2,9 @@ import CoreGraphics
 @testable import CmuxNextRemoteView
 import Testing
 
-/// The system shortcut tap's lifetime (p10-stability-066): an installed tap stays alive, and keeps
+/// The system shortcut tap's lifetime: an installed tap stays alive, and keeps
 /// working, when its owner lets go, and goes away once `remove()` has invalidated the port. Its
-/// callback's refcon is a CallbackRegistry token (p10-stability-081), so a late callback finds no
+/// callback's refcon is a CallbackRegistry token, so a late callback finds no
 /// tap instead of a freed one (RemoteSystemShortcutTapCallbackTests).
 @MainActor @Suite struct RemoteSystemShortcutTapLifetimeTests {
     @Test func installedTapStaysAliveUntilRemoved() {

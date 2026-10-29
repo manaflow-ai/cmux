@@ -71,7 +71,7 @@ import Testing
         #expect(perPair < 2_000)
     }
 
-    // MARK: Per-owner ledger (p06-scheduler-009)
+    // MARK: Per-owner ledger
 
     /// Known waits and run times land in their buckets: 98 tasks that waited 1 ms and 2 that waited
     /// 40 ms give p50 and p95 in the 1 ms bucket, p99 and max at 40 ms; run time likewise.

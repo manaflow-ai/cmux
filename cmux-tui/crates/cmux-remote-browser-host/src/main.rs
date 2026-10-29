@@ -10,6 +10,9 @@
 //!   that measures a serving host (any platform). Its first stdin line is the host's secret.
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 /// `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`.
 fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     use cmux_remote_browser_host::probe::{Plan, run};

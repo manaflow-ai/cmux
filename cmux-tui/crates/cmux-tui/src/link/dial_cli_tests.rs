@@ -134,7 +134,7 @@ async fn an_explicit_socket_is_dialed_exactly_and_checked() {
     server.await.unwrap();
 }
 
-/// p02-threads-207: the dial entry, its runtime workers and its blocking
+/// The dial entry, its runtime workers and its blocking
 /// threads (the stdin reads) run at UserInitiated. A thread reads its own
 /// live class; another process's first thread only shows a base priority,
 /// and a dial child exits at once without a link that verifies as cmux.

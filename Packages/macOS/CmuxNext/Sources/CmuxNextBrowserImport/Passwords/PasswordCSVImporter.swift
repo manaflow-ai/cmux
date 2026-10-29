@@ -1,4 +1,6 @@
+public import CmuxNextWakeups
 public import Foundation
+import CmuxNextCompat
 
 /// Imports a password CSV the user chose into one cmux browser profile's
 /// Chromium password store, through the same destination as the browser
@@ -19,9 +21,12 @@ public struct PasswordCSVImporter: Sendable {
     static let maximumSize = 64 << 20
 
     let destination: any PasswordDestination
+    /// The app's blocking-work lanes: the file read on the files lane, the parse on the cpu lane.
+    let work: BackgroundWork
 
-    public init(destination: any PasswordDestination) {
+    public init(destination: any PasswordDestination, work: BackgroundWork) {
         self.destination = destination
+        self.work = work
     }
 
     /// `columns` is asked, only when the header names no website or password column, to match
@@ -29,15 +34,16 @@ public struct PasswordCSVImporter: Sendable {
     public func run(file: URL, intoProfile profileID: String,
                     columns: (@MainActor @Sendable (PasswordCSVHeader) async -> PasswordCSVColumns?)? = nil) async throws -> PasswordImportReport {
         guard destination.isAvailable else { throw Failure.storeUnavailable }
-        // File IO and parsing off the caller's actor; the plaintext stays in the locked buffer.
-        let bytes = try await Task.detached { try Self.read(file) }.value
+        // The file read on the files lane, the parse on the cpu lane, never the cooperative pool; the
+        // plaintext stays in the locked buffer. The person waits for the import.
+        let bytes = try await work.run(.userBlocking, mayBlock: .files) { try Self.read(file) }
         let read: (logins: [ImportedLogin], skipped: LoginSkipCounts)
         do {
-            read = try await Task.detached { try Self.parse(bytes) }.value
+            read = try await work.run(.userBlocking, mayBlock: .cpu) { try Self.parse(bytes) }
         } catch Failure.noPasswordColumns {
             guard let columns, let header = PasswordCSVHeader.read(bytes) else { throw Failure.noPasswordColumns }
             guard let match = await columns(header) else { throw Failure.cancelled }
-            read = try await Task.detached { try Self.parse(bytes, columns: match) }.value
+            read = try await work.run(.userBlocking, mayBlock: .cpu) { try Self.parse(bytes, columns: match) }
         }
         return try await store(read, intoProfile: profileID)
     }
@@ -50,7 +56,7 @@ public struct PasswordCSVImporter: Sendable {
     /// The whole file when it is at most `limit` bytes (an export archive's limit is larger).
     static func read(_ file: URL, limit: Int) throws(Failure) -> SecretBytes {
         // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
-        let descriptor = unsafe open(file.path, O_RDONLY | O_CLOEXEC)
+        let descriptor = unsafe blockingOpen(file.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw .unreadable }
         defer { close(descriptor) }
         var info = stat()
@@ -66,7 +72,7 @@ public struct PasswordCSVImporter: Sendable {
             for _ in 0...size where done < size && !failed {
                 // SAFETY: `out` holds max(size, 1) bytes (the capacity asked for) and 0 <= done < size,
                 // so read writes at most size - done bytes from base + done, inside the buffer.
-                let count = unsafe Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                let count = unsafe blockingRead(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done

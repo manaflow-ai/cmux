@@ -5,7 +5,7 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The background lanes' user-blocking queue-wait p99 in a hang report's coarse counts (p02-threads-123): a bucket
+/// The background lanes' user-blocking queue-wait p99 in a hang report's coarse counts: a bucket
 /// label, sent in schema 3 only, absent from schema 2 and from reports written before it.
 struct LaneWaitCountsTests {
     /// A clock that moves only when a lane body moves it.

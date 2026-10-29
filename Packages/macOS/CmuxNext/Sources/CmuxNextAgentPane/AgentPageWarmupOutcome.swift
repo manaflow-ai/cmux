@@ -4,7 +4,7 @@ public nonisolated enum AgentPageWarmupOutcome: Equatable, Sendable {
     case made
     /// An agent page was made first and started WebKit itself.
     case agentPageStartedWebKit
-    /// New agent pages open in Chromium, so a WebKit page would warm nothing they use (p13-webui-046).
+    /// New agent pages open in Chromium, so a WebKit page would warm nothing they use.
     case agentPagesInChromium
     /// The warm-up already ran, and marked, this launch.
     case alreadyRan

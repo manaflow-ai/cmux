@@ -1,8 +1,9 @@
 public import AppKit
 import CoreImage
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextWakeups
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.

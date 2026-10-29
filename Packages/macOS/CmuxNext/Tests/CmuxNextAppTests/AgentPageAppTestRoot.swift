@@ -2,7 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextPages
 import Foundation
 
-/// The one agent page every agent pane in this test target shows (p13-webui-073: every pane is on
+/// The one agent page every agent pane in this test target shows (every pane is on
 /// the page host). The page host serves the agent page from one root per process, the first one
 /// registered (`PageID.registerBundledRoot`), and a whole-target run makes panes from many suites in
 /// one process, some through `AppServices` with the bundled page. So this is that root when one is

@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// The app wires its picture caches to the memory coordinator only with `memoryImageCaches` on, and a
-/// page thumbnail the cache cannot keep is never captured (p07-memory-058).
+/// page thumbnail the cache cannot keep is never captured.
 @MainActor @Suite(.serialized)
 struct ImageCacheWiringTests {
     private static let imageCacheNames: Set<String> = [

@@ -9,8 +9,8 @@ import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
 /// back on its own pane does nothing. The tab bar's tabs keep their own drag. With feature
-/// `pointerFrameDrags` the drag previews on a frame interval's first move and once at the frame
-/// (p04-input-032); with it off every move previews.
+/// `pointerFrameDrags` the drag previews on a frame interval's first move and once at the frame;
+/// with it off every move previews.
 @MainActor
 struct PaneSwapDragTests {
     final class Panes: LayoutPaneContentProvider {
@@ -42,7 +42,7 @@ struct PaneSwapDragTests {
         private var moveTime = 1000 - 1.0 / 256
 
         /// `frames`: the drags go through the layout's frame-aligned input. `resampled`: the preview's pointer
-        /// is resampled at the frame (p04-input-040).
+        /// is resampled at the frame.
         init(frames: FrameInputTestRig? = nil, resampled: Bool = false) {
             self.frames = frames
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
@@ -127,7 +127,7 @@ struct PaneSwapDragTests {
         #expect(window.tap.subscriberCount(.key, stage: .intercept) == 0, "the drop left the drag's Escape intercept")
     }
 
-    /// Escape cancels a pane drag through the input tap (p04-input-015): the tap stops the key, the
+    /// Escape cancels a pane drag through the input tap: the tap stops the key, the
     /// preview goes, the release swaps nothing, and the drag's Escape intercept lives for the drag only.
     @Test func escapeCancelsTheDragThroughTheTapAndDropsItsIntercept() throws {
         let window = Window()
@@ -217,7 +217,7 @@ struct PaneSwapDragTests {
 
     /// A frame of moves previews twice at most: the drag's start is the interval's first move and
     /// previews at once, the other moves wait and preview once at the frame, where the pointer is
-    /// then (p04-input-032).
+    /// then.
     @Test func aFrameOfMovesPreviewsAtMostTwice() throws {
         let frames = FrameInputTestRig()
         let window = Window(frames: frames)
@@ -268,7 +268,7 @@ struct PaneSwapDragTests {
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
 
-    /// Resampling moves only the preview's pointer (p04-input-040): with the layout's frame-aligned input, the
+    /// Resampling moves only the preview's pointer: with the layout's frame-aligned input, the
     /// same moves preview the same target and the drop swaps the same panes with the resampler on and off,
     /// while the resampled preview's pointer trails the real one.
     @Test func theDropIsTheSameWithResamplingOnAndOff() throws {

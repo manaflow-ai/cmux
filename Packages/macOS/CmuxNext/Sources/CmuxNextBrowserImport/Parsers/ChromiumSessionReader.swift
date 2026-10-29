@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Reads the open tabs of a Chromium session file (`Sessions/Session_<n>`,
 /// or `Current Session` on older versions). The file is an "SNSS" command
@@ -7,14 +8,9 @@ public import Foundation
 /// and window commands gives the tabs that were open, each at its selected
 /// navigation. Encrypted session files (versions 2 and 4) are skipped.
 public struct ChromiumSessionReader {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover Chromium sessions.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of Chromium sessions.
+    public init() {}
 
     // session_service_commands.cc command ids.
     let setTabWindow: UInt8 = 0
@@ -27,7 +23,7 @@ public struct ChromiumSessionReader {
 
     /// The newest `Session_*` file in a profile's `Sessions` folder.
     public func latestSessionFile(in sessions: URL) -> URL? {
-        let names = (try? fileManager.contentsOfDirectory(atPath: sessions.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: sessions.path)) ?? []
         return names.filter { $0.hasPrefix("Session_") }
             .max { (Int64($0.dropFirst(8)) ?? 0) < (Int64($1.dropFirst(8)) ?? 0) }
             .map { sessions.appending(path: $0) }
@@ -36,7 +32,7 @@ public struct ChromiumSessionReader {
     public func sessionFile(profile: URL) -> URL? {
         if let latest = latestSessionFile(in: profile.appending(path: "Sessions")) { return latest }
         let legacy = profile.appending(path: "Current Session")
-        return fileManager.fileExists(atPath: legacy.path) ? legacy : nil
+        return FileManager.checked.fileExists(atPath: legacy.path) ? legacy : nil
     }
 
     private struct Tab {

@@ -13,7 +13,7 @@ static const char kGolden[] =
     "05000000030000000a000000feffffffffffff7f0300000004000000ffffffff"
     "00001000000000000807060504030201010000000000000061004100efbeadde";
 
-// Two wheel frames of one trackpad scroll (task p04-input-063), the same bytes
+// Two wheel frames of one trackpad scroll, the same bytes
 // as ChromiumHostFrameTests.wheelGolden: a gesture change (precise, shift held)
 // and the momentum's start after the fingers lift.
 static const char kWheelGolden[2][129] = {
@@ -23,7 +23,7 @@ static const char kWheelGolden[2][129] = {
     "000000000000008056443322110000000700000000000000000000002b000000",
 };
 
-// An input presented frame (task p04-input-066), the same bytes as
+// An input presented frame, the same bytes as
 // ChromiumHostFrameTests.inputPresentedGolden: the input of event time
 // 0x1122334455 showed in a vsync frame at 0x1122a0b0c0.
 static const char kInputPresentedGolden[] =
@@ -51,8 +51,8 @@ static bool Near(double a, double b) {
   return std::fabs(a - b) < 1e-9;
 }
 
-// The wheel frame's phases, momentum phases and precise flag (task
-// p04-input-063): before it the host got only whole-pixel deltas, so Chromium
+// The wheel frame's phases, momentum phases and precise flag:
+// before it the host got only whole-pixel deltas, so Chromium
 // could not latch a gesture or hand the page a fling.
 static void TestWheel() {
   using namespace cmux_host;
@@ -203,7 +203,7 @@ static void TestWheel() {
         "deltas add up only within one phase");
 }
 
-// An input frame's event time (task p04-input-065).
+// An input frame's event time.
 static void TestEventTime() {
   using namespace cmux_host;
   const uint64_t now = 5'000'000'000ULL;
@@ -361,8 +361,8 @@ int main() {
     Check(q.size() == 2, "a move with other modifier flags is its own frame");
   }
   {
-    // Wheel ticks of another scroll phase, momentum phase or precision (kWheelPrecise in flags,
-    // p04-input-063) never fold (p01-process-042).
+    // Wheel ticks of another scroll phase, momentum phase or precision (kWheelPrecise in flags)
+    // never fold.
     Queue q(8);
     q.MarkReady();
     cmux_host::Header began;
@@ -404,7 +404,7 @@ int main() {
     Check(q.MarkReady(), "an EOF before the UI thread exists runs once it does");
   }
   {
-    // A pinch or pressure step (kGesture, task p01-process-054) is ordered input like a click,
+    // A pinch or pressure step (kGesture) is ordered input like a click,
     // and each step is kept: Chrome sends every pinch update (PinchEvent, render_widget_host_ns_view.mojom).
     cmux_host::Header pinch;
     pinch.kind = cmux_host::kGesture;
@@ -423,7 +423,7 @@ int main() {
   }
 
   {
-    // A click's button (task p01-process-054): left, middle and right are CEF's MBT_* values; a back
+    // A click's button: left, middle and right are CEF's MBT_* values; a back
     // (3) or forward (4) button, or any other value, is no click, never a left click at the pointer.
     cmux_host::Header click;
     click.kind = cmux_host::kMouse;

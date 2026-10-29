@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextIPC
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -11,6 +12,8 @@ import Testing
 /// its names, the Chief Settings harness picker's items, the New Chief sheet's choice, and the
 /// local create path that hands `harness: "unii"` to this Mac's Chief owner.
 @Suite struct ChiefBackendTests {
+    static let lanes = BackgroundWork(label: "test.chief-harnesses")
+
     @Test func theOfficialBackendsAreClaudeCodexAndUniiChatInThatOrder() {
         #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "muse", "unii"])
         #expect(ChiefBackend.official.filter(\.isDefault) == [.claude])
@@ -140,7 +143,7 @@ import Testing
             .object(["id": .string("agent_scout01"), "engine": .object(["harness": .string("unii")])]),
             .object(["id": .string("agent_mux"), "engine": .object([:])]),
         ])])
-        let reader = HomeChiefHarnesses(muxHome: home, list: { listed })
+        let reader = HomeChiefHarnesses(muxHome: home, files: Self.lanes, list: { listed })
         let harnesses = await reader.read(chiefs: ["agent_mux", "agent_scout01", "agent_plain01"])
         #expect(harnesses == ["agent_mux": "codex", "agent_scout01": "unii"])
         #expect(HomeChiefHarnesses.recordHarnesses(nil).isEmpty)
@@ -153,11 +156,11 @@ import Testing
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-deleted-\(UUID().uuidString)", isDirectory: true)
         let listed: JSONValue = .object(["chiefs": .array([.object(["id": .string("agent_mux")])]),
                                          "deleted": .array([.string("agent_gone01")])])
-        let read = await HomeChiefHarnesses(muxHome: home, list: { listed }).readWithDeleted(chiefs: ["agent_mux", "agent_gone01"])
+        let read = await HomeChiefHarnesses(muxHome: home, files: Self.lanes, list: { listed }).readWithDeleted(chiefs: ["agent_mux", "agent_gone01"])
         #expect(read.deleted == ["agent_gone01"])
-        let older = await HomeChiefHarnesses(muxHome: home, list: { .object(["chiefs": .array([])]) }).readWithDeleted(chiefs: [])
+        let older = await HomeChiefHarnesses(muxHome: home, files: Self.lanes, list: { .object(["chiefs": .array([])]) }).readWithDeleted(chiefs: [])
         #expect(older.deleted == nil)
-        let unread = await HomeChiefHarnesses(muxHome: home, list: { nil }).readWithDeleted(chiefs: [])
+        let unread = await HomeChiefHarnesses(muxHome: home, files: Self.lanes, list: { nil }).readWithDeleted(chiefs: [])
         #expect(unread.deleted == nil)
     }
 }

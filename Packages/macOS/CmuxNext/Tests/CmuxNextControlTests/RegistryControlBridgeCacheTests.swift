@@ -259,7 +259,7 @@ import Testing
         fixture.expectCurrent()
     }
 
-    /// The refresh is an automation task on the app's scheduler (p04-input-029): it waits behind
+    /// The refresh is an automation task on the app's scheduler: it waits behind
     /// the person's pending input, and runs once the input clears.
     @Test func aRefreshWaitsBehindThePersonsPendingInput() {
         let input = BridgeInput()
@@ -290,7 +290,7 @@ import Testing
         #expect(bridge.structureBuilds == builds + 1)
     }
 
-    /// No automation site needs a display link (p04-input-029): with a link that never fires and
+    /// No automation site needs a display link: with a link that never fires and
     /// no frame client running (an occluded window), a binding and a context change reach the
     /// published catalog in run loop turns alone.
     @Test func theCatalogAndContextMaskApplyWithNoDisplayLink() {

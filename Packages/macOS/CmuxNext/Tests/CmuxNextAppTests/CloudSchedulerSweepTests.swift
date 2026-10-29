@@ -5,8 +5,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextApp/{Cloud,SessionTransfer,ServerUpdates} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
-/// task p06-scheduler-312): one case per migrated owner class. The New Cloud Workspace progress view reads nothing
+/// The CmuxNextApp/{Cloud,SessionTransfer,ServerUpdates} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md):
+/// one case per migrated owner class. The New Cloud Workspace progress view reads nothing
 /// while its window is hidden and catches up once when it shows, and its elapsed ticker wakes only while it shows;
 /// a create's backoff is a classed `MainDeadline` on the app's one scheduler (here a rig whose wakes the test fires).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CloudSchedulerSweepTests {

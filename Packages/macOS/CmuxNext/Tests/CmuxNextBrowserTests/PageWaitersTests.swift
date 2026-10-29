@@ -5,7 +5,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Keyed waits on a page (p06-scheduler-028): `page.when(phase:timeout:)` and
+/// Keyed waits on a page: `page.when(phase:timeout:)` and
 /// `page.whenPrompt(kind:timeout:)` read their condition only when the page's phase changes or it
 /// adds a prompt, resume once on the transition, and resume with nil on their timeout, on cancel or
 /// when the page closes. The timeouts are entries on the engine's MainWakeUpQueue, whose uptime the

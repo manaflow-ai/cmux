@@ -1,4 +1,4 @@
-//! A connection's stream sequences and the stream barrier (p05-ipc-073),
+//! A connection's stream sequences and the stream barrier,
 //! through the connection's scheduler on a test mux.
 
 use std::sync::mpsc;

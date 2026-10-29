@@ -1,4 +1,4 @@
-// cmux-perf-result/v1 from the webviews benches and perf tests (p12-perf-process-219).
+// cmux-perf-result/v1 from the webviews benches and perf tests.
 //
 // When PERF_RESULT_DIR is set, recordPerfResults pipes one bench's series to
 // scripts/perf-lab/bench_results.py, which fills the build, host and run blocks from the lab's

@@ -6,7 +6,7 @@ import CmuxNextInput
 import CmuxNextTabs
 import Testing
 
-/// Event identity in the bookmarks, sidebar and tab strip (p04-input-068, DC7): each reads the event
+/// Event identity in the bookmarks, sidebar and tab strip (DC7): each reads the event
 /// it acts on from the input tap (the dispatched record, or the event a menu's loop took), never
 /// AppKit's current event, so a run between dispatches does not reuse the last click's modifiers.
 @MainActor @Suite(.serialized) struct EventIdentityTests {

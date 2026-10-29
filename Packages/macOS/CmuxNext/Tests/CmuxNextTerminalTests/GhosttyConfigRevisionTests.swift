@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import GhosttyNextKit
 import Testing
 
-/// The Ghostty config revision replaces the `configDidChange` broadcast (p06-scheduler-044): a
+/// The Ghostty config revision replaces the `configDidChange` broadcast: a
 /// terminal host follows it through a `VisibleObservation` on its tab node, so a reload does no work
 /// for a hidden terminal, a visible one lays out once per frame however many changes came, and
 /// showing a hidden one lays out once.

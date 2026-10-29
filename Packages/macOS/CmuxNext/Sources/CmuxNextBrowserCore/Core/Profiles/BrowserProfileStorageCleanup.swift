@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Removes a deleted browser profile's Chromium data: its `Profile-<UUID>`
 /// directory and every remote-localhost derived store `Profile-<UUID>-m-*`
@@ -24,13 +25,12 @@ public nonisolated struct BrowserProfileStorageCleanup: Sendable {
     /// gone (nothing left to remove). `default` and invalid ids are skipped.
     @discardableResult
     public func removeChromiumData(for ids: [String]) -> [String] {
-        let manager = FileManager.default
-        let names = (try? manager.contentsOfDirectory(atPath: chromiumRoot.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: chromiumRoot.path)) ?? []
         var removed: [String] = []
         for id in ids where id != BrowserProfileRecord.defaultID && BrowserProfileRecord.engineProfile(for: id) != nil {
             var failed = false
             for name in Self.chromiumDirectories(for: id, in: names) {
-                do { try manager.removeItem(at: chromiumRoot.appending(path: name)) } catch { failed = true }
+                do { try FileManager.checked.removeItem(at: chromiumRoot.appending(path: name)) } catch { failed = true }
             }
             if !failed { removed.append(id) }
         }

@@ -31,8 +31,8 @@ nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertibl
         return "could not start (exit \(status)): \(reason)"
     }
 
-    /// The crash state every page of this host shows when it ends (``ChromiumHostExitReporting``,
-    /// p08-startup-046); nil for a clean exit (status 0: quit or the idle exit), which shows nothing.
+    /// The crash state every page of this host shows when it ends (``ChromiumHostExitReporting``);
+    /// nil for a clean exit (status 0: quit or the idle exit), which shows nothing.
     /// Signals follow Chrome's `GetTerminationStatus` (base/process/kill_posix.cc): a fault or a
     /// CHECK's trap is a crash; SIGKILL, SIGINT and SIGTERM mean something outside ended it. A start
     /// failure (``startFailures``) is a launch failure; any other end is abnormal, so a host never

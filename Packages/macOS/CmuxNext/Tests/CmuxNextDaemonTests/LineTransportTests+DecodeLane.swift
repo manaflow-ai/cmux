@@ -5,7 +5,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The app reader routes only (p05-ipc-144): every handler, reply resolution and close runs on the connection's
+/// The app reader routes only: every handler, reply resolution and close runs on the connection's
 /// ``DecodeLane`` in wire order; a heavy item never runs on the reader and never holds it; a light one runs inline
 /// only while the lane is idle; the reader waits only while the lane's backlog is above its high water.
 extension LineTransportTests {

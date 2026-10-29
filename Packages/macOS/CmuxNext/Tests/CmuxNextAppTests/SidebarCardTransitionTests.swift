@@ -7,7 +7,7 @@ import Testing
 /// 2026-10-18: "the check for updates thing needs better animations for both coming in and
 /// coming out"): a fade and a short rise in, a quicker fade and drop out, a crossfade between
 /// messages, fade only under Reduce Motion, nothing with motion off, and the list above makes
-/// room on a spring instead of jumping (on the render server, p03-rendering-033).
+/// room on a spring instead of jumping (on the render server).
 @MainActor @Suite(.serialized) struct SidebarCardTransitionTests {
     static let moving = MotionPolicy(speed: .fast, reduceMotion: false)
     static let reduced = MotionPolicy(speed: .fast, reduceMotion: true)
@@ -70,7 +70,7 @@ import Testing
         #expect(!SidebarNoticeCardView.changesMessage(from: ticked, to: ticked2), "every download tick would flash the card")
     }
 
-    // MARK: The slot's room (p03-rendering-033)
+    // MARK: The slot's room
 
     static func near(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.5 }
 

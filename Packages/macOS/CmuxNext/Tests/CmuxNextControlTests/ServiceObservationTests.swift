@@ -247,7 +247,7 @@ import Testing
     }
 
     /// A person change the pass did not reach flushes as `userBlocking` and a frontend change as
-    /// `visible`, ahead of the observer's own lower class (p06-scheduler-208).
+    /// `visible`, ahead of the observer's own lower class.
     @Test func aPersonChangeThePassDidNotTakeFlushesAsUserBlockingAndAFrontendOneAsVisible() {
         let fixture = Fixture()
         let model = Model()

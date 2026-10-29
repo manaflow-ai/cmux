@@ -6,7 +6,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Host IME (p04-input-064): the page view's ops reach the host's shim as its IME exports, with
+/// Host IME: the page view's ops reach the host's shim as its IME exports, with
 /// the kIme frame's byte layouts, and nothing goes when the host's shim lacks them.
 extension ChromiumHostTextInputTests {
     static let imeExports: Set<String> = ["cmux_shim_browser_ime_set_composition", "cmux_shim_browser_ime_commit_text",

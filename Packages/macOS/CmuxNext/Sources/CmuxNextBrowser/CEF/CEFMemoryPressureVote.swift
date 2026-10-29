@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 import CmuxNextSignposts
 
-/// cmux's vote in Chromium's memory pressure aggregator (p07-memory-051): the memory coordinator's level
+/// cmux's vote in Chromium's memory pressure aggregator: the memory coordinator's level
 /// (``MemoryPressureVoteSource/pressureVote``) reaches the fork's `cmux_memory_pressure_vote`, one
 /// `MemoryPressureVoter` that the fork makes with `MultiSourceMemoryPressureMonitor::CreateVoter`
 /// (components/memory_pressure/multi_source_memory_pressure_monitor.h) next to the platform voter that

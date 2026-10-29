@@ -1,5 +1,5 @@
 // Checks the window request decision the shim makes with cmux's pushed policy
-// (CEFShim/src/window_request_policy.h, task p01-process-031) on the cases
+// (CEFShim/src/window_request_policy.h) on the cases
 // CEFWindowPolicyTests checks for CEFWindowPolicy.decide in process. Run by
 // scripts/cmux-next/test-window-request-policy-cpp.sh. No CEF.
 #include <cstdio>

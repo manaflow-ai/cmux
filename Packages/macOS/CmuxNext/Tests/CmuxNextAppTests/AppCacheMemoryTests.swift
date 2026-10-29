@@ -12,7 +12,7 @@ import Observation
 import Testing
 @testable import CmuxNextApp
 
-/// p07-memory-056: the app caches of the first CmuxNextApp batch are memory consumers (or carry a
+/// The app caches of the first CmuxNextApp batch are memory consumers (or carry a
 /// `memory: fixed` proof). For each consumer a new limit frees nothing, a release at limit 0 leaves 0
 /// entries and 0 bytes, nothing is kept while the limit is 0, and a hit after a release recomputes
 /// (or, for the lossy saved frames, shows nothing).

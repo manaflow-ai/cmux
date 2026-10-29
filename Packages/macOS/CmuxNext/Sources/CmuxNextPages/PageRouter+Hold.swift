@@ -5,12 +5,12 @@ import CmuxNextSettings
 enum PageDeliveryHoldReason: Hashable {
     /// The page lifecycle froze the page (``PageRouter/holdDelivery()``).
     case lifecycle
-    /// The page view is hidden and delivers on frames (``PageWebView/deliverOnFrames(_:)``,
-    /// p06-scheduler-222): a hidden page takes no script until it shows.
+    /// The page view is hidden and delivers on frames (``PageWebView/deliverOnFrames(_:)``):
+    /// a hidden page takes no script until it shows.
     case hidden
 }
 
-/// The router's hold (p13-webui-023): while the page is hidden or frozen, events wait here by each
+/// The router's hold: while the page is hidden or frozen, events wait here by each
 /// stream's ``PageFrozenDelivery`` instead of reaching the script pipeline.
 extension PageRouter {
     /// Keeps every later event in the router, by its stream's ``PageFrozenDelivery``, until

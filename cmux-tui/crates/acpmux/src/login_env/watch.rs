@@ -54,8 +54,10 @@ pub fn start(supervisor: &crate::supervised::Supervisor) {
     }
     // It keeps the daemon's login environment current: a panic in it is fatal. Its
     // events stop only with the process, so shutdown does not wait for it.
-    let spawned = supervisor.supervise_thread(
+    let spawned = crate::supervised::thread(
+        supervisor,
         "acpmux-login-env-watch",
+        cmux_threads::ThreadQos::Utility,
         crate::supervised::Fatal,
         crate::supervised::ShutdownBehavior::Continue,
         move |_stop| {

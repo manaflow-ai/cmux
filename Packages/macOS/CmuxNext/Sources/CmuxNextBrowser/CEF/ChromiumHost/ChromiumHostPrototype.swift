@@ -52,8 +52,7 @@ public final class ChromiumHostPrototype {
     ///   - deadlines: The app's deadline scheduler: the idle deadline waits on it.
     ///   - idleExitAfter: How long a host runs with its page in no window before it quits
     ///     (`chromiumHostIdleExit`, resolved by the composition root); nil keeps it running.
-    ///   - inputPresented: Takes the host's presentation report of each input (the app's input latency tracker,
-    ///     task p04-input-066).
+    ///   - inputPresented: Takes the host's presentation report of each input (the app's input latency tracker).
     ///   - reportsInputPresented: Takes whether the current host sends those reports (the tracker's
     ///     `pagesReportPresentation`).
     public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, isOn: @escaping @MainActor () -> Bool,
@@ -81,14 +80,13 @@ public final class ChromiumHostPrototype {
 
     /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
     /// `<Application Support>/<bundle id>/ChromiumHost`.
-    public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
-                                            fileManager: FileManager = .default) -> ChromiumHostConfiguration? {
-        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment, fileManager: fileManager),
-              let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+    public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) -> ChromiumHostConfiguration? {
+        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment),
+              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let identifier = bundle.bundleIdentifier ?? "cmux"
         return ChromiumHostConfiguration.bundled(in: layout,
                                                  rootCache: ChromiumHostConfiguration.rootCache(applicationSupport: support, bundleIdentifier: identifier),
-                                                 bundleIdentifier: identifier, environment: environment, fileManager: fileManager)
+                                                 bundleIdentifier: identifier, environment: environment)
     }
 
     /// The `idle_exit_s` a `debug.chromium_host` open may ask for: the bounds of the feature's

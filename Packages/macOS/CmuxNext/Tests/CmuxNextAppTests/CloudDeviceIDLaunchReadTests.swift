@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// This Mac's install id as a launch read (p08-startup-076): `main` reads or makes `device-id` on a lane, and the
+/// This Mac's install id as a launch read: `main` reads or makes `device-id` on a lane, and the
 /// main thread's ask never touches the disk: `notReadYet` while the read runs, the id once it ended.
 @Suite(.timeLimit(.minutes(1))) struct CloudDeviceIDLaunchReadTests {
     static func paths() -> CloudPaths {

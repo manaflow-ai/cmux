@@ -2,8 +2,8 @@
 import Testing
 
 /// Only a user's launch claims the account's `cmux` shim: an agent launch (no-activate) and a bench
-/// launch that may activate (`CMUX_NEXT_ISOLATED_LAUNCH=1`, idle-budget's shipping mode,
-/// p14-energy-100) never do.
+/// launch that may activate (`CMUX_NEXT_ISOLATED_LAUNCH=1`, idle-budget's shipping mode)
+/// never do.
 @Suite struct LastAppCLIPointerIsolationTests {
     @Test func onlyAUsersLaunchPublishesTheCLIPointer() {
         #expect(LastAppCLIPointer.shouldPublish(environment: [:]))

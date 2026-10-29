@@ -1,6 +1,6 @@
 import CmuxNextActions
+import CmuxNextAppearance
 @testable import CmuxNextControl
-import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
 import CmuxNextCompat

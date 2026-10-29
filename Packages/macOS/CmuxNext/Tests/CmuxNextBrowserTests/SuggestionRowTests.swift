@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Address bar suggestion rows hover once per frame (feature `pointerFrameHover`, p04-input-037): the
+/// Address bar suggestion rows hover once per frame (feature `pointerFrameHover`): the
 /// card's rows share one consumer on p04-input-030's `FrameInputCoalescer`, so a frame interval's first
 /// move reports its row in its own turn and the rest once at the frame, the row under the latest point
 /// (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Crossing into or out of a row coalesces

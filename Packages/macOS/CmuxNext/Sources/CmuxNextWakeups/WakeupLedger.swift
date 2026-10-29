@@ -76,8 +76,8 @@ public final class WakeupLedger: Sendable {
     private let activity = Atomic<UInt64>(0)
     private let uptime: @Sendable () -> UInt64
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The timers, deadlines and watches that record here, armed before startup completed (`debug.startup.arms`,
-    /// p08-startup-085). It records only once started (`CMUX_NEXT_ARM_CENSUS=1`) and reads this ledger's clock.
+    /// The timers, deadlines and watches that record here, armed before startup completed (`debug.startup.arms`).
+    /// It records only once started (`CMUX_NEXT_ARM_CENSUS=1`) and reads this ledger's clock.
     public let armCensus: ArmCensus
     #endif
 

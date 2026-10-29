@@ -1,4 +1,4 @@
-//! p10-stability-125: a thread that panics while it holds a surface lock
+//! A thread that panics while it holds a surface lock
 //! poisons it; the surface keeps serving its reads and writes instead of
 //! turning that one panic into a panic in every later caller.
 

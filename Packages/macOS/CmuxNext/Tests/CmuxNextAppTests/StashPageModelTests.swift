@@ -6,7 +6,7 @@ import Testing
 
 /// The Stashed page's model on its own (a stand-in source, no daemon): a failed action's notice
 /// outlives the reload after it, search filters groups and workspace members, and a click shows in its own turn
-/// while the daemon call runs after it and ends as one userBlocking task (p06-scheduler-344, recipe R-hop).
+/// while the daemon call runs after it and ends as one userBlocking task (recipe R-hop).
 @MainActor @Suite struct StashPageModelTests {
     @Test func aFailedRestoreKeepsItsNoticeAfterTheReload() async throws {
         let source = FailingSource()

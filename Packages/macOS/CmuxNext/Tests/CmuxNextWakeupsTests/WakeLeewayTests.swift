@@ -1,7 +1,7 @@
 @testable import CmuxNextWakeups
 import Testing
 
-/// DelayPolicy and WakeLeeway (p14-energy-011): Chromium's 8 ms leeway and 36 ms precise limit
+/// DelayPolicy and WakeLeeway: Chromium's 8 ms leeway and 36 ms precise limit
 /// below 1 s, whole uptime seconds with min(10%, 1 s) leeway above, 32 ms in Energy Saver.
 @Suite("WakeLeeway")
 struct WakeLeewayTests {

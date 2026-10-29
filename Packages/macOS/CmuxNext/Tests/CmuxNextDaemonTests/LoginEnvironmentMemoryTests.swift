@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The login environment as a memory consumer (p07-memory-060): it holds one environment, the
+/// The login environment as a memory consumer: it holds one environment, the
 /// store's copy until this launch's capture lands and the capture after, and reports it; a release
 /// never drops the capture, so a new terminal never pays a login shell for memory.
 struct LoginEnvironmentMemoryTests {

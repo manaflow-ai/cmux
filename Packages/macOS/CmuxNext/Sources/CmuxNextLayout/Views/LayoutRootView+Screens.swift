@@ -70,7 +70,7 @@ extension LayoutRootView {
 
 // MARK: - The switch on the render server
 
-/// A screen switch on the render server (chrome-parity R2, p03-rendering-030; on with
+/// A screen switch on the render server (chrome-parity R2; on with
 /// `motion.renderServer`). In the switch's turn every screen it moves goes to its rest frame and
 /// opacity once, the overlay syncs once at rest, and Core Animation shows the new screen sliding and
 /// fading in and the old one out from where each showed, on the `screen` spring token: additive

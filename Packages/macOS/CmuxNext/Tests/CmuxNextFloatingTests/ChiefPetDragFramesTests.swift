@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The pet's drag on frame-aligned input (feature `pointerFrameDrags`, p04-input-089): the panel moves on a
+/// The pet's drag on frame-aligned input (feature `pointerFrameDrags`): the panel moves on a
 /// frame interval's first drag event and once more at the frame, to the latest point (Chromium's rAF-aligned
 /// moves), at each event's own screen point; the release lands the pending point before the drop.
 @MainActor @Suite(.serialized) struct ChiefPetDragFramesTests {

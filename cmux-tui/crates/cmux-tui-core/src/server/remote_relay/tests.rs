@@ -250,6 +250,31 @@ fn only_the_section_4_commands_pass_the_gate() {
     }
 }
 
+/// The memory diagnostics read this machine's processes,
+/// footprints and terminals, so no remote frame reaches them under any name or
+/// spelling, and the allowlist can never hold a memory, trace or debug command.
+#[test]
+fn remote_gate_refuses_memory_report_and_every_memory_diagnostic() {
+    for frame in [
+        json!({"id": 1, "cmd": "memory-report"}),
+        json!({"cmd": "memory-report", "surface": 1}),
+        json!({"cmd": "Memory-Report"}),
+        json!({"cmd": "memory-report "}),
+        json!({"cmd": "memory.limit", "level": "critical"}),
+        json!({"cmd": "debug.memory"}),
+        json!({"cmd": "debug.discards"}),
+        json!({"cmd": "terminal-resources"}),
+        json!({"cmd": "trace-status"}),
+    ] {
+        assert_eq!(check_frame(&frame.to_string()), Err(Denial::Command), "{frame}");
+    }
+    for (name, _) in ALLOWED_COMMANDS {
+        for word in ["memory", "discard", "trace", "debug", "resources"] {
+            assert!(!name.contains(word), "{name} is a {word} command on the remote allowlist");
+        }
+    }
+}
+
 #[test]
 fn set_client_info_takes_only_conversation_capabilities_and_ignores_identity() {
     let fixture = fixture();

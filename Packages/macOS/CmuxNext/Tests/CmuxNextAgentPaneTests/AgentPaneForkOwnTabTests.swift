@@ -1,5 +1,6 @@
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Leo 2026-10-13 (cosmic-gray): a new chat made from this one (a fork, a Continue In…) took over
 /// the chat's tab, so the chat itself left the sidebar. The page asks the host to open the new
@@ -18,7 +19,7 @@ struct AgentPaneForkOwnTabTests {
     }
 
     private static func pane(opens: Bool = true, opened: Opened = Opened()) -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost(), sessionId: "chat")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "chat")
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, openTab: { id, destination in
             opened.ids.append(id)
             opened.destinations.append(destination)

@@ -3,6 +3,7 @@
 //! inputs are the JSON the stores already print, so tests drive it with
 //! fixtures and no daemon.
 
+use crate::json_fields::JsonFields;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -209,7 +210,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             full_access: (role == "client").then(|| paired["full_access"] == true),
         });
     }
-    if sources.remote["enabled"].as_bool() == Some(true) {
+    if sources.remote.field("enabled").as_bool() == Some(true) {
         for login in array(&sources.remote, "allow").iter().filter_map(Value::as_str) {
             devices.push(login_row(
                 format!("allow:{login}"),

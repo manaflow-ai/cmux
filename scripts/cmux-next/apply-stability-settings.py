@@ -83,8 +83,8 @@ CONSTANT_DECL = re.compile(rf"^let {CONSTANT}: \[SwiftSetting\] = \[[^\]]*\]", r
 SWIFT, C = "swift", "c"
 SWIFT_SUFFIXES = (".swift",)
 C_SUFFIXES = (".c", ".m", ".mm", ".cc", ".cpp", ".cxx")
-# The only flags a "c" row may pass through `.unsafeFlags`: Chrome's hardening and warning flags (p10-stability-162;
-# chromium build/config/compiler/BUILD.gn and build/config/c++/BUILD.gn).
+# The only flags a "c" row may pass through `.unsafeFlags`: Chrome's hardening and warning flags
+# (chromium build/config/compiler/BUILD.gn and build/config/c++/BUILD.gn).
 HARDENING_FLAGS = frozenset({
     "-Wall", "-Wextra", "-Wunsafe-buffer-usage", "-Werror=unsafe-buffer-usage", "-fstack-protector-strong",
     "-ftrivial-auto-var-init=pattern", "-fno-delete-null-pointer-checks",

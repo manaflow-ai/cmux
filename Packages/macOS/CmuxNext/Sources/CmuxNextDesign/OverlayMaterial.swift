@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// How an app overlay that floats over content (palette, hover card, find
 /// and prompt bars, the tab drag's drop target) is drawn. One decision for

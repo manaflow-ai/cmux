@@ -4,7 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// p03-rendering-109: a view's `.inVisibleRect` tracking area is added once, in its init, and lives as long
+/// A view's `.inVisibleRect` tracking area is added once, in its init, and lives as long
 /// as the view. AppKit keeps its rect equal to the visible rect, so a resize, a scroll or a window move
 /// rebuilds nothing (Chromium's `BridgedContentView` adds its one `NSTrackingInVisibleRect` area in
 /// `-initWithBridge:bounds:`, components/remote_cocoa/app_shim/bridged_content_view.mm).

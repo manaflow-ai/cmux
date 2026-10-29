@@ -42,7 +42,7 @@ package struct OpenFileLimit {
         var size = MemoryLayout<Int32>.size
         // SAFETY: sysctlbyname reads the NUL-terminated name made for the call and writes at most `size` bytes (one
         // Int32) into `value` and the size it wrote into `size`; both are locals.
-        return unsafe sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
+        return unsafe blockingSysctlByName("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
     }
 
     package init() {}

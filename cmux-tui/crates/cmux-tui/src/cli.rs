@@ -48,6 +48,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod json_fields;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
@@ -177,8 +178,8 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
 /// routing and the Unix remote implementation from maintaining separate lists.
 pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(argument) = args.get(index) {
+        match argument.as_str() {
             "--" => return false,
             "--socket" | "--session" | "--machine" | "--app-socket" => {
                 if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
@@ -485,10 +486,11 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     if words < 2 {
         return None;
     }
-    let name = command_args[..words].join(" ");
+    let (name_words, rest_words) = command_args.split_at_checked(words)?;
+    let name = name_words.join(" ");
     // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
-    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
-        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    let (name, rest) =
+        app::new_window_spelling(&name, rest_words).unwrap_or_else(|| (name, rest_words.to_vec()));
     app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
@@ -509,12 +511,12 @@ fn parse_command(
     }
     let mut command_args = shorthand::normalize(&command_args, surface)?;
     federation::apply_qualifiers(&mut global, &mut command_args)?;
-    if command_args.is_empty() {
+    let Some(first_word) = command_args.first().cloned() else {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
-    }
+    };
     // `help <scope>` and `<scope> --help` name the scope too, so the check
     // covers every spelling (shorthands are already lowered).
-    let named_scope = match command_args[0].as_str() {
+    let named_scope = match first_word.as_str() {
         "help" => command_args.get(1).map(|scope| shorthand::scope(scope)),
         scope => Some(scope),
     };
@@ -527,18 +529,18 @@ fn parse_command(
     // Public resource parsing owns option values and forwarded payloads. The
     // pre-scan is only for startup grammar that reached this parser through a
     // help or routing flag, including the rewritten `server start` path.
-    if !is_public_scope(&command_args[0])
-        && command_args[0] != "help"
+    if !is_public_scope(&first_word)
+        && first_word != "help"
         && super::has_inline_relay_ticket_argument(&command_args)
     {
         return Err(UsageError::new(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
     }
-    if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
+    if let Some(error) = extra_help::own_options_scope(&first_word) {
         return Err(error);
     }
-    if command_args[0] == "help" {
+    if first_word == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
             Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
@@ -664,8 +666,7 @@ fn scan_globals(
     let mut command = Vec::new();
     let mut index = 0;
     let mut after_separator = false;
-    while index < args.len() {
-        let value = &args[index];
+    while let Some(value) = args.get(index) {
         if after_separator {
             command.push(value.clone());
             index += 1;
@@ -680,8 +681,7 @@ fn scan_globals(
         // After `action run <id>`, `--session` and `--machine` are the
         // action's arguments (`agent.openSessionWorkspace --session`): they
         // name a daemon, which an app action never reaches.
-        if command.len() >= 3
-            && command[..2] == ["action", "run"]
+        if matches!(command.as_slice(), [action, run, _, ..] if action == "action" && run == "run")
             && ["--session", "--machine"].iter().any(|flag| {
                 value == flag || value.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
             })
@@ -727,7 +727,12 @@ fn scan_globals(
                         idempotency_key(inline_value).map_err(|error| (error, global.output))?,
                     );
                 }
-                _ => unreachable!(),
+                _ => {
+                    return Err((
+                        UsageError::new(format!("unknown global option {flag}")),
+                        global.output,
+                    ));
+                }
             }
             index += 1;
             continue;
@@ -770,8 +775,7 @@ fn scan_globals(
                 let output = match value.as_str() {
                     "--json" => OutputMode::Json,
                     "--jsonl" => OutputMode::JsonLines,
-                    "--quiet" => OutputMode::Quiet,
-                    _ => unreachable!(),
+                    _ => OutputMode::Quiet,
                 };
                 set_output_mode(&mut global, output, value)
                     .map_err(|error| (error, global.output))?;
@@ -813,8 +817,8 @@ fn option_takes_value(value: &str) -> bool {
 
 fn has_help_option(args: &[String]) -> bool {
     let mut index = 0;
-    while index < args.len() {
-        let value = args[index].as_str();
+    while let Some(value) = args.get(index) {
+        let value = value.as_str();
         if value == "--" {
             break;
         }

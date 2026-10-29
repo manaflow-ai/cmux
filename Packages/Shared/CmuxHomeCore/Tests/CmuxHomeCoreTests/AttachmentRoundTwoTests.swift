@@ -395,24 +395,106 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
     }
 
     /// Finding 5: the cache is pruned again while the store runs (macOS
-    /// never purges Caches), paced by the store's clock.
-    @MainActor @Test func theCacheIsPrunedPeriodicallyWhileTheStoreRuns() async throws {
+    /// never purges Caches): a prepare that grew it arms one prune
+    /// `blobCachePruneInterval` later, paced by the store's clock.
+    @MainActor @Test func aPrepareArmsOnePruneWhileTheStoreRuns() async throws {
         let root = try temporaryDirectory()
         let fm = FileManager.default
         let clock = ManualClock()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
         store.start()
         defer { store.stop() }
-        // The first pass ran and the next one waits on the clock.
-        for _ in 0..<200_000 where clock.pendingSleepers == 0 { await Task.yield() }
-        try #require(clock.pendingSleepers > 0, "the store must wait on its clock for the next prune")
+        _ = try await store.prepareAttachment(data: Data("grew the cache".utf8), typeIdentifier: UTType.plainText.identifier)
+        _ = try await store.prepareAttachment(data: Data("grew it again".utf8), typeIdentifier: UTType.plainText.identifier)
+        await waitUntil { clock.pendingSleepers > 0 }
+        #expect(clock.pendingSleepers == 1, "prepares in a row arm one prune, not one each")
+        #expect(clock.tolerances.last.flatMap { $0 } == .seconds(1), "the prune deadline is flexible (min(10%, 1 s))")
 
         let stale = root.appendingPathComponent("stale", isDirectory: true)
         try fm.createDirectory(at: stale, withIntermediateDirectories: true)
         try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
         clock.advance(by: HomeStore.blobCachePruneInterval)
-        for _ in 0..<200_000 where fm.fileExists(atPath: stale.path) { await Task.yield() }
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
         #expect(!fm.fileExists(atPath: stale.path))
+    }
+
+    /// The prune deadline fires while a prepare runs, so
+    /// the pass skips; that prepare then fails and arms nothing. The
+    /// deadline arms itself again, and the later pass deletes the stale
+    /// blob. `preparing` stands for the in-flight prepare, so the deadline
+    /// fires inside it on every run.
+    @MainActor @Test func aPruneSkippedByARunningPrepareStaysDue() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let clock = ManualClock()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
+        store.start()
+        defer { store.stop() }
+        _ = try await store.prepareAttachment(data: Data("grew the cache".utf8), typeIdentifier: UTType.plainText.identifier)
+        await waitUntil { clock.pendingSleepers == 1 }
+
+        let stale = root.appendingPathComponent("stale", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        // A second prepare is running when the deadline fires.
+        store.preparing += 1
+        let sleepsBefore = clock.tolerances.count
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { clock.tolerances.count > sleepsBefore && clock.pendingSleepers == 1 }
+        #expect(fm.fileExists(atPath: stale.path), "the pass skips while a prepare runs")
+        // That prepare throws: it never calls scheduleBlobCachePrune.
+        store.preparing -= 1
+
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
+        #expect(!fm.fileExists(atPath: stale.path))
+    }
+
+    /// A prepare that starts right after `start` (a share
+    /// handed over at launch) makes the start pass skip; that prepare then
+    /// fails and arms nothing. The skipped pass arms one prune, and it
+    /// deletes the stale blob `blobCachePruneInterval` later.
+    @MainActor @Test func aStartPassSkippedByARunningPrepareStaysDue() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let clock = ManualClock()
+        let stale = root.appendingPathComponent("stale", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
+        // The prepare is running before the start pass gets the main actor.
+        store.preparing += 1
+        store.start()
+        defer { store.stop() }
+        await waitUntil { clock.pendingSleepers == 1 }
+        #expect(clock.pendingSleepers == 1, "the skipped start pass arms one prune")
+        #expect(fm.fileExists(atPath: stale.path), "the start pass skips while a prepare runs")
+        // That prepare throws: it never calls scheduleBlobCachePrune.
+        store.preparing -= 1
+
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
+        #expect(!fm.fileExists(atPath: stale.path))
+    }
+
+    /// A store that prepares nothing never wakes to prune
+    /// (it pruned at `start`; only a prepare grows the cache). The periodic
+    /// prune loop kept a 6 h sleeper armed for the store's whole life.
+    @MainActor @Test func anIdleStoreArmsNoPrune() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let clock = ManualClock()
+        let stale = root.appendingPathComponent("stale", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
+        store.start()
+        defer { store.stop() }
+        // The pass at start ran.
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        for _ in 0..<2_000 where clock.pendingSleepers == 0 { await Task.yield() }
+        #expect(clock.pendingSleepers == 0, "nothing grew the cache, so no prune is due")
     }
 }
 

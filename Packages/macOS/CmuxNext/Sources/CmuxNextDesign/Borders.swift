@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The one switch every border, hairline and separator in the app goes
 /// through (pane borders, the focus ring, divider lines, tab, strip,

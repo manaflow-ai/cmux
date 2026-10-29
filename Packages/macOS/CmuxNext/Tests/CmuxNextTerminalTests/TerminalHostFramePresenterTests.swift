@@ -2,7 +2,7 @@
 import QuartzCore
 import Testing
 
-/// The pre-commit present of resized terminals (p03-rendering-084): one pass per main run-loop turn with a
+/// The pre-commit present of resized terminals: one pass per main run-loop turn with a
 /// resized terminal, ahead of its commit, that asks each resized terminal once; nothing is scheduled at
 /// rest; a released terminal is not asked; and a pass never waits.
 @MainActor

@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The first frame's thread census (p08-startup-068): each thread counts toward the library the registry names, and
+/// The first frame's thread census: each thread counts toward the library the registry names, and
 /// only iroh's tokio pool counts as a runtime the first frame must not have.
 @Suite(.timeLimit(.minutes(1)))
 struct LaunchThreadCensusTests {

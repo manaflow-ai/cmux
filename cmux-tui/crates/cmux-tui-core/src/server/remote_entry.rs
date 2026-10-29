@@ -26,9 +26,9 @@
 //! conversation principal is `remote_<install>`, never `user_local`.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
 use cmux_threads::checked::fs as files;
-use cmux_threads::checked::sync as waits;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
@@ -72,7 +72,7 @@ pub struct RemoteEntryServer {
     /// that another daemon bound at the same path later.
     identity: (u64, u64),
     shutdown: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<supervised::SupervisedThread<()>>,
     mux: Arc<Mux>,
 }
 
@@ -92,7 +92,7 @@ impl Drop for RemoteEntryServer {
         if let Some(thread) = self.thread.take()
             && woke
         {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
         if file_identity(&self.path).is_some_and(|identity| identity == self.identity) {
             let _ = files::remove_file(&self.path);
@@ -155,10 +155,16 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread = cmux_threads::spawn("mux-remote-entry", listen::ACCEPT_THREAD_QOS, move || {
-        let config = EntryConfig { entry_fs, record_checks };
-        accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
-    })?;
+    let thread = supervised::spawn_at(
+        "mux-remote-entry",
+        listen::ACCEPT_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let config = EntryConfig { entry_fs, record_checks };
+            accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
+        },
+    )?;
     Ok(RemoteEntryServer {
         path: path.to_path_buf(),
         identity,
@@ -201,34 +207,15 @@ fn accept_loop(
         let Some(permit) = claim_connection(&connections) else { continue };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
-        let setup_mux = mux.clone();
-        let _ = spawn_connection_reader(
-            "mux-remote-conn",
-            move || {
-                let peer = origin_gate::AcceptedPeer::resolve(&setup_mux, &stream);
-                (stream, peer)
-            },
-            move |(stream, peer)| {
-                serve_remote_connection(
-                    mux,
-                    stream,
-                    peer,
-                    &verifier,
-                    gate,
-                    render_service,
-                    permit,
-                    config,
-                );
-            },
-        );
+        let _ = spawn_connection_reader("mux-remote-conn", move || {
+            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, config);
+        });
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn serve_remote_connection(
     mux: Arc<Mux>,
     stream: UnixStream,
-    peer_identity: origin_gate::AcceptedPeer,
     verifier: &LinkVerifier,
     gate: Arc<dyn RemoteGate>,
     render_service: Arc<RenderService>,
@@ -266,18 +253,19 @@ fn serve_remote_connection(
     // A dial whose first line asks for an `fs.*` byte stream is served raw
     // (fs_wire.rs); any other dial reaches the line connection unchanged.
     let entry_fs = config.entry_fs;
-    let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
+    let Some(dial) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
+    // From here the mux-io loop serves the dial; this handshake thread ends.
     let admission = RemoteAdmission { peer, gate };
     serve_line_connection(
         mux,
-        stream,
-        peer_identity,
+        Box::new(dial.stream),
+        dial.prefix,
         render_service,
         Some(permit),
         ClientTransport::Remote,
-        &admission,
+        Box::new(admission),
     );
 }
 

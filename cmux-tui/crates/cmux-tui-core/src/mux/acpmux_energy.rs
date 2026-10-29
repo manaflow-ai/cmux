@@ -1,4 +1,4 @@
-//! Energy Saver reaches this machine's acpmux (p14-energy-034). The daemon's
+//! Energy Saver reaches this machine's acpmux. The daemon's
 //! mode ([`crate::server::energy_op::DaemonEnergy::mode`], which the app's
 //! `energy.set` and the daemon's own reading flip) goes to acpmux as
 //! `_acpmux/energy {saver}` on the agent chat watch's connection
@@ -11,8 +11,8 @@
 //! (chrome/browser/performance_manager/public/user_tuning/battery_saver_mode_manager.h).
 //!
 //! The app's memory limit (`memory.limit`, server/memory_limit.rs) goes the
-//! same way as `_acpmux/memory_limit {level, mode, override}` (p07-memory-109,
-//! `acpmux/src/memory_control.rs`): the limit the app holds as the watch
+//! same way as `_acpmux/memory_limit {level, mode, override}`
+//! (`acpmux/src/memory_control.rs`): the limit the app holds as the watch
 //! connects, then each change, `level: null` once the app's limit went with
 //! its connection. acpmux votes it next to its own kernel source, as
 //! Chrome's `ChildMemoryConsumerRegistryHost` hands a child the browser's
@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use crate::memory::DaemonMemory;
 use crate::server::memory_limit::WireLevel;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::wake::{EnergyMode, EnergyWatch};
 
 /// acpmux's Energy Saver method (`acpmux/src/rpc.rs`, `MUX_ENERGY`).
@@ -80,7 +81,13 @@ impl AcpmuxEnergy {
         }));
         let mode = Arc::clone(mode);
         let memory = Arc::clone(memory);
-        cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || run(&mode, &memory, &relay))?;
+        supervised::spawn_at(
+            THREAD_NAME,
+            ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&mode, &memory, &relay),
+        )?;
         Ok(Self { inbox, _watch: watch })
     }
 
@@ -216,7 +223,7 @@ mod tests {
         assert!(second.read_line(&mut line).map_or(true, |read| read == 0), "{line}");
     }
 
-    /// The app's memory limit (p07-memory-109) goes to acpmux on each change
+    /// The app's memory limit goes to acpmux on each change
     /// and to a new acpmux as it connects; `level: null` once the app's
     /// connection ended.
     #[test]

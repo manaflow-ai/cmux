@@ -402,8 +402,8 @@ build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
 6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5` on a
    `reload.sh --config bench-checks` app gives 0 sites first hit on main before `startup_complete`. A `--config bench`
    app has no detector (`debug.blocking` `compiled_in: false`), and the tool refuses it (task 147).
-   `scripts/measure/blocking-probe.sh --until-mark first_window_frame_committed` shows 0 raw calls on main,
-   including the xpc-reply, mach-receive, spawn and dlopen kinds (084).
+   (Its raw-call half, `blocking-probe.sh --until-mark` with the 084 kinds, was removed in deletion wave 1,
+   2026-10-29.)
 7. Chromium, STRESS session, 20 runs. With no visible Chromium pane: `cef.initialize_started > startup_complete`.
    With a visible restored Chromium page: `cef.initialize_started <= first_window_frame_committed + 20 ms`,
    reason `visiblePaneLoadedIdle` (never timed out), and hidden restored tabs start no renderer before
@@ -448,10 +448,10 @@ Every hit of a queue is one task with the named template. Each queue is regenera
 - Q2 launch calls. `awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/' .../AppDelegate.swift | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u`
   = 81 today. After 014: `python3 scripts/cmux-next/startup-lint.py` (104) over `CmuxNextApp/Startup/*.swift`
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
-- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce\.schedule|LaunchImageHold\.shared\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
+- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce(\(\))?\.schedule|(LaunchImageHold\.shared|imageHold)\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
-- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
-  `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.
+- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold`
+  (the probe half went in deletion wave 1). Template 038.
 - Q6 main-thread profile. `startup-queue.py profile`: symbols >= 2 ms inclusive on main before first frame,
   turns >= 4 ms before `startup_complete`, `swift_once` / static init >= 1 ms. Seeded by 072. Template 039.
 - Q7 mark gaps. `startup-queue.py gaps warm.json --min-ms 5`. Template 039.
@@ -911,11 +911,6 @@ Change: coordinate with the bundle-size owner; A/B job `70436914a38e`'s official
 rebase the official flags onto the cmux.33 fork with `checkout_pgo_profiles=True` and the profile for that exact
 revision. Acceptance: pin only if CefInitialize and new-tab first paint are each >= 10 % faster, no STRESS soak crash, the
 profile mismatch rate < 10 %, and the shim crash-recovery test passes; flags test checks `is_official_build=true`.
-Status: gate only; the A/B was not run, and the pin and the cmux.33 rebase are still open. `cef_build_flags.py`
-refuses `require_official_pgo: true` unless the manifest records `pgo_profile` per arch (the exact name in
-`chrome/build/mac-arm.pgo.txt` / `mac.pgo.txt` at the fork's revision) and an `official_pgo_ab` record that meets
-the acceptance; the framework's `archive.json` must record that profile and the `pgo_mismatch` counts that
-`--count-pgo-mismatch` reads from the build log.
 
 **048 Toolchain spike.** Files: `plans/cmux-next/startup-DESIGN.md`, `scripts/cmux-next/pgo/probe-toolchain.sh`. Change: on
 the pinned Xcode, test `-profile-generate` + `__llvm_profile_write_file`/`reset_counters`, `llvm-profdata merge`, the

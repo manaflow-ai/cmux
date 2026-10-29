@@ -2,7 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextWakeups
 import Testing
 
-/// EnergyPolicy and EnergyPolicySource (p14-energy-023): the derived saver values and change-only
+/// EnergyPolicy and EnergyPolicySource: the derived saver values and change-only
 /// observer calls that stop on cancel or release.
 @Suite("EnergyPolicy")
 struct EnergyPolicyTests {

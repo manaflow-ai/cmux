@@ -5,8 +5,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The DevTools divider at most twice per frame (feature `pointerFrameDrags`, p04-input-031): with
-/// the window's FrameInputCoalescer (p04-input-030) the first drag event of a frame interval moves
+/// The DevTools divider at most twice per frame (feature `pointerFrameDrags`): with
+/// the window's FrameInputCoalescer the first drag event of a frame interval moves
 /// the line in its own turn and the rest once more at the frame, to the latest point (Chromium's
 /// rAF-aligned input, `main_thread_event_queue.cc`); the release lands the pending move first.
 @MainActor @Suite(.serialized) struct CEFDevToolsDividerTests {

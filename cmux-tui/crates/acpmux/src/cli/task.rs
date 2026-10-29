@@ -8,6 +8,7 @@ use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 
 use crate::cli::output::{arg_or_stdin, print_json};
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 
 #[derive(Subcommand)]
@@ -98,10 +99,10 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
             beads = Some((session.clone(), ids));
             let mut params = json!({"sessionId": session, "title": title, "stopCondition": stop});
             if !brief.is_empty() {
-                params["brief"] = json!(arg_or_stdin(&brief)?);
+                params.set("brief", json!(arg_or_stdin(&brief)?));
             }
             if let Some(from) = crate::cli::sender::of_this_process() {
-                params["_meta"] = json!({"acpmux": {"fromAgent": from}});
+                params.set("_meta", json!({"acpmux": {"fromAgent": from}}));
             }
             (method::MUX_TASK_NEW, params)
         }
@@ -121,7 +122,7 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
     let reply = client.request(m, params).await?;
     if json_out {
         print_json(&reply);
-    } else if let Some(rows) = reply["tasks"].as_array() {
+    } else if let Some(rows) = reply.field("tasks").as_array() {
         if rows.is_empty() {
             println!("No tasks.");
         }
@@ -129,8 +130,8 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
     } else if let Some(row) = reply.get("task") {
         println!("{}", line(row));
     } else {
-        let brief = &reply["brief"];
-        let replayed = if reply["replayed"] == true { " (already reported)" } else { "" };
+        let brief = reply.field("brief");
+        let replayed = if *reply.field("replayed") == true { " (already reported)" } else { "" };
         println!("{} {}{replayed}", brief["briefId"].as_str().unwrap_or("?"), brief["status"]);
     }
     Ok(())
@@ -146,9 +147,12 @@ fn report(state: &str, r: ResultArgs) -> (&'static str, Value) {
 /// title, and the result's summary.
 fn line(row: &Value) -> String {
     let s = |v: &Value| v.as_str().unwrap_or("?").to_owned();
-    let mut lane =
-        row["lane"]["state"].as_str().map_or_else(|| s(&row["sessionStatus"]), str::to_owned);
-    if let Some(since) = row["lane"]["stalledSince"].as_u64() {
+    let mut lane = row
+        .field("lane")
+        .field("state")
+        .as_str()
+        .map_or_else(|| s(row.field("sessionStatus")), str::to_owned);
+    if let Some(since) = row.field("lane").field("stalledSince").as_u64() {
         let minutes = crate::store::now_ms().saturating_sub(since) / 60_000;
         lane.push_str(&format!(", stalled {minutes}m"));
     }
@@ -159,10 +163,10 @@ fn line(row: &Value) -> String {
         s(&row["to"]),
         s(&row["title"])
     );
-    if let Some(summary) = row["result"]["summary"].as_str() {
+    if let Some(summary) = row.field("result").field("summary").as_str() {
         text.push_str(&format!("\n            {summary}"));
     }
-    if let Some(why) = row["result"]["undelivered"].as_str() {
+    if let Some(why) = row.field("result").field("undelivered").as_str() {
         text.push_str(&format!("\n            not delivered to its chat: {why}"));
     }
     text

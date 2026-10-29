@@ -2,7 +2,7 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import Testing
 
-/// The motion backend seam (p03-rendering-019): a host's variants run only while the render server
+/// The motion backend seam: a host's variants run only while the render server
 /// is selected; off, or with nothing registered, no variant runs and every kind stays on the CPU.
 @MainActor @Suite struct MotionBackendsTests {
     final class FakeHost {

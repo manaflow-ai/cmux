@@ -89,6 +89,7 @@ struct IrxEventFrameAligner: Sendable {
         buffer.append(chunk)
         var reader = WireByteReader(buffer)
         var consumed = 0
+        // wakeup-allow: bounded one walk over the buffered bytes, no wait
         while true {
             guard let header = reader.bigEndian(UInt32.self) else { break }
             let length = Int(clamping: header)

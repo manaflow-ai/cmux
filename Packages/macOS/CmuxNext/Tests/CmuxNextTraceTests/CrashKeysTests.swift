@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The crash-key page (p09-observability-078): fixed slots written with relaxed stores, the outer value back after
+/// The crash-key page: fixed slots written with relaxed stores, the outer value back after
 /// a scoped key, the heap page moved into its file off main, and a crashed process's page decoding at the next
 /// launch.
 @Suite struct CrashKeysTests {
@@ -25,6 +25,14 @@ import Testing
         #expect(snapshot.tags["crash_key.daemon_pid"] == "777")
         #expect(snapshot.tags["crash_key.ghostty_commit"] == "abcdef0123456789")
         #expect(snapshot.tags["crash_key.action_index"] == nil, "a key at 0 is a tag")
+    }
+
+    /// The unclosed agent pane key holds when the pane was freed, not only its maker: a crash minutes later shows that
+    /// the pane went long before, so it does not send the crash's owner to that pane (2026-10-28 review).
+    @Test func theUnclosedAgentPaneKeySaysWhenThePaneWasFreed() {
+        let page = CrashKeyPage(identity: Self.identity)
+        page.set(.unclosedAgentPaneMaker, CrashKeySlot.unclosedAgentPane(maker: 2, uptimeNanos: 5_500_000_000))
+        #expect(page.snapshot().tags["crash_key.unclosed_agent_pane_maker"] == "2@5.500s")
     }
 
     @Test func aScopedKeyPutsTheOuterValueBack() {

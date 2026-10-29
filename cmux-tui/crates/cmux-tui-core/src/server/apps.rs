@@ -18,8 +18,8 @@
 //! command; mount events go to the mounting connection only.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -184,8 +184,14 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     }
 }
 
-fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
-    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
+fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<SupervisedThread<()>> {
+    supervised::spawn_at(
+        "cmux-apps-start",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        job,
+    )
 }
 
 /// Whether origin `user` is allowed on `client` now: both checks of this

@@ -12,7 +12,7 @@ public protocol TerminalOffScreenDeadline: AnyObject {
 
 extension MainDeadline: TerminalOffScreenDeadline {}
 
-/// When a shown surface lets its GPU memory go because its window stays off screen (p07-memory-097).
+/// When a shown surface lets its GPU memory go because its window stays off screen.
 ///
 /// The window going off screen (its occlusion notice or its ``WindowOcclusionFamily`` flip, which
 /// re-apply the surface's occlusion) arms one deadline of ``WindowDrawPolicy/offScreenGPUReleaseDelay``;

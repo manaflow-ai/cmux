@@ -1,5 +1,5 @@
 // The find id each browser's FIND_RESULT events carry: the caller's, as
-// cmux_cef_shim.h promises (p01-process-048; no CEF needed:
+// cmux_cef_shim.h promises (no CEF needed:
 // scripts/cmux-next/tests/shim-find-ids.test.sh).
 //
 // CEF's OnFindResult reports Chromium's own find session id, which cmux never

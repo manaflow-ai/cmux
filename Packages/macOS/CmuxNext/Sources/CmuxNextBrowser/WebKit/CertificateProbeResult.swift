@@ -51,7 +51,7 @@ nonisolated final class CertificateProbeDelegate: NSObject, URLSessionTaskDelega
     private func answer(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else { return (.cancelAuthenticationChallenge, nil) }
-        if let failure = ServerTrustBox(trust: trust).evaluate() {
+        if let failure = ServerTrustFailure.evaluate(trust) {
             report.yield(.untrusted(chain: failure.chain, reason: failure.reason))
         } else {
             report.yield(.trusted)

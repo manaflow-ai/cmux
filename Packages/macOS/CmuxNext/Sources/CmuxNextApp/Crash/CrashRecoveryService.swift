@@ -2,9 +2,12 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import os
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextFeatures
+import CmuxNextLaunch
+import CmuxNextMetrics
 import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
@@ -39,6 +42,13 @@ final class CrashRecoveryService {
     private let mainWork: MainWorkScheduler
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
+
+    /// This launch's one reattach decision, from the run marker and feature `relaunchReattach`, which
+    /// do not change while the app runs: the terminal frames' discard (`AppDelegate`) and the window picture's refusal
+    /// (`LaunchSnapshotWindow`) both take it from here.
+    func relaunchReattach(features: FeatureList) -> RelaunchReattach {
+        RelaunchReattach(previousEnd: RelaunchReattach.PreviousEnd(marker?.previousExit), enabled: features.isEnabled(.relaunchReattach))
+    }
 
     /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
     /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools
@@ -254,5 +264,17 @@ final class CrashRecoveryService {
             .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
             .filter { $0.1 >= date }
             .max { $0.1 < $1.1 }?.0
+    }
+}
+
+extension RelaunchReattach.PreviousEnd {
+    /// The run marker's unclean exit (`AppRunMarker.previousExit`; nil after a quit as asked or on a first launch).
+    init(_ exit: HistogramID.UncleanExit?) {
+        switch exit {
+        case nil: self = .quit
+        case .crash?: self = .crashed
+        case .systemShutdown?: self = .systemShutdown
+        case .killed?, .fatalHang?: self = .killed
+        }
     }
 }

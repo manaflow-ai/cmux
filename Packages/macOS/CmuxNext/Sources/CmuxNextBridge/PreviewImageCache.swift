@@ -12,7 +12,7 @@ public import CoreGraphics
 /// its size before the insert, and the coordinator's release slices drop the oldest images past the cap,
 /// on later frames.
 ///
-/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made from its ``allocator`` (p07-memory-107), so an insert
+/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made from its ``allocator``, so an insert
 /// copies no pixels. With feature `purgeableImageCaches` on, a picture is a copy drawn off the main actor into purgeable
 /// pages, volatile whenever nothing draws it, so the kernel takes it back under pressure with no call into cmux, as
 /// Chrome keeps decoded images in discardable memory; ``image(for:)`` locks a picture for as long as its image lives,

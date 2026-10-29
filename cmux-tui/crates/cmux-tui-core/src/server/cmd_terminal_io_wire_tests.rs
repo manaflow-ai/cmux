@@ -1,5 +1,5 @@
-//! The lines the macOS app sends for its TerminalIO requests reach the daemon unchanged
-//! (p05-ipc-032). spec/fixtures/terminal-io-requests/lines.json records them before their
+//! The lines the macOS app sends for its TerminalIO requests reach the daemon unchanged.
+//! Spec/fixtures/terminal-io-requests/lines.json records them before their
 //! migration to the generated `<Name>Request` types; TerminalIORequestWireGoldenTests
 //! (CmuxNextDaemonTests) proves the app encodes exactly these lines. Here every line goes
 //! through the server's own `Request` parse, and each `echo` line is handled against a

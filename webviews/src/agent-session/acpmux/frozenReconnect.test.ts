@@ -1,4 +1,4 @@
-// p13-webui-080: the host closes a frozen idle chat's acpmux connection and hands that close to the
+// The host closes a frozen idle chat's acpmux connection and hands that close to the
 // page at the thaw, after the frames that arrived before it (Swift AgentPaneTransport.closeWhileFrozen).
 // The page opens again on the same client and resumes after the last event it has: the transcript
 // shows what the chat recorded while it was frozen, with no missing row, no empty-transcript frame,

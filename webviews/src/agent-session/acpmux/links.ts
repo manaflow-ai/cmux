@@ -105,7 +105,7 @@ function markWhenDrawn(
 }
 
 /// Runs `attempt` now, then every `pollMs` until it answers true or `waitMs` passes, then calls
-/// `done` with whether it did. The wait is a page poll (pages/shared/pagePoll.ts, p13-webui-069):
+/// `done` with whether it did. The wait is a page poll (pages/shared/pagePoll.ts):
 /// a hidden page looks no more, and on show it looks once if the wait has time left. Returns the
 /// way to stop waiting, which calls `done` with false.
 function waitForReveal(

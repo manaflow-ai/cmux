@@ -160,6 +160,11 @@ pub enum AllowReason {
     /// [`BlockingKind::FdRead`] and [`BlockingKind::FdWrite`].
     #[non_exhaustive]
     OwnDescriptor,
+    /// A failure-injection seam, set only by a test through the environment,
+    /// delays on purpose (Chrome's `ScopedAllowBlockingForTesting`,
+    /// base/threading/thread_restrictions.h). Permits only
+    /// [`BlockingKind::Sleep`].
+    FailureInjection,
 }
 
 impl AllowReason {
@@ -168,6 +173,7 @@ impl AllowReason {
         match self {
             Self::Shutdown => "shutdown",
             Self::OwnDescriptor => "own-descriptor",
+            Self::FailureInjection => "failure-injection",
         }
     }
 
@@ -175,6 +181,7 @@ impl AllowReason {
         match self {
             Self::Shutdown => !matches!(kind, BlockingKind::IpcReply),
             Self::OwnDescriptor => matches!(kind, BlockingKind::FdRead | BlockingKind::FdWrite),
+            Self::FailureInjection => matches!(kind, BlockingKind::Sleep),
         }
     }
 }
@@ -204,6 +211,7 @@ impl ThreadState {
             None => 0,
             Some(AllowReason::Shutdown) => 1,
             Some(AllowReason::OwnDescriptor) => 2,
+            Some(AllowReason::FailureInjection) => 3,
         };
         let disallowed_bit = if disallowed { Self::DISALLOWED } else { 0 };
         let sync_bit = if sync_disallowed { Self::SYNC_DISALLOWED } else { 0 };
@@ -222,6 +230,7 @@ impl ThreadState {
         match (self.0 >> Self::ALLOW_SHIFT) & 0b11 {
             1 => Some(AllowReason::Shutdown),
             2 => Some(AllowReason::OwnDescriptor),
+            3 => Some(AllowReason::FailureInjection),
             _ => None,
         }
     }
@@ -658,6 +667,22 @@ mod tests {
     }
 
     #[test]
+    fn failure_injection_allowance_permits_only_sleep() {
+        let (sleep_line, fs_line) = on_disallowed_thread(|| {
+            allow_blocking(AllowReason::FailureInjection, || {
+                assert_eq!(current_allowance(), Some(AllowReason::FailureInjection));
+                let sleep_line = line!() + 1;
+                assert_blocking_allowed(BlockingKind::Sleep);
+                let fs_line = line!() + 1;
+                assert_blocking_allowed(BlockingKind::Fs);
+                (sleep_line, fs_line)
+            })
+        });
+        assert_eq!(count_at(sleep_line), 0);
+        assert_eq!(count_at(fs_line), 1);
+    }
+
+    #[test]
     fn allowance_ends_with_its_scope_even_on_panic() {
         let line = on_disallowed_thread(|| {
             let unwound = std::panic::catch_unwind(|| {
@@ -852,7 +877,7 @@ mod tests {
         assert_eq!(mode(), BlockingMode::Record);
     }
 
-    /// Sync primitives disallowed (a work item, task p02-threads-119): the
+    /// Sync primitives disallowed (a work item): the
     /// waits for other work are denied, any other blocking is allowed, a
     /// Shutdown allowance permits them, and disallowing keeps the sync bit.
     #[test]

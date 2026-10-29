@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// The journal's files: NDJSON segments of ``ErrorEntry`` snapshots, newest line per
 /// fingerprint wins. Appends go to the newest segment; once it passes the size limit the live
@@ -8,7 +9,6 @@ import Foundation
 struct ErrorSegmentStore {
     let directory: URL
     let segmentBytes: Int
-    private let files = FileManager()
     private var current: URL?
     private var currentBytes = 0
     private var sequence = 0
@@ -24,7 +24,7 @@ struct ErrorSegmentStore {
     private static let suffix = ".ndjson"
 
     private func segments() -> [(sequence: Int, url: URL)] {
-        let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
         return names.compactMap { name -> (Int, URL)? in
             guard name.hasPrefix(Self.prefix), name.hasSuffix(Self.suffix),
                   let number = Int(name.dropFirst(Self.prefix.count).dropLast(Self.suffix.count), radix: 10) else { return nil }
@@ -50,7 +50,7 @@ struct ErrorSegmentStore {
         if let last = all.last {
             current = last.url
             sequence = last.sequence
-            currentBytes = ((try? files.attributesOfItem(atPath: last.url.path)[.size]) as? Int) ?? 0
+            currentBytes = ((try? FileManager.checked.attributesOfItem(atPath: last.url.path)[.size]) as? Int) ?? 0
         }
         return entries
     }
@@ -67,14 +67,14 @@ struct ErrorSegmentStore {
             try compact(all())
             return
         }
-        guard let current, let handle = try? FileHandle(forWritingTo: current) else {
+        guard let current, let handle = try? FileHandle.blockingForWriting(to: current) else {
             try compact(all())
             return
         }
         defer { try? handle.close() }
         try Self.protectFile(current)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: data)
+        try handle.blockingSeekToEnd()
+        try handle.blockingWrite(contentsOf: data)
         currentBytes += data.count
     }
 
@@ -92,7 +92,7 @@ struct ErrorSegmentStore {
         currentBytes = data.count
         var firstRemovalError: (any Error)?
         for (_, oldURL) in old where oldURL != url {
-            do { try files.removeItem(at: oldURL) }
+            do { try FileManager.checked.removeItem(at: oldURL) }
             catch { if firstRemovalError == nil { firstRemovalError = error } }
         }
         if let firstRemovalError {
@@ -105,7 +105,7 @@ struct ErrorSegmentStore {
     /// Bytes of every segment on disk.
     func diskBytes() -> Int {
         segments().reduce(0) { sum, segment in
-            sum + (((try? files.attributesOfItem(atPath: segment.url.path)[.size]) as? Int) ?? 0)
+            sum + (((try? FileManager.checked.attributesOfItem(atPath: segment.url.path)[.size]) as? Int) ?? 0)
         }
     }
 
@@ -121,13 +121,12 @@ struct ErrorSegmentStore {
     }
 
     static func protectDirectory(_ url: URL) throws {
-        let files = FileManager.default
-        try files.createDirectory(
+        try FileManager.checked.createDirectory(
             at: url,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        try FileManager.checked.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 
     static func protectFile(_ url: URL) throws {

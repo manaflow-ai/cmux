@@ -4,8 +4,8 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// The input tap names the time of the last input event it dispatched in the crash-key page's `last_input_uptime`
-/// (p09-observability-078); a tracking-area edge is no input of its own and names nothing.
+/// The input tap names the time of the last input event it dispatched in the crash-key page's `last_input_uptime`;
+/// a tracking-area edge is no input of its own and names nothing.
 @MainActor @Suite(.serialized)
 struct InputEventTapCrashKeyTests {
     @Test func eachDispatchedEventNamesItsTime() throws {

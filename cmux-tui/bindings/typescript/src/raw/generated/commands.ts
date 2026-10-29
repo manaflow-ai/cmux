@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd. */
+/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
 
 
 import type * as T from "./types.js";
@@ -634,6 +634,12 @@ export type BindConversationTabSessionResult = {
   "replayed": boolean;
   "surface": T.Id;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface BridgeHelloRequest extends CmuxRequestBase {
+  cmd: "bridge-hello";
+  "features": Array<string>;
+}
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -1965,6 +1971,7 @@ export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
   "revisions"?: boolean;
+  "startup_marks"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -3224,6 +3231,13 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface SetStreamPriorityRequest extends CmuxRequestBase {
+  cmd: "set-stream-priority";
+  "priority": "focused" | "visible" | "hidden";
+  "stream": number;
+}
+
 /** Protocol v12; authority: control. */
 export interface SetTabPinnedRequest extends CmuxRequestBase {
   cmd: "set-tab-pinned";
@@ -3722,6 +3736,7 @@ export type CmuxRequest =
   | AppsUnmountRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
+  | BridgeHelloRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -3983,6 +3998,7 @@ export type CmuxRequest =
   | SetSizeCountsRequest
   | SetSizePolicyRequest
   | SetSplitRatioRequest
+  | SetStreamPriorityRequest
   | SetTabPinnedRequest
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
@@ -4465,6 +4481,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "agent-session-tabs-v1";
+    stream: null;
+  };
+  "bridge-hello": {
+    request: BridgeHelloRequest;
+    result: T.BridgeHelloResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "bridge-hello-v1";
     stream: null;
   };
   "browser-activate": {
@@ -6553,6 +6577,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-stream-priority": {
+    request: SetStreamPriorityRequest;
+    result: T.SetStreamPriorityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "set-tab-pinned": {

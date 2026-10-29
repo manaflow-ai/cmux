@@ -11,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Page tab discards (`memoryDiscardInternalPages`, p07-memory-022): a page tab hidden past its
+/// Page tab discards (`memoryDiscardInternalPages`): a page tab hidden past its
 /// provider's policy lets its view go through the content lifecycle (`hibernate` and its
 /// `release` effect) and keeps the tab; its next show makes the view again (`restore`), under its
 /// last picture, with its route and scroll put back. A keep reason holds it, a provider that
@@ -368,7 +368,7 @@ import Testing
 
         func makePage() -> NSView {
             guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
-                                         root: folder, routes: [], chromium: hosting) else { return NSView() }
+                                         root: folder, routes: [], chromium: hosting, deadlines: .testing()) else { return NSView() }
             // The engine's no-message deadline never runs out here.
             page.chromiumDeadlines = pageDeadlines.deadlines
             return page

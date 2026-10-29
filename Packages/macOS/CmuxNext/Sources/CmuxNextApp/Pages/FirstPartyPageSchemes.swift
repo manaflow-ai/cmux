@@ -108,6 +108,18 @@ enum FirstPartyPageSchemes {
                                             rendererSharing: rendererSharing)
     }
 
+    /// The page host's scripts for every renderer (fork API 29), in a cmux page's own world at
+    /// document start: the composition root hands them to its `CEFEngine` when the feature
+    /// `chromiumPageRendererPaths` is on, and the runtime's page host relay sends their posts on the
+    /// page channel. Every handler a page view adds is named here, so a page has it at document start
+    /// (the agent page's message menu).
+    @MainActor static var hostScripts: [CEFPageSchemes.HostScript] {
+        let source = ChromiumPageHostBridge.rendererScript(handlers: PageWebView.chromiumFireAndForget + [AgentPaneView.contextMenuHandler],
+                                                           documentScripts: PageChromiumDocumentScripts.shared,
+                                                           channelEvent: CEFPageSchemes.hostEvent)
+        return [CEFPageSchemes.HostScript(world: "", source: source, allFrames: false)]
+    }
+
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).
     static func isStrictlyInside(_ url: URL, _ folder: URL) -> Bool {
         let inner = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents

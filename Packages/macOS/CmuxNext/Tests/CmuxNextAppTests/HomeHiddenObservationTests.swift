@@ -6,7 +6,7 @@ import CmuxNextHomeEngine
 import CmuxNextWakeups
 import Testing
 
-/// A Home that is not on screen reads none of what it shows (p06-scheduler-308, plans/cmux-next/
+/// A Home that is not on screen reads none of what it shows (plans/cmux-next/
 /// chrome-parity/p06-scheduler.md rule 4): its observations are `VisibleObservation`s on the view's
 /// node, under its window's node, and AppKit's hide and unhide reach the node. Before, each was an
 /// `ObservationStream` loop that read on every change whether the Home showed or not.

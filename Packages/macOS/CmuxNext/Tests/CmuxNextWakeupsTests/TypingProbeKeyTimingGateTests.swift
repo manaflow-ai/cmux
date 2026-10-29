@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The typing probe obeys the keystroke-timing gate (p09-observability-128): while secure input is on it writes no
+/// The typing probe obeys the keystroke-timing gate: while secure input is on it writes no
 /// CSV row and no `key.flow` hop, and gives the daemon no flow id, so no process writes a `key.echo` hop for the key.
 @Suite(.serialized) struct TypingProbeKeyTimingGateTests {
     /// The ring records a test runtime wrote while no ring is attached.

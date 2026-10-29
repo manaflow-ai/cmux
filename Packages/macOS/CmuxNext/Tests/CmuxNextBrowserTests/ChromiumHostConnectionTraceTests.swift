@@ -8,7 +8,7 @@ import Darwin
 import Testing
 
 /// Each input frame (mouse, wheel, key, edit) cmux writes to the Chromium host is one `cef.host_input` instant with
-/// its wire kind (p09-observability-038, perf-hot `cef-host-input`); a frame that is not input, or not written,
+/// its wire kind (perf-hot `cef-host-input`); a frame that is not input, or not written,
 /// records nothing. The test plays the host on two socket pairs and records into its own trace runtime.
 @Suite(.serialized) struct ChromiumHostConnectionTraceTests {
     private nonisolated final class RecordLog: Sendable {

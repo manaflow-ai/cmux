@@ -6,6 +6,8 @@ import CmuxNextCompat
 import CmuxNextInputCoreTestSupport
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// p13-webui-047 over the app's real registrations on one memory coordinator, in the order
@@ -86,7 +88,7 @@ struct WebUIPressureOrderTests {
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: slices)
         let log = DropLog()
 
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: coordinator)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: coordinator, deadlines: .testing())
         let slot = PagePreloadSlot(deadlines: services.mainDeadlines)
         host.preload = slot
         let engine = SpareWindowEngine(log: log)

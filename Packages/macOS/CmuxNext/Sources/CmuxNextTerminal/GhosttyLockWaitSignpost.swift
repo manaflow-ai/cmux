@@ -1,7 +1,7 @@
 import CmuxNextSignposts
 import GhosttyNextKit
 
-/// A surface's input waits for Ghostty's terminal lock as ``SignpostName/ghosttyLockWait`` events (p04-input-078):
+/// A surface's input waits for Ghostty's terminal lock as ``SignpostName/ghosttyLockWait`` events:
 /// the DC1 terminal STRESS bench reads their p99 from a trace.
 ///
 /// ghostty-next parses output in 4 KiB slices and hands the lock to a waiting key between two, so a press waits

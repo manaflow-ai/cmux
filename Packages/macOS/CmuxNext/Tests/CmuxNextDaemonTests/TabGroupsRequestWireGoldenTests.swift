@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/TabGroups (p05-ipc-033): the
+/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/TabGroups: the
 /// line each one sends today, compared as JSON (key order does not count). The migration to the
 /// generated `<Name>Request` types (CmuxNextWireGen RequestEmitter) must send the same lines; the
 /// generated coder writes each member under its schema wire name, so a golden that holds here and

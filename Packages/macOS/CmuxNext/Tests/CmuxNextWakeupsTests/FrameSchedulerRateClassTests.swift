@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// The opt-in ambient class under Energy Saver (p14-energy-028): every existing client is
+/// The opt-in ambient class under Energy Saver: every existing client is
 /// ``FrameRate/motion``; an ambient client alone asks the link for at most
 /// ``EnergyPolicy/ambientMaxFPS`` under the saver and the motion range outside it, a motion client
 /// beside it keeps the motion range, and ambient clients wait while the displays sleep. Chrome's

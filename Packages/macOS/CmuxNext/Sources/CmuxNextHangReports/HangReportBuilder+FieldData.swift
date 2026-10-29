@@ -4,7 +4,7 @@ public import CmuxNextTrace
 import Foundation
 
 /// Schema 3's field data (``HangReport/histograms``, ``HangReport/stability``, ``HangReport/blackbox``,
-/// ``HangReport/launchSections``; p09-observability-063), by allow-list: catalog names, closed-set labels and
+/// ``HangReport/launchSections``), by allow-list: catalog names, closed-set labels and
 /// numbers only.
 extension HangReportBuilder {
     /// What a report's field data is made from.

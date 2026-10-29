@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p10-stability-063: the safe surfaces that took the Daemon, Control and Mobile modules' repeated pointer code
+/// The safe surfaces that took the Daemon, Control and Mobile modules' repeated pointer code
 /// (strict memory safety): one `sockaddr_un` filler (Chromium's `FillUnixAddress`), `strerror_r` text (Chromium's
 /// `safe_strerror`), and key bytes drawn without lending a pointer.
 @Suite struct MemorySafeWrapperTests {

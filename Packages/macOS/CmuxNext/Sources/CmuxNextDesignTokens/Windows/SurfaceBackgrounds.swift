@@ -44,11 +44,12 @@ public nonisolated struct SurfaceBackground: Hashable, Sendable {
     public var isEmpty: Bool { color == nil && opacity == nil }
 }
 
-/// Every surface override, and the one resolver each surface's owner paints
-/// from (never a view's own color math).
+/// Every surface override. Each surface's owner paints from one resolver,
+/// `fill(for:tokens:windowTint:)` (CmuxNextDesign, over the window's backdrop),
+/// never a view's own color math.
 ///
 /// A surface with no override keeps R48: it shows the window's one
-/// backdrop, so its owner paints what it painted before (``fill(for:tokens:)``
+/// backdrop, so its owner paints what it painted before (`fill(for:tokens:)`
 /// is nil). With an override the owner paints the returned color over the
 /// window's backdrop:
 ///

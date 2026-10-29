@@ -1,5 +1,5 @@
 /// A `debug.input` section whose producer lives in a package this one does not import (the browser
-/// engine's ``DebugInputSection/chromium``, p04-input-091): the App passes its read and reset. Both run
+/// engine's ``DebugInputSection/chromium``): the App passes its read and reset. Both run
 /// on the control request's task; a producer with main-thread state hops there itself.
 ///
 /// ```swift

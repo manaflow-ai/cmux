@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The recovered-drafts notice at launch (p08-startup-081, Q11): one afterFirstFrame post that reads the drafts on
+/// The recovered-drafts notice at launch (Q11): one afterFirstFrame post that reads the drafts on
 /// the files lane and replies to main. No read and no toast before the first window's first frame; the toast after it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RecoveryNoticeLaunchTests {
     /// Counts the shown toast views (the center's overlay host, without an overlay).
@@ -24,7 +24,7 @@ import Testing
     @Test func theNoticeRunsOnlyAfterTheFirstFrame() async {
         let directory = FileManager.default.temporaryDirectory.appending(path: "recovery-notice-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = RecoveryDraftStore(directory: directory, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
+        let store = RecoveryDraftStore(directory: directory, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), work: BackgroundWork(label: "test.recovery-drafts"))
         let id = QuitParticipantID.file(path: "/tmp/recovery-notice-launch/notes.md")
         #expect(store.update(id: id, title: "notes.md", contents: Data("unsaved".utf8)) == .kept)
         await store.writePending()

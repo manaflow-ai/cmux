@@ -9,7 +9,7 @@ import AppKit
 /// bars that fade to dots at both ends, the return-key button that finishes and keeps the words,
 /// and the mic button, highlighted in the theme's accent, which stops it too.
 ///
-/// Layers of the compose bar's one controls view (`ComposeChromeView`, p03-rendering-074): it
+/// Layers of the compose bar's one controls view (`ComposeChromeView`): it
 /// hit-tests the buttons and gives each an accessibility element; showing, moving or recolouring
 /// them changes layers only.
 @MainActor

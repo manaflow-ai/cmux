@@ -26,7 +26,7 @@ nonisolated private final class Locked<Value: Sendable>: @unchecked Sendable {
 /// A store in a fresh temporary folder.
 private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) -> (MacScreenStore, URL) {
     let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-    return (MacScreenStore(file: file, removeLinkPairings: removeLinkPairings), file)
+    return (MacScreenStore(file: file, runner: BackgroundWork(), removeLinkPairings: removeLinkPairings), file)
 }
 
 /// A device's screen pane, not asking the hub.
@@ -76,7 +76,7 @@ struct MacScreenStoreTests {
         let saved = try String(contentsOf: file, encoding: .utf8)
         #expect(!saved.contains("macs") && !saved.contains("shareEnabled") && saved.contains("linkPairingsRemoved"))
         // A later launch does not run it again.
-        let (again, _) = (MacScreenStore(file: file, removeLinkPairings: { removed.set(removed.value + 1) }), file)
+        let (again, _) = (MacScreenStore(file: file, runner: BackgroundWork(), removeLinkPairings: { removed.set(removed.value + 1) }), file)
         await again.load()
         #expect(removed.value == 1)
         #expect(again.hubDeviceName == "Office")
@@ -89,7 +89,7 @@ struct MacScreenStoreTests {
         #expect(store.rememberDeviceNames([deviceID: "Mac mini 2"]))
         #expect(!store.rememberDeviceNames([deviceID: "Mac mini 2"]))
         await store.flush()
-        let reloaded = MacScreenStore(file: file)
+        let reloaded = MacScreenStore(file: file, runner: BackgroundWork())
         await reloaded.load()
         #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Mac mini 2")
     }

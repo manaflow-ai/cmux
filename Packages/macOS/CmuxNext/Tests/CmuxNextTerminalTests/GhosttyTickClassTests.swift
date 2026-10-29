@@ -4,7 +4,7 @@ import AppKit
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Ghostty's tick and actions on the board (p06-scheduler-218): the app tick is the board task
+/// Ghostty's tick and actions on the board: the app tick is the board task
 /// `ghostty.tick`, input class while a key a terminal took waits for its frame and frame class
 /// otherwise; a surface's state actions apply once per frame, latest wins, and a hidden surface's wait
 /// for it to show, where they apply once; discrete actions keep their order after them.

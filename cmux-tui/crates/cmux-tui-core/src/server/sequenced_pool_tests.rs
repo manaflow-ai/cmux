@@ -1,7 +1,7 @@
-//! The sequenced pool (p05-ipc-073): per-sequence FIFO with no overlap,
+//! The sequenced pool: per-sequence FIFO with no overlap,
 //! independent sequences, blocking compensation from the blocking sites,
 //! fences, caps, worker start failures, no idle wakeups and a thread count
-//! independent of the number of sequences; delayed tasks (p05-ipc-079).
+//! independent of the number of sequences; delayed tasks.
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -655,4 +655,35 @@ fn a_delayed_post_no_worker_can_run_is_refused() {
     assert_eq!(pool.worker_count(SequencePriority::Input), 0);
     // The sender dropped with the refused task: nothing will run it.
     assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
+}
+
+/// A connection's shape: an outside thread (the mux-io
+/// loop) posts each line to one sequence, whose task posts the line's
+/// request to a second sequence. At most two tasks are ever runnable at
+/// once, so the pool starts at most two workers: a worker notified for a
+/// sequence that another worker took first still takes the next one
+/// posted (a wake goes to a ready sequence, not to a post; Chrome's
+/// `ThreadGroupImpl` wakes workers for the task sources that are ready).
+#[test]
+fn a_notified_worker_takes_the_next_post_and_none_starts_for_it() {
+    const LINES: usize = 4_000;
+    let pool = pool(PoolConfig::for_cores(16));
+    let lines = pool.sequence_with_cap(SequencePriority::Control, LINES);
+    let requests = Arc::new(pool.sequence_with_cap(SequencePriority::Control, LINES));
+    let (done_tx, done_rx) = mpsc::channel();
+    for line in 0..LINES {
+        let (requests, done) = (requests.clone(), done_tx.clone());
+        lines
+            .post(move || {
+                requests.post(move || done.send(()).unwrap()).unwrap();
+            })
+            .unwrap();
+        if line % 4 == 0 {
+            std::thread::yield_now();
+        }
+    }
+    for _ in 0..LINES {
+        done_rx.recv_timeout(WAIT).unwrap();
+    }
+    assert!(pool.workers_started() <= 2, "{} workers started", pool.workers_started());
 }

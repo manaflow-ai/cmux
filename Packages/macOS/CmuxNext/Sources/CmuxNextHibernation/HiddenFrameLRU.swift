@@ -13,7 +13,7 @@ package protocol HiddenFrameDeadline: AnyObject {
 extension MainDeadline: HiddenFrameDeadline {}
 
 /// The app's one list of frames kept for hidden panes: evicted terminals' last frames
-/// (p03-rendering.md R6, task p03-rendering-099), built in `AppServices` behind `memoryHiddenFrameLRU`.
+/// (p03-rendering.md R6), built in `AppServices` behind `memoryHiddenFrameLRU`.
 ///
 /// A port of Chrome's `components/viz/client/frame_eviction_manager.cc`, which keeps "a minimum
 /// amount, as an LRU cache, to make switching between a small set of tabs faster":

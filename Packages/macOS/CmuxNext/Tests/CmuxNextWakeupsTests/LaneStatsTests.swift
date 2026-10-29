@@ -103,11 +103,11 @@ import Testing
     }
 
     /// Through the lanes: each item costs three clock reads (submit, start, end), and its run time counts at the
-    /// level it ran. The files lane runs one item per level, so a later item at the same level runs after the
-    /// earlier ones recorded.
+    /// level it ran. The tests here ask for a serial files lane (``FilesLaneWidths/serial``, one item per level;
+    /// the app's lane runs several), so a later item at the same level runs after the earlier ones recorded.
     @Test func eachLaneItemReadsTheClockThreeTimesAndCountsItsRun() async throws {
         let clock = ManualNanos()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.lane-stats.run", uptimeNanos: { clock.read() })
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.lane-stats.run", uptimeNanos: { clock.read() })
         for _ in 0..<100 {
             try await work.run(.userBlocking, mayBlock: .files) { clock.advance(milliseconds: 1) }
         }
@@ -126,7 +126,7 @@ import Testing
     /// so both are submitted at the same instant and the second starts when the first's body has moved the clock.
     @Test func anItemHeldFiftyMillisecondsShowsItsWait() async throws {
         let clock = ManualNanos()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.lane-stats.wait", uptimeNanos: { clock.read() })
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.lane-stats.wait", uptimeNanos: { clock.read() })
         work.beginBestEffortFence()
         work.post(.bestEffort, mayBlock: .files) { clock.advance(milliseconds: 50) }
         work.post(.bestEffort, mayBlock: .files) {}
@@ -150,10 +150,12 @@ import Testing
     @Test func aReportedItemReadsTheClockThreeTimes() async throws {
         let clock = ManualNanos()
         let reported = Collected()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.lane-stats.reported", onRan: { lane, priority, start, end in
+        let onRan: @Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void = { lane, priority, start, end in
             let run = LaneHistogram(counts: [], sumNanos: end - start)
             reported.times.withLock { $0.append(LaneTimes(lane: lane, priority: priority, wait: run, run: run)) }
-        }, uptimeNanos: { clock.read() })
+        }
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.lane-stats.reported", onRan: onRan,
+                                  uptimeNanos: { clock.read() })
         for index in 0..<10 {
             let shutdown: ShutdownBehavior = index.isMultiple(of: 2) ? .blockShutdown : .skipOnShutdown
             try await work.run(.userBlocking, mayBlock: .files, shutdown: shutdown) { clock.advance(milliseconds: 1) }
@@ -170,7 +172,8 @@ import Testing
     /// a p99 between 2 and 4 ms, and a resetting read takes it back to 0.
     @Test func aSlowUserBlockingWaitShowsInTheP99() async throws {
         let clock = ManualNanos()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.lane-stats.p99", uptimeNanos: { clock.read() })
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.lane-stats.p99",
+                                  uptimeNanos: { clock.read() })
         let gate = DispatchSemaphore(value: 0)
         // The first holds the files lane's user-blocking slot until the second is queued behind it.
         work.post(.userBlocking, mayBlock: .files) {

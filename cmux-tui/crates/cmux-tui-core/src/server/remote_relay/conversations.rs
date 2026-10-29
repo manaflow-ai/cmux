@@ -21,6 +21,7 @@ use super::super::{
 use super::{Principal, denied, project};
 use crate::conversation_store::{ConversationEvent, ConversationRejected};
 use crate::remote_relay_state::remote_participant;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// A remote peer resolved from its connection's peer record.
 pub(super) struct RemoteCaller {
@@ -230,10 +231,11 @@ pub(in crate::server) fn subscribe(
     let event_mux = mux.clone();
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-    crate::thread_qos::spawn_raisable(
+    supervised::spawn_raisable(
         "mux-remote-events",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);

@@ -1,7 +1,7 @@
 import CmuxNextIPC
 import Foundation
 
-/// The framed half of the transport (p05-ipc-092): what the handshake granted, and the reader's routing of
+/// The framed half of the transport: what the handshake granted, and the reader's routing of
 /// REPLY and ERROR frames. Requests become frames in ``LineTransport/submit(_:deadline:framed:_:)``.
 extension LineTransport {
     /// What the handshake granted; ``DaemonWireGrants/linesOnly`` until it ends and on a daemon that offers
@@ -26,14 +26,16 @@ extension LineTransport {
         }
     }
 
-    /// What goes on the wire for request `id`: a REQUEST frame when `framing` frames `cmd`, else its line.
-    static func message(_ payload: Data, id: UInt64, cmd: String, framing: FramedRequests?) -> Data {
+    /// What goes on the wire for request `id`: a REQUEST frame when `framing` frames `cmd`, on `stream` (0, or
+    /// the stream an opener opens), else its line. `framed` tells which.
+    static func message(_ payload: Data, id: UInt64, cmd: String, framing: FramedRequests?,
+                        stream: UInt16 = 0) -> (bytes: Data, framed: Bool) {
         if let method = framing?.method(for: cmd, bodyBytes: payload.count) {
-            return FramedRequests.requestFrame(payload, requestID: id, method: method)
+            return (FramedRequests.requestFrame(payload, requestID: id, method: method, stream: stream), true)
         }
         var line = payload
         line.append(0x0A)
-        return line
+        return (line, false)
     }
 
     /// Routes one message the reader cut: a line by its fields, a frame by its header. Returns why it is a bad
@@ -69,19 +71,21 @@ extension LineTransport {
         return hangWatched.run { route(frame: frame, decoder: decoder) }
     }
 
-    /// Routes one frame on the reader thread; its waiter resumes on the ``lane``. Only REPLY and ERROR frames on
-    /// stream 0 come before this connection opens a stream; anything else is a bad message (its reason returned),
-    /// which closes the connection, as the daemon closes on a frame it cannot route (frame_dispatch.rs, `UnroutedKind`).
+    /// Routes one frame on the reader thread; its waiter resumes on the ``lane``. It is a REPLY or ERROR, matched
+    /// by its request id, on the stream its request named: 0, or for a stream opener the stream it opened
+    /// (frame_dispatch.rs `FrameCall::reply_header`), whose `stream-end` may have freed the id already when the open
+    /// failed. Anything else is a bad message (its reason returned), which closes the connection, as the daemon
+    /// closes on a frame it cannot route (frame_dispatch.rs, `UnroutedKind`).
     func route(frame: Frame, decoder: WireDecoder) -> String? {
         let header = frame.header
         let ok = header.kind == FramedRequests.replyKind
-        guard header.stream == 0, ok || header.kind == FramedRequests.errorKind else {
+        guard ok || header.kind == FramedRequests.errorKind else {
             return "unrouted frame kind \(header.kind) on stream \(header.stream)"
         }
         let call = FramedRequests.call(of: header)
         let line = Data(frame.payload)
         let id = state.withLock { FramedRequests.requestID(low: call.requestID, next: $0.nextID) }
-        // An ERROR's body is decoded once, on the lane, for the fields that fail its waiter (p05-ipc-144: the
+        // An ERROR's body is decoded once, on the lane, for the fields that fail its waiter (the
         // reader decodes nothing a handler reads).
         let envelope = Envelope(id: id, ok: ok, event: nil, type: nil, streamID: nil, cause: nil)
         resolveReply(envelope, line: line, parsed: false, decoder: decoder)

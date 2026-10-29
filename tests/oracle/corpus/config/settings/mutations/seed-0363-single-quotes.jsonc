@@ -1,8 +1,0 @@
-{'agentPane':{// a { brace
-"links":{"outsideRoots":"confirm"}},/* * */ "editor":{// "quoted"
-"smoothScrolling":true,"formatOnSave":false},/* block */ "browser":{"verificationAutofill":{/* * */ "enabled":10E-1},// a { brace
-"toolbar":{"reload":"true"}},// a { brace
-"ui":{// a { brace
-"animations":{"web":"true"}},"diff":{"groupByKind":"true"},// "quoted"
-"layout":{"newPanePlacement":1e0},"updates":{"channel":"canary"},"sidebar":{"hoverCards":{"groups":{"sections":{"members":"true"}}}},/* block */ "appearance":{// "quoted"
-"focusIndicator":"tabs"}}

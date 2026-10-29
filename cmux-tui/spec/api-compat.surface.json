@@ -8261,6 +8261,15 @@
         "required": true
       }
     },
+    "request:bridge-hello": {
+      "/features": {
+        "ty": "array",
+        "required": true
+      },
+      "/features/*": {
+        "ty": "string"
+      }
+    },
     "request:browser-activate": {
       "/surface": {
         "ty": "uint64",
@@ -10626,6 +10635,9 @@
         "ty": "boolean"
       },
       "/revisions": {
+        "ty": "boolean"
+      },
+      "/startup_marks": {
         "ty": "boolean"
       }
     },
@@ -13141,6 +13153,21 @@
         "nullable": true
       }
     },
+    "request:set-stream-priority": {
+      "/priority": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "focused",
+          "hidden",
+          "visible"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "request:set-tab-pinned": {
       "/pinned": {
         "ty": "boolean",
@@ -15456,6 +15483,15 @@
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "response:bridge-hello": {
+      "/data/features": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/*": {
+        "ty": "string"
       }
     },
     "response:browser-activate": {},
@@ -20232,6 +20268,41 @@
       },
       "/data/session_id": {
         "ty": "string"
+      },
+      "/data/startup_marks": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/startup_marks/config_loaded": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/first_identify_served": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/launch_snapshot_writer_started": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/lifecycle_ready": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/main_start_unix_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/startup_marks/mux_restored": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/owner_event_loop": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/owner_prepared": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/socket_bound": {
+        "ty": "uint64"
+      },
+      "/data/startup_marks/websocket_ready": {
+        "ty": "uint64"
       },
       "/data/terminal_revision": {
         "ty": "uint64",
@@ -25079,6 +25150,20 @@
       }
     },
     "response:set-split-ratio": {},
+    "response:set-stream-priority": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:set-tab-pinned": {
       "/data": {
         "ty": "json",

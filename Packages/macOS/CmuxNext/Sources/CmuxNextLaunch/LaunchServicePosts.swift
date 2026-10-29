@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 
 /// Launch work no first frame needs, as ``StartupScheduler`` posts with one service start per post,
-/// so no main turn after the first frame runs two of them (p08-startup-017; Chrome's
+/// so no main turn after the first frame runs two of them (Chrome's
 /// AfterStartupTaskUtils::PostTask, chrome/browser/after_startup_task_utils.cc: every deferred
 /// startup task is its own post, released one at a time once startup is complete).
 ///
@@ -59,7 +59,7 @@ public struct LaunchServicePosts {
     /// The warm-ups for later tabs (Chromium, WebKit for agent pages, the New Tab spare, page preloads), the
     /// agent tab import and the right sidebar's icons.
     ///
-    /// No post here makes a `WKWebView` or a `WKProcessPool` before startup completes (p08-startup-042):
+    /// No post here makes a `WKWebView` or a `WKProcessPool` before startup completes:
     /// before completion the only WebKit views are those of the agent tabs the launch shows, each made in
     /// its own afterFirstFrame post once its picture drew (``LaunchViewQueue``). The agent pages' warm-up
     /// and the New Tab spare's WebKit probe and first page are afterStartup.
@@ -96,7 +96,7 @@ public struct LaunchServicePosts {
         ])
     }
 
-    /// The platform services (p08-startup-029, plans/cmux-next/startup-DESIGN.md section 3): nothing on the
+    /// The platform services (plans/cmux-next/startup-DESIGN.md section 3): nothing on the
     /// first frame or the restore reads them. The updater's settings follow is not here: it applies before
     /// `Updater.start` (`nonPaint`), so the launch runs it inline. The system-wide hot keys and the window style follows are afterFirstFrame, so a
     /// hot key works within a second of launch; the rest is afterStartup. The Apple-event URL handler and

@@ -262,7 +262,7 @@ pub(super) fn intercept(
         return None;
     }
     Some(match cmd {
-        Command::Identify { .. } => Ok(identify()),
+        Command::Identify(_) => Ok(identify()),
         Command::SetClientInfo { name, capabilities, .. } => {
             set_client_info(mux, client, name.clone(), capabilities.clone())
         }

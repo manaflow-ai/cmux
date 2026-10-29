@@ -68,7 +68,7 @@ extension TopHomePageView {
         }
         sheet.onClose = { watch.cancel() }
         let panel = NSWindow(contentViewController: sheet)
-        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window
         panel.adoptThemeScope(of: self)
         window.beginSheet(panel)
     }
@@ -81,7 +81,7 @@ extension TopHomePageView {
         }
         guard let window else { return }
         let panel = NSWindow(contentViewController: sheet)
-        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window
         // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
         // resolved before the sheet had a parent.
         panel.adoptThemeScope(of: self)

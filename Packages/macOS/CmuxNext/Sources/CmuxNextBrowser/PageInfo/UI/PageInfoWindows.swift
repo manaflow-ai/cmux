@@ -70,7 +70,7 @@ class PageInfoWindow: NSWindow {
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true)
         self.title = title
         isReleasedWhenClosed = false
-        isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        isRestorable = false  // AppKit state restoration is off for every cmux window
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
     }

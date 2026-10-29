@@ -42,9 +42,8 @@ nonisolated extension AgentPaneCustomization {
         // Through a symlinked layout.json (a dotfiles repository), as cmux.json is written
         // (CmuxConfigFile), instead of replacing the link with a regular file.
         let file = directory.appending(path: "layout.json").resolvingSymlinksInPath()
-        let manager = FileManager.default
         var layout: [String: Any] = [:]
-        if manager.fileExists(atPath: file.path) {
+        if FileManager.checked.fileExists(atPath: file.path) {
             // concurrency-allow: documented as blocking; the App calls it from a @concurrent writer.
             let data = try Data(contentsOf: file)
             guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
@@ -55,13 +54,13 @@ nonisolated extension AgentPaneCustomization {
         layout["quickActions"] = list.map(\.json)
         let data = try JSONSerialization.data(withJSONObject: layout, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
         let folder = file.deletingLastPathComponent()
-        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
         let temporary = folder.appending(path: ".\(file.lastPathComponent).\(UUID().uuidString).tmp")
         try data.write(to: temporary)
-        if manager.fileExists(atPath: file.path) {
-            _ = try manager.replaceItemAt(file, withItemAt: temporary)
+        if FileManager.checked.fileExists(atPath: file.path) {
+            _ = try FileManager.checked.replaceItemAt(file, withItemAt: temporary)
         } else {
-            try manager.moveItem(at: temporary, to: file)
+            try FileManager.checked.moveItem(at: temporary, to: file)
         }
     }
 }

@@ -1,7 +1,7 @@
 import AppKit
 public import Foundation
 
-/// Page file choosers in host mode (task p01-process-064, feature `chromiumHostFileDialogs`): the
+/// Page file choosers in host mode (feature `chromiumHostFileDialogs`): the
 /// host sends each FILE_DIALOG, cmux shows its own panel on the page's window, and the chosen files go
 /// back as absolute paths (`cmux_shim_file_dialog_answer`), so Chromium's own panel never opens in
 /// the host. Chrome does the same across its app shim: the panel runs in the process that owns the

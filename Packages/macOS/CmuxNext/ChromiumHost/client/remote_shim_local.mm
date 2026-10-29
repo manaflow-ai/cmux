@@ -181,6 +181,20 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_text_input_watch(int browser_id,
   return cmux_remote::Client().TextInputWatch(browser_id, fn, context);
 }
 
+// A hosted page's composition rects already come with its TEXT_INPUT_STATE
+// (task 044: cmux_shim_browser_text_input_watch's state carries one rect per
+// character), so this second watch is not served. 0, as when the fork lacks
+// the call (API below 31): fn never runs.
+CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                                                void (*fn)(void* context, int browser_id,
+                                                                           const void* bounds),
+                                                                void* context) {
+  (void)browser_id;
+  (void)fn;
+  (void)context;
+  return 0;
+}
+
 CMUX_SHIM_EXPORT void cmux_shim_set_drag_source_handler(void (*fn)(void* context, int browser_id, const void* drag),
                                                         void* context) {
   cmux_remote::AssertMainThread();

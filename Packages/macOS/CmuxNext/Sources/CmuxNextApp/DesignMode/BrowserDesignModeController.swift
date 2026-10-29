@@ -154,7 +154,7 @@ final class BrowserDesignModeController {
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         guard let services, let (_, pane) = services.locateTab(key) else { return nil }
         let store = services.daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }

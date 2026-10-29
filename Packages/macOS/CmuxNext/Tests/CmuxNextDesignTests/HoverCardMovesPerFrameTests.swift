@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A shown hover card's pointer moves (`cardMoves`) reach it on its parent window's frame (feature
-/// `pointerFrameHover`, p04-input-036), as Chromium delivers rAF-aligned moves
+/// `pointerFrameHover`), as Chromium delivers rAF-aligned moves
 /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`): the first move of a
 /// frame interval in its own turn, the rest once at the frame, at the latest point. Leaving the card
 /// still hides it, on the frame's delivery at the latest.

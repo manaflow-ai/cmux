@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's pushed window request decision
-# (CEFShim/src/window_request_policy.h, task p01-process-031; no CEF needed)
+# (CEFShim/src/window_request_policy.h; no CEF needed)
 # and runs its cases. Small: one clang++ call.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

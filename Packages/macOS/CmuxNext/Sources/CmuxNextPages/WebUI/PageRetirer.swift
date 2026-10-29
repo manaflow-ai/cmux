@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextWakeups
 
-/// Ends closed pages after the close's turn (p13-webui-064): ``retire(_:close:)`` takes the view out of
+/// Ends closed pages after the close's turn: ``retire(_:close:)`` takes the view out of
 /// the view tree at once and runs its teardown (for a page of ``WebUIHost``, the engine page's close) at
 /// one background deadline after the last close, so a Cmd-W frame never pays for it.
 ///
@@ -27,7 +27,7 @@ public final class PageRetirer {
 
     /// - Parameter deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`); a test passes
     ///   one on a fake wake-up timer and uptime, or calls ``closeRetired()``.
-    public init(deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
+    public init(deadlines: MainDeadlineScheduler) {
         deadline = MainDeadline(owner: "webui.retire", workClass: .background, scheduler: deadlines)
     }
 

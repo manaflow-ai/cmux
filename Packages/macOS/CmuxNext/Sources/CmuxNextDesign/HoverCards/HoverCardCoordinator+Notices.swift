@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextAppearance
 
 // The app and window notices that end or move a card (`HoverCardCoordinator`).
 extension HoverCardCoordinator {

@@ -15,12 +15,14 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::TerminalPublicId;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::status_meta::{self, OwnerEnd, OwnerProcess};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::state::workspace_status_store as status;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// Remove every status entry `end` owns, in one commit. `None` when
@@ -186,13 +188,19 @@ fn spawn_watch(
     }
     let weak = Arc::downgrade(mux);
     let thread_key = key.clone();
-    let spawned = std::thread::Builder::new().name("cmux-status-owner".into()).spawn(move || {
-        let outcome = wait(&weak);
-        lock(watched()).remove(&thread_key);
-        if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
-            clear_now(&mux, &end);
-        }
-    });
+    let spawned = supervised::spawn_at(
+        "cmux-status-owner",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let outcome = wait(&weak);
+            lock(watched()).remove(&thread_key);
+            if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
+                clear_now(&mux, &end);
+            }
+        },
+    );
     if let Err(error) = spawned {
         lock(watched()).remove(&key);
         eprintln!("cmux-tui: status owner watch failed to start: {error}");
@@ -217,7 +225,7 @@ fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
                 return Watch::Failed;
             }
             match mux.wait_for_terminal_exit(&id, Some(TERMINAL_WAIT_SLICE)) {
-                Ok(state) if state["state"] == "exited" => return Watch::Ended,
+                Ok(state) if state.field("state") == "exited" => return Watch::Ended,
                 Ok(_) => {}
                 // The session host no longer knows the terminal: it is gone.
                 Err(error) if is_gone(&error) => return Watch::Ended,
@@ -357,8 +365,13 @@ struct Expiry {
 fn expiry() -> &'static Expiry {
     static EXPIRY: OnceLock<Expiry> = OnceLock::new();
     EXPIRY.get_or_init(|| {
-        let spawned =
-            std::thread::Builder::new().name("cmux-status-expiry".into()).spawn(run_expiry);
+        let spawned = supervised::spawn_at(
+            "cmux-status-expiry",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            run_expiry,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: status expiry thread failed to start: {error}");
         }

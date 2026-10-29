@@ -7,7 +7,7 @@
 use cmux_tui_core::{Rect, WorkspaceId};
 
 use crate::app::{App, MenuAction};
-use crate::session::SidebarDropAnchors;
+use crate::session::{SidebarDropAnchors, WorkspaceView};
 
 /// The workspace rows as the rail last drew them: its area, the visible
 /// body, the body's scroll offset in rows, and the row metrics. Drop slots
@@ -117,17 +117,13 @@ impl App {
     ) -> SidebarDropAnchors {
         let workspaces = self.tree.workspaces();
         let insertion = insertion.min(workspaces.len());
-        let public = |index: usize| {
-            workspaces[index].resource_id.as_ref().map(|resource| resource.as_str().to_string())
+        let (above, below) = workspaces.split_at(insertion);
+        let public = |candidate: &WorkspaceView| {
+            candidate.resource_id.as_ref().map(|resource| resource.as_str().to_string())
         };
         SidebarDropAnchors {
-            before: (insertion..workspaces.len())
-                .find(|index| workspaces[*index].id != workspace)
-                .and_then(public),
-            after: (0..insertion)
-                .rev()
-                .find(|index| workspaces[*index].id != workspace)
-                .and_then(public),
+            before: below.iter().find(|candidate| candidate.id != workspace).and_then(public),
+            after: above.iter().rev().find(|candidate| candidate.id != workspace).and_then(public),
             prefer_after: below_row,
         }
     }

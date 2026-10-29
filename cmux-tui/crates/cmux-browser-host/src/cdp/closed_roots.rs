@@ -33,6 +33,7 @@
 use super::driver::{Inner, Session};
 use super::evaluate::{Context, handle_group};
 use super::state::World;
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -288,7 +289,7 @@ impl Inner {
         let document =
             self.send_on(cdp, "DOM.getDocument", json!({"depth": -1, "pierce": true}), deadline)?;
         let mut by_frame = HashMap::new();
-        collect(&document["root"], &root_frame, &mut by_frame);
+        collect(document.field("root"), &root_frame, &mut by_frame);
         let roots: usize = by_frame.values().map(Vec::len).sum();
         let mut state = self.lock();
         if let Some(tab) = state.tabs.get_mut(&session.target_id) {
@@ -328,7 +329,7 @@ impl Inner {
                 deadline,
             )
             .ok()
-            .and_then(|reply| reply["result"]["value"].as_u64());
+            .and_then(|reply| reply.field("result").field("value").as_u64());
         let reachable = reachable?;
         // performSearch needs the DOM domain (a walk turns it on too).
         if !dom_on {
@@ -342,11 +343,11 @@ impl Inner {
                 deadline,
             )
             .ok()?;
-        if let Some(id) = search["searchId"].as_str() {
+        if let Some(id) = search.field("searchId").as_str() {
             let _ =
                 self.send_on(cdp, "DOM.discardSearchResults", json!({"searchId": id}), deadline);
         }
-        let nodes = search["resultCount"].as_u64()?;
+        let nodes = search.field("resultCount").as_u64()?;
         Some((nodes, nodes == reachable))
     }
 
@@ -369,7 +370,7 @@ impl Inner {
                     json!({"backendNodeId": node, "executionContextId": context.id, "objectGroup": group}),
                     deadline,
                 ) {
-                    Ok(reply) => match reply["object"]["objectId"].as_str() {
+                    Ok(reply) => match reply.field("object").field("objectId").as_str() {
                         Some(id) => objects.push(json!({"objectId": id})),
                         None => continue 'pairs,
                     },

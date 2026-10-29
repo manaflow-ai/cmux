@@ -20,7 +20,7 @@ let package = Package(
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
     dependencies: [
-        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        // OnceContinuation, the continuation that resumes exactly once.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
     ],
     targets: [

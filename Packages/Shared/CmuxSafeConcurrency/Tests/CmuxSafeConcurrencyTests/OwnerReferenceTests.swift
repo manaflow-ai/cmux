@@ -16,7 +16,7 @@ private final class SiteLog: InvariantEventSink {
 
 private final class Owner {}
 
-/// p10-stability-091: a child's back-reference does not keep its owner alive, and a read after the owner is gone
+/// A child's back-reference does not keep its owner alive, and a read after the owner is gone
 /// reports instead of trapping (an `unowned` read traps there).
 @Suite struct OwnerReferenceTests {
     @Test func aLiveOwnerResolvesAndReportsNothing() {

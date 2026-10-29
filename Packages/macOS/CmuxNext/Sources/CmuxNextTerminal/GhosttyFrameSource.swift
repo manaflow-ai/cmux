@@ -3,7 +3,7 @@ import GhosttyNextKit
 import IOSurface
 
 /// A terminal view's Ghostty surface as its ``TerminalFrameSource`` (``TerminalSurfaceView/frameSource``):
-/// the renderer is the one writer of the presented frame (p03-rendering-081), so the frame hold, last
+/// the renderer is the one writer of the presented frame, so the frame hold, last
 /// frames, held frames and the first-frame watch read it from Ghostty (`ghostty_surface_presented_frame`),
 /// and hiding, showing and purging go to Ghostty (`ghostty_surface_set_presentation`). A GhosttyNextKit
 /// without them (`GHOSTTY_RENDERER_FRAMES` off, Package.swift) still presents each frame as the view's

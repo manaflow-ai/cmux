@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p08-startup-030: the launch's action bindings and menu bar are the critical `AppActions.bind` and
+/// The launch's action bindings and menu bar are the critical `AppActions.bind` and
 /// `MainMenu.make` steps (startup-DESIGN.md rows O11 and O13), each a startup task record with its run
 /// time; the menu is whole when its step ends, so every key equivalent is there from the first frame;
 /// and the handler coverage the Debug launch checks holds in every build (row O12).

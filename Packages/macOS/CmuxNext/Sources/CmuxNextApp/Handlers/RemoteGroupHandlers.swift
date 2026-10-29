@@ -12,7 +12,7 @@ import CmuxNextSidebar
 @MainActor
 enum RemoteGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        // SSH is made on first use (a run, a menu's check), never at binding.
         CloudHandlers.bind("remote.newGroup", registry, reason: { context.services.ssh.unavailableReason }) { invocation in
             let interactive = !registry.isCapturingRefusal
             let make = { (text: String) throws in

@@ -4,7 +4,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-108: a renderer stability report is one warning event with closed-set `stability.*` tags, its
+/// A renderer stability report is one warning event with closed-set `stability.*` tags, its
 /// count (and span) in `extra`, and a fingerprint of its names; it carries no URL, title or host, even when a caller
 /// plants one in a field. It is built and sent on the reporter's lane, and nothing is sent with crash reporting off.
 struct RendererStabilityEventTests {

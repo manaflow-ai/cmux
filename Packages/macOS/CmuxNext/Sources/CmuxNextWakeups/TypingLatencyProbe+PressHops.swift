@@ -67,8 +67,8 @@ extension TypingLatencyProbe {
         finish(recorded.map { [$0] } ?? [])
     }
 
-    /// The attach reader decoded an `output` event. One that names its press (`flow`,
-    /// p09-observability-018) marks that press's decode, and from then on an output that names none is
+    /// The attach reader decoded an `output` event. One that names its press (`flow`)
+    /// marks that press's decode, and from then on an output that names none is
     /// not taken for an echo. Before that (a daemon without exact flows) the newest press sent and not
     /// decoded takes it, and older such presses are written unfinished: their echoes can no longer be
     /// told apart, and a press that got none (a password prompt) must not take a later key's.

@@ -3,13 +3,14 @@
 
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use cmux_holder::ExitStatus;
 use cmux_pty::ChildKiller;
 
 use super::sink::{AdoptionCuts, Pending, SinkEnd, SnapshottingReader};
 use super::{HolderService, HolderSink};
+use crate::pty_write::{InputLane, PtyInputQueue};
 use crate::surface::spawn::{LocalEnd, LocalLaunch};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
@@ -37,6 +38,10 @@ pub(crate) struct HolderTerminal {
     /// A VT replay of the daemon's parsed screen, handed to a new holder
     /// after a holder crash as the terminal's prologue.
     pub(super) replay: std::sync::Mutex<Option<Replay>>,
+    /// The terminal's input queue on the service's `pty-writer`, set by its
+    /// launch ([`holder_local_launch`]): every write to the custody master
+    /// goes through it, in order.
+    pub(super) input: OnceLock<PtyInputQueue>,
 }
 
 /// Builds a terminal's VT replay of at most the given bytes, empty when it
@@ -94,6 +99,12 @@ impl HolderTerminal {
     /// writes the bytes itself on its custody master.
     pub(crate) fn mark_input_flow(&self, flow: u64) -> bool {
         self.service.mark_input_flow(self.chan, flow)
+    }
+
+    /// The terminal's input queue on the `pty-writer`, once launched: keys,
+    /// pastes and fallbacks go there so none waits for the program.
+    pub(crate) fn input(&self) -> Option<&PtyInputQueue> {
+        self.input.get()
     }
 
     /// How to replay the screen for a new holder (the surface sets it).
@@ -304,10 +315,14 @@ pub(crate) fn holder_local_launch(
     cwd: Option<String>,
 ) -> anyhow::Result<LocalLaunch> {
     let master = cmux_pty::adopt_master(terminal.custody.try_clone()?)?;
-    let writer = Box::new(WaitingWriter {
-        inner: master.take_writer()?,
-        master: terminal.custody.try_clone()?,
-    });
+    let input = match terminal.input.get() {
+        Some(input) => input.clone(),
+        None => {
+            let input = terminal.service.input_queue(terminal.custody.try_clone()?)?;
+            terminal.input.get_or_init(|| input).clone()
+        }
+    };
+    let writer = Box::new(QueuedWriter(input));
     let waited = terminal.clone();
     let snapshotted = Arc::downgrade(terminal);
     let reader = SnapshottingReader {
@@ -360,62 +375,21 @@ fn terminal_end(end: SinkEnd) -> TerminalEnd {
     }
 }
 
-/// The surface's input writer on the custody master. The holder reads that
-/// master non-blocking, and `O_NONBLOCK` belongs to the open file
-/// description every dup shares, so a write the PTY's input queue (about 1
-/// KiB on macOS) cannot take returns `WouldBlock`. This writer then waits
-/// for room, as a write on a blocking master does: a paste or a burst of
-/// mouse reports is never cut.
-struct WaitingWriter {
-    inner: Box<dyn Write + Send>,
-    /// A dup of the master to wait on.
-    master: OwnedFd,
-}
+/// The surface's input writer on the custody master: the bulk lane of the
+/// terminal's `pty-writer` queue. The holder reads that master non-blocking
+/// (`O_NONBLOCK` belongs to the open file description every dup shares), and
+/// the writer thread waits for room on it: a write here never waits for the
+/// program, and a paste bigger than the PTY's input queue is never cut.
+struct QueuedWriter(PtyInputQueue);
 
-impl Write for WaitingWriter {
+impl Write for QueuedWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.inner.write(buffer) {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
+        self.0.send(buffer, InputLane::Bulk)?;
+        Ok(buffer.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        loop {
-            match self.inner.flush() {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
-    }
-}
-
-/// Block until the master takes input again. A master whose terminal ended
-/// is an error rather than a wait that never ends.
-fn wait_writable(master: std::os::fd::RawFd) -> io::Result<()> {
-    loop {
-        let mut poll_fd = libc::pollfd { fd: master, events: libc::POLLOUT, revents: 0 };
-        // SAFETY: polls one live pollfd; -1 waits like a blocking write.
-        let ready = unsafe { libc::poll(&mut poll_fd, 1, -1) };
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error);
-        }
-        if poll_fd.revents & libc::POLLOUT == 0
-            && poll_fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
-        {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed"));
-        }
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -462,6 +436,7 @@ pub(crate) mod tests {
             sink: HolderSink::new(0),
             service,
             replay: std::sync::Mutex::new(None),
+            input: OnceLock::new(),
         })
     }
 
@@ -526,6 +501,7 @@ pub(crate) mod tests {
             sink: sink.clone(),
             service,
             replay: std::sync::Mutex::new(None),
+            input: OnceLock::new(),
         });
         let launch = holder_local_launch(&terminal, Vec::new(), None).unwrap();
         sink.exit(ExitStatus::Exited(0), 0);
@@ -563,6 +539,7 @@ pub(crate) mod tests {
             sink,
             service: HolderService::for_root(&root).unwrap(),
             replay: std::sync::Mutex::new(None),
+            input: OnceLock::new(),
         });
         (terminal, root)
     }
@@ -683,7 +660,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_paste_bigger_than_the_input_queue_waits_for_a_slow_program() {
+    fn a_paste_bigger_than_the_input_queue_reaches_a_slow_program_whole() {
         let (master, mut slave) = nonblocking_pty();
         let paste: Vec<u8> = (0..64 * 1024).map(|index| b'a' + (index % 26) as u8).collect();
         let expected = paste.clone();
@@ -694,10 +671,15 @@ pub(crate) mod tests {
             slave.read_exact(&mut got).unwrap();
             got == expected
         });
-        let pty = cmux_pty::adopt_master(master.try_clone().unwrap()).unwrap();
-        let mut writer = WaitingWriter { inner: pty.take_writer().unwrap(), master };
-        writer.write_all(&paste).expect("the paste waits for room instead of failing");
+        let pty_writer = crate::pty_write::PtyWriter::start().unwrap();
+        let mut writer = QueuedWriter(pty_writer.register(master).unwrap());
+        let sent = std::time::Instant::now();
+        writer.write_all(&paste).expect("the paste is queued instead of failing");
         writer.flush().unwrap();
+        assert!(
+            sent.elapsed() < std::time::Duration::from_millis(250),
+            "the paste waited for the program"
+        );
         assert!(program.join().unwrap(), "the program got every byte, in order");
     }
 }

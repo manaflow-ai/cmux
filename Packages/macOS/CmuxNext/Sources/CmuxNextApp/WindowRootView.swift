@@ -105,7 +105,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true // invalidate: another right panel (the guard above) to place.
         }
     }
-    /// The launch picture's regions while the launch builds this view behind it (p08-startup-060); its layout keeps
+    /// The launch picture's regions while the launch builds this view behind it; its layout keeps
     /// each part on its area. The picture's phase owns them.
     weak var launchPictureRegions: LaunchPictureRegions?
     /// The right sidebar's on-screen width (0 while hidden): the main pane
@@ -130,7 +130,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
-         revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         revealDeadlines: MainDeadlineScheduler,
          signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
          rendersMotionOnServer: @escaping () -> Bool = { false },
          bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {

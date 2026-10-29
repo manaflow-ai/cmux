@@ -3,8 +3,8 @@ import CmuxNextHangReports
 import Foundation
 import Testing
 
-/// Hang reports and the crash forwarder read the Rust processes' black boxes from one folder list
-/// (p09-observability-097): the daemon's key-flow folder is in it only while the app's knob passes one on.
+/// Hang reports and the crash forwarder read the Rust processes' black boxes from one folder list:
+/// the daemon's key-flow folder is in it only while the app's knob passes one on.
 @MainActor @Suite struct HangReportsRingFoldersTests {
     @Test func theKeyFlowFolderJoinsOnlyWithTheKnob() {
         let bundleID = "com.cmuxterm.app.next.test"

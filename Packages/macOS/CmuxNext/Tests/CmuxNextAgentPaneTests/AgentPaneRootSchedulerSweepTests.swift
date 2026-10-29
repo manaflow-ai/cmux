@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The agent pane's main-thread work on the app's scheduler (p06-scheduler-330, rule 9): each owner the sweep moved
+/// The agent pane's main-thread work on the app's scheduler: each owner the sweep moved
 /// lands as a task of its class, named in the scheduler's owners ledger, and an automation page (an agent's mail)
 /// waits while the person's input is pending. Before the sweep, each of these was an unattributed main-queue job
 /// (`Task { @MainActor in }`), which the ledger has no row for, and the pacer read AppKit's view tree on every

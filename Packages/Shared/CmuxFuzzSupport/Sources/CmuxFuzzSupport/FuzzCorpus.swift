@@ -2,7 +2,7 @@ import Foundation
 
 /// The inputs a run starts from: seeds written in the suite, then the stored files
 /// in `CMUX_FUZZ_CORPUS/<name>/`, sorted by file name so the order is stable, hidden
-/// files skipped. A libFuzzer target (p10-stability-182) reads the same directory.
+/// files skipped. A libFuzzer target reads the same directory.
 ///
 /// An input is whatever the run's body reads. A suite's `oneInput(_:)` reads its
 /// input as a tape of choices (`FuzzRNG(replaying:)`), not as protocol bytes, so its

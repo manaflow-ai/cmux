@@ -2,6 +2,7 @@
 //! [`FromHost`] lines on a reader thread that blocks on the socket, and
 //! report the exit once the socket closes and the child is reaped.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
@@ -63,6 +64,16 @@ pub fn resolve_binary() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// `--panic-log <path>`: the host's panic log (`HelperPanicLog::AppHost`),
+/// which it opens before its sandbox holds. Empty with no state directory.
+pub fn panic_log_args() -> Vec<String> {
+    crate::diagnostics::HelperPanicLog::AppHost
+        .path()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .map(|path| vec![cmux_app_host::protocol::PANIC_LOG_FLAG.to_string(), path])
+        .unwrap_or_default()
+}
+
 /// Where first-party app server binaries ship: `CMUX_APP_SERVER_DIR`, else
 /// the directory of the daemon executable (next to `cmux-app-host`).
 pub fn resolve_server_dir() -> Option<PathBuf> {
@@ -101,33 +112,47 @@ impl HostProcess {
         let reader = ours.try_clone()?;
         let writer = ours.try_clone()?;
         let (queue, outgoing) = sync_channel(QUEUE);
-        std::thread::Builder::new()
-            .name(format!("cmux-app-host-w:{name}"))
-            .spawn(move || write_loop(writer, outgoing))?;
-        std::thread::Builder::new().name(format!("cmux-app-host:{name}")).spawn(move || {
-            let mut lines = BufReader::new(reader);
-            let mut line = Vec::new();
-            loop {
-                line.clear();
-                match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) if line.last() != Some(&b'\n') => break,
-                    Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
-                        Ok(message) => on_message(message),
-                        Err(_) => break,
-                    },
+        supervised::spawn_at(
+            format!("cmux-app-host-w:{name}"),
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || write_loop(writer, outgoing),
+        )?;
+        supervised::spawn_at(
+            format!("cmux-app-host:{name}"),
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut lines = BufReader::new(reader);
+                let mut line = Vec::new();
+                loop {
+                    line.clear();
+                    match lines
+                        .by_ref()
+                        .take(MAX_LINE_BYTES as u64 + 1)
+                        .read_until(b'\n', &mut line)
+                    {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) if line.last() != Some(&b'\n') => break,
+                        Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
+                            Ok(message) => on_message(message),
+                            Err(_) => break,
+                        },
+                    }
                 }
-            }
-            // A malformed or oversized line, or the socket closed: end the process.
-            // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-            let status = child.wait();
-            let exit = match status {
-                Ok(status) => Exit { code: status.code(), signal: status.signal() },
-                Err(_) => Exit { code: None, signal: None },
-            };
-            on_exit(exit);
-        })?;
+                // A malformed or oversized line, or the socket closed: end the process.
+                // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
+                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+                let status = child.wait();
+                let exit = match status {
+                    Ok(status) => Exit { code: status.code(), signal: status.signal() },
+                    Err(_) => Exit { code: None, signal: None },
+                };
+                on_exit(exit);
+            },
+        )?;
         Ok(Self { queue, socket: ours })
     }
 

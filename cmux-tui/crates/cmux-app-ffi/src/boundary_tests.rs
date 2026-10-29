@@ -1,5 +1,5 @@
 //! Every motion export runs in cmux-ffi-guard's boundary or names why it
-//! cannot panic; a guarded panic answers "no animation" (p10-stability-152).
+//! cannot panic; a guarded panic answers "no animation".
 
 use crate::motion::*;
 use cmux_ffi_guard::testing::{panic_through, unguarded_exports};

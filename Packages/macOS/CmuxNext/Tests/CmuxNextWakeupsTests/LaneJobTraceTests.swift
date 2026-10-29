@@ -6,7 +6,7 @@ import Dispatch
 import Testing
 
 /// Each lane item posted while the trace's `task` category records runs inside one `task.run` slice with its lane,
-/// priority and queue wait; an item posted while it is off writes nothing (p02-threads-124, plans/cmux-next/trace.md
+/// priority and queue wait; an item posted while it is off writes nothing (plans/cmux-next/trace.md
 /// "Blocking calls and lane jobs"). Every lane here has one slot, so its items run one after another.
 @Suite(.timeLimit(.minutes(1))) struct LaneJobTraceTests {
     /// The `task.run` records a test runtime writes, and a signal per record.

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextCompat
+public import CmuxNextWakeups
 import Darwin
 
 /// How ``NSWindow/snapshotImage(on:)`` captured a window.
@@ -12,14 +13,13 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
-    /// Encodes an immutable capture as PNG and writes it atomically, off the
-    /// main actor: AppKit capture stays on the main actor, the compression
-    /// and the file write do not.
-    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
-        try await Task.detached(priority: .userInitiated) {
+    /// Encodes an immutable capture as PNG and writes it atomically on `work`'s files lane: AppKit
+    /// capture stays on the main actor, the compression and the file write do not.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL, on work: BackgroundWork) async throws {
+        try await work.run(.userBlocking, mayBlock: .files) {
             guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
             try data.write(to: url, options: .atomic)
-        }.value
+        }
     }
 
     /// This window as AppKit draws it, without screen capture (no Screen

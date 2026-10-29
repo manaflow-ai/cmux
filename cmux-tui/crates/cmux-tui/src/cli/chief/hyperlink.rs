@@ -67,12 +67,10 @@ struct Found<'a> {
 /// The Markdown link `[label](url)` at the start of `text`, when it is one of the linked forms.
 fn markdown_link(text: &str) -> Option<Found<'_>> {
     let after = text.strip_prefix('[')?;
-    let close = after.find("](")?;
-    let label = &after[..close];
+    let (label, tail) = after.split_once("](")?;
     if label.is_empty() || label.contains(['\n', '[', ']']) {
         return None;
     }
-    let tail = &after[close + 2..];
     // The target ends at the `)` that closes the link: parentheses inside it must balance
     // (a Wikipedia URL); a space or line break means it is not a link.
     let mut depth = 0usize;
@@ -89,9 +87,10 @@ fn markdown_link(text: &str) -> Option<Found<'_>> {
             _ => {}
         }
     }
-    let url = &tail[..end?];
+    let (url, _) = tail.split_at_checked(end?)?;
     let linked = if is_subagent_link(url) { is_id(label) } else { is_web_link(url) };
-    linked.then(|| Found { end: 1 + close + 2 + url.len() + 1, label, url })
+    // `[` label `](` url `)`
+    linked.then(|| Found { end: 1 + label.len() + 2 + url.len() + 1, label, url })
 }
 
 /// The bare web URL at the start of `text`: up to a space, a quote, `<`, `>` or a backtick,
@@ -100,21 +99,21 @@ fn bare_url(text: &str) -> Option<Found<'_>> {
     if !(text.starts_with("https://") || text.starts_with("http://")) {
         return None;
     }
-    let run = text
-        .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '`'))
-        .unwrap_or(text.len());
-    let mut url = &text[..run];
+    let mut url = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '`'))
+        .next()
+        .unwrap_or(text);
     loop {
         let trimmed = url.trim_end_matches(['.', ',', ';', ':', '!', '?', '*', '_']);
-        let trimmed = match trimmed.chars().next_back() {
-            Some(')') if trimmed.matches('(').count() < trimmed.matches(')').count() => {
-                &trimmed[..trimmed.len() - 1]
-            }
-            Some(']') if trimmed.matches('[').count() < trimmed.matches(']').count() => {
-                &trimmed[..trimmed.len() - 1]
-            }
-            _ => trimmed,
-        };
+        // A closing bracket the URL did not open ends the sentence, not the URL.
+        let trimmed = [('(', ')'), ('[', ']')]
+            .into_iter()
+            .find(|&(open, close)| {
+                trimmed.ends_with(close)
+                    && trimmed.matches(open).count() < trimmed.matches(close).count()
+            })
+            .and_then(|(_, close)| trimmed.strip_suffix(close))
+            .unwrap_or(trimmed);
         if trimmed.len() == url.len() {
             break;
         }
@@ -129,6 +128,10 @@ fn word(c: char) -> bool {
 }
 
 /// `text` with each link replaced by `write(label, url)`, and the links found (label, url).
+#[allow(
+    clippy::string_slice,
+    reason = "INVARIANT: index and copied are char boundaries of text: each step adds a char's len_utf8, a run of ASCII backticks plus a find inside it, or the byte length of a link parsed from it"
+)]
 fn replace(text: &str, write: impl Fn(&str, &str) -> String) -> (String, Vec<(String, String)>) {
     let mut out = String::with_capacity(text.len());
     let mut found = Vec::new();
@@ -175,6 +178,10 @@ pub(super) fn split(text: &str) -> (String, Vec<(String, String)>) {
 /// alone (not inside a longer word) written as its hyperlink. A bare URL the view hard-broke over
 /// lines (`render::wrap` starts it on a new line) links each of its pieces to the whole URL: a
 /// piece that fills its line, and the last piece that starts one.
+#[allow(
+    clippy::string_slice,
+    reason = "INVARIANT: index and copied are char boundaries of line: each step adds a char's len_utf8 or the byte length of a label match_at found starting there"
+)]
 pub(super) fn mark(line: &str, links: &[(String, String)]) -> String {
     if links.is_empty() {
         return line.to_owned();
@@ -198,6 +205,10 @@ pub(super) fn mark(line: &str, links: &[(String, String)]) -> String {
 
 /// The link that starts at byte `index` of `line`: its length there and its URL. The newest
 /// link wins a tie, so a label used twice links to the latest target.
+#[allow(
+    clippy::string_slice,
+    reason = "INVARIANT: mark passes a char boundary index; rest[label.len()..] follows a starts_with(label) check, and run ends at a find on rest"
+)]
 fn match_at<'a>(
     line: &str,
     index: usize,

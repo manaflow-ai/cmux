@@ -62,7 +62,7 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
         self.origin = origin
     }
 
-    /// The configuration of a tab the user opens (``BrowserTabOrigin/user``). Removed once no caller is left (p08-startup-114).
+    /// The configuration of a tab the user opens (``BrowserTabOrigin/user``). Removed once no caller is left.
     @available(*, deprecated, message: "BrowserTabConfiguration without origin means .user; pass origin (p08-startup Q8)")
     public init(
         id: BrowserTabID = .random(),

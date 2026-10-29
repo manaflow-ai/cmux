@@ -38,7 +38,7 @@ extension DaemonStore {
     /// ``EventInbox`` backlog, ``DaemonEventRoute``) pass through the pump task,
     /// once, when it attaches. The connection's gate and backlog never hold more
     /// than their limit; the store's inbox, which each frame empties, collapses
-    /// past its limit too: a flood ends in one resync (p05-ipc-093).
+    /// past its limit too: a flood ends in one resync.
     /// Batches reach the main actor at most once per frame. A batch that
     /// invalidates the tree triggers one snapshot, fetched and decoded off
     /// the main actor; events it supersedes (by sequence barrier) are

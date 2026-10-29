@@ -422,7 +422,7 @@ class OneRunTests(unittest.TestCase):
         self.assertLessEqual(waited[1][1], 5, "within what is left of the run's one timeout")
 
     def test_order_marks_keep_the_launch_past_the_first_content(self):
-        # The launch-order marks come from afterStartup posts (p08-startup-017), after the first content.
+        # The launch-order marks come from afterStartup posts, after the first content.
         waited = []
 
         class OrderedLaunch(FakeLaunch):
@@ -603,7 +603,7 @@ class OrderTests(unittest.TestCase):
         self.assertIn("t warm run 3: first_window_frame_committed at 150 ms, before launch_picture_shown at 160 ms", out)
 
     def test_a_term_with_alternatives_takes_the_mark_that_arrived(self):
-        # p08-startup-017, p13-webui-046: the agent page warm-up marks whether it made its page, was not
+        # The agent page warm-up marks whether it made its page, was not
         # needed (an agent page started WebKit) or made none because agent pages open in Chromium.
         term = "launch.agent_page_warmup|launch.agent_page_warmup_not_needed|launch.agent_page_warmup_chromium"
         order = "first_window_frame_committed<" + term
@@ -621,7 +621,7 @@ class OrderTests(unittest.TestCase):
         self.assertIn(order, bs.LAUNCH_ORDER, "the budget-mode check accepts any of the three marks")
 
     def test_the_chromium_warmup_skip_is_its_own_mark(self):
-        # p13-webui-046: a launch whose agent pages open in Chromium must not read like one where a
+        # A launch whose agent pages open in Chromium must not read like one where a
         # restored WebKit agent page started WebKit first.
         names = [name for name, _ in bs.MARKS]
         for mark in ("launch.agent_page_warmup", "launch.agent_page_warmup_not_needed",

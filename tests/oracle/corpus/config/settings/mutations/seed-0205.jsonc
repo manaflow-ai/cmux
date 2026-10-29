@@ -1,6 +1,0 @@
-{/* block */ "tasks":{// url: https://localhost/x
-"layout":"list",},"editor":{/* {"k": 1} */ "folding":true,},"updates":{/* * */ "checkAutomatically":null},// url: https://localhost/x
-"appearance":{"surfaces":{"home":{"opacity":20E-1,},}},"home":{"chiefBubbleStyle":true,},"focusRing":{/* block */ "style":"ring",},"browser":{"customSearchEngine":{"suggest":"search.example",}},"agentPane":{"needsYou":{// "quoted"
-"enabled":1e0,}},"sidebar":{// a { brace
-"hoverCards":{// a { brace
-"sections":{"prompts":true}},},/* * */ "layout":{"newColumnWidth":1e0,},}

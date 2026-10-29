@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// `memorySqliteTrim` (p07-memory-090): a history SQLite connection gives its page cache back on its
+/// `memorySqliteTrim`: a history SQLite connection gives its page cache back on its
 /// owner, and the visit log follows the memory coordinator's limits.
 @Suite struct HistorySQLiteTrimTests {
     private static func temporaryRoot() throws -> URL {

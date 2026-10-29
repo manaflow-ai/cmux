@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextWakeups
 
-/// The rows a link or path menu draws before Launch Services answers (p02-threads-056): each such row says what it
+/// The rows a link or path menu draws before Launch Services answers: each such row says what it
 /// waits for (``LinkMenuRow/Waiting``), and its menu item fills in when the system lane answers, in an open menu too.
 extension LinkMenu {
     /// The disabled row a submenu shows until its apps land.

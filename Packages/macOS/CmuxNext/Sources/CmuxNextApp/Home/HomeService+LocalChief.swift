@@ -51,7 +51,8 @@ extension HomeService {
         guard let services else { return }
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
-        let reader = HomeChiefHarnesses(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), connection: connection)
+        let reader = HomeChiefHarnesses(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), files: services.work,
+                                        connection: connection)
         // task-owner: one read (an owner call and a few small files off the main actor); ends when it is set
         Task { [weak self] in
             let (harnesses, deleted) = await reader.readWithDeleted(chiefs: chiefs)

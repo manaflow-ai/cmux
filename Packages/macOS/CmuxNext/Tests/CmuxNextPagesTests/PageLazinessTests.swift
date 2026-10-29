@@ -8,7 +8,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// No cmux page renderer before the page first shows (p07-memory-048, feature `pageRendererAtFirstShow`).
+/// No cmux page renderer before the page first shows (feature `pageRendererAtFirstShow`).
 /// A page the host opens with ``WebUIHost/startsPagesAtFirstShow`` makes no engine call (no load, no
 /// script, so no WebKit WebContent process) and asks for no Chromium page until it is in a window its
 /// visibility node says is visible, with no hidden ancestor. A preload for the preload slot is the

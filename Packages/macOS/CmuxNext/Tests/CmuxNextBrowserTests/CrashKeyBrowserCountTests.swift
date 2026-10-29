@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// The app's open browser pages in the crash-key page (p09-observability-078): live WebKit pages and live Chromium
+/// The app's open browser pages in the crash-key page: live WebKit pages and live Chromium
 /// tabs are counted apart, as power-of-two buckets.
 @MainActor @Suite(.serialized) struct CrashKeyBrowserCountTests {
     @Test func browserPagesAreCountedByEngine() {

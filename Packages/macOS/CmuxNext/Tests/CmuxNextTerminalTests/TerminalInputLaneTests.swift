@@ -4,7 +4,7 @@ import Dispatch
 import Foundation
 import Testing
 
-/// A session's input lane (p04-input-058): records reach the IO's queue in the order each thread pushed
+/// A session's input lane: records reach the IO's queue in the order each thread pushed
 /// them, through the main thread's ring and the overflow alike; a push never waits for the drain, and the
 /// main thread's wait for the overflow lock stays under 2 ms while the consumer takes a large overflow; a
 /// held record keeps later ones; the local PTY drains on its own write queue (one hop from the key).

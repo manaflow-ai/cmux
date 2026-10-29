@@ -7,7 +7,7 @@ import CoreFoundation
 import Foundation
 import Testing
 
-/// The main thread's phase in the watchdog's records (p10-stability-031, p09-observability-077): the CEF message
+/// The main thread's phase in the watchdog's records: the CEF message
 /// pump runs on the main thread and sets the crash keys' CEF state to `inPump` and the trace runtime's
 /// `in_cef_pump` key for each pass; the watchdog reads them while the main thread is suspended for its sample,
 /// and both the stall record and the hang its sink gets carry `cef=true` and say `cef_pump` (the Sentry tag

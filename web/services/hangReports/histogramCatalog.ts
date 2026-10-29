@@ -256,8 +256,8 @@ export function isValidBucket(layout: HistogramLayout, index: number): boolean {
 }
 
 /**
- * What one known `stability{}` key holds (the client's `HangReport.Stability`,
- * chrome-parity task p09-observability-109): a count, a map of closed-set
+ * What one known `stability{}` key holds (the client's `HangReport.Stability`):
+ * a count, a map of closed-set
  * names to counts, or a map of maps.
  */
 export type StabilityShape =

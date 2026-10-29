@@ -27,7 +27,7 @@ struct MobileImageAttachmentPreparerTests {
         )
     }
 
-    /// p02-threads-146: the work runs on the preparer's own queue; a caller cancelled before it starts gets nil.
+    /// The work runs on the preparer's own queue; a caller cancelled before it starts gets nil.
     @Test func aCancelledCallerGetsNothing() async throws {
         let sourceURL = try makeImageFixture(width: 64, height: 64)
         defer { try? FileManager.default.removeItem(at: sourceURL) }

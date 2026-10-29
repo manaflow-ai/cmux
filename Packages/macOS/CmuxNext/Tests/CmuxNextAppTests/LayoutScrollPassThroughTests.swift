@@ -4,7 +4,7 @@ import CmuxNextDesignTokens
 import CoreGraphics
 import Testing
 
-/// Page scrolls leave the layout's scroll routing in O(1) (p04-input-052): a plain scroll from a
+/// Page scrolls leave the layout's scroll routing in O(1): a plain scroll from a
 /// Chromium page's window, and the changes and coast of any gesture the layout did not take, go on
 /// with no point conversion, pane hit test or claim query (`LayoutRootView+ScrollPassThrough`,
 /// counted by `routedScrolls`, `debug.layout_counters` `scroll_routes`). What the layout takes stays

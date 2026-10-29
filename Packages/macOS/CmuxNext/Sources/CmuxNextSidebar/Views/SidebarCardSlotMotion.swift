@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The bottom card slot's room in the sidebar (chrome-parity p03-rendering-033): the list's bottom
+/// The bottom card slot's room in the sidebar: the list's bottom
 /// edge makes room for a card, and takes it back, on a render-server spring instead of jumping
 /// (Lawrence 2026-10-18), with no ``MotionClock`` frames and no layout per frame.
 ///

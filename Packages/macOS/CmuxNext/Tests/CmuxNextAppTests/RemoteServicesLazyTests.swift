@@ -9,7 +9,7 @@ import CmuxNextRemoteLocalhostService
 import Foundation
 import Testing
 
-/// p08-startup-021: SSH, the remote localhost and the remote-terminal service are made on first use,
+/// SSH, the remote localhost and the remote-terminal service are made on first use,
 /// never in `AppServices.init` or at action binding; made late, each still gets what init gave it
 /// (the policy, the install offer, the settings, the session observation), so a restored
 /// remote-terminal tab reconnects.

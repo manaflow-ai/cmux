@@ -215,10 +215,8 @@ extension MainWorkScheduler {
 
     /// Queues `body` as `post` (its site, enqueue time and node state: the board's ledger records
     /// its wait from that enqueue time). Nil: the task names its post itself when it runs one
-    /// (``MainFrameBudget/notePost(_:)``, a node queue's pump). While classed work is held behind
-    /// input, it is held behind that work (MainWorkScheduler+Classed.swift).
+    /// (``MainFrameBudget/notePost(_:)``, a node queue's pump).
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
-        if holdClassed(workClass, owner: owner, post: post, followsGate: false, body) { return }
         enqueue(workClass, owner: owner, post: post, body)
     }
 
@@ -255,9 +253,8 @@ extension MainWorkScheduler {
     }
 
     /// ``arrive(_:owner:site:enqueueNanos:_:)`` with its post made; a classed off-main post calls it
-    /// too (MainWorkScheduler+Classed.swift). Held behind classed work held before it.
+    /// too (MainWorkScheduler+Classed.swift).
     func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost, _ body: @escaping @MainActor () -> Void) {
-        if holdClassed(workClass, owner: owner, post: post, followsGate: false, body) { return }
         let queue = classQueue(workClass)
         queue.append(owner: owner, post: post, body)
         if frames.hasLink {
@@ -281,9 +278,11 @@ extension MainWorkScheduler {
         }
     }
 
-    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames.
+    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames. After a
+    /// tick whose batch waits for its own turn (after-commit placement), that turn runs it: right after
+    /// the tick's commit, so the tick's turn holds no budgeted task.
     private func runNow(_ queue: FrameBatchQueue) {
-        if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+        if !isBudgetTurnPending, startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
         queue.activate()
     }
 

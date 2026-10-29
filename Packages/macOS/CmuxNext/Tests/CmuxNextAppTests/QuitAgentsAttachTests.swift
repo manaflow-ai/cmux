@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextWakeups
 
 /// A DEV build attached to another app's acpmux (`CMUX_NEXT_ACPMUX_ATTACH`) never counts or
 /// ends that daemon's agents at quit: they are its owner's.
@@ -60,13 +61,14 @@ struct QuitAgentsAttachTests {
         defer { shutdown(descriptor, SHUT_RDWR); close(descriptor); try? FileManager.default.removeItem(at: root) }
         let attached = own.attached(to: own.home)
 
-        #expect(await QuitAgents.facts(attached) == .zero)
-        #expect(await QuitAgents.end(attached).isEmpty)
+        let work = BackgroundWork(label: "test.quit-agents")
+        #expect(await QuitAgents.facts(attached, runner: work) == .zero)
+        #expect(await QuitAgents.end(attached, runner: work).isEmpty)
         #expect(connections.count.withLock { $0 } == 0, "an attached quit reached the other app's daemon")
         #expect(QuitAgents.isAttached(attached, to: URL(fileURLWithPath: own.home.path + "/", isDirectory: true)))
         #expect(!QuitAgents.isAttached(own, to: own.home))
         // The same daemon, owned: the quit asks it and reports that it did not answer.
-        let owned = await QuitAgents.end(own)
+        let owned = await QuitAgents.end(own, runner: work)
         #expect(!owned.isEmpty)
         #expect(connections.count.withLock { $0 } > 0)
     }

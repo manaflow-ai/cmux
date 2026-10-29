@@ -4,7 +4,7 @@ import Testing
 import dnssd
 @testable import CmuxIrohTransport
 
-/// The types that left `@unchecked Sendable` (p10-stability-049) keep their behavior when many threads
+/// The types that left `@unchecked Sendable` keep their behavior when many threads
 /// call them at once. Run under `--sanitize=thread` as well.
 @Suite
 struct CmxIrohSharedStateConcurrencyTests {

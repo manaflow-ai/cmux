@@ -31,7 +31,7 @@ import QuartzCore
 ///   ``WebUIHost``'s memory coordinator registration) closes the page, and no preload starts until normal.
 ///
 /// Which page to preload and when (first paint or 3 s, then 750 ms of quiet input) is the pure
-/// `PreloadSelector`'s choice (p13-webui-042); the slot only holds what it is given.
+/// `PreloadSelector`'s choice; the slot only holds what it is given.
 ///
 /// ```swift
 /// webUI.preload.preload(.init("newTab"), size: paneSize, in: parking) { size in makeNewTab(size) }
@@ -110,7 +110,7 @@ public final class PagePreloadSlot {
     }
 
     /// How long the target size must stay still before a refit lays the page out and parks it
-    /// again: the 750 ms of quiet input the preload selector waits for (p13-webui-042).
+    /// again: the 750 ms of quiet input the preload selector waits for.
     public static let refitQuiet: Duration = .milliseconds(750)
     /// The longest a claimed cover stays up when the page shows no live frame: past D4's cold open
     /// (150 ms p95), so a slow first frame keeps its cover and a dead renderer does not leave a
@@ -177,7 +177,7 @@ public final class PagePreloadSlot {
 
     /// Calls `listener` with the key of the page that left each time a claim or a drop empties the
     /// slot, after the listeners added before it. Each preload owner arms its next page there: New
-    /// Tab (p13-webui-044) when another page left, Settings, History and Cloud (`PagePreloads`)
+    /// Tab when another page left, Settings, History and Cloud (`PagePreloads`)
     /// whenever, as Chrome's preload manager preloads again once its contents are taken
     /// (webui_contents_preload_manager.cc, `Request`). Owners preload only into an empty slot, so
     /// the first to fill it keeps it (no owner evicts another's page).
@@ -373,7 +373,7 @@ public final class PagePreloadSlot {
         held.cover = cover
         held.page.preloadSetVisible(false)
         if parkState == .frozenHidden {
-            // A refused freeze (a fork before SetPageFrozen, p13-webui-028) leaves it hidden and running.
+            // A refused freeze (a fork before SetPageFrozen) leaves it hidden and running.
             held.frozen = held.page.preloadFreeze()
         }
         held.phase = .parked

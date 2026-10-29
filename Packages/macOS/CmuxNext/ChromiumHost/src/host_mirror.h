@@ -1,9 +1,10 @@
 // The Chromium Host's producers of the tab and host mirrors
-// (plans/cmux-next/chrome-parity/p01-process.md 3.2, tasks p01-process-016
+// (plans/cmux-next/chrome-parity/p01-process.md 3.2
 // and 017): tab_navigation_entries, tab_navigation_state, tab_window_id,
 // window_count, live_browser_count and foreign_browser_count (016);
 // side_panel_state, ext_actions, ext_list, ext_commands and omnibox_keywords
-// (017). Each export's refresh_events in plans/cmux-next/chromium-host-ops.json
+// (017); renderer_client_ids (225: the tab's frames' renderers, which cmux
+// maps to the host's helper pids). Each export's refresh_events in plans/cmux-next/chromium-host-ops.json
 // say which events push it (kMirrorRefreshes in the generated host_dispatch.inc).
 // navigation_restore_supported is a fork capability: host_dispatch.mm pushes
 // it once, before the hello (ProduceAttach).

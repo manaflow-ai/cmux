@@ -1,5 +1,5 @@
-// The remote Chief memory inspector keeps its tab, turn, zoom path and scroll across a discard
-// (p13-webui-082): the hide saves them, and the restored document's inspector opens there.
+// The remote Chief memory inspector keeps its tab, turn, zoom path and scroll across a discard:
+// the hide saves them, and the restored document's inspector opens there.
 import { describe, expect, test } from "bun:test";
 import type { InspectorView } from "../../optchat-inspector/App";
 import { DOCUMENT_SCROLL_KEY, restoredPageInputs } from "../shared/pageState";

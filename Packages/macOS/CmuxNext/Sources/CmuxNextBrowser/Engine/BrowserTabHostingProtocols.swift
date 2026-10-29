@@ -85,7 +85,7 @@ public protocol BrowserFreezing: AnyObject {
     func setFrozen(_ frozen: Bool) -> Bool
 
     /// Freezes a page shown in a window that is off screen, which the engine may still count visible: hidden to the
-    /// engine first, then frozen (p07-memory-097). ``setFrozen(_:)`` with `false` thaws it.
+    /// engine first, then frozen. ``setFrozen(_:)`` with `false` thaws it.
     /// - Returns: False when nothing changed, as ``setFrozen(_:)``.
     func freezeShownInOffScreenWindow() -> Bool
 }

@@ -34,7 +34,7 @@ import Testing
     }
 
     /// A person's close whose beforeunload runs (try_close answers 0) leaves the tab to the page:
-    /// BEFORE_CLOSE closes it. try_close is async (task p01-process-064): in process its answer is
+    /// BEFORE_CLOSE closes it. try_close is async: in process its answer is
     /// the call's own, and 1 (closes now, no question) hands the close back to the caller.
     @Test func aPersonsCloseLeavesTheTabToThePage() throws {
         let rig = try Rig(forkAPI: 29)

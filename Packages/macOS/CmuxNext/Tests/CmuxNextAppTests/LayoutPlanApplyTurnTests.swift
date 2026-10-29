@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The layout notes each plan it applies on a shown screen, and each motion frame it steps, on the
-/// scheduler's ``PlanApplyTurn`` until the turn's commit (p03-rendering-116): a CLI, socket or agent
+/// scheduler's ``PlanApplyTurn`` until the turn's commit: a CLI, socket or agent
 /// change opens no input turn, and the in-process CEF pump must still start no slice before its commit.
 @MainActor
 struct LayoutPlanApplyTurnTests {

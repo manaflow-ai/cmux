@@ -176,30 +176,30 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
     let name = spec.name.clone();
     let pid = child.id();
     // supervise-allow: one role's log copier, ending with the role's output; a panic closes the pipe's read end, so the role's next output write fails and its exit goes through watch_exit like any role exit.
-    std::thread::Builder::new()
-        .name(format!("role-{name}-log"))
-        .spawn(move || {
-            let mut reader = BufReader::new(out_r);
-            let mut line = Vec::new();
-            while read_line_capped(&mut reader, &mut line, LOG_LINE_MAX).is_ok_and(|n| n > 0) {
-                if !line.ends_with(b"\n") {
-                    line.push(b'\n');
-                }
-                // A full disk drops lines; the role keeps running.
-                let _ = log.write_line(&line);
-                line.clear();
+    cmux_threads::spawn(format!("role-{name}-log"), cmux_threads::ThreadQos::Utility, move || {
+        let mut reader = BufReader::new(out_r);
+        let mut line = Vec::new();
+        while read_line_capped(&mut reader, &mut line, LOG_LINE_MAX).is_ok_and(|n| n > 0) {
+            if !line.ends_with(b"\n") {
+                line.push(b'\n');
             }
-        })
-        .map_err(|e| e.to_string())?;
+            // A full disk drops lines; the role keeps running.
+            let _ = log.write_line(&line);
+            line.clear();
+        }
+    })
+    .map_err(|e| e.to_string())?;
     if let Some((notify_r, notify_w)) = notify {
         drop(notify_w);
         let tx = tx.clone();
         let name = name.clone();
         // supervise-allow: one role's notify reader, ending with the role; a panic ends that role's readiness notices only, and its exit still goes through watch_exit.
-        std::thread::Builder::new()
-            .name(format!("role-{name}-notify"))
-            .spawn(move || read_notify(notify_r, &name, pid, &tx))
-            .map_err(|e| e.to_string())?;
+        cmux_threads::spawn(
+            format!("role-{name}-notify"),
+            cmux_threads::ThreadQos::Utility,
+            move || read_notify(notify_r, &name, pid, &tx),
+        )
+        .map_err(|e| e.to_string())?;
     }
     watch_exit(&name, pid, tx);
     Ok(child)
@@ -211,14 +211,15 @@ pub fn watch_exit(name: &str, pid: u32, tx: &Sender<Msg>) {
     let tx = tx.clone();
     let name = name.to_owned();
     // supervise-allow: one role's exit watch; a panic in the wait still reports Gone, and the supervisor's try_wait decides, as when no thread starts.
-    let spawned = std::thread::Builder::new().name(format!("role-{name}-wait")).spawn({
-        let tx = tx.clone();
-        let name = name.clone();
-        move || {
-            let _ = std::panic::catch_unwind(|| wait_exit(pid));
-            let _ = tx.send(Msg::Gone { name, pid });
-        }
-    });
+    let spawned =
+        cmux_threads::spawn(format!("role-{name}-wait"), cmux_threads::ThreadQos::Utility, {
+            let tx = tx.clone();
+            let name = name.clone();
+            move || {
+                let _ = std::panic::catch_unwind(|| wait_exit(pid));
+                let _ = tx.send(Msg::Gone { name, pid });
+            }
+        });
     if spawned.is_err() {
         // No thread: report at once; the supervisor's `try_wait` decides.
         let _ = tx.send(Msg::Gone { name, pid });

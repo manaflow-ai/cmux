@@ -157,6 +157,56 @@ import Testing
         #expect(f.recorder.releases.allSatisfy { $0.count == 1 })
     }
 
+    /// p01-process-152 (bench_launch.py after-kill): `launch.visible_panes_shown` is the moment every pane on screen
+    /// was handed its content (the app then waits for the terminals' frames: LaunchTerminalsDrawnTests). It comes once,
+    /// before the last pane's release, and only when that pane loaded.
+    @Test func shownRunsOnceWhenTheLastVisiblePaneLoads() async {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loading), Pane(key: "b", state: .loading)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        f.screen.show([Pane(key: "a", state: .loadedIdle), Pane(key: "b", state: .loading)])
+        await f.recorder.released(count: 2)
+        #expect(f.shownAt.isEmpty, "one pane still loads")
+        f.screen.show([Pane(key: "a", state: .loadedIdle), Pane(key: "b", state: .loadedIdle)])
+        await f.recorder.released(count: 3)
+        #expect(f.shownAt == [2], "shown runs before the last pane's release")
+        f.refs.noteChange()
+        f.refs.daemonUnavailable()
+        #expect(f.shownAt == [2])
+    }
+
+    @Test func shownRunsWhenEveryPaneLoadedAtTheEndOfRestore() {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loadedIdle)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        #expect(f.shownAt == [1], "after the restore ref, before the pane's")
+    }
+
+    @Test func shownNeverRunsWhenTheBoundEndsThePanes() async throws {
+        let f = PaneRefsFixture()
+        f.screen.show([Pane(key: "a", state: .loading)])
+        f.refs.restoreFinished { [screen = f.screen] in screen.windows }
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: VisiblePaneRefs.paneBound)
+        await f.recorder.released(count: 2)
+        f.screen.show([Pane(key: "a", state: .loadedIdle)])
+        f.refs.noteChange()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(f.shownAt.isEmpty, "a pane that timed out did not show its content in time")
+    }
+
+    @Test func shownNeverRunsWhenTheDaemonIsUnavailableOrNoPaneShows() {
+        let unavailable = PaneRefsFixture()
+        unavailable.screen.show([Pane(key: "a", state: .loading)])
+        unavailable.refs.restoreFinished { [screen = unavailable.screen] in screen.windows }
+        unavailable.refs.daemonUnavailable()
+        #expect(unavailable.shownAt.isEmpty)
+        let empty = PaneRefsFixture()
+        empty.screen.show([])
+        empty.refs.restoreFinished { [screen = empty.screen] in screen.windows }
+        #expect(empty.shownAt.isEmpty, "no pane on screen showed anything")
+    }
+
     @Test func aRestoreThatEndsTwiceReleasesOnce() {
         let f = PaneRefsFixture()
         f.refs.restoreFinished { [] }
@@ -302,14 +352,26 @@ private final class PaneRefsFixture {
     let bound: DemandTimer
     let refs: VisiblePaneRefs
 
+    /// Each run of `shown`: how many releases were recorded when it ran.
+    private let shown: ShownRecorder
+    var shownAt: [Int] { shown.releaseCounts }
+
     init(phase: StartupPhase? = nil) {
-        let clock = ManualClock(), recorder = RefRecorder(phase: phase)
+        let clock = ManualClock(), recorder = RefRecorder(phase: phase), shown = ShownRecorder()
         let bound = DemandTimer(owner: "test.bound", clock: clock, ledger: WakeupLedger())
         self.clock = clock
         self.recorder = recorder
         self.bound = bound
+        self.shown = shown
         refs = VisiblePaneRefs(hold: { name in recorder.hold(name) }, mainWork: MainWorkScheduler(budget: MainFrameBudget()), phase: phase, bound: bound)
+        refs.whenShown { [shown] in shown.releaseCounts.append(recorder.releaseCount) }
     }
+}
+
+/// The runs of a ``VisiblePaneRefs`` `shown` closure.
+@MainActor
+private final class ShownRecorder {
+    var releaseCounts: [Int] = []
 }
 
 /// The refs on a real ``StartupScheduler`` whose launch phase is `phase`: registration and the first

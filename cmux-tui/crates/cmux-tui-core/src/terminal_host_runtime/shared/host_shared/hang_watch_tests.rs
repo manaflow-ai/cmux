@@ -1,4 +1,4 @@
-//! The host loops' hang-watch registrations (p09-observability-074), on a watch with a manual
+//! The host loops' hang-watch registrations, on a watch with a manual
 //! clock: an item open past its loop's deadline is one hang under the loop's thread name, and the
 //! wait between items is never blamed.
 

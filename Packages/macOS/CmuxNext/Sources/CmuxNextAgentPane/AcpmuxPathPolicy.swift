@@ -221,7 +221,7 @@ nonisolated enum AcpmuxPathPolicy {
     public static func canonical(_ path: String) -> String? {
         // SAFETY: realpath reads the NUL-terminated copy of `path` made for the call (no NUL inside, checked first)
         // and returns a malloc'd NUL-terminated string or nil; it is copied once into `real`, then freed once.
-        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = unsafe realpath(path, nil) else { return nil }
+        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = unsafe blockingRealpath(path, nil) else { return nil }
         let real = unsafe String(cString: resolved)
         unsafe free(resolved)
         var spelled = ""
@@ -260,7 +260,7 @@ nonisolated enum AcpmuxPathPolicy {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        return unsafe stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+        return unsafe blockingStat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
     }
 
     /// Whether canonical `path` is canonical `root` or under it, by components.

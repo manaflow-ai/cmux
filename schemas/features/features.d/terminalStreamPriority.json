@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalStreamPriority",
+  "owner": "PL-ghostty",
+  "description": "Each terminal view on a stream tells the daemon whether it is focused, visible or hidden: the focused view's output goes ahead of the others, and a hidden view gets no output until it shows, then one snapshot of its screen.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-24",
+  "process": "app",
+  "params": [],
+  "stories": ["typing-flood-stress", "idle-tabs", "tab-switch"],
+  "sticky": false,
+  "runtimeMutable": false
+}

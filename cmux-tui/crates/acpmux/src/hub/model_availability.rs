@@ -3,6 +3,7 @@
 //! that refuses it) marks that model unavailable for that harness, with the backend's message,
 //! and `_acpmux/models` reports it, so the picker never offers a model that always fails.
 
+use crate::no_panic::LockExt;
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -17,7 +18,7 @@ pub(crate) fn refusal_reason(error: &str) -> Option<String> {
     // The upstream error is JSON inside the turn error text: take its message when it has one.
     let message = error.find('{').and_then(|start| {
         let value: Value =
-            serde_json::from_str(error[start..].trim_end_matches(|c| c != '}')).ok()?;
+            serde_json::from_str(error.get(start..)?.trim_end_matches(|c| c != '}')).ok()?;
         value.pointer("/error/message").and_then(Value::as_str).map(str::to_owned)
     });
     Some(message.unwrap_or_else(|| error.chars().take(200).collect()))
@@ -41,7 +42,7 @@ impl Hub {
     /// A turn that ended normally but whose reply is the backend's error object (Codex streams a
     /// refused request as the agent's message) counts as that refusal too.
     pub(super) fn note_reply_refusal(&self, session: &Session) {
-        let reply = session.stream.lock().unwrap().trailing_text.clone();
+        let reply = session.stream.lock_or_recover().trailing_text.clone();
         let is_error_object = serde_json::from_str::<Value>(reply.trim())
             .is_ok_and(|value| value.get("type").and_then(Value::as_str) == Some("error"));
         if is_error_object {
@@ -54,6 +55,6 @@ impl Hub {
         let Some(reason) = refusal_reason(error) else { return };
         let meta = session.meta();
         let Some(model) = current_model(&meta) else { return };
-        self.refused_models.lock().unwrap().insert((meta.harness.clone(), model), reason);
+        self.refused_models.lock_or_recover().insert((meta.harness.clone(), model), reason);
     }
 }

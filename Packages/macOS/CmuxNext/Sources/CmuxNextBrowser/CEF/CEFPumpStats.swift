@@ -11,7 +11,7 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// `OnScheduleMessagePumpWork(0)` requests (and cmux's own "pump now").
     public var immediateRequests = 0
     /// `OnScheduleMessagePumpWork(delay > 0)` requests, and the fork's absolute run times
-    /// (`cmux_on_schedule_delayed`, p14-energy-046).
+    /// (`cmux_on_schedule_delayed`).
     public var delayedRequests = 0
     /// Timer fires that arrived while `CefDoMessageLoopWork` was already
     /// running (a nested run loop) and were deferred.
@@ -37,7 +37,7 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Passes the input policy held until an input's dispatch ended (one per hold).
     public var deferredForInput = 0
     /// Due passes the frame deadline held for the next frame: less than 1 ms was left before the
-    /// frame's commit (``CEFPumpFrameDeadline``, p03-rendering-116).
+    /// frame's commit (``CEFPumpFrameDeadline``).
     public var frameDeadlineWaits = 0
     /// Due passes the frame deadline held for a person's input turn, a layout plan's apply, or pending
     /// input after a pass that used its whole slice (at most one wait in a row).
@@ -47,7 +47,7 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Passes for a delayed fire date that came before Chromium's task was due (``EarlyPassWatch``), so one
     /// delayed task cost a second main wake. On the whole-millisecond path CEF truncates each delay against
     /// a stale `recent_now`, and such a pass ends with a re-ask under 2 ms. On the fork's absolute run times
-    /// (p14-energy-046) the pass began before the run time it serves, or Chromium reported that run time,
+    /// the pass began before the run time it serves, or Chromium reported that run time,
     /// or an earlier one, again during the pass.
     public var earlyPasses = 0
 

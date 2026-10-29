@@ -2,7 +2,7 @@ public import AppKit
 public import Foundation
 
 /// The front window's saved picture (``WindowPictureStore``) as one layer: the launch's first frame is the window
-/// at its saved frame, its live `WindowMaterialView`, and this view over it (p08-startup-059). The picture has no
+/// at its saved frame, its live `WindowMaterialView`, and this view over it. The picture has no
 /// backdrop in it (the quit draws the root without the material), so the live material shows through where only
 /// the backdrop showed, blur and art included.
 ///
@@ -12,7 +12,7 @@ public import Foundation
 /// The view draws nothing: its layer's contents are the decoded image at the window's backing scale, pinned to
 /// the top-left corner (a window whose height changes keeps its titlebar and sidebar where the picture has them).
 /// It takes no key. Hit tests pass through it to whatever is under it, but where ``LaunchPictureInput`` holds the
-/// clicks on the picture (p08-startup-061): there a click on a point the picture still shows is its own.
+/// clicks on the picture: there a click on a point the picture still shows is its own.
 ///
 /// ```swift
 /// let picture = LaunchPictureView(image: front.image, scale: 2)

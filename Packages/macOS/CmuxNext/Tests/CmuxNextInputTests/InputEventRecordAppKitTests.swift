@@ -4,7 +4,7 @@ import CmuxNextInputCore
 import CoreGraphics
 import Testing
 
-/// An AppKit scroll's place in its gesture reaches its record (p04-input-012): momentum before the
+/// An AppKit scroll's place in its gesture reaches its record: momentum before the
 /// gesture phase, and the momentum's end as a phase of its own, which closes the pending-input
 /// check's scroll sequence (`SessionInputPending.ScrollLatching`); folded into `.momentum`, the
 /// sequence would stay open until the app went inactive.

@@ -5,6 +5,7 @@
 use serde_json::json;
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history_store as closed;
 use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
@@ -32,7 +33,7 @@ fn window_close_changes(
     if is_open(&record) {
         return closed::remove_window_groups(transaction, id);
     }
-    let was_open = current.is_some_and(|current| is_open(&current.snapshot["record"]));
+    let was_open = current.is_some_and(|current| is_open(current.snapshot.field("record")));
     if !was_open {
         return Ok(Vec::new());
     }

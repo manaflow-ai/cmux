@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextWakeups
 import Testing
 
-/// p14-energy-065: the busy watchdog's window ends on the main thread's deadline queue, never sooner than the
+/// The busy watchdog's window ends on the main thread's deadline queue, never sooner than the
 /// window and at most its 10 s leeway after it, so the end rides another main wake when there is one (Chromium's
 /// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h); an end that rode records no ledger wake.
 /// A wake during the window, also after its nominal end, keeps the watch going; the fire's own wake does not, so

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import MessagesLabSidebar
 
-/// SWIFT 6 (p10-stability-039): the controller's scroll and key-window observers and the root
+/// SWIFT 6: the controller's scroll and key-window observers and the root
 /// view's window observers are ``SidebarObservation`` tokens, removed when their owner releases
 /// them (no main-actor `deinit` reads them). Each test has its own NotificationCenter.
 @MainActor

@@ -1,6 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 mod host_load;
 
@@ -29,7 +31,7 @@ pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 /// afterwards (a peer going unreachable) is re-decided from it.
 pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
-    let last = summary["lastTurn"]["status"].as_str();
+    let last = summary.field("lastTurn").field("status").as_str();
     let answered = last == Some("completed");
     let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
@@ -98,23 +100,26 @@ pub fn lane(summary: &Value) -> Value {
     } else {
         summary["createdAt"].as_u64()
     };
-    let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
+    let ended = summary.field("lastTurn").field("endedAt").as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
-        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        Some("working") => ("working", summary.field("turn").field("startedAt").as_u64()),
         Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
-        Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
+        Some("lost") => ("lost", summary.field("lastTurn").field("endedAt").as_u64().or(updated)),
         _ => ("idle", ended),
     };
     let error = match state {
-        "failed" => summary["lastTurn"]["errorText"].clone(),
-        "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
+        "failed" => summary.field("lastTurn").field("errorText").clone(),
+        "lost" if !in_turn => summary.field("lastTurn").field("errorText").clone(),
         _ => Value::Null,
     };
     let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
-    let stalled =
-        if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
+    let stalled = if state == "working" {
+        summary.field("turn").field("stalledSince").clone()
+    } else {
+        Value::Null
+    };
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
            "title": lane_title(summary), "stalledSince": stalled})
 }
@@ -125,11 +130,11 @@ pub fn lane(summary: &Value) -> Value {
 /// person's own message is the last one (it says nothing new).
 fn lane_step(summary: &Value) -> Value {
     let reply = || {
-        (summary["lastMessage"]["role"] == "agent")
-            .then(|| summary["lastMessage"]["text"].as_str())
+        (summary.field("lastMessage").field("role") == "agent")
+            .then(|| summary.field("lastMessage").field("text").as_str())
             .flatten()
     };
-    let line = summary["turn"]["prompt"].as_str().or_else(reply).map(masked_line);
+    let line = summary.field("turn").field("prompt").as_str().or_else(reply).map(masked_line);
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
@@ -345,9 +350,13 @@ impl Hub {
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
                         .map(|image| QueuedImage {
-                            id: image["id"].as_str().unwrap_or_default().to_owned(),
-                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
-                            name: image["name"].as_str().map(str::to_owned),
+                            id: image.field("id").as_str().unwrap_or_default().to_owned(),
+                            mime_type: image
+                                .field("mimeType")
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned(),
+                            name: image.field("name").as_str().map(str::to_owned),
                         })
                         .collect(),
                 })
@@ -395,11 +404,11 @@ impl Hub {
             self.started_at,
         );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-        summary["sessionReceipt"] = receipt.to_value();
+        summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+        summary.set("sessionReceipt", receipt.to_value());
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary["gitBranch"] = json!(self.git_branch_now(&m));
+        summary.set("gitBranch", json!(self.git_branch_now(&m)));
         decide(&mut summary);
         summary
     }
@@ -407,31 +416,31 @@ impl Hub {
     pub fn session_detail(&self, session: &Session) -> Value {
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v["modes"] = m.modes.clone().unwrap_or(Value::Null);
-        v["configOptions"] = m.config_options.clone().unwrap_or(Value::Null);
-        v["models"] = m.models.clone().unwrap_or(Value::Null);
-        v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
-        v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
-        v["usage"] = m.usage.clone().unwrap_or(Value::Null);
-        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("models", m.models.clone().unwrap_or(Value::Null));
+        v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
+        v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
+        v.set("usage", m.usage.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v["availableCommands"] = commands.clone();
+            v.set("availableCommands", commands.clone());
         }
-        v["forkSeq"] = json!(m.fork_seq);
-        v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
+        v.set("forkSeq", json!(m.fork_seq));
+        v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
-        v["gitHead"] = json!(m.git_head);
+        v.set("gitHead", json!(m.git_head));
         // What the session's turns cost together (`turn_usage.rs`).
-        v["totals"] = json!(m.totals);
+        v.set("totals", json!(m.totals));
         // The sub-session limits in force and where each comes from (`subsessions.rs`).
-        v["subsessionLimits"] = self.subsession_limits_value(&m);
-        let mut pending = session.permissions.lock().unwrap().pending_records();
+        v.set("subsessionLimits", self.subsession_limits_value(&m));
+        let mut pending = session.permissions.lock_or_recover().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
-        v["pending"] = Value::Array(pending);
+        v.set("pending", Value::Array(pending));
         v
     }
 
@@ -479,7 +488,7 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
-            "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "remoteSessions": self.remote_sessions.lock_or_recover().len(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

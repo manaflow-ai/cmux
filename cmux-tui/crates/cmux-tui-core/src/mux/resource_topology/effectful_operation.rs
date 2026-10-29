@@ -1,6 +1,7 @@
 //! The effectful resource topology operation path: idempotent effects that create, close or reshape topology.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -25,18 +26,21 @@ impl Mux {
             );
         }
         let _creation_handoff = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_handoff.lock().unwrap());
-        let _creation_fence = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_execution.lock().unwrap());
+            .then(|| self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner));
+        let _creation_fence = is_resource_close_operation(operation).then(|| {
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner)
+        });
         let operation_name = operation_name(operation);
         let preparation = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(preparation) =
                 registry.lookup_resource_effect(&mutation.id, &operation_name, fingerprint)?
             {
                 preparation
             } else {
-                let mut state = self.lock_state_pinned(&registry).unwrap();
+                let mut state =
+                    self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
                 let intent = self.resource_topology_effect_intent(
                     operation,
                     &selectors,
@@ -121,14 +125,14 @@ impl Mux {
                 ) {
                     Ok(result) => result,
                     Err(error)
-                        if error
-                            .downcast_ref::<ResourceError>()
-                            .is_some_and(|error| error.code == "confirmation.required")
-                            || crate::state::home_store::resource_error(&error).is_some() =>
+                        if let Some(error) = crate::state::home_store::resource_error(&error)
+                            .or_else(|| {
+                                error
+                                    .downcast_ref::<ResourceError>()
+                                    .filter(|error| error.code == "confirmation.required")
+                                    .cloned()
+                            }) =>
                     {
-                        let error = crate::state::home_store::resource_error(&error)
-                            .or_else(|| error.downcast_ref::<ResourceError>().cloned())
-                            .expect("checked");
                         let outcome = ResourceEffectOutcome::Failure(error.clone());
                         if self
                             .commit_resource_effect(
@@ -182,7 +186,7 @@ impl Mux {
                         let actual = match self
                             .workspace_registry
                             .lock()
-                            .unwrap()
+                            .unwrap_or_else(PoisonError::into_inner)
                             .resource_topology_snapshot()
                         {
                             Ok(snapshot) => snapshot.revision,

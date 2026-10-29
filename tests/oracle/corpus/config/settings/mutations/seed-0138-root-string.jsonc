@@ -1,1 +1,0 @@
-"{\n  // \"quoted\"\n\"te\\u0072m\\u0069\\u006eal\": true,\n  \"edi\\u0074\\u006fr\": \"shadowed\",\n  // a { brace\n\"edito\\u0072\": {\n    \"fontW\\u0065\\u0069ght\": 1\n  },\n  // note\n\"a\\u0067\\u0065\\u006e\\u0074s\": {\n    // note\n\"t\\u0072ust\": {\n      \"autoTru\\u0073\\u0074\": null,\n      \"a\\u0075to\\u0054\\u0072us\\u0074\": null\n    }\n  }\n}\n"

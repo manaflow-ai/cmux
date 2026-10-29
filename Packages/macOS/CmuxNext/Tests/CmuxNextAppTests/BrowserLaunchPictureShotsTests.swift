@@ -11,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The browser pages' pictures from the last quit (p08-startup-043), at the layer that decides them: the quit takes
+/// The browser pages' pictures from the last quit, at the layer that decides them: the quit takes
 /// no picture of an incognito page (an off-the-record profile, an incognito workspace) or of a page holding Secure
 /// Input, a Chromium page included (it holds the keyboard as a key child window); and at launch a Chromium page,
 /// drawn in its own window over the pane, keeps a hole over the picture until its first content frame.

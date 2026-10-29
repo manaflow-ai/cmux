@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 
 extension LaunchServicePosts {
-    /// The browser follows that neither the first frame nor a page engine reads (p08-startup-028):
+    /// The browser follows that neither the first frame nor a page engine reads:
     /// history's daemon sync and the location trail's scope, each its own afterFirstFrame post. What a
     /// page engine or the first frame reads (the profiles, the engine preference, the link click and
     /// managed browser policy, the page schemes, the bookmarks bar, the omnibar look) stays in the

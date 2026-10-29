@@ -112,16 +112,19 @@ pub fn is_subrouter_proxy(argv: &[String]) -> bool {
 }
 
 pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
-    let shown = argv[0].rsplit('/').next().unwrap_or(&argv[0]);
-    let mut cmd = std::process::Command::new(&argv[0]);
+    let Some((program, args)) = argv.split_first() else {
+        return Err("the launcher has no command".to_owned());
+    };
+    let shown = program.rsplit('/').next().unwrap_or(program);
+    let mut cmd = std::process::Command::new(program);
     crate::login_env::apply_std(&mut cmd);
-    cmd.args(&argv[1..])
+    cmd.args(args)
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     scrub_nested_claude_env(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
+    let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
     crate::daemon::hang_watch::will_block();
     // Woken by the child's exit (SIGCHLD), not a polling tick.
     use wait_timeout::ChildExt;

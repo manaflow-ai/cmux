@@ -62,7 +62,7 @@ const CHROME_HISTOGRAM_PATTERN = /^[A-Za-z0-9_.]{1,64}$/;
 // `HangSample.WatchedThread`: a hang-watch registration's catalog name (`daemon-reader`), or `other`.
 const THREAD_NAME_PATTERN = /^[a-z0-9._-]{1,48}$/;
 
-// MARK: field histograms and stability (p09-observability-063)
+// MARK: field histograms and stability
 
 /**
  * One catalog histogram's samples since the last report (the client's
@@ -151,7 +151,7 @@ export const LaunchSections = Schema.Array(LaunchSection).pipe(
   }),
 );
 
-// MARK: input latency (p04-input-010)
+// MARK: input latency
 
 const milliseconds = Schema.Number.pipe(Schema.finite(), Schema.between(0, MAX_DURATION_MS));
 
@@ -198,7 +198,7 @@ export const ScrollJank = Schema.Struct({
 });
 
 /**
- * `interaction_latency` (the client's `HangReport.InteractionLatency`, p04-input-097):
+ * `interaction_latency` (the client's `HangReport.InteractionLatency`):
  * cmux's INP for the report period, numbers and a closed kind only. The high
  * percentile is never above the worst.
  */
@@ -223,7 +223,7 @@ export const BlockingDetail = Schema.Struct({
 const DAEMON_SITE_PATTERN = /^daemon-[a-z0-9._-]{1,96}$/;
 
 /**
- * `hangs[].daemon` of a daemon sample (p02-threads-233): one site the local
+ * `hangs[].daemon` of a daemon sample: one site the local
  * daemon saw for the first time in its life. No path: a site is a crate, a
  * file hash and a line, or a request method.
  */
@@ -233,14 +233,14 @@ export const DaemonDetail = Schema.Struct({
   site: Schema.String.pipe(Schema.pattern(DAEMON_SITE_PATTERN)),
 });
 
-/** `hangs[].task` of a watchdog hang (p06-scheduler-203): the scheduled task's owner and class. */
+/** `hangs[].task` of a watchdog hang: the scheduled task's owner and class. */
 export const MainTask = Schema.Struct({
   owner: Schema.String.pipe(Schema.pattern(TASK_OWNER_PATTERN)),
   class: Schema.String.pipe(Schema.pattern(CASE_NAME_PATTERN)),
 });
 
 /**
- * `hangs[].thread` of a hang-watch hang (p09-observability-068): the watched
+ * `hangs[].thread` of a hang-watch hang: the watched
  * thread's registration name and its kind (Chrome's `HangWatcher::ThreadType`).
  */
 export const WatchedThread = Schema.Struct({
@@ -255,7 +255,7 @@ export const MAX_FEATURES = 64;
 export const FeaturesHash = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{16}$/));
 
 /**
- * One `features[]` entry (p12-perf-process-151): a feature an override decided,
+ * One `features[]` entry: a feature an override decided,
  * by its registry name (`schemas/features/features.d/<name>.json`), its state
  * and the input that decided it (`Feature.Source`, the channel default left out).
  */
@@ -271,7 +271,7 @@ export const MAX_BLOCKING_SITES = 20;
 const MAX_BLOCKING_SITE_VALUE = 1_000_000_000;
 
 /**
- * One `blocking_sites[]` entry (p12-perf-process-226): a main-thread blocking
+ * One `blocking_sites[]` entry: a main-thread blocking
  * call site by its hashed id (`HangReport.BlockingSiteCount.siteID`, 16
  * lowercase hex digits of SHA-256 over `Module/File.swift:line`, so no path
  * arrives), what it waited on, and its calls and milliseconds since the

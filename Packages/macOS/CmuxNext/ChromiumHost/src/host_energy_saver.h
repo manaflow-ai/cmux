@@ -5,7 +5,7 @@
 // (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc,
 // NotifyBatterySaverModeChanged): cmux sends kOpEnergySaver on each edge of
 // its saver, and the host calls its shim's cmux_shim_set_energy_saver, which
-// calls the fork's cmux_cef_set_energy_saver (p14-energy-029: frame sinks at
+// calls the fork's cmux_cef_set_energy_saver (frame sinks at
 // 30 Hz except the exempt scheme's pages, 32 ms wake alignment, battery saver
 // mode in every child process).
 //

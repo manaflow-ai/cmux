@@ -4,8 +4,8 @@ public import Foundation
 import Darwin
 import Sentry
 
-/// Keeps the run's fatal-hang record (``FatalHangRecord``) on disk while a main-thread hang lasts
-/// (p09-observability-110), from the main-thread watchdog's thread: written at the hang threshold (2 s) with the
+/// Keeps the run's fatal-hang record (``FatalHangRecord``) on disk while a main-thread hang lasts,
+/// from the main-thread watchdog's thread: written at the hang threshold (2 s) with the
 /// stack, rewritten at each checkpoint with the time so far, removed when the main thread answers again. A run
 /// that the person or the system ends while it hangs (Force Quit, SIGKILL) leaves the file, and the next launch
 /// reports it (``takePrevious(in:run:currentPID:)``). The crash-key page's `hang_in_progress` slots (start, frame
@@ -137,7 +137,7 @@ public final class FatalHangRecorder: Sendable {
 }
 
 extension CrashReporter {
-    /// The next launch's half of the fatal-hang report (p09-observability-110): on `work`'s files lane, takes the
+    /// The next launch's half of the fatal-hang report: on `work`'s files lane, takes the
     /// previous run's record (``FatalHangRecorder/takePrevious(in:run:currentPID:)``) and sends it as one "fatal app
     /// hang" event with that run's black box (``reportFatalHang(_:blackbox:capture:)``). A clean quit or a crash
     /// (`run` nil), or the kill switch off (`enabled` false), sends nothing and only clears old records, so a record

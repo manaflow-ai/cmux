@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 @testable import CmuxNextUpdater
@@ -68,17 +69,23 @@ import Testing
         #expect(tree.abi == 2)
     }
 
-    @Test func theOutputsAreTheScriptsOutputs() throws {
+    /// scripts/cmux-next/web-bundle-key.py run on the tree at `root` in `mode` (`--outputs`, `--shared`).
+    static func bundleKey(_ root: URL, _ mode: String) async throws -> ProcessOutcome {
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appending(path: "../../../../../scripts/cmux-next/web-bundle-key.py").standardizedFileURL
-        let text = try String(contentsOf: script, encoding: .utf8)
-        let block = try #require(text.components(separatedBy: "OUTPUTS = [").dropFirst().first?.components(separatedBy: "]").first)
-        let listed = block.split(separator: "\n").compactMap { line -> String? in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("\"") else { return nil }
-            return String(trimmed.dropFirst().prefix { $0 != "\"" })
-        }
-        #expect(listed == WebUpdateTree.outputs)
+        return try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/env"), ["python3", script.path, root.path, mode],
+                                                           errorOutput: .separate, timeout: .seconds(60)))
+    }
+
+    /// The script and the app hash the same outputs: a list that differs on either side (a missing
+    /// output counts) gives another digest of the same tree.
+    @Test func theOutputsAreTheScriptsOutputs() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.makeTree(at: root)
+        let outcome = try await Self.bundleKey(root, "--outputs")
+        #expect(outcome.succeeded, "web-bundle-key.py --outputs: \(String(decoding: outcome.errorOutput, as: UTF8.self))")
+        #expect(outcome.text.trimmingCharacters(in: .whitespacesAndNewlines) == (try WebUpdateTree(root: root).outputDigest()))
     }
 
     @Test func aLinkInTheTreeIsRefused() throws {
@@ -135,7 +142,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: tree.path))
     }
 
-    /// The kept update read on a launch lane before the channel is known (p08-startup-077) decides
+    /// The kept update read on a launch lane before the channel is known decides
     /// as the launch check that reads the disk itself: the same tree for a kept update newer than
     /// the bundled web, and for a bundle with newer web no tree, then the bundled web served and
     /// the kept update forgotten.

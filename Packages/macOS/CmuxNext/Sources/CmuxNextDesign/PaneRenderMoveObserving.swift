@@ -4,7 +4,7 @@ public import AppKit
 /// Chromium page window): it hears when Core Animation starts and stops showing the placement away from that
 /// frame (``RestingPlacement/showsRenderMove``), so that window can hide meanwhile. Told at a render spring's
 /// start, at its landing and when the main thread takes it back, never per frame, and only by a placement
-/// with ``RestingPlacement/pageResizing`` (p03-rendering-036).
+/// with ``RestingPlacement/pageResizing``.
 @MainActor
 public protocol PaneRenderMoveObserving: NSView {
     func paneRenderMoveDidChange(_ showsRenderMove: Bool)

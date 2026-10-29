@@ -1,7 +1,7 @@
 import CmuxNextCompat
 public import Foundation
 
-/// The main-thread part of the next report (p12-perf-process-043): the active time
+/// The main-thread part of the next report: the active time
 /// (``ActiveTimeLedger``) and what the watchdog's main-turn and input-queueing histograms counted
 /// since the last queued report. The histograms (`MainTurnHistogram` in CmuxNextControl) count from
 /// launch, so a report sends the difference from the read the last queued report ended at, as

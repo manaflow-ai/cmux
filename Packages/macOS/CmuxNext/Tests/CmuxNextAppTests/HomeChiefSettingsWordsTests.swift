@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Testing
 
 /// The Chief Settings card in words a person reads: effort levels by name, not the brain's ids
@@ -28,7 +29,7 @@ import Testing
     @Test func diagnosticsIsOneControl() {
         let home = FileManager.default.temporaryDirectory
         // This Mac's brain with no daemon connected: it reads the files and sets nothing.
-        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         // The tree as VoiceOver walks it: a button is never an element itself, its cell is, so a
         // walk of views' isAccessibilityElement() finds nothing.
         let named = AccessibilityAudit().nodes(under: view).filter { $0.label == HomeEngineStrings.diagnostics }

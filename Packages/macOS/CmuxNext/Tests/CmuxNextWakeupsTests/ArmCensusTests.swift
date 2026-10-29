@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The launch's arm census (p08-startup-085, queue Q13): a timer, a main deadline and a folder watch armed while the
+/// The launch's arm census (queue Q13): a timer, a main deadline and a folder watch armed while the
 /// census records leave one record each, with their owner, the line that made them, how often they were armed before
 /// their first fire, and that first fire, also when it comes after the census closed. Nothing is recorded before the
 /// census starts or after it closes, and arms past the capacity are counted. Every clock is the test's.

@@ -4,7 +4,7 @@ import CmuxNextBookmarks
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 /// Bookmarks from another browser (decision BOOKMARKS-IMPORT-EVERY-BROWSER

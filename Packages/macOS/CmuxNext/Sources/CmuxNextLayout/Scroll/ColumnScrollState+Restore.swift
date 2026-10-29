@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// A remounted screen's camera (p07-memory-033): the offset its workspace showed when it unmounted,
+/// A remounted screen's camera: the offset its workspace showed when it unmounted,
 /// as Chrome's renderer restores a discarded tab's scroll offset from its `PageState` before the
 /// first paint (third_party/blink/renderer/core/loader/history_item.h, `HistoryItem::GetViewState`).
 nonisolated extension ColumnScrollState {

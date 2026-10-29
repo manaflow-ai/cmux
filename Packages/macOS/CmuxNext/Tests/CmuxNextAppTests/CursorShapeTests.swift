@@ -18,7 +18,7 @@ final class CursorRectCountingWindow: NSWindow {
     }
 }
 
-/// Cursors set on entry instead of cursor rects (p04-input-090): a view adds one `.cursorUpdate`
+/// Cursors set on entry instead of cursor rects: a view adds one `.cursorUpdate`
 /// area over its visible rect and sets its cursor in `cursorUpdate(with:)`, as Chrome's views name
 /// the cursor of the view under the pointer (`ui/views/widget/root_view.cc`).
 @MainActor @Suite(.serialized) struct CursorShapeTests {

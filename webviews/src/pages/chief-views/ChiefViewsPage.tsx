@@ -3,16 +3,15 @@
 // to open it, and the views themselves: one in the pane, and optionally a second beside it as a
 // split (half) or a sidebar (a narrow column). Below NARROW of the page's own width the second
 // view stacks under the first.
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useNow } from "../../ui/useNow";
 import type { Strings } from "../shared/i18n";
-import { usePageInterval } from "../shared/pageLifecycle";
 import { ViewGlyph } from "./parts";
 import { CHIEF_VIEWS, viewById, type ChiefViewManifest } from "./registry";
 import type { ChiefViewsStore, ViewNeed } from "./store";
 import type { Placement } from "./types";
 
 const PLACEMENTS: Placement[] = ["pane", "split", "sidebar"];
-const MINUTE = 60_000;
 
 export function ChiefViewsPage({
   store,
@@ -25,7 +24,7 @@ export function ChiefViewsPage({
   now?: number;
 }) {
   const data = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const now = useNow(fixedNow);
+  const now = useMinuteNow(fixedNow);
   const { layout } = data;
   const main = viewById(layout.main);
   const side = layout.side ? viewById(layout.side.id) : undefined;
@@ -216,11 +215,9 @@ function ViewCard({
   );
 }
 
-/** The fixed clock, else the time now, again every minute while the page shows (usePageInterval).
-    A hidden page's stamps rest and read the time again when it shows. */
-function useNow(fixed?: number): number {
-  const [now, setNow] = useState(() => fixed ?? Date.now());
-  // The same minute tick the Lanes view keeps for its "Idle · 3 h" stamps.
-  usePageInterval(() => setNow(Date.now()), fixed === undefined ? MINUTE : null, { catchUpOnShow: true });
-  return fixed ?? now;
+/** The fixed clock, else the page clock's current minute (ui/pageClock.ts): the same minute tick
+ * the Lanes view keeps for its "Idle · 3 h" stamps, resting while the page is hidden. */
+function useMinuteNow(fixed?: number): number {
+  const minute = useNow("minute", { enabled: fixed === undefined });
+  return fixed ?? minute;
 }

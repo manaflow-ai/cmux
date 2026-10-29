@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-326: the status indicators' config follow is a ServiceObservation on the app's main-thread
+/// The status indicators' config follow is a ServiceObservation on the app's main-thread
 /// scheduler, and its resync moments are subscriptions on the app's one AppEvents per center, not an
 /// ObservationStream task and six raw observers per appearance.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct StatusIndicatorAppearanceSchedulingTests {

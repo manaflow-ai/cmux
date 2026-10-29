@@ -3,8 +3,8 @@ public import Foundation
 /// cmux-page:// first-party pages for Chromium tabs. The app sets the checked
 /// table (CmuxNextApp `FirstPartyPageSchemes`) before Chromium starts;
 /// `CEFRuntime` hands each entry to `cmux_shim_page_scheme_add_first_party`
-/// when it initializes CEF, in process or as a preinit op to the Chromium Host
-/// (p01-process-070). The shim refuses a reserved (`cmux.`) id on any other
+/// when it initializes CEF, in process or as a preinit op to the Chromium Host.
+/// The shim refuses a reserved (`cmux.`) id on any other
 /// path.
 @MainActor
 public struct CEFPageSchemes {
@@ -122,4 +122,26 @@ public struct CEFPageSchemes {
         case .failure: false
         }
     }
+
+    /// One document-start script of the page host for a cmux page's own world (fork API 29), from
+    /// CmuxNextPages `ChromiumPageHostBridge.rendererScript`: the App hands them to its ``CEFEngine``
+    /// (feature `chromiumPageRendererPaths`), and `CEFRuntime` installs them once for every browser
+    /// with every tab's document scripts (`CEFDocumentScripts.hostPage`), in cmux pages only. They
+    /// post by firing ``hostEvent``, which the runtime's page host relay sends on the page channel.
+    public struct HostScript: Equatable, Sendable {
+        /// The isolated world it runs in; "" for the page's own world.
+        public var world: String
+        public var source: String
+        /// Every frame; false for the main frame only.
+        public var allFrames: Bool
+        public init(world: String, source: String, allFrames: Bool) {
+            self.world = world
+            self.source = source
+            self.allFrames = allFrames
+        }
+    }
+
+    /// The DOM event a cmux page's own world fires to post to its host on the page channel
+    /// (`CEFDocumentScripts.pageHostEvent`): the page script of every ``HostScript`` fires it.
+    nonisolated public static let hostEvent = CEFDocumentScripts.pageHostEvent
 }

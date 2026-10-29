@@ -7,10 +7,10 @@ import Testing
 import WebKit
 @testable import CmuxNextAgentPane
 
-/// The agent pane reaches its page only through the page host's engine-neutral calls
-/// (p13-webui-074): it keeps no WebKit view of its own, and the WebKit-only tools (render rate,
+/// The agent pane reaches its page only through the page host's engine-neutral calls:
+/// it keeps no WebKit view of its own, and the WebKit-only tools (render rate,
 /// Web Inspector, the WebContent pid) see a WebKit engine only while WebKit shows the chat. A chat
-/// shown in Chromium has no WebKit view at all (p13-webui-041): not while Chromium starts, not once
+/// shown in Chromium has no WebKit view at all: not while Chromium starts, not once
 /// it shows, and not when the pane closes (the old close loaded an empty document into a hidden
 /// one, which starts a WebContent process).
 @Suite(.serialized)

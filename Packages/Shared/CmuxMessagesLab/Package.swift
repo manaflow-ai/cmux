@@ -24,7 +24,7 @@ let package = Package(
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxFuzzSupport"),
-        // The portable Mutex the transcript's shared caches live in (p10-stability-172, -055).
+        // The portable Mutex the transcript's shared caches live in.
         .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [

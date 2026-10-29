@@ -21,8 +21,14 @@ impl<R: Read> DigestReader<R> {
 impl<R: Read> Read for DigestReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         let n = self.inner.read(buf)?;
+        let read = buf.get(..n).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "reader returned more than its buffer",
+            )
+        })?;
         self.bytes_read = self.bytes_read.saturating_add(n);
-        self.hasher.update(&buf[..n]);
+        self.hasher.update(read);
         Ok(n)
     }
 }

@@ -79,11 +79,9 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
     let mut generation = None;
     let mut authority_file = None;
     let mut cursor = 2;
-    while cursor < args.len() {
-        let value = args
-            .get(cursor + 1)
-            .ok_or_else(|| anyhow::anyhow!("{} needs a value", args[cursor]))?;
-        match args[cursor].as_str() {
+    while let Some(flag) = args.get(cursor) {
+        let value = args.get(cursor + 1).ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))?;
+        match flag.as_str() {
             "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
             "--generation" if generation.is_none() => {
                 let parsed = value
@@ -110,11 +108,11 @@ fn parse(args: &[String]) -> anyhow::Result<InstallArgs> {
 }
 
 fn open_authority(path: &Path) -> anyhow::Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
+    let file = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )
+    .map_err(|error| anyhow::anyhow!("cannot open provider authority file: {error}"))?;
     let metadata = file.metadata()?;
     if !metadata.is_file()
         || metadata.uid() != 0
@@ -141,6 +139,70 @@ fn read_authority(path: &Path) -> anyhow::Result<ProviderWorkspaceAuthority> {
         .map(str::to_owned)
         .map_err(|_| anyhow::anyhow!("provider authority file is not valid UTF-8"))?;
     ProviderWorkspaceAuthority::new(authority)
+}
+
+/// The provider management listener systemd passed this daemon (socket
+/// activation, `LISTEN_FDS`), or `None` when it passed none.
+pub fn take_management_listener() -> anyhow::Result<Option<std::os::unix::net::UnixListener>> {
+    use crate::startup_env;
+    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+
+    const SYSTEMD_FIRST_FD: RawFd = 3;
+    const FD_NAME: &str = "cmux-provider-authority";
+    // Taken from the environment as the first statement of `main`, before
+    // this function's caller started its threads.
+    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
+        startup_env::take_systemd_listen_env();
+    if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
+        return Ok(None);
+    }
+    let pid = listen_pid
+        .as_deref()
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or_else(|| anyhow::anyhow!("invalid systemd LISTEN_PID"))?;
+    if pid != std::process::id() {
+        anyhow::bail!("systemd listener belongs to a different process");
+    }
+    if listen_fds.as_deref() != Some("1") || listen_names.as_deref() != Some(FD_NAME) {
+        anyhow::bail!("expected exactly one named provider management listener");
+    }
+    let socket_type = socket_option(SYSTEMD_FIRST_FD, libc::SO_TYPE)?;
+    let accepting = socket_option(SYSTEMD_FIRST_FD, libc::SO_ACCEPTCONN)?;
+    if socket_type != libc::SOCK_STREAM || accepting != 1 {
+        anyhow::bail!("provider management descriptor is not a listening stream socket");
+    }
+    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
+    // systemd passed to this process.
+    let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
+    if flags < 0
+        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
+        || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
+    // above), and only the first take of the variables reaches this line, so this is its one owner.
+    let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
+    Ok(Some(std::os::unix::net::UnixListener::from(owned)))
+}
+
+fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc::c_int> {
+    use std::mem::size_of;
+
+    let mut value = 0;
+    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
+    // live locals and `length` starts as the size of `value`.
+    let result = unsafe {
+        libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::c_int>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid socket option length"));
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

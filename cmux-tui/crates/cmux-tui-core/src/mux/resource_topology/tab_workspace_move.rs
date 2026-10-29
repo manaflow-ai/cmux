@@ -1,6 +1,7 @@
 //! Moving a tab to another workspace or to a new workspace, with explicit placement.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// Move a live placement without spawning replacement content. New/empty
@@ -39,7 +40,8 @@ impl Mux {
             state
                 .pane_of(surface)
                 .and_then(|pane| state.screen_of(pane))
-                .map(|(workspace, _)| state.workspaces[workspace].id)
+                .and_then(|(workspace, _)| state.workspace_at(workspace).ok())
+                .map(|workspace| workspace.id)
         })
         .context("moved tab has no workspace")
     }
@@ -60,7 +62,8 @@ impl Mux {
                 state
                     .pane_of(surface)
                     .and_then(|pane| state.screen_of(pane))
-                    .is_some_and(|(wi, _)| state.workspaces[wi].id == workspace)
+                    .and_then(|(wi, _)| state.workspace_at(wi).ok())
+                    .is_some_and(|candidate| candidate.id == workspace)
             }) {
                 return Ok(());
             }
@@ -101,8 +104,8 @@ impl Mux {
                 let source_pane = state.pane_of(surface).context("source tab disappeared")?;
                 let (source_wi, source_si) =
                     state.screen_of(source_pane).context("source screen disappeared")?;
-                let source_ws = &state.workspaces[source_wi];
-                let source_screen = &source_ws.screens[source_si];
+                let source_ws = state.workspace_at(source_wi)?;
+                let source_screen = state.screen_at(source_wi, source_si)?;
                 let source_screen_slot = source_screen.id;
                 let source_ws_id = source_ws.public_id.clone();
                 let source_screen_id = source_screen.public_id.clone();
@@ -112,16 +115,16 @@ impl Mux {
                     .get(&surface)
                     .cloned()
                     .context("source tab has no identity")?;
-                let source_pane_id = state.resource_indexes.pane_ids[&source_pane].clone();
+                let source_pane_id = state.live_pane_public_id(source_pane)?.clone();
                 let new_workspace = workspace.is_none();
                 let (target_wi, mut target_ws) = if let Some(id) = workspace {
                     let index =
                         state.workspace_index(id).context("destination workspace disappeared")?;
                     anyhow::ensure!(
-                        state.workspaces[index].screens.is_empty(),
+                        state.workspace_at(index)?.screens.is_empty(),
                         "destination layout changed; retry the move"
                     );
-                    (index, state.workspaces[index].clone())
+                    (index, state.workspace_at(index)?.clone())
                 } else {
                     anyhow::ensure!(
                         state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
@@ -157,21 +160,23 @@ impl Mux {
                 moved_tab.pane_id = target_pane_id.clone();
                 moved_tab.position = 0;
                 let mut source_record = topology_pane(&after, &source_pane_id)?.clone();
-                let mut source_tabs = state.panes[&source_pane].tabs.clone();
+                let mut source_tabs = state.live_pane(source_pane)?.tabs.clone();
                 let old_index = source_tabs
                     .iter()
                     .position(|id| *id == surface)
                     .context("source tab disappeared")?;
                 source_tabs.remove(old_index);
                 let source_empty = source_tabs.is_empty();
-                let source_active = if state.panes[&source_pane].active_tab >= old_index {
-                    state.panes[&source_pane].active_tab.saturating_sub(1)
+                let source_active_tab = state.live_pane(source_pane)?.active_tab;
+                let source_active = if source_active_tab >= old_index {
+                    source_active_tab.saturating_sub(1)
                 } else {
-                    state.panes[&source_pane].active_tab
+                    source_active_tab
                 };
                 source_record.active_tab = source_tabs
                     .get(source_active)
-                    .map(|id| state.resource_indexes.tab_ids[id].clone());
+                    .map(|id| state.live_tab_public_id(*id).cloned())
+                    .transpose()?;
                 let mut changes = Vec::new();
                 let mut deltas = Vec::new();
                 let mut source_layout = source_screen.layout_snapshot();
@@ -200,7 +205,8 @@ impl Mux {
                             .screens
                             .iter_mut()
                             .find(|s| s.public_id == source_screen_id)
-                            .expect("source screen") = durable.clone();
+                            .context("source screen is absent from durable topology")? =
+                            durable.clone();
                         changes.push(ResourceChange::UpsertScreen(durable));
                     } else {
                         after.screens.retain(|s| s.public_id != source_screen_id);
@@ -227,7 +233,7 @@ impl Mux {
                                 state,
                                 source_wi,
                                 registry.session_id().as_str(),
-                            ),
+                            )?,
                             position: source_wi,
                             active_screen: remaining.clone(),
                         });
@@ -252,8 +258,8 @@ impl Mux {
                     changes.push(ResourceChange::UpsertPane(source_record));
                     let order = source_tabs
                         .iter()
-                        .map(|id| state.resource_indexes.tab_ids[id].clone())
-                        .collect::<Vec<_>>();
+                        .map(|id| state.live_tab_public_id(*id).cloned())
+                        .collect::<Result<Vec<_>, _>>()?;
                     reindex_target_tab_positions(&mut after.tabs, &source_pane_id, &order);
                     changes.push(ResourceChange::SetTabOrder {
                         pane_id: source_pane_id.clone(),
@@ -395,7 +401,7 @@ impl Mux {
                         pane_value(state, topology_pane(&after, &source_pane_id)?, &after)?,
                     ));
                     for id in &source_tabs {
-                        let id = &state.resource_indexes.tab_ids[id];
+                        let id = state.live_tab_public_id(*id)?;
                         deltas.push(upsert(
                             deltas.len(),
                             "tab",
@@ -523,14 +529,14 @@ impl Mux {
                     Value::Array(deltas),
                     move |state| {
                         fence_layout_undo_for_tab_membership(state, &[source_pane]);
-                        state.panes.get_mut(&source_pane).expect("source pane").tabs = source_tabs;
-                        state.panes.get_mut(&source_pane).expect("source pane").active_tab =
-                            source_active;
+                        let source = state.planned_pane_mut(source_pane);
+                        source.tabs = source_tabs;
+                        source.active_tab = source_active;
                         if source_empty {
                             collapse_empty_pane(&mux, state, source_pane);
                             if source_screen_remains {
                                 overwrite_layout_snapshot(
-                                    &mut state.workspaces[source_wi].screens[source_si],
+                                    state.planned_screen_mut(source_wi, source_si),
                                     source_layout,
                                 );
                             }
@@ -542,7 +548,7 @@ impl Mux {
                                 state.move_workspace(last, target_wi);
                             }
                         } else {
-                            state.workspaces[target_wi] = target_ws;
+                            *state.planned_workspace_mut(target_wi) = target_ws;
                         }
                         state.insert_pane(pane);
                         state.rebuild_resource_indexes();
@@ -575,7 +581,7 @@ impl Mux {
             },
         )?;
         if group.is_some() {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             self.reload_presentation(&registry)?;
         }
         if let Some(surface_handle) = self.surface(surface) {
@@ -583,7 +589,8 @@ impl Mux {
                 state
                     .pane_of(surface)
                     .and_then(|pane| state.screen_of(pane))
-                    .map(|(wi, _)| state.workspaces[wi].key.clone())
+                    .and_then(|(wi, _)| state.workspace_at(wi).ok())
+                    .map(|workspace| workspace.key.clone())
             });
             if let Some(key) = key {
                 let _ = surface_handle.persist_host_workspace(&key);

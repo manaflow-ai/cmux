@@ -39,7 +39,7 @@ struct InputDispatchAgeTests {
         #expect(!services.registry.isDispatchingKeyDown())
     }
 
-    /// The tap's action event (p04-input-067) is wired to the same dispatch: a handler run by a key reads that key,
+    /// The tap's action event is wired to the same dispatch: a handler run by a key reads that key,
     /// and a run after the dispatch (a CLI or socket run) reads none, though AppKit still keeps the person's last key.
     @Test func theActionEventIsTheDispatchedKeyAndNoneAfterIt() throws {
         _ = NSApplication.shared

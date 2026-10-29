@@ -3,6 +3,8 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -119,7 +121,7 @@ private enum ThreadProbe {
         let storage = DelayedStorage()
         let repository = MarkdownCommentRepository(storage: storage)
         let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: "/repo/README.md"), host: Host(),
-                                        libraries: nil, images: NoImages(), comments: repository)
+                                        libraries: nil, images: NoImages(), comments: repository, deadlines: .testing())
         defer { provider.close() }
         var published: [ViewerCommentList] = []
         provider.onCommentsChanged = { value in

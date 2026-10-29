@@ -2,7 +2,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// The main task board names the running task's owner in the crash-key page (p09-observability-078): the owner's
+/// The main task board names the running task's owner in the crash-key page: the owner's
 /// stable key while its work runs, the covered task's owner back after a span, 0 between tasks.
 struct MainTaskBoardCrashKeysTests {
     @Test func aSpanNamesItsOwnerAndPutsTheCoveredOwnerBack() {

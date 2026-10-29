@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// The agent pane's live dev server on the page host (p13-webui-073): with the pane's own scheme
+/// The agent pane's live dev server on the page host: with the pane's own scheme
 /// handler gone, a `web-dev.json` server (``WebDevOverride``) serves `cmux-page://cmux.agent/` the
 /// way it served `cmux-agent://pane`: the document from the webviews server's `/agent-pane/`, every
 /// module at its own path and query.

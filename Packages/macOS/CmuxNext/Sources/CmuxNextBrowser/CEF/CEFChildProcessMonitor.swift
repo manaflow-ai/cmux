@@ -14,8 +14,18 @@ import os
 /// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS`
 /// on each new one, and the exit event carries the wait status before
 /// Chromium reaps the child.
-nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
-    struct Exit: Sendable, Equatable {
+///
+/// The kqueue, its source and the watched children are one ``State`` behind a
+/// `Mutex`; only the monitor's queue takes it, so it is never contended. Exits
+/// are reported after the lock is released.
+///
+/// In process only. In host mode the helpers are the Chromium Host's
+/// children: the host watches them the same way (HOST/src/host_helper_exits.h)
+/// and sends each end as HELPER_EXIT, which decodes to the same ``Exit``
+/// (``CEFShimEvent/helperExit(_:)``).
+nonisolated final class CEFChildProcessMonitor: Sendable {
+    /// One helper's end; also what the Chromium Host's HELPER_EXIT carries (``CEFShimEvent/helperExit(_:)``).
+    nonisolated struct Exit: Sendable, Equatable {
         var pid: Int32
         var processType: String
         var subType: String?
@@ -29,55 +39,73 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var subframeBrowsers: Set<Int32> = []
     }
 
+    private nonisolated struct State {
+        var kq: Int32 = -1
+        var source: (any DispatchSourceRead)?
+        /// Children being watched: pid -> helper identity (nil until exec).
+        var children: [Int32: CEFHelperIdentity?] = [:]
+        /// The renderers' frames other than a browser's main frame (``subframe(_:browser:client:attached:)``).
+        var subframes = CEFSubframeRenderers()
+    }
+
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
     private let onExit: @Sendable (Exit) -> Void
+    /// Each pid the monitor starts watching (tests wait for it before they end a child).
+    private let onWatch: @Sendable (Int32) -> Void
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-children")
-    private var kq: Int32 = -1
-    private var source: (any DispatchSourceRead)?
-    /// Children being watched: pid -> helper identity (nil until exec).
-    private var children: [Int32: CEFHelperIdentity?] = [:]
-    /// The renderers' frames other than a browser's main frame (``subframe(_:browser:client:attached:)``).
-    private var subframes = CEFSubframeRenderers()
+    private let state = Mutex(State())
 
-    init(onExit: @escaping @Sendable (Exit) -> Void) {
+    init(onExit: @escaping @Sendable (Exit) -> Void, onWatch: @escaping @Sendable (Int32) -> Void = { _ in }) {
         self.onExit = onExit
+        self.onWatch = onWatch
     }
 
     /// Starts watching on the monitor's own queue (idempotent).
     func start() {
         queue.async { [self] in
-            guard kq < 0 else { return }
-            let fd = kqueue()
-            guard fd >= 0 else {
-                logger.error("kqueue failed: \(errno)")
-                return
+            let watched = state.withLock { state -> [Int32] in
+                guard state.kq < 0 else { return [] }
+                let fd = kqueue()
+                guard fd >= 0 else {
+                    logger.error("kqueue failed: \(errno)")
+                    return []
+                }
+                // SAFETY: udata is NULL; the kernel never dereferences it.
+                var event = unsafe kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
+                                          fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
+                // SAFETY: one change read from `event`, no event list.
+                guard unsafe kevent(fd, &event, 1, nil, 0, nil) == 0 else {
+                    logger.error("NOTE_FORK watch failed: \(errno)")
+                    close(fd)
+                    return []
+                }
+                state.kq = fd
+                let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+                source.setEventHandler { [weak self] in self?.drain() }
+                source.resume()
+                state.source = source
+                return Self.rescan(&state)
             }
-            // SAFETY: udata is NULL; the kernel never dereferences it.
-            var event = unsafe kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
-                                      fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
-            // SAFETY: one change read from `event`, no event list.
-            guard unsafe kevent(fd, &event, 1, nil, 0, nil) == 0 else {
-                logger.error("NOTE_FORK watch failed: \(errno)")
-                close(fd)
-                return
-            }
-            kq = fd
-            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            source.setEventHandler { [weak self] in self?.drain() }
-            source.resume()
-            self.source = source
-            rescan()
+            for pid in watched { onWatch(pid) }
         }
     }
 
     private func drain() {
+        let found = state.withLock { state in Self.drain(&state) }
+        for pid in found.watched { onWatch(pid) }
+        for exit in found.exits { onExit(exit) }
+    }
+
+    /// Reads the pending events: the helpers that ended and the children newly watched.
+    private static func drain(_ state: inout State) -> (exits: [Exit], watched: [Int32]) {
         var events = Array(repeating: Darwin.kevent(), count: 16)
         var zero = timespec(tv_sec: 0, tv_nsec: 0)
         let room = Int32(events.count)
         // SAFETY: the kernel writes at most `room` events into the array's buffer and reads `zero` during the call.
-        let count = unsafe kevent(kq, nil, 0, &events, room, &zero)
-        guard count > 0 else { return }
+        let count = unsafe kevent(state.kq, nil, 0, &events, room, &zero)
+        guard count > 0 else { return ([], []) }
         var needsRescan = false
+        var exits: [Exit] = []
         for event in events.prefix(Int(count)) {
             let pid = Int32(truncatingIfNeeded: event.ident)
             if pid == getpid() {
@@ -85,18 +113,18 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 continue
             }
             if event.fflags & UInt32(NOTE_EXEC) != 0 {
-                children[pid] = CEFHelperIdentity.read(pid: pid)
+                state.children[pid] = CEFHelperIdentity.read(pid: pid)
             }
             if event.fflags & UInt32(NOTE_EXIT) != 0 {
-                let identity = children.removeValue(forKey: pid) ?? nil
+                let identity = state.children.removeValue(forKey: pid) ?? nil
                 guard let identity else { continue }
-                let subframeBrowsers = identity.rendererClientID.map { subframes.ended(client: $0) } ?? []
-                onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
-                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data),
-                            rendererClientID: identity.rendererClientID, subframeBrowsers: subframeBrowsers))
+                let subframeBrowsers = identity.rendererClientID.map { state.subframes.ended(client: $0) } ?? []
+                exits.append(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
+                                  isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data),
+                                  rendererClientID: identity.rendererClientID, subframeBrowsers: subframeBrowsers))
             }
         }
-        if needsRescan { rescan() }
+        return (exits, needsRescan ? rescan(&state) : [])
     }
 
     /// Frame `frame` of `browser`, not its main frame, attached to or detached from renderer `client`
@@ -105,9 +133,11 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
     /// where its exit event lands: one that is ending or ended lost the frame to its death.
     func subframe(_ frame: String, browser: Int32, client: Int32, attached: Bool) {
         queue.async { [self] in
-            if attached { return subframes.attached(frame, client: client, browser: browser) }
-            let pid = children.first { $0.value?.rendererClientID == client }?.key
-            subframes.detached(frame, client: client, browser: browser, rendererExiting: pid.map(Self.isExiting) ?? false)
+            if attached { return state.withLock { $0.subframes.attached(frame, client: client, browser: browser) } }
+            let pid = state.withLock { state in state.children.first { $0.value?.rendererClientID == client }?.key }
+            // The process read runs outside the lock; only this queue changes the state, so nothing moves in between.
+            let rendererExiting = pid.map(Self.isExiting) ?? false
+            state.withLock { $0.subframes.detached(frame, client: client, browser: browser, rendererExiting: rendererExiting) }
         }
     }
 
@@ -125,24 +155,39 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         return info.kp_proc.p_stat == SZOMB || info.kp_proc.p_flag & P_WEXIT != 0
     }
 
-    private func rescan() {
+    /// Registers every child not watched yet; returns their pids.
+    private static func rescan(_ state: inout State) -> [Int32] {
         var pids = [pid_t](repeating: 0, count: 256)
         let room = Int32(pids.count * MemoryLayout<pid_t>.stride)
         // SAFETY: the kernel writes at most `room` bytes, the array's size, into its buffer during the call.
         let bytes = unsafe proc_listchildpids(getpid(), &pids, room)
-        guard bytes > 0 else { return }
+        guard bytes > 0 else { return [] }
         // proc_listchildpids returns a count on current macOS (bytes on
         // older ones); take whichever fits the buffer.
         let count = min(Int(bytes), pids.count)
-        for pid in pids.prefix(count) where pid > 0 && children[pid] == nil {
+        var watched: [Int32] = []
+        for pid in pids.prefix(count) where pid > 0 && state.children[pid] == nil {
             // SAFETY: udata is NULL; the kernel never dereferences it.
             var event = unsafe kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
                                       fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil)
             // Fails when the child already exited (and was reaped).
             // SAFETY: one change read from `event`, no event list.
-            guard unsafe kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
-            children[pid] = CEFHelperIdentity.read(pid: pid)
+            guard unsafe kevent(state.kq, &event, 1, nil, 0, nil) == 0 else { continue }
+            state.children[pid] = CEFHelperIdentity.read(pid: pid)
+            watched.append(pid)
         }
+        return watched
+    }
+}
+
+extension CEFChildProcessMonitor.Exit {
+    /// HELPER_EXIT's fields (`cmux_host::kEventHelperExit`): request the pid, a the wait status, bit 1 of
+    /// b an extension renderer (`kHelperExitExtension`), s1 the `--type`, s2 the `--utility-sub-type` (""
+    /// for none). Nil without a pid or a type: the host sends only helpers.
+    nonisolated init?(helperExitPID pid: Int32, status: Int64, flags: Int64, type: String, subType: String) {
+        guard pid > 0, !type.isEmpty else { return nil }
+        self.init(pid: pid, processType: type, subType: subType.isEmpty ? nil : subType, isExtension: flags & 1 != 0,
+                  status: Int32(truncatingIfNeeded: status))
     }
 }
 
@@ -183,10 +228,10 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
         // SAFETY: reads the 3-int name; a NULL old buffer only writes the size it needs into `size`.
-        guard unsafe sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
         // SAFETY: `size` is the array's length; the kernel writes at most that many bytes and the length it wrote.
-        guard unsafe sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard unsafe blockingSysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         return parseProcArgs(Array(buffer.prefix(size)))
     }
 

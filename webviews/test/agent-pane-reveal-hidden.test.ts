@@ -1,4 +1,4 @@
-// A reveal's wait for its row is a page poll (p13-webui-069, MQ4b): while the agent page is hidden
+// A reveal's wait for its row is a page poll (MQ4b): while the agent page is hidden
 // it looks no more, and on show it looks once if the wait has time left. A reader who comes back
 // after the wait ran out is not pulled to the row.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";

@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Testing
 @testable import CmuxNextDaemon
 
-/// The local daemon's store names the daemon in the crash-key page (p09-observability-078): its connection state,
+/// The local daemon's store names the daemon in the crash-key page: its connection state,
 /// pid and Ghostty commit on each connection change, and the workspace count on each change of the tree.
 @MainActor
 struct DaemonCrashKeyPageTests {

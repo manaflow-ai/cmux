@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The userBlocking class of ``MainFrameBudget`` (p06-scheduler-208, Chrome kUserBlocking in
+/// The userBlocking class of ``MainFrameBudget`` (Chrome kUserBlocking in
 /// `content/browser/scheduler/browser_task_queues.h`): the rest of a person's action runs before
 /// visible work, the input response it answers does not hold it and its commit closes it, and a
 /// flood of it is capped at the visible + automation shares with visible progressing.

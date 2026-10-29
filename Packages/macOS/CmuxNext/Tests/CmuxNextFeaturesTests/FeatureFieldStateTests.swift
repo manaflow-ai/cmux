@@ -1,7 +1,7 @@
 @testable import CmuxNextFeatures
 import Testing
 
-/// A launch's features as hang reports and Sentry carry them (p12-perf-process-151): the hash of every
+/// A launch's features as hang reports and Sentry carry them: the hash of every
 /// feature's value and the features an override decided, names only.
 struct FeatureFieldStateTests {
     private static let perf = feature(0, "perfThing", FeatureDefaults(all: true))

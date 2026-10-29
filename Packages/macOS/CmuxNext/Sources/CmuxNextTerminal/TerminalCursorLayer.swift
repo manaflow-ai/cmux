@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 
-/// The terminal cursor on the render server (feature `terminalCursorLayer`, p03-rendering-091): a sublayer
+/// The terminal cursor on the render server (feature `terminalCursorLayer`): a sublayer
 /// of the surface view's layer shows the cursor cell Ghostty rendered, and the blink is a discrete opacity
 /// keyframe the render server runs. Ghostty, with an external cursor, never draws or blinks the cursor itself,
 /// so a steady or blinking cursor costs the renderer no frame and the app no main-thread work.

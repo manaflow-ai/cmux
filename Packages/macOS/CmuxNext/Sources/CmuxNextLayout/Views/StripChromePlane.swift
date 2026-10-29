@@ -1,6 +1,6 @@
 import AppKit
 
-/// One screen's strip rings and dims in the overlay plane (p03-rendering-026). While the strip's
+/// One screen's strip rings and dims in the overlay plane. While the strip's
 /// hosts sit in the motion container (`ScreenContentView.stripDividersInContainer`), their
 /// `PaneOverlayView`s sit here, laid out at the hosts' laid-out frames, and the container gives this
 /// view's layer every translation it takes (`StripClipContainerView.companion`): a strip pan moves

@@ -9,11 +9,6 @@
 //   benchhelper terminate PID                       NSRunningApplication terminate (a clean Quit)
 //   benchhelper frontmost                           the frontmost app's pid
 //   benchhelper displays                            active displays as JSON (count, size, refresh)
-//   benchhelper cover                               another app's full-screen window: a regular app that
-//                                                   activates and shows an opaque borderless key window over
-//                                                   the whole main display, so the app under it is occluded
-//                                                   and resigns active; prints "covering <w>x<h>" once shown,
-//                                                   runs until terminated
 //
 // CGWindowList owner pids and bounds need no Screen Recording permission
 // (window titles would). Compiled once per worker by xbench.py with swiftc -O.
@@ -40,30 +35,6 @@ private func size(of window: [String: Any]) -> (Double, Double) {
     return ((bounds["Width"] as? Double) ?? 0, (bounds["Height"] as? Double) ?? 0)
 }
 
-/// The cover's window: borderless, yet it takes key as another app's full-screen window does.
-final class CoverWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-}
-
-/// Activates the cover once AppKit has finished launching (an activation before `run()` does not take), so the
-/// app under it resigns active as under another app's window.
-@MainActor final class CoverDelegate: NSObject, NSApplicationDelegate {
-    private let window: NSWindow
-
-    init(window: NSWindow) {
-        self.window = window
-        super.init()
-    }
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.activate(ignoringOtherApps: true)  // the bench starts the helper: no user action activates it
-        window.makeKeyAndOrderFront(nil)
-        let frame = window.frame
-        FileHandle.standardOutput.write(String(format: "covering %.0fx%.0f\n", frame.width, frame.height).data(using: .utf8)!)
-    }
-}
-
 private func epochMs() -> Double { Date().timeIntervalSince1970 * 1000 }
 
 private func fail(_ message: String) -> Never {
@@ -72,7 +43,7 @@ private func fail(_ message: String) -> Never {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|ishidden|frontmost|displays|cover ...") }
+guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|ishidden|frontmost|displays ...") }
 
 switch arguments[1] {
 case "wait-window":
@@ -129,20 +100,6 @@ case "displays":
         return "{\"w\": \(CGDisplayPixelsWide(id)), \"h\": \(CGDisplayPixelsHigh(id)), \"hz\": \(mode?.refreshRate ?? 0), \"builtin\": \(CGDisplayIsBuiltin(id) != 0)}"
     }
     print("{\"count\": \(count), \"displays\": [\(list.joined(separator: ", "))]}")
-case "cover":
-    MainActor.assumeIsolated {  // top-level code runs on the main thread
-        guard let screen = NSScreen.screens.first else { fail("no display") }
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)  // an app of its own, as the other app whose window covers the screen
-        let window = CoverWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.isOpaque = true
-        window.backgroundColor = .black
-        window.hasShadow = false
-        window.level = .normal
-        let delegate = CoverDelegate(window: window)
-        app.delegate = delegate
-        withExtendedLifetime(delegate) { app.run() }  // until SIGTERM
-    }
 default:
     fail("unknown command \(arguments[1])")
 }

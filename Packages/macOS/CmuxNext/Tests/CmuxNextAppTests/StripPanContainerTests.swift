@@ -7,7 +7,7 @@ import QuartzCore
 import CmuxNextWakeups
 import Testing
 
-/// A strip pan at O(1) per input event (p03-rendering-026): with `motion.renderServer` on, the strip's
+/// A strip pan at O(1) per input event: with `motion.renderServer` on, the strip's
 /// hosts and dividers sit in the motion container and their rings and dims in its companion plane, and a
 /// pan event sets the translation of the two layers, with no host, divider or ring frame set, no overlay
 /// sync and no layout. Pointer input (a press, a move, a new gesture) lands the strip where it shows
@@ -136,7 +136,7 @@ import Testing
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        // The first column's rows overflow: they sit in their row's container in the strip container (p04-input-050).
+        // The first column's rows overflow: they sit in their row's container in the strip container.
         for pane in Self.strip { #expect(w.root.context.hosts[pane]?.isDescendant(of: w.screen.stripContainer) == true) }
         #expect(!w.screen.dividerViews.isEmpty)
         #expect(w.screen.dividerViews.values.allSatisfy { $0.isDescendant(of: w.screen.stripContainer) })
@@ -354,7 +354,7 @@ import Testing
         w.settle()
     }
 
-    // MARK: Resampled pan (p04-input-041, feature `stripPanResampling`)
+    // MARK: Resampled pan (feature `stripPanResampling`)
 
     /// The container's translation shows the strip at camera `offset` over the views laid out at the pan's base.
     private static func shows(_ offset: CGFloat, on screen: ScreenContentView) -> Bool {

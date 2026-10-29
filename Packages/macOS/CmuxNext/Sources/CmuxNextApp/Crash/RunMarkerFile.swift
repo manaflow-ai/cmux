@@ -124,9 +124,9 @@ nonisolated final class RunMarkerFile: Sendable {
         allowBlocking(.terminate) {
             queue.blockingSync {
                 // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
-                unsafe unlink(url.path)
-                unsafe unlink(signalURL.path)
-                if let beaconURL { unsafe unlink(beaconURL.path) }
+                unsafe _ = blockingUnlink(url.path)
+                unsafe _ = blockingUnlink(signalURL.path)
+                if let beaconURL { unsafe _ = blockingUnlink(beaconURL.path) }
             }
         }
     }
@@ -186,20 +186,20 @@ nonisolated final class RunMarkerFile: Sendable {
     static func replaceAtomically(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(getpid()).tmp").path
         // SAFETY: open, unlink and rename read the NUL-terminated copies of the paths Swift makes for each call.
-        let descriptor = unsafe open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let descriptor = unsafe blockingOpen(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         do {
             // concurrency-allow: nonisolated; runs on RunMarkerFile's background queue, never on the main actor.
             try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).blockingWrite(contentsOf: data)
         } catch {
             Darwin.close(descriptor)
-            unsafe unlink(temporary)
+            unsafe _ = blockingUnlink(temporary)
             throw error
         }
         Darwin.close(descriptor)
-        guard unsafe rename(temporary, url.path) == 0 else {
+        guard unsafe blockingRename(temporary, url.path) == 0 else {
             let renameError = errno
-            unsafe unlink(temporary)
+            unsafe _ = blockingUnlink(temporary)
             throw POSIXError(POSIXErrorCode(rawValue: renameError) ?? .EIO)
         }
     }

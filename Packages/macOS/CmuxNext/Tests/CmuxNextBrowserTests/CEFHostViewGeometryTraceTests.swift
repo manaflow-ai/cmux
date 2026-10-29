@@ -5,7 +5,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// Each geometry post of a page's host view is one `cef.geometry` instant (p09-observability-038, perf-hot
+/// Each geometry post of a page's host view is one `cef.geometry` instant (perf-hot
 /// `cef-geometry`): the fork re-places one page window there. The test records into its own trace runtime.
 @MainActor @Suite struct CEFHostViewGeometryTraceTests {
     private nonisolated final class RecordLog: Sendable {

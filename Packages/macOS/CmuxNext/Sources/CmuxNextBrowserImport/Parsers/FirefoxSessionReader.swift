@@ -1,18 +1,14 @@
 public import Foundation
 import Compression
+import CmuxNextCompat
 
 /// Reads the open tabs of Firefox's session store. The file is "mozLz4":
 /// the magic `mozLz40\0`, a little-endian uint32 decompressed size, then one
 /// raw LZ4 block holding JSON (`windows[].tabs[].entries[]`, `index` 1-based).
 public struct FirefoxSessionReader {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover Firefox sessions.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of Firefox sessions.
+    public init() {}
 
     let magic = Array("mozLz40\0".utf8)
     /// Session stores above this size are not read (a sane upper bound).
@@ -20,7 +16,7 @@ public struct FirefoxSessionReader {
 
     public func sessionFile(in profile: URL) -> URL? {
         let candidates = ["sessionstore-backups/recovery.jsonlz4", "sessionstore.jsonlz4", "sessionstore-backups/previous.jsonlz4"]
-        return candidates.map { profile.appending(path: $0) }.first { fileManager.fileExists(atPath: $0.path) }
+        return candidates.map { profile.appending(path: $0) }.first { FileManager.checked.fileExists(atPath: $0.path) }
     }
 
     public func decompress(_ data: Data) -> Data? {

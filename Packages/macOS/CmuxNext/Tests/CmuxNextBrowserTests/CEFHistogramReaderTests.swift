@@ -3,7 +3,7 @@ import CmuxNextInputCore
 import Foundation
 import Testing
 
-/// Chromium's EventLatency and ScrollJank histograms through `Browser.getHistograms` (p04-input-091): canned
+/// Chromium's EventLatency and ScrollJank histograms through `Browser.getHistograms`: canned
 /// replies fold into ledger rows with source `chromium`, keep Chromium's count and sum, map Chromium's
 /// buckets onto cmux's edges and leave unknown histograms out; the reader asks only when read or reset.
 @MainActor @Suite struct CEFHistogramReaderTests {

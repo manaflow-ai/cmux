@@ -2,7 +2,7 @@ import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import Testing
 
-/// An event-type mask (p04-input-012): the classes it subscribes to, and an `observe(types:)`
+/// An event-type mask: the classes it subscribes to, and an `observe(types:)`
 /// subscription that hears only its own types, as the AppKit monitor mask it replaces did.
 @MainActor struct InputEventTypesTests {
     @Test func holdsItsTypesAndNamesTheirClasses() {

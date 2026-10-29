@@ -43,7 +43,7 @@ extension MainDeadline: ParkedWorkspaceDeadline {}
 ///   (`memory.saver`) scales it as Chrome's memory_saver_mode_policy.cc scales its tab timers
 ///   (``MemorySaverMode/proactiveTimeout(_:)``); off, only the budget and pressure tear down.
 /// - **Pressure.** A ``MemoryConsumer`` of the app's coordinator: a lower limit is released by
-///   ``releaseMemory(within:)``, one teardown per slice (p07-memory-096), workspaces of windows off
+///   ``releaseMemory(within:)``, one teardown per slice, workspaces of windows off
 ///   screen first, as Chrome's urgent page discarding takes hidden tabs before visible ones
 ///   (chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc).
 ///

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A New Tab page lists the recent chats on its first frame (Leo 2026-10-19: "there's still a split
 /// second flicker upon opening up new workspaces wrt the semi dynamic content on the recent chats
@@ -24,7 +25,7 @@ struct NewTabWarmSnapshotTests {
     @Test func aLocalPageWarmsTheNextContextAndStaysUntouched() async throws {
         AgentPaneNewTab.warmed = nil
         defer { AgentPaneNewTab.warmed = nil }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         #expect(await model.respond(to: .newTabWarm(Self.warm))["ok"] as? Bool == true)
         // A prewarmed spare that posts its list is still recycled into the pool.
         #expect(!model.userTouched)
@@ -41,7 +42,7 @@ struct NewTabWarmSnapshotTests {
     @Test func anotherMachinesPageDoesNotWarmThisMacsPages() async {
         AgentPaneNewTab.warmed = nil
         defer { AgentPaneNewTab.warmed = nil }
-        let remote = AgentPaneModel(host: NoHost())
+        let remote = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         remote.remoteChat = true
         _ = await remote.respond(to: .newTabWarm(Self.warm))
         #expect(AgentPaneNewTab.warmed == nil)

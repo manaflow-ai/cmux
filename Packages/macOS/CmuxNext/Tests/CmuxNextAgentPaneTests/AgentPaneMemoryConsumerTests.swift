@@ -7,7 +7,7 @@ import Testing
 @testable import CmuxNextAgentPane
 import CmuxNextWakeups
 
-/// The agent pane's caches as memory consumers (p07-memory-060): the coordinator's limit scales what
+/// The agent pane's caches as memory consumers: the coordinator's limit scales what
 /// each keeps, limit 0 keeps nothing, and what a release dropped is made again on the next ask.
 @MainActor
 struct AgentPaneMemoryConsumerTests {

@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p07-memory-097, feature `offScreenWindowPageFreeze`: the page a minimized or covered window shows is hidden to the
+/// Feature `offScreenWindowPageFreeze`: the page a minimized or covered window shows is hidden to the
 /// engine at once. A tab that follows no node (a fork before API 37) freezes through the hidden pages' freeze, hidden
 /// first (`freezeShownInOffScreenWindow`), with no wait for `freezeSeconds`; the window coming back and an agent's call
 /// thaw it in their own turn. A tab that follows its node is hidden by the node and is left alone. The windows' changes

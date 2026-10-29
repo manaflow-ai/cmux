@@ -4,7 +4,7 @@ import CoreGraphics
 import Testing
 
 /// The `CGPath`s the layers and image exports draw are the ones DesignTokens built before its shapes
-/// became ``OutlinePath`` values (p15-oracle-131): each expected path is the old construction.
+/// became ``OutlinePath`` values: each expected path is the old construction.
 @Suite struct GlyphOutlineCGPathTests {
     @Test func theLaunchMarkDrawsTheSamePath() {
         let rect = CGRect(x: 1.5, y: 1.5, width: 37, height: 29)

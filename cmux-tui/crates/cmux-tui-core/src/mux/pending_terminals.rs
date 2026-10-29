@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::panic_free::{JsonFields, RecoverPoison};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// Terminals whose tabs must not read as dead while they have no runtime
@@ -155,8 +156,7 @@ impl Mux {
         }
         let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
         if end.field("kind") == "host_lost" {
-            let root = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
-            let root = root.terminal_host_root.clone();
+            let root = self.terminal_host_paths().root;
             self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).restore(
                 root.as_deref(),
                 terminal_id,
@@ -178,34 +178,40 @@ impl Mux {
     ) {
         let mux = Arc::downgrade(self);
         let name = format!("terminal-unadoptable-{}", record.terminal_id);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            if let Err(error) =
-                crate::terminal_host_runtime::wait_for_unadoptable_terminal_host_exit(&record)
-            {
-                eprintln!(
-                    "cmux-tui: could not watch the unadoptable host of terminal {}: {error:#}",
-                    record.terminal_id
-                );
-                return;
-            }
-            let Some(mux) = mux.upgrade() else { return };
-            if mux.shutting_down.load(Ordering::Acquire) {
-                return;
-            }
-            if let Err(error) = mux.mark_terminal_ended(
-                &record.terminal_id,
-                "terminal-unadoptable-host-ended",
-                "unadoptable-host-ended",
-                &options,
-            ) {
-                eprintln!(
-                    "cmux-tui: could not end terminal {} after its unadoptable host exited: \
+        let spawned = supervised::spawn_at(
+            name,
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                if let Err(error) =
+                    crate::terminal_host_runtime::wait_for_unadoptable_terminal_host_exit(&record)
+                {
+                    eprintln!(
+                        "cmux-tui: could not watch the unadoptable host of terminal {}: {error:#}",
+                        record.terminal_id
+                    );
+                    return;
+                }
+                let Some(mux) = mux.upgrade() else { return };
+                if mux.shutting_down.load(Ordering::Acquire) {
+                    return;
+                }
+                if let Err(error) = mux.mark_terminal_ended(
+                    &record.terminal_id,
+                    "terminal-unadoptable-host-ended",
+                    "unadoptable-host-ended",
+                    &options,
+                ) {
+                    eprintln!(
+                        "cmux-tui: could not end terminal {} after its unadoptable host exited: \
                      {error:#}",
-                    record.terminal_id
-                );
-            }
-            mux.emit(MuxEvent::TreeChanged);
-        });
+                        record.terminal_id
+                    );
+                }
+                mux.emit(MuxEvent::TreeChanged);
+            },
+        );
         if spawned.is_err() {
             eprintln!("cmux-tui: no thread to watch an unadoptable terminal host");
         }

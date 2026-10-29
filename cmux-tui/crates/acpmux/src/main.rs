@@ -1,3 +1,6 @@
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 fn main() -> anyhow::Result<()> {
     // A terminal's launch credential names that one terminal: this process
     // and everything it starts serve many, so it is dropped before any thread

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxVNC
 
-/// The RFB decode files read every field from the front of the bytes they were handed (p10-stability-093): a
+/// The RFB decode files read every field from the front of the bytes they were handed: a
 /// count a decoder got wrong, a short field and a value past its type are `RFBError.protocolViolation` or nil,
 /// never a trap. The seeded suites of RFBFuzzTests drive the same paths with hostile servers.
 struct RFBDecodeTrapTests {

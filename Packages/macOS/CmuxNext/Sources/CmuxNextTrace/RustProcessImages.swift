@@ -1,4 +1,4 @@
-/// Which image names in another cmux process's stack are cmux's own binaries (p09-observability-075): the Rust
+/// Which image names in another cmux process's stack are cmux's own binaries: the Rust
 /// processes' executables (`cmux-tui`, `cmux-holder`, `acpmux`, its agent host, `optchat-chief`).
 ///
 /// One list for both readers of a Rust hang line: the Sentry event marks these frames in-app (`RustHangRecord`) and

@@ -3,8 +3,8 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// The popup's key-loss rule reads the press being dispatched from the click observer and the tap
-/// (p04-input-068), not AppKit's current event: a press on the toggle keeps it open, and once
+/// The popup's key-loss rule reads the press being dispatched from the click observer and the tap,
+/// not AppKit's current event: a press on the toggle keeps it open, and once
 /// another event was dispatched that press no longer counts (a later focus change is no press).
 @MainActor @Suite(.serialized) struct NativePopupHostDispatchedPressTests {
     @Test func thePressInDispatchIsTheObservedOneUntilAnotherEventIsDispatched() throws {

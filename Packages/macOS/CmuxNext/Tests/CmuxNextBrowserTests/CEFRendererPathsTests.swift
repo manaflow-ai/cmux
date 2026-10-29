@@ -106,6 +106,56 @@ import Testing
         #expect(!tab.sendClick(x: 1, y: 1))
     }
 
+    /// p13-webui-013: a cmux page's post to its host reaches only the tab of the browser whose main frame sent it,
+    /// whatever the payload names (another browser's id, another page's URL), with the relay's stamp as its sender.
+    /// A child frame's post is dropped, and the tab reports its main frame's commit with no DevTools session. The
+    /// App's page host scripts go in only on the page-channel path.
+    @Test func aPageHostPostReachesOnlyTheTabWhoseMainFrameSentIt() throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab(cmuxPage: true)
+        var posts: [String] = []
+        var committed: [URL?] = []
+        tab.agentRelay.onPageHostPost = { text, sender in posts.append(sender.absoluteString + " " + text) }
+        tab.pageEvents = CEFPageTabEvents(committed: { committed.append($0) })
+        rig.runtime.handle(.loadStart(browser: 7, url: "cmux-page://test.a/", fromPost: false))
+        let text = #"{"name":"cmuxPage","seq":1,"body":{},"browserID":8,"url":"cmux-page://test.b/"}"#
+        let payload = "cmux-page://test.a/\n" + text
+        let channel = CEFDocumentScripts.pageHostChannel
+        rig.runtime.handle(.pageMessage(browser: 7, mainFrame: true, channel: channel, payload: payload))
+        rig.runtime.handle(.pageMessage(browser: 7, mainFrame: false, channel: channel, payload: payload))
+        rig.runtime.handle(.pageMessage(browser: 8, mainFrame: true, channel: channel, payload: payload))
+        #expect(committed == [URL(string: "cmux-page://test.a/")])
+        #expect(posts == ["cmux-page://test.a/ " + text])
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+
+        let host = CEFDocumentScripts.Script(world: "", body: "host()", allFrames: false, scope: .cmuxPages)
+        #expect(CEFDocumentScripts(post: .pageChannel, hostPage: [host]).all.contains(host))
+        #expect(!CEFDocumentScripts(post: .binding, hostPage: [host]).all.contains(host))
+        #expect(host.source.hasPrefix(CEFDocumentScripts.cmuxPageOnlyGuard), "a web page would run the page host script")
+    }
+
+    /// A cmux page skips DevTools only when every renderer has its host: no page host scripts (the
+    /// feature off, or a start before the engine handed them over), or a page host script or relay the
+    /// shim refused, keeps pages on DevTools instead of leaving them with no host.
+    @Test func pagesUseTheRendererHostOnlyWhenItWentInWhole() throws {
+        let logger = Logger(subsystem: "test", category: "renderer-paths")
+        let host = CEFDocumentScripts.Script(world: "", body: "host()", allFrames: false, scope: .cmuxPages)
+        Spy.reset(forkAPI: 29)
+        let library = try Spy.library()
+        #expect(!CEFDocumentScripts(post: .pageChannel).install(library, logger: logger))
+        Spy.reset(forkAPI: 29)
+        #expect(CEFDocumentScripts(post: .pageChannel, hostPage: [host]).install(library, logger: logger))
+        #expect(Spy.channels.contains(CEFDocumentScripts.pageHostChannel))
+        #expect(Spy.scripts.contains { $0.source == host.source && $0.world == "" && $0.allFrames == 0 })
+        Spy.reset(forkAPI: 29)
+        Spy.refusedScript = host.source
+        #expect(!CEFDocumentScripts(post: .pageChannel, hostPage: [host]).install(library, logger: logger))
+        Spy.reset(forkAPI: 29)
+        Spy.refusedScript = try #require(CEFDocumentScripts(post: .pageChannel).pageHost.first?.source)
+        #expect(!CEFDocumentScripts(post: .pageChannel, hostPage: [host]).install(library, logger: logger))
+    }
+
     @Test func aRendererInstallsEveryDocumentScriptOnceForEveryBrowser() throws {
         Spy.reset(forkAPI: 29)
         let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(try Spy.library())
@@ -117,7 +167,7 @@ import Testing
         #expect(Spy.scripts.allSatisfy { !$0.source.contains("cmuxMedia(") }, "a page-channel script posts through a DevTools binding")
     }
 
-    // MARK: cmux page tabs (p13-webui-068)
+    // MARK: cmux page tabs
 
     /// A cmux page's tab on the shipped fork attaches no browser-tab bridge: no media or verification script and no
     /// binding go over its DevTools session. Its first paint still reads lifecycle events, so the event watch is on.
@@ -147,7 +197,7 @@ import Testing
         #expect((tab.state.media != nil) == !cmuxPage, "media \(String(describing: tab.state.media))")
     }
 
-    /// p01-process-232: a cmux page's page host post reaches its tab's taker in the event's turn, split into the
+    /// A cmux page's page host post reaches its tab's taker in the event's turn, split into the
     /// relay's sender stamp and the page's text; a post with no stamp is dropped, and a browser tab, whose renderer
     /// runs no page host relay, drops every one. Only a cmux page's tab names the page channel event.
     @Test(arguments: [false, true]) func aPageHostPostReachesOnlyACmuxPageTab(cmuxPage: Bool) async throws {
@@ -256,12 +306,12 @@ import Testing
         await work.shutdown()
     }
 
-    // MARK: Surface copy (p13-webui-078)
+    // MARK: Surface copy
 
-    /// From fork API 38 a tab's picture is the fork's surface copy, with no DevTools call: the request leaves in the
+    /// From fork API 40 a tab's picture is the fork's surface copy, with no DevTools call: the request leaves in the
     /// caller's turn (before a hide that follows it), sized to whole pixels, and the CMUX_SHIM_REPLY under its reply
     /// id brings the PNG and its size; a reply with no size is no picture.
-    @Test func aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall() async throws {
+    @Test func aTabOnForkAPI40CopiesItsSurfaceWithNoDevToolsCall() async throws {
         let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI)
         defer { rig.close() }
         let tab = try rig.attachedTab()
@@ -323,10 +373,10 @@ import Testing
         }
     }
 
-    /// From fork API 38 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
+    /// From fork API 40 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
     /// DevTools call; below it, or with the export missing, the tab says no and the caller uses DevTools input.
     @Test(arguments: [CEFForkFeatures.mouseMoveForkAPI - 1, CEFForkFeatures.mouseMoveForkAPI])
-    func aTabMovesTheMouseNativelyFromForkAPI38(forkAPI: Int32) async throws {
+    func aTabMovesTheMouseNativelyFromForkAPI40(forkAPI: Int32) async throws {
         let rig = try Rig(forkAPI: forkAPI)
         defer { rig.close() }
         let tab = try rig.attachedTab()
@@ -340,7 +390,7 @@ import Testing
         #expect(!tab.sendMouseMove(x: 1, y: 1), "a closed tab moved the mouse")
     }
 
-    /// Below fork API 38 there is no surface copy: no picture at once, no shim call and no DevTools.
+    /// Below fork API 40 there is no surface copy: no picture at once, no shim call and no DevTools.
     @Test func aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce() async throws {
         let rig = try Rig(forkAPI: CEFForkFeatures.surfaceCopyForkAPI - 1)
         defer { rig.close() }
@@ -420,6 +470,8 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var unanswered: [Int32] = []
     /// False: the shim predates fork API 29 and has none of its exports.
     nonisolated(unsafe) static var exportsRendererPaths = true
+    /// A document script source the shim refuses.
+    nonisolated(unsafe) static var refusedScript: String?
     /// One `cmux_shim_tab_copy_surface` call: browser, reply id, max width, max height, format.
     struct Copy: Equatable { let browser: Int32; let reply: Int32; let width: Int32; let height: Int32; let format: Int32 }
     nonisolated(unsafe) static var copies: [Copy] = []
@@ -444,6 +496,7 @@ private nonisolated enum Spy {
         nextMessage = 1
         unanswered = []
         exportsRendererPaths = true
+        refusedScript = nil
         copies = []
         copyStart = 1
         mouseMoves = []
@@ -471,7 +524,9 @@ private nonisolated enum Spy {
             return 1
         }
         let script: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { world, source, all, _ in
-            Spy.scripts.append(Script(world: world.map { String(cString: $0) } ?? "", source: source.map { String(cString: $0) } ?? "", allFrames: all))
+            let text = source.map { String(cString: $0) } ?? ""
+            if text == Spy.refusedScript { return 0 }
+            Spy.scripts.append(Script(world: world.map { String(cString: $0) } ?? "", source: text, allFrames: all))
             return 1
         }
         let copy: @convention(c) (Int32, Int32, Int32, Int32, Int32, Int32) -> Int32 = { browser, reply, width, height, format, _ in

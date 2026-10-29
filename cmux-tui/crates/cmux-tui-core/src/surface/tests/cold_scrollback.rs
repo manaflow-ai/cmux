@@ -1,4 +1,4 @@
-//! Cold scrollback on a terminal runtime (p07-memory-041): a compressed
+//! Cold scrollback on a terminal runtime: a compressed
 //! terminal reads back byte-identical, every access restores it first, a
 //! viewer keeps it hot, and the memory budget's size read leaves it cold.
 

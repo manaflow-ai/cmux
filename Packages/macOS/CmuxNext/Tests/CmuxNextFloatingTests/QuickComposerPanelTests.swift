@@ -22,7 +22,7 @@ import Testing
         }
     }
 
-    /// chrome-parity p03-rendering-105, feature `windowFrameAnimationHoldsContent` on: folding the
+    /// Feature `windowFrameAnimationHoldsContent` on: folding the
     /// floating chat animates the panel's frame, but its page keeps its size until the frame lands
     /// and then resizes once, instead of a page layout at every step of the animation.
     @Test func aFoldResizesThePageOnceWhenTheFrameLands() throws {

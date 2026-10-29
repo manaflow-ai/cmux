@@ -9,7 +9,7 @@ export const FilesOps = {
   /** `{path}`: opens a file in the editor beside the tree. */
   open: "cmux.files.open",
   /** Host to page, `{}` → `FilesViewState`: what the tree shows, asked right before the host discards
-   * the hidden page; the next page gets it back once in `RootInfo.viewState` (p07-memory-026). */
+   * the hidden page; the next page gets it back once in `RootInfo.viewState`. */
   viewState: "cmux.files.viewState",
 } as const;
 

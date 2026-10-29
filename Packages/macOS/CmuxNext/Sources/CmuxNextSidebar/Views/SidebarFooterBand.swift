@@ -156,7 +156,7 @@ final class SidebarFooterBand {
     // MARK: Energy Saver leaf
 
     /// The room the Energy Saver leaf takes at the trailing end of the footer's first line while
-    /// the saver is on (p14-energy-026); the spaces strip ends before it. 0 while the saver is off.
+    /// the saver is on; the spaces strip ends before it. 0 while the saver is off.
     var energyRoom: CGFloat {
         host?.energyIndicator.isShown == true ? Self.searchButtonSide + Metrics.space2 : 0
     }

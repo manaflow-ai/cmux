@@ -1,8 +1,0 @@
-{labs:{// note
-"classicHome":1},"editor":{"linkedEditing":true},/* // inside */ "sidebar":{"workspaceRow":{"mixed":{"working":"true",// a { brace
-"tabCount":null},"working":1,/* {"k": 1} */ "agent":{/* {"k": 1} */ "working":null},/* block */ "progress":1},"priorityView":{"shown":"true"}},// url: https://localhost/x
-"appearance":{"interfaceScale":"1"},/* // inside */ "browser":{"links":{// url: https://localhost/x
-"shiftClick":"newWindow"}},"agentPane":{// url: https://localhost/x
-"showContextUsage":null},"layout":{// a { brace
-"stripScrollbar":"__not_a_choice__"},"oracleUnknown": null,// note
-"oracleUnknown":{"nested":{/* block */ "key":"x"}}}

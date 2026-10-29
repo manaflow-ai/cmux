@@ -2,6 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -18,13 +20,13 @@ private final class PanePlacedPage: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let descriptor = PageDescriptor(id: "test.pane-placed", resource: "pane-placed", processGroup: .solo, namespaces: [])
-        guard let view = PageWebView(descriptor: descriptor, root: root, routes: []) else { return NSView() }
+        guard let view = PageWebView(descriptor: descriptor, root: root, routes: [], deadlines: .testing()) else { return NSView() }
         made.append(view)
         return view
     }
 }
 
-/// p13-webui-063, the app side: the pane that shows a page tab names its Chromium window on the tab's page
+/// The app side: the pane that shows a page tab names its Chromium window on the tab's page
 /// (``PageWebView/chromiumWindow``), so the page tabs of one pane share one window and a tab shown in another pane
 /// moves its page there. Behind `pageTabsShareChromiumWindow` (``InternalPageTabStore/sharesChromiumWindows``).
 @MainActor @Suite(.serialized)

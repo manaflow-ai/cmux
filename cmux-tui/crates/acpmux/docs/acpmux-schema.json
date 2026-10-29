@@ -1,6 +1,6 @@
 {
   "schema": "acpmux.rpc.v1",
-  "transport": "JSON-RPC 2.0 over the Unix socket or WebSocket (?token=...). Standard ACP methods pass through to the session's agent; _acpmux/* methods are the multiplexer's own.",
+  "transport": "JSON-RPC 2.0 over the Unix socket or WebSocket (the token in an Authorization: Bearer header, or from a browser the subprotocols acpmux.v1 and acpmux.token.<token>; never the URL). Standard ACP methods pass through to the session's agent; _acpmux/* methods are the multiplexer's own.",
   "acp": ["initialize", "session/new", "session/load", "session/prompt", "session/cancel", "session/fork", "session/set_mode", "session/set_model", "session/set_config_option"],
   "acpNotes": {
     "initialize": "The result's _meta.acpmux carries auth (the proof this connection presented, server/conn_auth.rs: localSocket|listenerToken|localApp|peerToken; a connection with none gets error -32001 for its first request and is closed), personInstance (this daemon run's id, which decision proofs bind; cx-0q7o), operations: string[] (the handoff and permission-group methods this daemon serves; clients gate each UI on its methods) and handoff: {maxCapsuleBytes: 65536}. features includes permissionGroups when permission groups are available.",

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// "Chromium is busy", with Wait and Reload Chromium: the bar across the top of a pane that shows a
-/// hosted page while ``ChromiumHostHangMonitor/isBusy`` (task p01-process-084). Chrome asks the same
+/// hosted page while ``ChromiumHostHangMonitor/isBusy``. Chrome asks the same
 /// of a page whose renderer stopped answering (`HungRendererDialogView`, Wait and Exit page); here the
 /// Chromium Host's UI thread is what stopped, so the bar names Chromium and its reload restarts the
 /// host. Wait gives the host another two seconds; the bar goes by itself when the host takes input

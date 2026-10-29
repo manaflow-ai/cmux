@@ -1,7 +1,7 @@
 @testable import CmuxNextWakeups
 import Testing
 
-/// MainActorEnergyObservation (p14-energy-031): a main-actor writer's policy changes reach the
+/// MainActorEnergyObservation: a main-actor writer's policy changes reach the
 /// closure in the writer's turn, and none after a cancel or a release.
 @MainActor @Suite("MainActorEnergyObservation")
 struct MainActorEnergyObservationTests {

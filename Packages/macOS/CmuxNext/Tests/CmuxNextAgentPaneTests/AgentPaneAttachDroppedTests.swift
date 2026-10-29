@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Files the person drops on a chat page or pastes from Finder (`chat.attach.dropped {kind, names}`):
 /// for a chat whose folder is on this Mac the page gets their real paths, so a folder, or a file no
@@ -21,7 +22,7 @@ struct AgentPaneAttachDroppedTests {
 
     /// A pane whose App says its chat is on this Mac (`local`), or says nothing (nil).
     private final class Rig {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let clock = Uptime()
 
         init(local: Bool? = true) {

@@ -3,6 +3,7 @@
 // question, so he waited on an agent that waited on him. While an ask above the composer waits on
 // the person, the running turn's line says so: never "Thinking", never a ticking "Working for".
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../../../ui/fixedPageClock";
 import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -32,12 +33,12 @@ test("a pending trust question never renders as thinking", () => {
 
 test("a running turn that waits on a permission shows no clock", () => {
   const row = { id: "working-1", version: 1, at: 0, kind: "working", doing: "Bash" } as AcpmuxRow;
-  const html = within("permission", <WorkingFor row={row} now={() => 125_000} />);
+  const html = within("permission", <WorkingFor row={row} clock={fixedPageClock(125_000)} />);
   expect(html).toContain(translate("turn.waiting.permission"));
   expect(html).not.toContain("2m");
   expect(html).not.toContain("Bash");
   // Without a wait the same line ticks and names the call, as before.
-  const running = within(undefined, <WorkingFor row={row} now={() => 125_000} />);
+  const running = within(undefined, <WorkingFor row={row} clock={fixedPageClock(125_000)} />);
   expect(running).toContain("Bash");
   expect(running).not.toContain(translate("turn.waiting.permission"));
 });
@@ -140,7 +141,7 @@ test("a pending ask that carries a question waits on an answer, not an allow", (
     const waiting = chatWaitsOn({ ...chat, individualPermission: { question } });
     expect(waiting).toBe("question");
     const row = { id: "working-1", version: 1, at: 0, kind: "working", doing: "AskUserQuestion" } as AcpmuxRow;
-    const html = within(waiting, <WorkingFor row={row} now={() => 5_000} />);
+    const html = within(waiting, <WorkingFor row={row} clock={fixedPageClock(5_000)} />);
     expect(html).toContain(translate("turn.waiting.question"));
     expect(html).not.toContain(translate("turn.waiting.permission"));
     // The trust question still holds it out of the stack.

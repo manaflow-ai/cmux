@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-043: the settings broadcasts (`Motion.reduceMotionDidChange`, `Motion.speedDidChange`,
+/// The settings broadcasts (`Motion.reduceMotionDidChange`, `Motion.speedDidChange`,
 /// `DesignSettings.hoverCardsDidChange`, `WindowMaterialView.inactiveDimDidChange`) are one injected
 /// ``AppearanceSignals``. The system's display options are observed once for the app, readers on
 /// hidden nodes do no work until they show, and Observation readers re-read Reduce Motion only
@@ -136,7 +136,7 @@ import Testing
         #expect(calls == [.missed, .posted], "a cancelled subscription was called")
     }
 
-    /// p06-scheduler-161: a capture vote makes a hidden node render (an agent's screenshot of a hidden
+    /// A capture vote makes a hidden node render (an agent's screenshot of a hidden
     /// workspace draws its views), so a subscriber that missed a signal hears it in the vote's turn and
     /// hears each later one while the vote holds; page visibility stays hidden.
     @Test func aCapturedHiddenSubscriberIsCurrentForTheCapture() {

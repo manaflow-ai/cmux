@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bundle-server-helper.sh compiles the server helper with -gline-tables-only
-# (p09-observability-085) only where dsymutil exists. With debug info, the
+# only where dsymutil exists. With debug info, the
 # swift driver runs dsymutil at the link and stops with
 # `unableToFind(tool: "dsymutil")` when there is none: the Linux pool's
 # server-helper step (job 97f92c02180a0a75fb769144). A Mac always has

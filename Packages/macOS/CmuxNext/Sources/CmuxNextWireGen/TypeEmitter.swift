@@ -1,6 +1,6 @@
 import Foundation
 
-// Writes the Swift wire types the app's commands reach (p05-ipc-020; design
+// Writes the Swift wire types the app's commands reach (design
 // plans/cmux-next/chrome-parity/p05-ipc.md section 3.3) at build time, from
 // cmux-tui/spec/sdk-schema.json. Requests and responses (021), events (022)
 // and v2 operations (024) are written by their own emitters over the same

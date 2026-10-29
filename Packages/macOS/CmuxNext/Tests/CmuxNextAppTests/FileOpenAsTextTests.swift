@@ -151,6 +151,7 @@ struct FileOpenAsTextTests {
     // MARK: The Files sidebar (the registry's fileExplorerRow menu)
 
     @MainActor final class TextRecorder: FileExplorerEffects {
+        let files: any FileOperating = FileOperator(work: BackgroundWork())
         private(set) var openedAsText: [URL] = []
         func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { true }
         func openAsText(_ file: URL) -> Bool { openedAsText.append(file); return true }

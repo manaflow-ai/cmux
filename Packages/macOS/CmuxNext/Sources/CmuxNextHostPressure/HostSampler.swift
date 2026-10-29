@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// Reads this Mac's numbers the way the host budget does: the performance
 /// cores (`performanceCores`), the 1-minute load and the swap-out counter.
@@ -80,14 +81,14 @@ public struct HostSampler: Sendable {
     private static func sysctlInt32(_ name: String) -> Int32? {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        return sysctlbyname(name, &value, &size, nil, 0) == 0 ? value : nil
+        return blockingSysctlByName(name, &value, &size, nil, 0) == 0 ? value : nil
     }
 
     private static func sysctlString(_ name: String) -> String? {
         var size = 0
-        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        guard blockingSysctlByName(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
         var bytes = [CChar](repeating: 0, count: size)
-        guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+        guard blockingSysctlByName(name, &bytes, &size, nil, 0) == 0 else { return nil }
         return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }

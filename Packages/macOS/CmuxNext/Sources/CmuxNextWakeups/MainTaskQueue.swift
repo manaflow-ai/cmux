@@ -37,12 +37,6 @@
 /// ```
 @MainActor
 public final class MainTaskQueue {
-    /// Who asked to disable the queue (``makeVoter()``). The queue runs only while every voter it
-    /// made votes enabled; ``removeVoter(_:)`` takes a voter's vote away.
-    public nonisolated struct Voter: Hashable, Sendable {
-        fileprivate let id: UInt32
-    }
-
     /// The node whose state decides when this queue runs.
     public let node: VisibilityNode
     /// The class its tasks run in.
@@ -64,9 +58,7 @@ public final class MainTaskQueue {
     /// How many head tasks the last hidden wake let run while the node stays hidden (background).
     private var released = 0
     private var wakeRequested = false
-    private var nextVoter: UInt32 = 0
-    private var voters: Set<UInt32> = []
-    private var disabledVoters: Set<UInt32> = []
+    private var voters = QueueVoterSet()
     private var runsByNodeState = [0, 0, 0]
     /// A background queue's watch of media on its node, which exempts its tasks from the hidden budget.
     private var exemption: VisibilitySubscription?
@@ -136,35 +128,20 @@ public final class MainTaskQueue {
     // MARK: Voters
 
     /// A new voter, voting enabled.
-    public func makeVoter() -> Voter {
-        nextVoter &+= 1
-        voters.insert(nextVoter)
-        return Voter(id: nextVoter)
-    }
+    public func makeVoter() -> QueueVoter { voters.make() }
 
     /// Records `voter`'s vote. While any voter votes disabled, nothing runs.
-    public func setEnabled(_ enabled: Bool, by voter: Voter) {
-        guard voters.contains(voter.id) else { return }
-        if enabled {
-            enable(voter)
-        } else {
-            disabledVoters.insert(voter.id)
-        }
+    public func setEnabled(_ enabled: Bool, by voter: QueueVoter) {
+        if voters.set(enabled, by: voter) { schedule() }
     }
 
     /// Takes `voter`'s vote away, as if it voted enabled; later votes of it are ignored.
-    public func removeVoter(_ voter: Voter) {
-        voters.remove(voter.id)
-        enable(voter)
+    public func removeVoter(_ voter: QueueVoter) {
+        if voters.remove(voter) { schedule() }
     }
 
     /// Whether every voter votes enabled.
-    public var isEnabled: Bool { disabledVoters.isEmpty }
-
-    private func enable(_ voter: Voter) {
-        guard disabledVoters.remove(voter.id) != nil else { return }
-        schedule()
-    }
+    public var isEnabled: Bool { voters.isEnabled }
 
     // MARK: Node changes
 

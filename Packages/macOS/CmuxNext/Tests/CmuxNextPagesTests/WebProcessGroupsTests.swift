@@ -78,7 +78,7 @@ struct WebProcessGroupsTests {
         #expect(Self.related(second) === first)
     }
 
-    /// One in-memory store per group for the app's life (p13-webui-015): a group's pages share it,
+    /// One in-memory store per group for the app's life: a group's pages share it,
     /// so their localStorage, and a page of another group or a solo page that asks gets another.
     @Test func eachGroupHasOneDataStoreOfItsOwn() {
         let groups = WebProcessGroups(pagesPerProcess: 8)

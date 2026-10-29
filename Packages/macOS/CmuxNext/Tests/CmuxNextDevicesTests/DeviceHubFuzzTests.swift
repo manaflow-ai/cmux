@@ -56,8 +56,8 @@ struct DeviceHubFuzzTests {
         return FuzzRun(name, seed: seed, iterations: iterations, environment: environment)
     }
 
-    /// One input of the in-process checks, its choices read from `data` (the libFuzzer entry,
-    /// p10-stability-182). The socket, HTTP and session runs need tasks and URLSession, so they are not part of it.
+    /// One input of the in-process checks, its choices read from `data` (the libFuzzer entry).
+    /// The socket, HTTP and session runs need tasks and URLSession, so they are not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(4) {

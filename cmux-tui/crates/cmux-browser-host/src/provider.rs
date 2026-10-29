@@ -34,7 +34,33 @@ impl ProviderSecret {
         }
         a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
+
+    /// The credential of the Chromium Host's relay link:
+    /// HMAC-SHA256 of [`RELAY_CREDENTIAL_CONTEXT`] keyed by this secret's
+    /// UTF-8 bytes, as 64 lowercase hex digits. The app derives it from the
+    /// daemon-minted secret and hands only it to its Chromium Host, so the
+    /// host can open a relay link and nothing else: a `hello` with it is
+    /// refused, and the secret never leaves the app.
+    pub fn relay_credential(&self) -> ProviderSecret {
+        use hmac::{Hmac, Mac};
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: HMAC takes a key of any length (RFC 2104)"
+        )]
+        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(self.0.as_bytes())
+            .expect("HMAC takes any key length");
+        mac.update(RELAY_CREDENTIAL_CONTEXT);
+        let digest = mac.finalize().into_bytes();
+        ProviderSecret(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
 }
+
+/// What the relay credential signs ([`ProviderSecret::relay_credential`]);
+/// the app's `ProviderSecret.relayCredential` signs the same bytes.
+pub const RELAY_CREDENTIAL_CONTEXT: &[u8] = b"cmux-chromium-host-relay-v1";
+
+/// The relay link's protocol version (`relay.hello`).
+pub const RELAY_VERSION: u32 = 1;
 
 impl fmt::Debug for ProviderSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -207,6 +233,62 @@ pub enum Frame {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         extensions: Vec<String>,
     },
+    /// Makes a CEF tab agent-ready without relaying it through the app
+    /// (host -> app): the app marks and prepares the page as
+    /// for `cdp.attach`, then answers with the event `tab.relay.direct`
+    /// (`targetId`, `browser`, `link`: the link id it gave its Chromium Host)
+    /// or `tab.relay.failed` (`targetId`, `reason`). Sent only while a
+    /// Chromium Host holds a relay link.
+    #[serde(rename = "cdp.prepare")]
+    CdpPrepare {
+        #[serde(rename = "targetId")]
+        target_id: String,
+    },
+    /// A capture command went straight to the Chromium Host (host -> app):
+    /// the app takes or ends the tab's capture vote, as it does for the
+    /// commands it relays itself. `capture` is `screenshot` (one per `id`,
+    /// active until its reply) or `screencast`.
+    #[serde(rename = "cdp.capture")]
+    CdpCapture {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        capture: String,
+        active: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<u64>,
+    },
+    /// The Chromium Host's relay link opens (Chromium Host -> host): the
+    /// relay credential ([`ProviderSecret::relay_credential`]) and the link
+    /// id the app gave that Chromium Host with it, which the app's
+    /// `tab.relay.direct` names.
+    #[serde(rename = "relay.hello")]
+    RelayHello { version: u32, link: String, credential: ProviderSecret },
+    /// The host accepted `relay.hello`.
+    #[serde(rename = "relay.hello.ack")]
+    RelayHelloAck {},
+    /// Relay a tab's raw DevTools on the link (host -> Chromium Host):
+    /// `browser` is the id cmux named the tab's page by.
+    #[serde(rename = "relay.attach")]
+    RelayAttach {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        browser: i32,
+    },
+    /// Stop relaying a tab (host -> Chromium Host).
+    #[serde(rename = "relay.detach")]
+    RelayDetach {
+        #[serde(rename = "targetId")]
+        target_id: String,
+    },
+    /// A relayed tab's page went away in the Chromium Host (Chromium Host
+    /// -> host): the relay ends, and the next call attaches again.
+    #[serde(rename = "relay.closed")]
+    RelayClosed {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        #[serde(default)]
+        reason: String,
+    },
 }
 
 /// Debug output names the frame and its ids only: `call` params, raw CDP
@@ -268,6 +350,35 @@ impl fmt::Debug for Frame {
                 .field("op", op)
                 .field("target_id", target_id)
                 .field("actor", actor)
+                .finish(),
+            Frame::CdpPrepare { target_id } => {
+                f.debug_struct("CdpPrepare").field("target_id", target_id).finish()
+            }
+            Frame::CdpCapture { target_id, capture, active, id } => f
+                .debug_struct("CdpCapture")
+                .field("target_id", target_id)
+                .field("capture", capture)
+                .field("active", active)
+                .field("id", id)
+                .finish(),
+            Frame::RelayHello { version, link, .. } => f
+                .debug_struct("RelayHello")
+                .field("version", version)
+                .field("link", link)
+                .finish_non_exhaustive(),
+            Frame::RelayHelloAck {} => f.write_str("RelayHelloAck"),
+            Frame::RelayAttach { target_id, browser } => f
+                .debug_struct("RelayAttach")
+                .field("target_id", target_id)
+                .field("browser", browser)
+                .finish(),
+            Frame::RelayDetach { target_id } => {
+                f.debug_struct("RelayDetach").field("target_id", target_id).finish()
+            }
+            Frame::RelayClosed { target_id, reason } => f
+                .debug_struct("RelayClosed")
+                .field("target_id", target_id)
+                .field("reason", reason)
                 .finish(),
             Frame::TabAccess { target_id, extension_host_access, user_override, .. } => f
                 .debug_struct("TabAccess")
@@ -344,12 +455,18 @@ pub fn read_frame(reader: &mut impl Read) -> Result<Option<Frame>, CodecError> {
 /// [`read_frame`] with a smaller size limit (use [`MAX_HELLO_BYTES`] until `hello`).
 pub fn read_frame_limited(reader: &mut impl Read, max: usize) -> Result<Option<Frame>, CodecError> {
     let mut header = [0u8; 4];
-    let mut filled = 0;
-    while filled < header.len() {
-        match reader.read(&mut header[filled..]) {
-            Ok(0) if filled == 0 => return Ok(None),
+    let mut unfilled = header.as_mut_slice();
+    while !unfilled.is_empty() {
+        let at_boundary = unfilled.len() == 4;
+        match reader.read(unfilled) {
+            Ok(0) if at_boundary => return Ok(None),
             Ok(0) => return Err(CodecError::Truncated),
-            Ok(n) => filled += n,
+            // A reader that claims more bytes than it was given broke the
+            // `Read` contract; the header it wrote is not trusted.
+            Ok(n) => {
+                unfilled =
+                    std::mem::take(&mut unfilled).get_mut(n..).ok_or(CodecError::Truncated)?;
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(CodecError::Io(error)),
         }
@@ -359,11 +476,16 @@ pub fn read_frame_limited(reader: &mut impl Read, max: usize) -> Result<Option<F
         return Err(CodecError::TooLarge(len));
     }
     let mut body = vec![0u8; len];
-    reader.read_exact(&mut body).map_err(|error| match error.kind() {
+    reader.read_exact(&mut body).map_err(truncated_or_io)?;
+    serde_json::from_slice(&body).map(Some).map_err(CodecError::Json)
+}
+
+/// An end of stream inside a frame is [`CodecError::Truncated`].
+fn truncated_or_io(error: io::Error) -> CodecError {
+    match error.kind() {
         io::ErrorKind::UnexpectedEof => CodecError::Truncated,
         _ => CodecError::Io(error),
-    })?;
-    serde_json::from_slice(&body).map(Some).map_err(CodecError::Json)
+    }
 }
 
 /// Incremental decoder for non-blocking readers.
@@ -379,19 +501,17 @@ impl FrameDecoder {
 
     /// The next complete frame, if the buffer holds one.
     pub fn next_frame(&mut self) -> Result<Option<Frame>, CodecError> {
-        if self.buffer.len() < 4 {
+        let Some((header, rest)) = self.buffer.split_first_chunk::<4>() else {
             return Ok(None);
-        }
-        let len =
-            u32::from_be_bytes([self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3]])
-                as usize;
+        };
+        let len = u32::from_be_bytes(*header) as usize;
         if len > MAX_FRAME_BYTES {
             return Err(CodecError::TooLarge(len));
         }
-        if self.buffer.len() < 4 + len {
+        let Some(body) = rest.get(..len) else {
             return Ok(None);
-        }
-        let frame = serde_json::from_slice(&self.buffer[4..4 + len]).map_err(CodecError::Json);
+        };
+        let frame = serde_json::from_slice(body).map_err(CodecError::Json);
         self.buffer.drain(..4 + len);
         frame.map(Some)
     }
@@ -533,6 +653,37 @@ mod tests {
         let mut reader: &[u8] = &bytes[..bytes.len() - 1];
         assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
         let mut reader: &[u8] = &bytes[..2];
+        assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
+    }
+
+    /// A reader that hands out one byte per read, or claims more than it got.
+    struct Trickle {
+        bytes: Vec<u8>,
+        at: usize,
+        overclaim: bool,
+    }
+
+    impl Read for Trickle {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if self.overclaim {
+                return Ok(buffer.len() + 1);
+            }
+            let Some(&byte) = self.bytes.get(self.at) else { return Ok(0) };
+            buffer[0] = byte;
+            self.at += 1;
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn a_header_read_a_byte_at_a_time_is_whole_and_a_lying_reader_is_an_error() {
+        let frame = Frame::UserInput { target_id: "t".into() };
+        let bytes = encode(&frame).unwrap();
+        let mut reader = Trickle { bytes: bytes.clone(), at: 0, overclaim: false };
+        assert_eq!(read_frame(&mut reader).unwrap(), Some(frame));
+        assert!(read_frame(&mut reader).unwrap().is_none());
+
+        let mut reader = Trickle { bytes, at: 0, overclaim: true };
         assert!(matches!(read_frame(&mut reader), Err(CodecError::Truncated)));
     }
 

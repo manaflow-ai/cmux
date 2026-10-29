@@ -4,6 +4,7 @@ import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A Cloud VM chat's child chats (its sub-sessions, `acpmux new` chats) on the Mac: the chat's
 /// remote wire lists them with the chat in `_acpmux/watch` from the VM daemon's
@@ -115,7 +116,7 @@ import Testing
     /// it; never a session that machine did not list under the chat.
     @Test func aRemoteChatOpensItsListedChildBesideIt() async {
         RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]])
-        let model = AgentPaneModel(host: NoHost(), sessionId: "vm-row-chat")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "vm-row-chat")
         model.remoteChat = true
         let opened = Opened()
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },

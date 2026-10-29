@@ -22,7 +22,7 @@ import Testing
     }
 
     /// While the launch has not settled no idle period starts and no timer is armed; at the settle,
-    /// with the quiet long past, the period comes on the next timer fire (p06-scheduler-006: idle
+    /// with the quiet long past, the period comes on the next timer fire (idle
     /// work is held until the settle).
     @Test func noIdlePeriodBeforeTheLaunchSettles() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())

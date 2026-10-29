@@ -1,4 +1,4 @@
-//! p10-stability-141: the JSONC editor reads the settings file by checked
+//! The JSONC editor reads the settings file by checked
 //! byte access; these pin its results on edge inputs and check that no
 //! prefix of a document makes any entry point panic.
 

@@ -1,4 +1,4 @@
-//! The read loop (p07-memory-095): many sources on two threads at idle, one
+//! The read loop: many sources on two threads at idle, one
 //! source's bytes in order across runs and kicks, the end of a stream
 //! finishes its source once, and a dropped owner keeps reading live sources.
 

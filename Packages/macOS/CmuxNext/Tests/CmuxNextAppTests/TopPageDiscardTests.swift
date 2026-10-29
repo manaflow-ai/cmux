@@ -4,7 +4,7 @@ import CmuxNextHibernation
 import CmuxNextPages
 import Testing
 
-/// Hidden top pages are discarded with a view-state record (p07-memory-023): a page hidden past its
+/// Hidden top pages are discarded with a view-state record: a page hidden past its
 /// policy releases its view and shows again with its scroll and selection; typed text keeps it; a page
 /// with no owner (a web-backed page) never goes; at most the budget of hidden top pages stays live
 /// across every window, least recently hidden first, never one the person just left.

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The layout root follows its model through one `FrameObservation` named `Layout.modelSync`
-/// (p06-scheduler-337, recipe R-obs), not a main-actor `ObservationStream` task: a burst of model
+/// (recipe R-obs), not a main-actor `ObservationStream` task: a burst of model
 /// changes syncs the view once, in a block of the run loop pass that made them (before that pass
 /// commits its frame), and `syncWithModel` applies a pending change in the caller's turn, so the
 /// scheduled apply then finds nothing.

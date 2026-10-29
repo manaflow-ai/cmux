@@ -4,30 +4,34 @@
 # (CB-2, section 4a). Off by default: it starts nothing unless CMUX_CLOUD_BROWSER=1
 # (the unit is also not enabled in the image).
 #
-# When on, it runs `cmux-rd host --browser URL --browser-cdp-port PORT` on the desktop
+# When on, it runs `cmux-rd host --browser URL --browser-cdp-socket PATH` on the desktop
 # display :1: Chrome full screen and supervised (it outlives viewers and restarts after a
-# crash), the cmux.rd/1 stream on 127.0.0.1:4103, and CDP on 127.0.0.1:PORT for an agent
-# on this machine. Both listeners are loopback only; a person reaches the stream through
+# crash), the cmux.rd/1 stream on 127.0.0.1:4103, and CDP for an agent of this user on a
+# Unix socket. Chrome opens no debugging port: it speaks CDP on a pipe to the host, and the
+# host serves it on PATH with mode 0600, in the 0700 state dir, to peers of this uid only,
+# one client at a time (NUL-terminated JSON messages). A person reaches the stream through
 # the owner's tunnel. The per-boot session token is written 0600 to the state dir and
 # handed to the host through a pipe, never on the command line.
 #
 # Env: CMUX_CLOUD_BROWSER (1 = on), CMUX_CLOUD_BROWSER_URL (default about:blank),
-# CMUX_CLOUD_BROWSER_CDP_PORT (default 9222), CMUX_CLOUD_BROWSER_STATE_DIR
-# (default $HOME/.cmux/cloud-browser).
+# CMUX_CLOUD_BROWSER_CDP_SOCKET (default $state/cdp.sock; its directory must be writable by
+# this user only), CMUX_CLOUD_BROWSER_STATE_DIR (default $HOME/.cmux/cloud-browser).
 set -euo pipefail
 
 [ "${CMUX_CLOUD_BROWSER:-0}" = 1 ] || exit 0
 
 url="${CMUX_CLOUD_BROWSER_URL:-about:blank}"
-cdp_port="${CMUX_CLOUD_BROWSER_CDP_PORT:-9222}"
 state="${CMUX_CLOUD_BROWSER_STATE_DIR:-$HOME/.cmux/cloud-browser}"
+cdp_socket="${CMUX_CLOUD_BROWSER_CDP_SOCKET:-$state/cdp.sock}"
 
-case "$cdp_port" in
-  ''|*[!0-9]*) echo "cmux-cloud-browser: CMUX_CLOUD_BROWSER_CDP_PORT must be a port number" >&2; exit 2 ;;
-esac
-if [ "$cdp_port" -lt 1024 ] || [ "$cdp_port" -gt 65535 ]; then
-  echo "cmux-cloud-browser: CMUX_CLOUD_BROWSER_CDP_PORT must be 1024-65535" >&2; exit 2
+if [ -n "${CMUX_CLOUD_BROWSER_CDP_PORT:-}" ]; then
+  echo "cmux-cloud-browser: CMUX_CLOUD_BROWSER_CDP_PORT was removed (a TCP debugging port is reachable by every local user); use CMUX_CLOUD_BROWSER_CDP_SOCKET" >&2
+  exit 2
 fi
+case "$cdp_socket" in
+  /*) ;;
+  *) echo "cmux-cloud-browser: CMUX_CLOUD_BROWSER_CDP_SOCKET must be an absolute path" >&2; exit 2 ;;
+esac
 command -v cmux-rd >/dev/null 2>&1 || {
   echo "cmux-cloud-browser: cmux-rd is not installed on this machine (CB-2 ships the role; the binary is not in the image yet)" >&2
   exit 3
@@ -35,12 +39,13 @@ command -v cmux-rd >/dev/null 2>&1 || {
 
 umask 077
 mkdir -p "$state"
+chmod 700 "$state"
 token="$state/rd.token"
 if [ ! -s "$token" ]; then
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$token"
 fi
 chmod 600 "$token"
 
-exec cmux-rd host --browser "$url" --browser-cdp-port "$cdp_port" \
+exec cmux-rd host --browser "$url" --browser-cdp-socket "$cdp_socket" \
   --browser-profile "$state/profile" --owner "$(id -un)" --display :1 --port 4103 \
   --token-fd 3 3< <(cat "$token")

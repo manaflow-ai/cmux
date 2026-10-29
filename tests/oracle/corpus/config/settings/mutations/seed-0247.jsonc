@@ -1,5 +1,0 @@
-{"updates":{"idleInstallQuietSeconds":5},// "quoted"
-"notifications":{"mutedWorkspaces":[]},// note
-"sidebar":{"detailedStatusIcons":false,// a { brace
-"nowPlaying":{/* block */ "otherApps":true},"cmd9":1},"browser":{"omnibox":{"popupHoverColor":"1a2b3c"}},/* // inside */ "editor":{"lineNumbers":true},"appearance":{"metrics":{// a { brace
-"tabMinInactiveWidth":"1"}},"screenshots":{"findTools":false}}

@@ -5,6 +5,7 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A password CSV import's conflicts and the store's failures, at the
 /// boundary the app writes through (cx-dwg.6, #20029 review):
@@ -31,7 +32,7 @@ struct PasswordImportConflictTests {
         }
         let bytes = SecretBytes(copying: Array(Self.csv.utf8))
         await #expect(throws: PasswordImporter.Failure.storeUnavailable) {
-            _ = try await PasswordCSVImporter(destination: destination).run(bytes: bytes, intoProfile: BrowserProfileRecord.defaultID)
+            _ = try await PasswordCSVImporter(destination: destination, work: BackgroundWork(label: "test.password-import")).run(bytes: bytes, intoProfile: BrowserProfileRecord.defaultID)
         }
     }
 

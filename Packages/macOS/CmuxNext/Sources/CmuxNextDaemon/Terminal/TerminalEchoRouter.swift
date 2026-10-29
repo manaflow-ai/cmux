@@ -8,7 +8,7 @@ import Foundation
 /// came after it), or onto the ``TerminalEventQueue`` the driver consumes.
 ///
 /// Live output therefore reaches the lane in one call on the connection's decode lane, inline on its reader
-/// while that lane is idle (p05-ipc-144): no AsyncStream, no task and no cooperative pool thread between the
+/// while that lane is idle: no AsyncStream, no task and no cooperative pool thread between the
 /// socket and the parser. After a record the route opens
 /// again one round trip later even while output keeps coming: the output that came meanwhile waits
 /// here and the marker's acknowledgement hands it to the lane. Back-pressure is the lane's capacity,
@@ -59,7 +59,7 @@ final class TerminalEchoRouter: Sendable {
     /// The attach connection's decode lane (or its reader inline), in stream order: one decoded attach line. A
     /// size state goes to `sizeState` (the attachment orders generations under its own lock); it touches no
     /// surface, so it keeps no order with output. Never waits: what holds the reader (the lane's capacity, the
-    /// hold limit, the queue's high water) the reader waits for after the line (p05-ipc-144).
+    /// hold limit, the queue's high water) the reader waits for after the line.
     func admit(_ decoded: DecodedAttachLine, sizeState: (TerminalSizeState, String?) -> Void) {
         let next = state.withLock { state -> Next in
             guard let event = state.sequencer.admit(decoded) else { return .drop }

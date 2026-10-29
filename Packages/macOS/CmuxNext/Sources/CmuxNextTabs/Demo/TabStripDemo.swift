@@ -74,7 +74,7 @@ public struct TabStripDemo {
         window.title = Strings.demoWindowTitle
         window.contentView = controller
         window.isReleasedWhenClosed = false
-        window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        window.isRestorable = false  // AppKit state restoration is off for every cmux window
         window.center()
         return window
     }

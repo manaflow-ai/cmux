@@ -12,8 +12,8 @@
 //!
 //! The module exists only in debug builds and `--features bench` builds: a
 //! release daemon has no such route and answers the line as an unknown
-//! command. Like `oracle-state`, it is answered before the `Command` parse,
-//! so it is not in the `Command` enum, its name table or the SDK catalog.
+//! command. It is answered before the `Command` parse, so it is not in the
+//! `Command` enum, its name table or the SDK catalog.
 //!
 //! The crash runs on a thread of its own, started before the reply. A
 //! `panic` ends only that thread (the owner's panic log records it); `abort`
@@ -153,6 +153,7 @@ fn parse(mut fields: Map<String, Value>) -> Result<CrashKind, DebugPanicRefused>
 
 /// Crash as `kind` says, on [`THREAD`].
 pub(super) fn fire(kind: CrashKind) -> Result<std::thread::JoinHandle<()>, DebugPanicRefused> {
+    // supervise-allow: the injected `panic` must end only this thread (module doc); crash-matrix.py counts its one panic-log report.
     cmux_threads::spawn(THREAD, cmux_threads::ThreadQos::Utility, move || crash_now(kind))
         .map_err(|error| DebugPanicRefused::Spawn(error.to_string()))
 }

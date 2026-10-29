@@ -34,7 +34,7 @@ public struct TabHoverCardGallery {
         return cards.map { name, index in
             let (item, cpu, megabytes) = samples[index]
             let card = TabHoverCardView()
-            // A hidden page over the high-energy share (p14-energy-125): the energy row and its Discard.
+            // A hidden page over the high-energy share: the energy row and its Discard.
             card.setHighEnergy(index == 5, discard: {})
             card.configure(.tab(item))
             card.setThumbnailVisible(false)

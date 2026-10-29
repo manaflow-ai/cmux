@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// p10-stability-082: the shim's callbacks get the runtime's ``CEFRuntime/callbacks`` token as their context,
+/// The shim's callbacks get the runtime's ``CEFRuntime/callbacks`` token as their context,
 /// never the runtime's address, so a context that names no live runtime finds nothing instead of being read as
 /// one (Chromium's MiraclePtr property, applied to C callback contexts). Run under `--sanitize=address` and
 /// `--sanitize=thread` too.

@@ -22,6 +22,7 @@
 
 use super::{Conn, Origin};
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
@@ -80,11 +81,11 @@ pub(super) fn check(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rpc
         crate::sha256::sha256_hex(format!("{from}\n{reply_id}").as_bytes())
     );
     Ok(json!({"reply": {
-        "from": signed["from"],
+        "from": signed.field("from"),
         "fromName": signed.get("fromName"),
-        "to": signed["to"],
-        "replyTo": signed["replyTo"],
-        "threadId": signed["threadId"],
+        "to": signed.field("to"),
+        "replyTo": signed.field("replyTo"),
+        "threadId": signed.field("threadId"),
         "text": text,
         "idempotencyKey": key,
     }}))

@@ -8,9 +8,9 @@ import ObjectiveC
 import Testing
 import WebKit
 
-// The WebKit suspend spike (p13-webui-029) lives in this test target only: the gated
+// The WebKit suspend spike lives in this test target only: the gated
 // `_suspendPage:` / `_resumePage:` SPI, the rule that picks how a hidden, frozen WebKit page is
-// parked, and the bench that measures each mode. Hidden in the window (p13-webui-028) stays the
+// parked, and the bench that measures each mode. Hidden in the window stays the
 // shipped park. Suspend or detach moves into CmuxNextPages Sources only in the change that wires it
 // into `freezePage`, after the bench's macOS 26 and 27 numbers in perf-lead.md show a gain, and
 // together with a guard that resumes the page (or refuses the call) on every evaluate and load path:
@@ -101,7 +101,7 @@ extension PageWKWebView {
 
 /// How a hidden, frozen WebKit page is parked (p13-webui.md 3.C, spike 029), chosen from
 /// ``PageWebKitParkingBench``'s trials of each mode on the same page. Hidden in the window
-/// (p13-webui-028) is the default. Another mode wins only when, over every trial, it wakes less than
+/// is the default. Another mode wins only when, over every trial, it wakes less than
 /// the current pick by more than ``wakeupMargin`` (its worst trial against the pick's best), its p95
 /// show turn fits ``showTurnBudget`` and its p95 first frame after the show is at most
 /// ``firstFrameAllowance`` later than hidden in the window's. Detached is considered only when hidden

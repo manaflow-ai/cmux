@@ -1,4 +1,4 @@
-//! A terminal's threads follow the app's hide signal (p02-threads-236): a
+//! A terminal's threads follow the app's hide signal: a
 //! view's `set-size-counts counts:false` by its lease
 //! (`TerminalAttachment.sendHidden`) lowers the terminal to utility once no
 //! other view shows it, clearing it raises it again, a released or closed

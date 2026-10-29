@@ -7,7 +7,7 @@ import Foundation
 import Observation
 import Testing
 
-/// p06-scheduler-331, the sweep of CmuxNextAgentPane's second half, FreeTier and Approvals: one case per migrated
+/// The sweep of CmuxNextAgentPane's second half, FreeTier and Approvals: one case per migrated
 /// owner class (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentPaneSchedulerSweepTests {
     final class Count { var value = 0 }
@@ -40,7 +40,7 @@ import Testing
     /// escalation, the drain after exit) are `visible` deadlines on it: the page waits on each (rule 6).
     @Test func theModelsOwnersShareItsSchedulerAndTheShellsDeadlinesAreVisible() {
         let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
-        let model = AgentPaneModel(host: MockAgentPaneHost(), deadlines: deadlines)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane.sweep"), host: MockAgentPaneHost(), deadlines: deadlines)
         #expect(model.transport.mainWork === deadlines.work)
         let run = AgentPaneShell.Run(pid: 0, deadlines: deadlines)
         #expect(run.escalation.workClass == .visible)
@@ -132,7 +132,8 @@ import Testing
     /// scheduler's turns, and a turn run from inside a running drain would re-enter it.
     @Test func theMoreMenuIsNotAScheduledTask() throws {
         let work = MainWorkScheduler.testing(performTurn: { _ in }) { _ in Link() }
-        let model = AgentPaneModel(host: MockAgentPaneHost(), deadlines: MainDeadlineScheduler(work: work))
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane.more"), host: MockAgentPaneHost(),
+                                   deadlines: MainDeadlineScheduler(work: work))
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(mainThread: .standalone(on: work), model: model, work: BackgroundWork(label: "test.agent-pane.more"),
                                               source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))

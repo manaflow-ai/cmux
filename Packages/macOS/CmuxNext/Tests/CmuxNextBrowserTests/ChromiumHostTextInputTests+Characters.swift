@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// Host IME (p04-input-064): a Japanese conversion's order, whole characters on every frame,
+/// Host IME: a Japanese conversion's order, whole characters on every frame,
 /// bounded ops the host always takes, and firstRect from the last push.
 extension ChromiumHostTextInputTests {
     /// Kotoeri conversion: "にほん" marked, Space converts to "日本" with its clause selected,

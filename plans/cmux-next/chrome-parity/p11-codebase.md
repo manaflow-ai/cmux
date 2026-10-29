@@ -565,7 +565,7 @@ through the merge train, which also runs `swift build --build-tests` for affecte
 | 047 | Remaining stateful singletons by type | L | Q2 | 023, 042, 210 |
 | 048 | `?? .app` and `.app` factories | M | Q2b | 012 |
 | 050 | browserChildWindowPagesNeedUpdate to dirty set | M | Q3 | 010, 000h |
-| 051 | CEFHostView.geometryDidChange to delegate | S | Q3 | 000h |
+| 051 | CEFHostView.geometryDidChange to delegate (needs a fork call; p06-scheduler-046's second name) | S | Q3 | 000h |
 | 052 | reduceMotion/speed to AppearanceEnvironment | M | Q3 | 011, 020 |
 | 053 | hoverCards/inactiveDim to Appearance | S | Q3 | 052 |
 | 054 | Ghostty configDidChange to Signal | M | Q3 | 010, 028 |
@@ -972,3 +972,5 @@ test where an action from B never resolves A; 222, env-write-allowlist unchanged
 no worse; 240, >= 20 targets on DaemonWire only; 242, Design < 20k lines; 262, a tab move keeps
 TabFeatures and holds no window state, and closing a machine releases all its members; 268, the
 wire target imports only Foundation.
+
+> **Priority (2026-10-28):** lower. Lawrence moves the Mac to the Chromium fork later, so this AppKit-only program pays off after the move. No new p11 waves; finished branches still merge on spare train slots. See [PRIORITIES.md](PRIORITIES.md).

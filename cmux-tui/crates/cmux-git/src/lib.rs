@@ -10,6 +10,9 @@
 //! The crate has no terminal, store or protocol types. Errors are its own
 //! enums; callers map them to their wire errors.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 pub mod diff;
 pub mod parse;
 pub mod refs;

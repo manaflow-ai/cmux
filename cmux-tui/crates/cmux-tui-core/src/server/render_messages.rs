@@ -14,11 +14,8 @@ use ghostty_vt::{Dirty, KittyReplayState, StyledRun, UnderlineStyle};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{
-    BudgetedJsonWriter, BudgetedText, MessageWriter, OutboundStream, RenderService,
-    write_base64_json_string,
-};
-use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
+use super::{BudgetedJsonWriter, RenderService, write_base64_json_string};
+use crate::browser::BrowserFrameUpdate;
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
 /// SNAPSHOT and REPLAY frames: the binary forms of `snapshot` and `vt-state`.
@@ -60,8 +57,8 @@ pub(super) fn write_pending_sequence_json(
     writer.write_all(b"\"")
 }
 
-/// `,"flow":N` of an `output` event that echoes key press `flow`
-/// (p09-observability-018); nothing for 0.
+/// `,"flow":N` of an `output` event that echoes key press `flow`;
+/// nothing for 0.
 pub(super) fn write_output_flow_json(
     writer: &mut BudgetedJsonWriter,
     flow: u64,
@@ -70,6 +67,29 @@ pub(super) fn write_output_flow_json(
         return Ok(());
     }
     write!(writer, ",\"flow\":{flow}")
+}
+
+/// `,"key_stages":{...}` of an `output` event that echoes a key press:
+/// the daemon's receive, the PTY write and the echo's read
+/// ([`crate::input_stages::KeyStages`]) and `sent`, when this event was
+/// encoded, all trace-clock ns (`CLOCK_UPTIME_RAW`, the app's
+/// `NSEvent.timestamp` clock); a stage not reached is 0. `lost`: the presses
+/// the terminal's stage ring dropped so far. Nothing without
+/// stages, or where the trace clock is not the app's. An app that predates
+/// the field ignores it.
+pub(super) fn write_output_key_stages_json(
+    writer: &mut BudgetedJsonWriter,
+    stages: Option<crate::input_stages::KeyStages>,
+    sent_ns: u64,
+) -> std::io::Result<()> {
+    let Some(stages) = stages.filter(|_| crate::input_stages::STAMPS_SHARE_APP_CLOCK) else {
+        return Ok(());
+    };
+    write!(
+        writer,
+        ",\"key_stages\":{{\"received\":{},\"written\":{},\"read\":{},\"sent\":{},\"lost\":{}}}",
+        stages.received_ns, stages.written_ns, stages.read_ns, sent_ns, stages.lost
+    )
 }
 
 fn rgb_hex(color: Rgb) -> String {
@@ -557,40 +577,6 @@ pub(super) fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate
         "pointer_frame_floor_seq": update.pointer_frame_floor_seq,
         "pointer_frame_seq": update.pointer_frame_seq,
     })
-}
-
-/// A browser attach update as the texts [`send_encoded_browser_attach_update`]
-/// sends: its frame, then its state.
-pub(super) type EncodedBrowserAttachUpdate = [Option<std::io::Result<Arc<BudgetedText>>>; 2];
-
-/// A browser attach update encoded: the work an attach thread watches,
-/// not the hand-off that waits for room.
-pub(super) fn encode_browser_attach_update(
-    writer: &MessageWriter,
-    surface: SurfaceId,
-    update: BrowserAttachUpdate,
-    stream: &OutboundStream,
-) -> EncodedBrowserAttachUpdate {
-    [
-        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame), stream)),
-        update
-            .state
-            .map(|state| writer.encode(&browser_state_message(surface, &state, false), stream)),
-    ]
-}
-
-/// Send an encoded browser attach update, its frame before its state: a
-/// frame event applies its bitmap and authority atomically, so it goes out
-/// before a paired state snapshot can expose the same positive token.
-pub(super) fn send_encoded_browser_attach_update(
-    writer: &MessageWriter,
-    encoded: EncodedBrowserAttachUpdate,
-    outbound_stream: &OutboundStream,
-) -> std::io::Result<()> {
-    for text in encoded.into_iter().flatten() {
-        writer.send_encoded_backpressured(text, outbound_stream)?;
-    }
-    Ok(())
 }
 
 fn browser_frame_payload(frame: &crate::BrowserFrame) -> BrowserFramePayload<'_> {

@@ -1,7 +1,7 @@
 @testable import CmuxNextBrowser
 import Testing
 
-/// The p14 fork bundle (p14-energy-136) is one API number: the first after the resize fence, and the one
+/// The p14 fork bundle is one API number: the first after the resize fence, and the one
 /// the Energy Saver call waits for, so a fork at the fence (API 32) or below gets no saver call.
 @MainActor
 @Suite struct CEFForkFeaturesTests {

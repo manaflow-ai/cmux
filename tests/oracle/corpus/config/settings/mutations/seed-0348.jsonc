@@ -1,7 +1,0 @@
-{"la\u0079out":{"\u006dainPa\u006ee":"\u0061gent-cha\u0074\u0073"},// a { brace
-"browser":{"defaultE\u006eg\u0069ne":true,"omnibox":{// url: https://localhost/x
-"c\u006f\u006cor":"#1234567"},// url: https://localhost/x
-"builtI\u006e\u0041\u0064Bl\u006f\u0063ker":false,"\u006f\u006dni\u0062\u0061r":{"\u0073hadow":1,},},/* block */ "ag\u0065\u006e\u0074P\u0061n\u0065":{"display":{// url: https://localhost/x
-"in\u0073p\u0065ctor":{"pl\u0061\u0063e\u006de\u006et":true}}},"\u0073ide\u0062ar":{"w\u006frks\u0070aceRow":{"agen\u0074S\u0074\u0061t\u0075s":"true",/* // inside */ "m\u0069\u0078ed":{"agen\u0074\u0053\u0074\u0061t\u0075s":"true","director\u0079":false,}},},// "quoted"
-"\u0061pp":{"warnBef\u006f\u0072eClos\u0069ng\u0041gent\u0053ession":false,},// "quoted"
-"tabs":{/* // inside */ "\u006eewTabW\u0069\u0064get\u0073":{/* // inside */ "or\u0064\u0065r":["\u0063hat\u0073", "a\u0063t\u0069on\u0073", "p\u0072o\u006a\u0065cts"]},},"\u006eotif\u0069\u0063ati\u006fns":{/* {"k": 1} */ "timeou\u0074S\u0065c\u006f\u006eds":30.0,},}

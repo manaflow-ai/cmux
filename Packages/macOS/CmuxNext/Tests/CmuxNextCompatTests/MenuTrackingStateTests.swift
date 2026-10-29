@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import Testing
 
-/// Menu tracking comes from NSMenu's own notices (p06-scheduler-050): a window drag or a live
+/// Menu tracking comes from NSMenu's own notices: a window drag or a live
 /// resize (the run loop's `eventTracking` mode with no menu) is not a menu, so the Chromium warmup
 /// never waits for a menu end that does not come.
 @MainActor struct MenuTrackingStateTests {

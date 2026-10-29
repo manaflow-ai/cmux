@@ -15,7 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // The portable Mutex the keyboard observers and the dictation audio engine use (p10-stability-172).
+        // The portable Mutex the keyboard observers and the dictation audio engine use.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
     ],
     targets: [

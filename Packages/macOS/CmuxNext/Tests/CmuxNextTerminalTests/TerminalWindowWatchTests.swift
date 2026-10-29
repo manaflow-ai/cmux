@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The terminals' window notices go through the window's one ``WindowEvents`` (p06-scheduler-334, recipe
+/// The terminals' window notices go through the window's one ``WindowEvents`` (recipe
 /// R-notif): a Cmd-Tab with many terminals handles the key change only in the first responder, in its own turn
 /// even when its window is covered, a hidden tab reads a screen change once when it shows, and an occlusion
 /// change still reaches every shown terminal, so a covered window stops drawing whatever its tabs show. The

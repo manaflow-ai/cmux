@@ -102,7 +102,7 @@ final class Screen {
     }
 }
 """,
-    # cpu-intensive (p02-threads-121): raw JSON, plist, image and regex calls on main in a main-actor target (also in
+    # cpu-intensive: raw JSON, plist, image and regex calls on main in a main-actor target (also in
     # an inline `map {}`). A keyed container's
     # decode, a `matches(in:)` with no `range:` (not NSRegularExpression's), the seam and an escaped line are not hits.
     SRC + "CmuxNextUI/Restorer.swift": """import AppKit
@@ -254,7 +254,7 @@ enum Work {
     static let listed = DispatchQueue(label: "com.cmuxterm.next.listed", qos: .utility)
 }
 """,
-    # sync-inversion (p02-threads-035): a public nonisolated function waits for a utility queue, and a main-actor
+    # sync-inversion: a public nonisolated function waits for a utility queue, and a main-actor
     # function of the UI target calls it.
     SRC + "CmuxNextCore/Fence.swift": """import Foundation
 
@@ -278,7 +278,7 @@ final class FenceOwner {
     }
 }
 """,
-    # awaited-low-priority (p02-threads-113): a stored background task that a main-actor method awaits, and a
+    # awaited-low-priority: a stored background task that a main-actor method awaits, and a
     # fire-and-forget one (a plain `Task(priority:)` states its priority: no task-priority hit).
     SRC + "CmuxNextUI/Saver.swift": """import Foundation
 
@@ -328,7 +328,7 @@ struct Posix {
     }
 }
 """,
-    # once-blocking (p02-threads-122): a seam in an immediately called static initializer closure (no other rule:
+    # once-blocking: a seam in an immediately called static initializer closure (no other rule:
     # a seam off the main thread is fine, but here it blocks whichever thread reads `list` first).
     SRC + "CmuxNextCore/Words.swift": """import Foundation
 

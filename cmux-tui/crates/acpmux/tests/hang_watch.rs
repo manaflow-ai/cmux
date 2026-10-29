@@ -1,4 +1,4 @@
-//! The daemon's hang-watch registrations (p09-observability-074): a sync thread registers once and
+//! The daemon's hang-watch registrations: a sync thread registers once and
 //! is blamed for an item past its deadline, never for its wait; a blocking-pool item is watched
 //! under its own registration on a thread nobody registered, and under the thread's own on one
 //! that is registered. A wait for a child process inside an item is the child's, never a hang.

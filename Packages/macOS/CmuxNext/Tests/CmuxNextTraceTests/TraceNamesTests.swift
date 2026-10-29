@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The ring's name table (p09-observability-004): fixed catalog ids, category entries, names interned once
+/// The ring's name table: fixed catalog ids, category entries, names interned once
 /// per ring, and decoding every name from the ring's own bytes.
 @Suite(.serialized)
 struct TraceNamesTests {

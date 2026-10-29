@@ -1,4 +1,4 @@
-//! attach-streams-v1 (p05-ipc-074, spec/events.md "Attach streams"): a view
+//! attach-streams-v1 (spec/events.md "Attach streams"): a view
 //! is a stream the client mints on the connection it attaches on.
 //!
 //! `attach-surface {stream}` names a u16 the connection does not hold open;

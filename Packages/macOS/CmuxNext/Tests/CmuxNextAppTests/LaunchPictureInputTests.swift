@@ -11,7 +11,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Keys while a window shows its launch picture (p08-startup-061). A key changes only the model in its turn: an
+/// Keys while a window shows its launch picture. A key changes only the model in its turn: an
 /// action runs (a Command chord, a Control chord, a chord's leader and the key after it), a key the window cannot
 /// decide yet waits whole and goes through the router again once it can, and typing for a terminal that is still a
 /// picture waits in that terminal's stand-in buffer, which raises the pane's slice to the next frame and reaches the
@@ -214,7 +214,7 @@ struct LaunchPictureInputTests {
         let tabModel = try #require(store.tab(surface: SurfaceID(rawValue: 1)))
         let attachment = TerminalAttachment.Target(surface: tabModel.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
-                                  visible: false, endpoint: { throw CancellationError() })
+                                  visible: false, connection: { throw CancellationError() })
         services.cache.terminals[tab]?.session.view.removeFromSuperview()
         services.cache.terminals[tab] = TerminalEntry(validity: "test", session: session, io: io,
                                                       themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tabModel),
@@ -250,6 +250,96 @@ struct LaunchPictureInputTests {
         // With nothing waiting, the next key takes the usual path to the live terminal.
         let after = try Self.key("!", keyCode: 18, modifiers: .shift, window: shell.windowNumber)
         #expect(!Self.dispatch(after, in: shell, router: router), "a key for the live terminal waited")
+    }
+
+    /// A Kotoeri-like input method (Romaji): letters compose (ka is か), Return commits the
+    /// preedit. It runs in the terminal view's input-method turn, so it sees each key when the
+    /// view interprets it, as Kotoeri does.
+    private final class FakeKotoeri {
+        var romaji = ""
+        let kana = ["ka": "か", "na": "な"]
+
+        func interpret(_ view: TerminalSurfaceView, _ key: NSEvent) {
+            let none = NSRange(location: NSNotFound, length: 0)
+            if key.keyCode == 36 {
+                let commit = kana[romaji] ?? romaji
+                romaji = ""
+                commit.isEmpty ? view.doCommand(by: #selector(NSResponder.insertNewline(_:))) : view.insertText(commit, replacementRange: none)
+                return
+            }
+            romaji += key.characters ?? ""
+            if let done = kana[romaji] {
+                view.setMarkedText(done, selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
+                romaji = done == "か" ? "ka" : "na"
+                return
+            }
+            view.setMarkedText(romaji, selectedRange: NSRange(location: (romaji as NSString).length, length: 0), replacementRange: none)
+        }
+    }
+
+    /// T4 (input-languages.md): keys typed with Kotoeri while the focused terminal is still a launch
+    /// picture reach the live terminal's input method, in order, so the program gets the same
+    /// committed text as when typed live (か), never the romaji the keys carry (ka).
+    @Test func keysHeldForAPictureComposeThroughTheInputMethodOnceLive() async throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree())
+        let controller = try #require(services.windows.openWindow(workspaces: ["live-ws"], frame: CGRect(x: 200, y: 200, width: 900, height: 600)))
+        let scripted = ScriptedTerminalIO()
+        defer {
+            scripted.finish()
+            controller.teardown()
+            controller.window?.close()
+        }
+        for _ in 0..<200 where controller.workspaceContent?.panes.count != 1 { try await Task.sleep(for: .milliseconds(10)) }
+        let content = try #require(controller.workspaceContent, "the window never showed its workspace")
+        let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let pane = try #require(content.paneController(key: model.id))
+        if pane.currentTabKey == nil { pane.showSelected() }
+        let tab = try #require(pane.currentTabKey, "the pane shows no tab")
+        let shell = try #require(controller.window)
+        let session = TerminalSession(io: scripted, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let kotoeri = FakeKotoeri()
+        session.surfaceView.inputMethod = { view, key in kotoeri.interpret(view, key) }
+        let tabModel = try #require(store.tab(surface: SurfaceID(rawValue: 1)))
+        let attachment = TerminalAttachment.Target(surface: tabModel.surface, terminalResourceID: nil, generation: nil)
+        let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
+                                  visible: false, connection: { throw CancellationError() })
+        services.cache.terminals[tab]?.session.view.removeFromSuperview()
+        services.cache.terminals[tab] = TerminalEntry(validity: "test", session: session, io: io,
+                                                      themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tabModel),
+                                                      store: store, surface: tabModel.surface, mainWork: services.mainWork)
+        try Self.focusTerminal(of: controller, workspace: "live-ws", pane: pane.paneKey, tab: tab)
+        let router = services.keyRouter, keys = router.launchPictureKeys
+        let target = LaunchPictureKeys.Target(window: controller.state.id, pane: pane.paneKey, tab: tab)
+        keys.begin(window: target.window, shell: shell) { _ in }
+
+        for (letter, code) in [("k", UInt16(40)), ("a", 0), ("\r", 36)] {
+            let event = try Self.key(letter, keyCode: code, window: shell.windowNumber)
+            #expect(Self.dispatch(event, in: shell, router: router), "\(letter.debugDescription) went on to AppKit while its terminal was a picture")
+        }
+        #expect(scripted.writes.isEmpty, "a key reached the terminal before it was live")
+
+        session.view.frame = pane.view.bounds
+        pane.view.addSubview(session.view)
+        session.view.layoutSubtreeIfNeeded()
+        try #require(shell.makeFirstResponder(session.surfaceView), "the live terminal never took the keyboard")
+        keys.end(window: target.window)
+
+        func written() -> String { String(decoding: scripted.writes.reduce(Data(), +), as: UTF8.self) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !written().contains("か"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(written() == "か", "the program got \(written().debugDescription), not the committed か once")
+        #expect(!session.surfaceView.hasMarkedText(), "the composition stayed open")
     }
 
     // MARK: Keys, the stand-in buffer

@@ -2,7 +2,7 @@ public import AppKit
 
 extension NSView {
     /// Adds a tracking area over the view's visible rect that sends `cursorUpdate(with:)` when the
-    /// pointer enters it; the view sets its cursor there instead of in cursor rects (p04-input-090).
+    /// pointer enters it; the view sets its cursor there instead of in cursor rects.
     /// Add it once, in init: `.inVisibleRect` follows every frame change by itself, so a resize or a
     /// drag rebuilds nothing, where AppKit rebuilt the window's cursor rects after each frame change.
     /// Chrome's views do the same: the view under the pointer names its cursor when the pointer

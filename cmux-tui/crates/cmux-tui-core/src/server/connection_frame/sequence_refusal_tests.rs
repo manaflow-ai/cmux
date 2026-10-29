@@ -1,4 +1,4 @@
-//! What a line that its full control sequence refuses gets (p05-ipc-086):
+//! What a line that its full control sequence refuses gets:
 //! a remote client only a code, a forwarded stream its end (never a silent
 //! hole in its bytes), and what each line is charged to. Each test fills
 //! the sequence by hand with no pump to run it, so the refusal does not

@@ -1,4 +1,4 @@
-//! SNAPSHOT and REPLAY frames (p05-ipc-077; p05-ipc.md section 3.2): the
+//! SNAPSHOT and REPLAY frames (p05-ipc.md section 3.2): the
 //! binary forms of a snapshot viewer's `snapshot` events (READY, a
 //! local-history READY, history and images chunks) and of the `vt-state`
 //! replay. A bulk frame's payload is

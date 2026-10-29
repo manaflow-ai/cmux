@@ -1,7 +1,7 @@
-// Ring frames to Chromium (host_input.h, task p01-process-042). The events are what cefclient's
+// Ring frames to Chromium (host_input.h). The events are what cefclient's
 // off-screen view builds from an NSEvent (tests/cefclient/browser/browser_window_osr_mac.mm);
 // wheel ticks do not come here: browser_host_main.mm's SendWheel sends them with their phases
-// (task p04-input-063) and its WHEEL_ACK bookkeeping (task p01-process-234). Keys go through
+// and its WHEEL_ACK bookkeeping. Keys go through
 // cmux_shim::SendHostKeyEvent with the frame's input seq, so a chord the page leaves unhandled
 // comes back as KEY_UNHANDLED with it (task 030); Edit menu commands go to the focused frame.
 #import <AppKit/AppKit.h>

@@ -18,8 +18,8 @@ use serde_json::{Value, json};
 
 use super::prelude;
 use crate::protocol::{
-    AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, SCRIPT_MEMORY_BYTES, SCRIPT_PROFILE,
-    SCRIPT_STEP_MS, ToHost,
+    AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, PANIC_LOG_FLAG, SCRIPT_MEMORY_BYTES,
+    SCRIPT_PROFILE, SCRIPT_STEP_MS, ToHost,
 };
 
 /// A script session is automation (`cmux script run`, `cmux script repl`):
@@ -281,9 +281,11 @@ pub struct Session {
 
 impl Session {
     /// Spawns `binary` in the script profile and loads the prelude. `log`
-    /// receives console output from every cell.
+    /// receives console output from every cell; the host appends its panics
+    /// to `panic_log` (`PANIC_LOG_FLAG`).
     pub fn start(
         binary: &Path,
+        panic_log: Option<&Path>,
         router: Arc<dyn ScriptRouter>,
         log: LogSink,
     ) -> Result<Self, ScriptError> {
@@ -292,6 +294,9 @@ impl Session {
         let (ours, theirs) = UnixStream::pair().map_err(|e| host_error("socketpair", e))?;
         let fd = theirs.as_raw_fd();
         let mut command = Command::new(binary);
+        if let Some(path) = panic_log {
+            command.arg(PANIC_LOG_FLAG).arg(path);
+        }
         command
             .args(["--profile", SCRIPT_PROFILE])
             .env_clear()

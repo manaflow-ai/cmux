@@ -4,7 +4,7 @@ import CmuxNextMetrics
 @testable import CmuxNextTrace
 import Testing
 
-/// p09-observability-108: a WebKit content-process end and a Chromium "Page unresponsive" span are each a `crash` ring
+/// A WebKit content-process end and a Chromium "Page unresponsive" span are each a `crash` ring
 /// record, a stability count in the metrics file and a rate-limited report: 3 ends are 3 counts and 1 report, and the
 /// next report after the hour carries the count since the last. Each test has its own runtime, store and clock.
 @MainActor

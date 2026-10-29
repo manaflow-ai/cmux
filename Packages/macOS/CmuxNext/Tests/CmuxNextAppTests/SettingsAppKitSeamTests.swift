@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// CmuxNextSettings imports no AppKit (p15-oracle-133): its function-key characters and its modifier
+/// CmuxNextSettings imports no AppKit: its function-key characters and its modifier
 /// conversion stand in for AppKit's, it follows activation through `AppEvents.subscribeToActivation`,
 /// and its refused-value toast goes through CmuxNextSettingsWindow's presenter. These pin each stand-in
 /// to the AppKit value it replaces.
@@ -59,8 +59,21 @@ import Testing
         while becameKey == 0, Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         #expect(becameKey == 1, "a window becoming key did not retry the pending notice")
         if NSApp?.keyWindow == nil, NSApp?.mainWindow == nil {
-            #expect(presenter.show(CmuxToast(id: "settings-diagnostics", message: "m"), onAction: {}) == nil)
+            let notice = SettingsDiagnosticToast(id: "settings-diagnostics", message: "m", actionTitle: "Open File", duration: nil)
+            #expect(presenter.show(notice, onAction: {}) == nil)
         }
+    }
+
+    /// Settings names no CmuxToast: its notice draws as the toast it built before, one
+    /// button and its time-out, and a notice with no duration stays until closed.
+    @Test func aNoticeDrawsAsTheToastSettingsBuiltBefore() {
+        let timed = SettingsDiagnosticToast(id: "settings-diagnostics", message: "m", actionTitle: "Show in Settings", duration: .seconds(12))
+        #expect(SettingsDiagnosticToastPresenter.toast(timed)
+            == CmuxToast(id: "settings-diagnostics", message: "m", action: CmuxToast.Action(title: "Show in Settings"), duration: .seconds(12)))
+        var kept = timed
+        kept.duration = nil
+        #expect(SettingsDiagnosticToastPresenter.toast(kept).duration == CmuxToast.untilClosed)
+        #expect(SettingsDiagnosticToastPresenter.toast(kept).action?.isUndo == false)
     }
 
     @Test func theDiagnosticToastsTakeTheAppsOneKeyWindowObserverThroughThePresenter() throws {

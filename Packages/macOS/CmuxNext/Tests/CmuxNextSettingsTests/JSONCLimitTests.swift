@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// cmux-next.json's reader and writer agree (p10-stability-026): nesting deeper than ``JSONC/maxDepth`` (Chromium's
+/// cmux-next.json's reader and writer agree: nesting deeper than ``JSONC/maxDepth`` (Chromium's
 /// `kAbsoluteMaxDepth`, base/json/json_common.h) is refused on read and never written, and of members with equal
 /// keys (U+00E9 and U+0065 U+0301 too) the last in the document is the one that reads and the one an edit changes
 /// (base/json/json_parser.cc). The seeded fuzz of the same layer is ``SettingsFuzzTests``.

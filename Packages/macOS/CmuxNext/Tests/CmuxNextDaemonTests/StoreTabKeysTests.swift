@@ -1,7 +1,7 @@
 @testable import CmuxNextDaemon
 import Testing
 
-/// The store's tab keys (p06-scheduler-051): each apply reports its net changes when the store
+/// The store's tab keys: each apply reports its net changes when the store
 /// publishes its tab list, a key when its first tab record is indexed and when its last is dropped,
 /// never for a move or a re-index inside the store, and a snapshot reports only the keys it added or
 /// removed. The index of tabs across

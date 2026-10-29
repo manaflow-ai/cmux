@@ -182,7 +182,7 @@ final class ChiefPetView: NSView {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
-    /// The pointing hand's area over the character (p04-input-090), placed again only when the character moves.
+    /// The pointing hand's area over the character, placed again only when the character moves.
     /// Active in the active app, as the panel is never key (`.activeAlways` takes no `.cursorUpdate`).
     private var characterCursorArea: NSTrackingArea?
     /// A press is moving the pet now.

@@ -188,7 +188,8 @@ impl CloudBackend for RemoteCloudBackend {
             while body.len() < limit {
                 match response.chunk().await.map_err(|error| transport(&error))? {
                     Some(chunk) => {
-                        body.extend_from_slice(&chunk[..chunk.len().min(limit - body.len())]);
+                        let room = limit.saturating_sub(body.len());
+                        body.extend(chunk.iter().take(room));
                     }
                     None => break,
                 }

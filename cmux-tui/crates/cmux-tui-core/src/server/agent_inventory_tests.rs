@@ -286,7 +286,7 @@ fn cmux_next_agent_inventory_is_refused_on_untrusted_and_remote_connections() {
 }
 
 /// The routes are found by the line's decoded `cmd`, never by a substring of the raw
-/// line (p05-ipc-064): a `cmd` spelled with a JSON escape reaches the inventory
+/// line: a `cmd` spelled with a JSON escape reaches the inventory
 /// handlers, which answer that no owner is configured.
 #[test]
 fn cmux_next_agent_inventory_routes_an_escaped_cmd_to_its_handler() {

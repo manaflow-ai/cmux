@@ -1,11 +1,14 @@
 //! `cmux-rd`: the Linux remote desktop host engine (phase 1, virtual X display) and its
 //! measurement tools. Subcommands:
-//!   host     [--browser URL [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL [--browser-bin google-chrome] [--browser-cdp-socket PATH]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]
 //!   openh264-install [--dir PATH]   the host enable flow's step: downloads Cisco's OpenH264
 //!            from Cisco into the per-user data directory (pinned SHA-256) and prints its path
+//! `--browser-cdp-socket PATH` serves Chrome's DevTools protocol (over its fd 3/4 pipe, never a
+//! TCP port) on a 0600 Unix socket in a directory only the host's user can write, to clients of
+//! the host's uid only, one at a time, NUL-terminated JSON messages (cdp_socket.rs).
 //! The host and the test app are Linux (X11); encode-selftest and bench also build on macOS.
 //! Design: plans/cmux-next/remote-desktop.md. Wire: crate cmux-rd-proto.
 
@@ -20,6 +23,8 @@ mod bench;
 mod browser;
 #[cfg(target_os = "linux")]
 mod capture;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cdp_socket;
 mod clock;
 mod encoder;
 mod fdwait;

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The user, 2026-10-21: "i need to be able to drag it out to other apps too", and Copy, Save As
 /// and Show in Finder for videos and files in agent chats, not only images. A drag that starts on
@@ -31,7 +32,7 @@ struct AgentPaneMediaDragTests {
     }
 
     private static func model(_ folder: URL) -> (AgentPaneModel, Effects) {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let effects = Effects()
         model.replyLinks.imageFolder = folder.appendingPathComponent("copies", isDirectory: true)
         model.replyLinks.mouseHeld = { effects.held }
@@ -100,7 +101,7 @@ struct AgentPaneMediaDragTests {
         // Copy's item is recorded, not written (the CI Macs' pasteboard server, HomePasteAnywhereTests).
         var copied: [NSPasteboardItem] = []
         var saved: [(URL, String)] = []
-        let rows = AgentPaneFileRows(copyItem: { copied.append($0); return true }, save: { saved.append(($0, $1)) })
+        let rows = AgentPaneFileRows(copyItem: { copied.append($0); return true }, save: { saved.append(($0, $1)) }, runner: BackgroundWork(label: "test.file-rows"))
         let items = rows.items(for: clip)
         #expect(items.map(\.title) == [AgentPaneMenuStrings.copyFile, AgentPaneMenuStrings.saveAs])
         #expect(await rows.copy(clip))

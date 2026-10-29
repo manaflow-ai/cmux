@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// A background task's terminal at the pane boundary (background-task-terminal-DESIGN.md): a click
 /// on a background task row posts `chat.processTerminal {toolCallId}`; the pane asks the App to
@@ -37,7 +38,7 @@ struct AgentPaneProcessViewerTests {
     }
 
     @Test func aClickOpensTheViewerBesideTheChat() async {
-        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "chat-1")
         var opened: [AgentPaneProcessViewer] = []
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openProcess: { opened.append($0); return true })
@@ -50,7 +51,7 @@ struct AgentPaneProcessViewerTests {
     }
 
     @Test func aChatOnAnotherMachineOrWithoutADaemonIsRefused() async {
-        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "chat-1")
         var opened = 0
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openProcess: { _ in opened += 1; return true })

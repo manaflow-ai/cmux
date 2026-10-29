@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use super::link::{Link, LinkError};
 use super::{GlobalArgs, Target};
 use crate::cli::OutputMode;
+use crate::cli::json_fields::JsonFields;
 
 /// The largest picture the daemon takes.
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
@@ -103,11 +104,11 @@ fn text() -> &'static Text {
     if std::ptr::eq(crate::localization::catalog(), japanese) { &JAPANESE } else { &ENGLISH }
 }
 
-fn parse(args: &[String]) -> Result<Request, String> {
-    let mut request = Request { word: args[0].clone(), ..Request::default() };
+/// `word` is `args[0]`, the registry verb.
+fn parse(word: &str, args: &[String]) -> Result<Request, String> {
+    let mut request = Request { word: word.to_owned(), ..Request::default() };
     let mut index = 1;
-    while index < args.len() {
-        let arg = args[index].as_str();
+    while let Some(arg) = args.get(index).map(String::as_str) {
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
@@ -141,7 +142,8 @@ fn parse(args: &[String]) -> Result<Request, String> {
             }
             "--instructions-file" => {
                 let path = value()?;
-                let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+                let text =
+                    cmux_blocking::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
                 request.fields.insert("instructions".into(), json!(text));
             }
             "--tools" | "--harnesses" | "--self-edit" => {
@@ -342,7 +344,7 @@ fn relay_to_turn_host(request: &Request, output: OutputMode) -> Option<i32> {
         call.insert("chief".into(), json!(chief));
     }
     if let Some(path) = &request.avatar {
-        let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        let absolute = cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
         call.insert("avatar_path".into(), json!(absolute.display().to_string()));
     }
     if request.clear_avatar {
@@ -412,7 +414,12 @@ fn relay_to_turn_host(_request: &Request, _output: OutputMode) -> Option<i32> {
 /// `cmux chief list|get|new|edit|delete …`.
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let t = text();
-    let request = match parse(args) {
+    // The caller routes here only when the first word is a registry verb.
+    let Some(word) = args.first() else {
+        eprintln!("{}", t.usage);
+        return 2;
+    };
+    let request = match parse(word, args) {
         Ok(request) => request,
         Err(error) => {
             eprintln!("cmux: {error}\n\n{}", t.usage);
@@ -561,7 +568,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         if request.word == "history" {
             let mut params = json!({"chief": id});
             if let Some(limit) = request.limit {
-                params["limit"] = json!(limit);
+                params.insert("limit", json!(limit));
             }
             let history = link.call("chief.profile.history", params, None)?;
             let revisions =
@@ -579,9 +586,9 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         }
         if request.word == "undo" {
             let key = super::link::new_message_id();
-            let mut params = json!({"chief": id, "expected_rev": found["rev"]});
+            let mut params = json!({"chief": id, "expected_rev": found.field("rev")});
             if let Some(rev) = request.to_rev {
-                params["to_rev"] = json!(rev);
+                params.insert("to_rev", json!(rev));
             }
             let undone = link.call("chief.profile.undo", params, Some(&key))?;
             let value = undone.get("value").cloned().unwrap_or(Value::Null);
@@ -590,7 +597,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         }
         if request.word == "delete" {
             let key = super::link::new_message_id();
-            let params = json!({"chief": id, "expected_rev": found["rev"]});
+            let params = json!({"chief": id, "expected_rev": found.field("rev")});
             let deleted = link.call("chief.profile.delete", params, Some(&key))?;
             let value = deleted.get("value").cloned().unwrap_or(Value::Null);
             print_result(&value, t.deleted, json_out);
@@ -600,7 +607,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         if !request.fields.is_empty() {
             let mut params = request.fields.clone();
             params.insert("chief".into(), json!(id));
-            params.insert("expected_rev".into(), current["rev"].clone());
+            params.insert("expected_rev".into(), current.field("rev").clone());
             let key = super::link::new_message_id();
             let updated = link.call("chief.profile.update", Value::Object(params), Some(&key))?;
             current = updated.get("value").cloned().unwrap_or(Value::Null);
@@ -621,7 +628,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
     };
     if let Some((media_type, bytes)) = avatar {
         let key = super::link::new_message_id();
-        let params = json!({"chief": record["id"], "media_type": media_type, "data": STANDARD.encode(bytes)});
+        let params = json!({"chief": record.field("id"), "media_type": media_type, "data": STANDARD.encode(bytes)});
         match link.call("chief.profile.avatar.set", params, Some(&key)) {
             Ok(set) => record = set.get("value").cloned().unwrap_or(Value::Null),
             Err(error) => {
@@ -703,18 +710,19 @@ fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
 
 /// The picture at `path` and its media type, from its first bytes.
 fn read_avatar(path: &Path) -> Result<(&'static str, Vec<u8>), String> {
-    let size = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
+    let size =
+        cmux_blocking::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?.len();
     if size > MAX_AVATAR_BYTES {
         return Err(format!("{}: the picture is larger than 1 MiB", path.display()));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = cmux_blocking::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         "image/jpeg"
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         "image/gif"
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
         "image/webp"
     } else {
         return Err(format!("{}: not a PNG, JPEG, GIF or WebP picture", path.display()));

@@ -53,7 +53,7 @@ import IOSurface
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
 ///
-/// Show and hide (p03-rendering-054): while the page is hosted and the fork takes
+/// Show and hide: while the page is hosted and the fork takes
 /// its visibility from the app (``Fork/setVisibility``), a switch only shows or
 /// hides the view, so the page's layer goes in or out in the switch's own
 /// transaction; the fork hears the page's visibility, the shown tab's activation
@@ -62,14 +62,14 @@ import IOSurface
 /// catches up (`content/browser/renderer_host/delegated_frame_host.cc`,
 /// `WasShown`).
 ///
-/// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
+/// Past its grace (the app-wide hidden frame list dropped a hidden page's kept
 /// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
 /// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
 /// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
 /// next frame takes it away. A snapshot the system purged shows the page's background
 /// (``CEFHiddenPageSnapshot``).
 ///
-/// With the fork's attach call (feature `cefAttachedPages`, p03-rendering-045) a pane's tabs attach
+/// With the fork's attach call (feature `cefAttachedPages`) a pane's tabs attach
 /// Chromium's own view in the host view instead (``attachedPages``): one attach per browser, at the end of
 /// the turn like a hosting request, and the context-id path above is the fallback of a tab the fork refused.
 /// A first refusal retries once, like a hosting request: on the tracker's next read or the tab's next show.
@@ -95,7 +95,7 @@ final class CEFLayerHosting {
     /// The first fork API whose `cmux_browser_attach_view` attaches (Track B). The shim exports
     /// `cmux_shim_browser_attach_view` in every build; below this API it always refuses.
     static let attachViewForkAPI: Int32 = 36
-    /// The first fork API with `cmux_browser_set_embedder_visibility` (p03-rendering-058).
+    /// The first fork API with `cmux_browser_set_embedder_visibility`.
     static let embedderVisibilityForkAPI: Int32 = 34
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.

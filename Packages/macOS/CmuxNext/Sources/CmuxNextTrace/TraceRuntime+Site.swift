@@ -9,7 +9,7 @@ extension TraceRuntime {
     public static let maxSiteLine: UInt = 0xFFFF_FFFF
 
     /// Trace clock nanoseconds now: the time a record written now carries (also a lane item's post time, for its
-    /// queue wait, p02-threads-124).
+    /// queue wait).
     public func nowNanos() -> UInt64 {
         clock.nowNanos()
     }

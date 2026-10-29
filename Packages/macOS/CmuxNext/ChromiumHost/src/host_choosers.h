@@ -1,6 +1,6 @@
 // The color chooser, device choosers and screen-share picker of the Chromium
-// Host in cmux (plans/cmux-next/chrome-parity/p01-process.md, task
-// p01-process-228), both ends of the wire. Fork API 31 (task 227) hands these
+// Host in cmux (plans/cmux-next/chrome-parity/p01-process.md),
+// both ends of the wire. Fork API 31 (task 227) hands these
 // to the embedder as data answered by token, because Chromium's own windows
 // for them would open in the host, which shows no window. The host installs
 // the shim's handler (cmux_shim_set_color_chooser_handler,

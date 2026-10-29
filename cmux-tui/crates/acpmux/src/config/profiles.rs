@@ -579,7 +579,8 @@ pub fn parse_folder_profile_toml(text: &str, path: &Path, stem: Option<&str>) ->
 /// The line of a TOML error, as a fix hint.
 fn toml_fix(e: &toml::de::Error, text: &str) -> Option<String> {
     let span = e.span()?;
-    let line = text[..span.start.min(text.len())].matches('\n').count() + 1;
+    let before = text.as_bytes().get(..span.start).unwrap_or(text.as_bytes());
+    let line = before.iter().filter(|&&b| b == b'\n').count() + 1;
     Some(format!("see line {line}"))
 }
 
@@ -867,16 +868,14 @@ fn check_icon(profile: &Path, icon: &str) -> Result<String, String> {
 
 pub fn valid_id(id: &str) -> bool {
     let b = id.as_bytes();
-    !b.is_empty()
-        && b.len() <= 40
-        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+    b.len() <= 40
+        && b.first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
 pub fn valid_env_key(key: &str) -> bool {
     let b = key.as_bytes();
-    !b.is_empty()
-        && (b[0].is_ascii_alphabetic() || b[0] == b'_')
+    b.first().is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
         && b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
 }
 

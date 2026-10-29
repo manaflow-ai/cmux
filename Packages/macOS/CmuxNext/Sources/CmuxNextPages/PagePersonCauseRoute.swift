@@ -1,7 +1,7 @@
 public import CmuxNextSettings
 public import Foundation
 
-/// The host verb `cmux.host.cause.person {transaction}` (p06-scheduler-231, p06-scheduler.md "Page
+/// The host verb `cmux.host.cause.person {transaction}` (p06-scheduler.md "Page
 /// relay"). A page that sends ops on its own daemon WebSocket (the channels Home's
 /// `conversation-op`) goes past every app connection, so none knows the op is the person's. Before
 /// such a send the page names the op's client `transaction`, which the daemon echoes in the op's

@@ -90,7 +90,7 @@ public nonisolated enum PageFrozenDelivery: Hashable, Sendable {
     }
 }
 
-/// The router's link to its page's lifecycle (PageLifecycle, p13-webui-022). Every call runs in the
+/// The router's link to its page's lifecycle (PageLifecycle). Every call runs in the
 /// caller's turn, so a thaw happens before the envelope that needed it is sent.
 @MainActor
 public protocol PageDeliveryLifecycle: AnyObject {

@@ -14,6 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, mpsc};
 
+use crate::read_buffer::filled;
 use crate::ssh_args::background_ssh_arguments;
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
@@ -1026,7 +1027,7 @@ async fn read_bounded(
         if output.len() + read > SSH_BOOTSTRAP_OUTPUT_LIMIT {
             return Err(BootstrapError::OutputLimit { stream, limit: SSH_BOOTSTRAP_OUTPUT_LIMIT });
         }
-        output.extend_from_slice(&buffer[..read]);
+        output.extend_from_slice(filled(&buffer, read));
     }
 }
 
@@ -1044,16 +1045,13 @@ struct RemoteOutput {
 }
 
 fn sanitize(value: &str) -> String {
-    let value = value.trim().replace(['\r', '\0'], "");
+    let mut value = value.trim().replace(['\r', '\0'], "");
     if value.len() <= 4_096 {
         return value;
     }
-    let mut end = 4_096;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    let prefix = &value[..end];
-    format!("{prefix}…")
+    value.truncate(value.floor_char_boundary(4_096));
+    value.push('…');
+    value
 }
 
 #[derive(Debug)]
@@ -1215,6 +1213,9 @@ impl BootstrapError {
         }
     }
 }
+
+#[cfg(test)]
+mod sanitize_tests;
 
 #[cfg(test)]
 mod tests {

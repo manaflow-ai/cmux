@@ -63,7 +63,7 @@ fn output_frames(receiver: &AttachFrameReceiver) -> Vec<AttachFrame> {
     std::iter::from_fn(|| receiver.try_recv().ok()).collect()
 }
 
-/// p05-ipc-089: fan-out shares one buffer per PTY read. Three viewers of
+/// fan-out shares one buffer per PTY read. Three viewers of
 /// 10k chunks cost at most one allocation per chunk (the old fan-out made
 /// four: the read's copy and one copy per viewer), every viewer gets the same
 /// bytes in the same buffer, and each viewer's backlog counts the chunk as
@@ -196,7 +196,7 @@ fn attach_tap_output_with_colors_backlog_counts_all_it_retains() {
     assert_eq!(retained, len, "the frame keeps spare capacity its backlog does not count");
 }
 
-/// p09-observability-018: a slow viewer's merged output keeps the key
+/// A slow viewer's merged output keeps the key
 /// press it echoes, and the echoes of two key presses never merge into one
 /// event (each `output` carries at most one `flow`).
 #[test]

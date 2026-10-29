@@ -8,7 +8,7 @@ import CmuxNextSettingsWindow
 import Foundation
 import Testing
 
-/// The palette's Settings page offers what the Settings page offers (p14-energy-129): Energy Saver's
+/// The palette's Settings page offers what the Settings page offers: Energy Saver's
 /// row only while its feature is on, and its "On Battery" only on a Mac with a battery
 /// (``SettingsAvailability``).
 @MainActor @Suite(.serialized) struct SettingsPaletteAvailabilityTests {

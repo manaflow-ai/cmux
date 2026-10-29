@@ -3,7 +3,7 @@ import Foundation
 import JavaScriptCore
 import Testing
 
-/// Browser-tab document scripts never run in a cmux page (p13-webui-068). From fork API 29 the runtime installs
+/// Browser-tab document scripts never run in a cmux page. From fork API 29 the runtime installs
 /// them in every renderer, page renderers included (`CEFDocumentScripts.installInRenderer`), so each one starts with
 /// the cmux-page guard; only the first paint, which page tabs read too, runs in every document.
 @Suite struct CEFDocumentScriptsTests {
@@ -57,7 +57,7 @@ import Testing
         #expect(Self.rows.filter { $0.expected == .cmuxPages }.allSatisfy { !$0.script.allFrames }, "the relay is the main frame's")
     }
 
-    /// p01-process-232: the page host relay posts the page's event text on its channel, stamped with the URL of the
+    /// The page host relay posts the page's event text on its channel, stamped with the URL of the
     /// document it runs in, and cancels the event, so the page sends no binding call; it runs only in a cmux page.
     @Test(arguments: documents) func thePageHostRelayPostsOnlyInACmuxPage(_ document: Document) throws {
         let context = try Self.context(document)

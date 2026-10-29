@@ -1,9 +1,9 @@
 //! `server-stats`: where the daemon spends its time. Also `server-threads`
 //! and `server-blocking` (the plan's `server.threads` and
-//! `server.blocking`, p02-threads-203): the thread registry, work lanes and
+//! `server.blocking`): the thread registry, work lanes and
 //! blocking site table of `cmux_threads`, each read from one snapshot and
 //! rendered after every lock is released. And the forwarder of the
-//! `server-diagnostic-site` events (p02-threads-233).
+//! `server-diagnostic-site` events.
 
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};
@@ -149,6 +149,20 @@ pub(super) struct ServerThreadsSnapshot {
     process: ProcessRow,
     threads: Vec<ThreadRow>,
     lanes: Vec<LaneRow>,
+    /// Every connection and the class its lines run at: a local or
+    /// remote-entry connection holds no thread of its own,
+    /// so the QoS audit judges the person's connection here (RUN-4).
+    connections: Vec<ConnectionLinesRow>,
+}
+
+/// A connection's facts and the class its lines run at on the pool worker
+/// that handles them: its reader class under `daemonRequestQos`, the
+/// pool's otherwise.
+#[derive(Clone, Debug, serde::Serialize)]
+struct ConnectionLinesRow {
+    #[serde(flatten)]
+    connection: ConnectionRow,
+    lines_qos: &'static str,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -299,6 +313,7 @@ fn threads_snapshot(
     threads: Vec<ThreadInfo>,
     connections: &HashMap<u64, ConnectionFacts>,
     lanes: [LaneStats; 3],
+    lines: ConnectionLines,
 ) -> ServerThreadsSnapshot {
     let mut threads: Vec<ThreadRow> =
         threads.into_iter().map(|info| ThreadRow::of(info, connections)).collect();
@@ -318,6 +333,33 @@ fn threads_snapshot(
         },
         threads,
         lanes: lanes.into_iter().map(LaneRow::of).collect(),
+        connections: lines.rows(),
+    }
+}
+
+/// Every connection's facts, and whether its lines run at its class.
+struct ConnectionLines {
+    facts: HashMap<u64, ConnectionFacts>,
+    request_qos: bool,
+}
+
+impl ConnectionLines {
+    fn rows(self) -> Vec<ConnectionLinesRow> {
+        let request_qos = self.request_qos;
+        let mut rows: Vec<ConnectionLinesRow> = self
+            .facts
+            .into_iter()
+            .map(|(client, facts)| ConnectionLinesRow {
+                connection: ConnectionRow::of(client, Some(&facts)),
+                lines_qos: if request_qos {
+                    facts.reader_qos.as_str()
+                } else {
+                    super::connection_scheduler::REQUEST_THREAD_QOS.as_str()
+                },
+            })
+            .collect();
+        rows.sort_by_key(|row| row.connection.client);
+        rows
     }
 }
 
@@ -330,6 +372,10 @@ pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
     let threads = cmux_threads::snapshot();
     let connections =
         mux.control_clients.connection_facts(threads.iter().filter_map(|info| info.owner));
+    let lines = ConnectionLines {
+        facts: mux.control_clients.connection_facts(mux.control_clients.client_ids()),
+        request_qos: mux.request_qos().enabled(),
+    };
     threads_snapshot(
         uptime_ms(mux),
         process_role::current(),
@@ -337,6 +383,7 @@ pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
         threads,
         &connections,
         mux.work.stats(),
+        lines,
     )
 }
 
@@ -415,10 +462,13 @@ const DIAGNOSTIC_SITES_THREAD: &str = "mux-diag-sites";
 pub(crate) fn forward_diagnostic_sites(mux: &Arc<Mux>) {
     let Some(feed) = blocking::take_first_sites() else { return };
     let mux = Arc::downgrade(mux);
-    let started =
-        cmux_threads::spawn(DIAGNOSTIC_SITES_THREAD, cmux_threads::ThreadQos::Utility, move || {
-            forward_first_sites(&feed, &mux);
-        });
+    let started = crate::supervised::spawn_at(
+        DIAGNOSTIC_SITES_THREAD,
+        cmux_threads::ThreadQos::Utility,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || forward_first_sites(&feed, &mux),
+    );
     if let Err(error) = started {
         eprintln!("cmux-tui: cannot start {DIAGNOSTIC_SITES_THREAD}: {error}");
     }

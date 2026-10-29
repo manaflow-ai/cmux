@@ -324,7 +324,7 @@ struct ImportFuzzCases {
     // MARK: libFuzzer entry
 
     /// One input of the byte formats: the first byte picks the reader, the rest is its file. The
-    /// libFuzzer wrapper (p10-stability-182) calls this; the filesystem cases are not part of it.
+    /// libFuzzer wrapper calls this; the filesystem cases are not part of it.
     static func oneInput(_ data: Data) throws {
         guard let selector = data.first else { return }
         let file = Data(data.dropFirst())

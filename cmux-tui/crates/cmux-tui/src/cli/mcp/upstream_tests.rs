@@ -249,8 +249,8 @@ for line in reader:
     conn.sendall((json.dumps(dict(reply, jsonrpc="2.0", id=m["id"])) + "\n").encode())
 "#;
 
-/// An upstream with a `socket` (a tool set the acpmux daemon serves itself,
-/// p07-memory-092) is the daemon's own connection: no process starts (its
+/// An upstream with a `socket` (a tool set the acpmux daemon serves itself)
+/// is the daemon's own connection: no process starts (its
 /// command does not exist here), its first `initialize` carries the entry's
 /// `initializeMeta`, and its tools list and call like any other server's.
 #[cfg(unix)]

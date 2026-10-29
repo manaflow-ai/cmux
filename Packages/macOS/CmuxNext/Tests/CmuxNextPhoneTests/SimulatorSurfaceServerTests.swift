@@ -42,7 +42,7 @@ import Testing
     }
 
     /// hostd's kbps is a peer's number: one that is not a whole Int ends the session instead of trapping the
-    /// conversion (p10-stability-093).
+    /// conversion.
     @Test func aBitrateThatIsNotAWholeIntIsRefused() {
         #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(2500)]) == 2500)
         #expect(SimulatorSurfaceServer.Session.bitrate([:]) == 4000)

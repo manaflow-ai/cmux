@@ -2,8 +2,8 @@ import CmuxNextWakeups
 import Testing
 @testable import CmuxNextDaemon
 
-/// The local daemon's store names its connection epoch in the crash keys (p10-stability-207,
-/// ``CrashKeySlots/Key/daemonEpoch``): a crash record says which connection the app was on.
+/// The local daemon's store names its connection epoch in the crash keys
+/// (``CrashKeySlots/Key/daemonEpoch``): a crash record says which connection the app was on.
 @MainActor
 struct DaemonEpochCrashKeyTests {
     @Test func eachConnectionChangeMovesTheEpochKey() {

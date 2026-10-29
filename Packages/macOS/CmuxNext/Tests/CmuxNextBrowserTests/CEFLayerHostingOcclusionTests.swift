@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-097: a hosted page whose window is occluded (its ``WindowOcclusionFamily``: AppKit's
+/// A hosted page whose window is occluded (its ``WindowOcclusionFamily``: AppKit's
 /// state or an opaque cmux window covering it) gets the fork's embedder visibility `occluded`, after the
 /// commit like a show or hide, and `visible` once the window is seen again. Without Chromium: a fake fork,
 /// and the commit runs when the test says.

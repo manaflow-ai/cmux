@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// The parts of cmux.json that cmux-next applies, parsed off the main actor.
 /// Keys stay strings here; `SettingsApplier` maps them onto `DesignSettings`
@@ -51,6 +52,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    /// `browser.builtInAdBlocker` is `true` in cmux.json (the person turned it on; unset is on by default only).
+    public var browserBuiltInAdBlockerChosen = false
     /// `browser.showAgentCursor`; on when unset.
     public var browserShowAgentCursor = AgentCursorSetting().fallback
     /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
@@ -302,6 +305,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
+        snapshot.browserBuiltInAdBlockerChosen = BuiltInAdBlockerSetting().chosen(root)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
         snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)

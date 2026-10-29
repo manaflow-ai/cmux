@@ -21,7 +21,7 @@ private final class Cell<Value: Sendable>: Sendable {
     }
 }
 
-/// The registry's contract (p10-stability-081): a token resolves to its live object, and a token whose entry is
+/// The registry's contract: a token resolves to its live object, and a token whose entry is
 /// unregistered, reused, forged, or whose object is gone resolves to nil and is counted, never to a freed or a
 /// different object.
 @Suite struct CallbackRegistryTests {

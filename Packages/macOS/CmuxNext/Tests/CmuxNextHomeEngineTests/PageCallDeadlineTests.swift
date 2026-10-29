@@ -4,7 +4,7 @@ import Testing
 
 /// A page call answers once: with its work when it ends first, with `onTimeout` at the deadline,
 /// with `CancellationError` when the page cancels it; the work is cancelled whenever it did not
-/// answer (p10-stability-171: one cancellable OnceContinuation in place of the private resume-once
+/// answer (one cancellable OnceContinuation in place of the private resume-once
 /// box). The deadline sleeps on a `ManualClock`.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct PageCallDeadlineTests {
     struct TimedOut: Error {}

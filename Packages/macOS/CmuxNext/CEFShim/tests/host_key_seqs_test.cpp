@@ -1,6 +1,6 @@
 // Checks cmux_shim::HostKeySeqs (CEFShim/src/host_key_seqs.h): the input seq a
 // chord the page left unhandled goes back to cmux with in host mode
-// (p01-process-030; scripts/cmux-next/tests/shim-host-key-seqs.test.sh).
+// (scripts/cmux-next/tests/shim-host-key-seqs.test.sh).
 #include <cstdio>
 
 #include "../src/host_key_seqs.h"

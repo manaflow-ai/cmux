@@ -110,7 +110,7 @@ extension PageFactory {
     func changelogPage(route: String? = nil) -> PageWebView? {
         let media = services.updater.releaseMedia
         let provider = changelogNotes(media: media)
-        // memorySmallAppStores (default off): the page's inlined pictures, a memory consumer for the page's life (p07-memory-083).
+        // memorySmallAppStores (default off): the page's inlined pictures, a memory consumer for the page's life.
         if services.features.isEnabled(.memorySmallAppStores) { provider.mediaMemory = media?.registerMemoryConsumer(with: services.memoryCoordinator) }
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

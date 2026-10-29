@@ -56,8 +56,13 @@ nonisolated struct AgentPaneReplyImages {
     static let decodedTypes: Set<String> = [UTType.heic.identifier, UTType.tiff.identifier, UTType.bmp.identifier]
 
     /// The image file at `path` (already checked to be inside a root) as a data URL.
-    /// Reads and decodes off the main actor.
-    @concurrent static func local(_ path: String) async -> Result<String, AgentPaneReplyError> {
+    /// Reads and decodes on `runner`'s files lane (the reply shows it soon).
+    static func local(_ path: String, runner: any MayBlockRunner) async -> Result<String, AgentPaneReplyError> {
+        (try? await runner.runFiles(.userVisible) { localNow(path) }) ?? .failure(.imageFailed)
+    }
+
+    /// ``local(_:runner:)``'s read and decode, on the lane thread.
+    private static func localNow(_ path: String) -> Result<String, AgentPaneReplyError> {
         let url = URL(fileURLWithPath: path)
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true
         else { return .failure(.pathInvalid) }
@@ -66,8 +71,7 @@ nonisolated struct AgentPaneReplyImages {
             return pdfThumbnail(url)
         }
         guard (values.fileSize ?? Int.max) <= maximumBytes else { return .failure(.imageTooLarge) }
-        // concurrency-allow: local(_:) is @concurrent, so this read never runs on the main actor
-        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
+        guard let data = try? Data(blockingContentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
             return .failure(.imageFailed)
         }
         if url.pathExtension.lowercased() == "svg" {

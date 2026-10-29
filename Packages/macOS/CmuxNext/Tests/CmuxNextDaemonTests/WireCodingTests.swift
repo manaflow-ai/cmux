@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// `WireCoding` writes each key as the type's `CodingKeys` spell it: no
-/// snake_case rewrite and no key sort (p05-ipc-046). The generated wire
+/// snake_case rewrite and no key sort. The generated wire
 /// types carry the schema's names, and serde reads objects by name.
 struct WireCodingTests {
     private struct ProbeRequest: DaemonRequest {

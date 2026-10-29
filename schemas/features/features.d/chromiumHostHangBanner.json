@@ -3,7 +3,7 @@
   "name": "chromiumHostHangBanner",
   "owner": "PL-cef-layer",
   "description": "In host mode, when the Chromium host has not taken a key, click or scroll for 2 seconds while one of its pages shows, a bar says Chromium is busy, with Wait and Reload Chromium; the host's own hangs of 250 ms or more go to hang reports.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

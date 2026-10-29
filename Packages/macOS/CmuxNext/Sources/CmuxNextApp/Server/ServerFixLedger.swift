@@ -9,7 +9,9 @@ import Foundation
 /// A missing file is an empty ledger; a file that cannot be read is
 /// `.unknown`, and one that names a fix this build does not know is
 /// `.foreign`. Callers treat both as "every fix may be applied" (fail safe).
-nonisolated struct ServerFixLedger: Sendable {
+/// An actor on a queue of its own: its file calls block that queue, never a
+/// cooperative pool thread.
+actor ServerFixLedger {
     nonisolated enum Contents: Sendable, Equatable {
         case fixes(Set<ServerFix>)
         /// The file cannot be read.
@@ -33,13 +35,25 @@ nonisolated struct ServerFixLedger: Sendable {
         var fixes: [String: Int64] = [:]
     }
 
-    let url: URL
+    nonisolated let url: URL
+
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.server-fix-ledger`): its
+    /// file reads and writes block a thread of its own (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.server-fix-ledger
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.server-fix-ledger", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    init(url: URL) {
+        self.url = url
+    }
 
     /// `~/Library/Application Support/cmux/server-fix-ledger/<helper label>.json`:
     /// keyed by this build's helper label (`<bundle id>.server-helper`), as
     /// each build (DEV and NIGHTLY tags too) has its own helper. It outlives
     /// app restarts; only reverts remove entries.
-    static var standard: ServerFixLedger {
+    nonisolated static var standard: ServerFixLedger {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let label = Bundle.main.bundleIdentifier.flatMap { ServerHelperConstants().machServiceName(appBundleID: $0) }
@@ -47,9 +61,8 @@ nonisolated struct ServerFixLedger: Sendable {
         return ServerFixLedger(url: support.appendingPathComponent("cmux/server-fix-ledger/\(label).json"))
     }
 
-    @concurrent func load() async -> Contents {
+    func load() -> Contents {
         guard FileManager.default.fileExists(atPath: url.path) else { return .fixes([]) }
-        // concurrency-allow: @concurrent, off the main actor; a small file
         guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().blockingDecode(File.self, from: data) else {
             return .unknown
         }
@@ -62,8 +75,8 @@ nonisolated struct ServerFixLedger: Sendable {
     /// Adds a fix before the helper is asked to apply it (a timed-out call may
     /// still have changed the setting). A ledger that cannot be read stays as
     /// it is (still `.unknown`, so nothing is lost); foreign ids are kept.
-    @concurrent func record(_ fix: ServerFix) async throws {
-        guard await load() != .unknown else { return }
+    func record(_ fix: ServerFix) throws {
+        guard load() != .unknown else { return }
         var file = try readKnown()
         if file.fixes[fix.rawValue] == nil {
             // wall-clock: the ledger file keeps when each fix was applied, Unix ms.
@@ -73,8 +86,8 @@ nonisolated struct ServerFixLedger: Sendable {
     }
 
     /// Removes a fix after its revert succeeded or the helper had nothing to revert.
-    @concurrent func clear(_ fix: ServerFix) async throws {
-        guard await load() != .unknown else { return }
+    func clear(_ fix: ServerFix) throws {
+        guard load() != .unknown else { return }
         var file = try readKnown()
         guard file.fixes.removeValue(forKey: fix.rawValue) != nil else { return }
         try write(file)
@@ -82,13 +95,12 @@ nonisolated struct ServerFixLedger: Sendable {
 
     /// Replaces any content (also an unreadable file) with an empty ledger:
     /// after every fix was reverted. Never for a `.foreign` ledger.
-    @concurrent func reset() async throws {
+    func reset() throws {
         try write(File())
     }
 
     private func readKnown() throws -> File {
         guard FileManager.default.fileExists(atPath: url.path) else { return File() }
-        // concurrency-allow: called only from the @concurrent members above
         return try JSONDecoder().blockingDecode(File.self, from: Data(contentsOf: url))
     }
 
@@ -102,16 +114,16 @@ nonisolated struct ServerFixLedger: Sendable {
         let data = try JSONEncoder().encode(file)
         let temp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
         // SAFETY: open, rename and unlink read the NUL-terminated copies of the paths Swift makes for each call.
-        let descriptor = unsafe open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        let descriptor = unsafe blockingOpen(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
-            try handle.write(contentsOf: data)
-            try handle.synchronize()
+            try handle.blockingWrite(contentsOf: data)
+            try handle.blockingSynchronize()
             try handle.close()
-            guard unsafe rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard unsafe blockingRename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } catch {
-            unsafe unlink(temp.path)
+            unsafe _ = blockingUnlink(temp.path)
             throw error
         }
     }

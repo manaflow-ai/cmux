@@ -24,6 +24,9 @@ pub(super) struct HostedReader {
     /// The host connection negotiated `FLAG_INPUT_FLOW`: its output
     /// frames carry the key press they echo.
     pub(super) input_flow: bool,
+    /// The connection negotiated `FLAG_INPUT_STAGES`: those output frames
+    /// also carry the host's PTY write and read of the press.
+    pub(super) input_stages: bool,
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
@@ -135,7 +138,8 @@ impl HostedReader {
             self.protocol_version,
             self.smart_renderer,
         )
-        .with_input_flow(self.input_flow);
+        .with_input_flow(self.input_flow)
+        .with_input_stages(self.input_stages);
         let mut received_exit = None;
         let mut resync_requested = false;
         let mut journal_target = None;
@@ -210,13 +214,22 @@ impl HostedReader {
                     &mut journal_target,
                     &mut journal_update,
                 ),
-                HostedTransition::FlowOutput { output, flow } => self.apply_output(
-                    surface,
-                    pty,
-                    HostedOutput { output, colors: None, flow },
-                    &mut journal_target,
-                    &mut journal_update,
-                ),
+                HostedTransition::FlowOutput { output, flow, host_stages } => {
+                    // The echo's stages: the host's own write and read, else its arrival here.
+                    match host_stages {
+                        Some((written, read)) if read != 0 => {
+                            pty.input_stages.host_echoed(flow, written, read);
+                        }
+                        _ => pty.input_stages.echoed(flow, crate::input_stages::now_ns()),
+                    }
+                    self.apply_output(
+                        surface,
+                        pty,
+                        HostedOutput { output, colors: None, flow },
+                        &mut journal_target,
+                        &mut journal_update,
+                    )
+                }
                 HostedTransition::OutputWithColors { output, colors } => self.apply_output(
                     surface,
                     pty,

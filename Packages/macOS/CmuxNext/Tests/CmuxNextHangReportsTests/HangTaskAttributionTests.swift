@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// A watchdog hang in an opt-in hang report names the scheduled task it caught (p06-scheduler-203): its
+/// A watchdog hang in an opt-in hang report names the scheduled task it caught: its
 /// owner and class, or `unattributed`, in wire schema 3 only (the deployed schema-2 server refuses the key),
 /// through the builder's allow-list.
 struct HangTaskAttributionTests {

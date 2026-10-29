@@ -8,17 +8,17 @@ public import CmuxNextWakeups
 ///
 /// The poll is a repeating ``BackgroundActivity`` (`NSBackgroundActivityScheduler` in the app): every
 /// interval times the Energy Saver's ``EnergyPolicy/pollStretch``, with a quarter of that as tolerance,
-/// so macOS batches the wake with others and defers it while the Mac is busy (p14-energy-066b). Each
+/// so macOS batches the wake with others and defers it while the Mac is busy. Each
 /// run posts one main-actor intent that starts a refresh; an intent of an activity replaced since it
 /// was posted starts nothing. While no feed surface shows (the ``ShownWindows`` over the nodes of the
 /// feed's page tabs, panel and sidebar sections) the activity is invalidated; a surface showing again
 /// refreshes an interval after the last refresh, at once when that has passed, and schedules the
-/// activity anew then (p14-energy-032), as Chromium stops a hidden page's timers and runs what came due
+/// activity anew then, as Chromium stops a hidden page's timers and runs what came due
 /// once it shows (`content/public/browser/visibility.h`).
 ///
 /// No deadline of the poll waits while the app is hidden: the activity is the system's to coalesce (its
 /// tolerance), and the catch-up waits only while a feed surface shows, so the Blink-style whole-second
-/// alignment of hidden wakes (p06-scheduler-344) has nothing left to align here.
+/// alignment of hidden wakes has nothing left to align here.
 @MainActor
 public final class GitHubFeedSource: GitHubFeedDetailProviding {
     public static let defaultInterval: Duration = .seconds(120)

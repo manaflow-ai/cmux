@@ -5,10 +5,10 @@
 //! `history-search` reads on its own connection (WAL), so a query never
 //! waits for indexing.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_history::{Backfill, SearchFeed, SearchHit, SearchIndex, SearchKind};
@@ -38,7 +38,7 @@ pub struct HistorySearch {
     /// The worker frees its own connection's page cache at its next turn
     /// ([`Self::release_memory`]).
     trim: Arc<AtomicBool>,
-    worker: Mutex<Option<JoinHandle<()>>>,
+    worker: Mutex<Option<SupervisedThread<()>>>,
     /// Hears each release the worker makes on its own connection.
     #[cfg(test)]
     worker_releases: Arc<std::sync::OnceLock<std::sync::mpsc::SyncSender<WorkerRelease>>>,
@@ -73,9 +73,13 @@ impl HistorySearch {
         };
         #[cfg(test)]
         let worker_releases = signals.releases.clone();
-        let worker = std::thread::Builder::new()
-            .name("history-search".into())
-            .spawn(move || index_loop(writer, feeds, pace, &signals))?;
+        let worker = supervised::spawn_at(
+            "history-search",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || index_loop(writer, feeds, pace, &signals),
+        )?;
         Ok(Self {
             reader: Mutex::new(reader),
             stop,
@@ -93,7 +97,7 @@ impl HistorySearch {
         let reader = self.reader.lock().unwrap_or_else(PoisonError::into_inner).release_memory();
         self.trim.store(true, Ordering::Release);
         if let Some(worker) = self.worker.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
-            worker.thread().unpark();
+            worker.unpark();
         }
         Ok(reader?)
     }
@@ -114,7 +118,7 @@ impl Drop for HistorySearch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(worker) = self.worker.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            worker.thread().unpark();
+            worker.unpark();
             let _ = worker.join();
         }
     }

@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 
 /// The pure frame layouts the browser's status views and bars lay out with instead of Auto
-/// Layout (p03-rendering-072, plans/cmux-next/chrome-parity/p03-rendering.md R4): narrow,
+/// Layout (plans/cmux-next/chrome-parity/p03-rendering.md R4): narrow,
 /// normal and wide rooms, right to left, and a row with an accessory (an action button).
 @Suite struct PaneChromeFrameLayoutTests {
     // MARK: Column

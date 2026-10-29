@@ -7,7 +7,7 @@ extension DaemonStore {
     /// after a command's reply or a sync round trip), the connection changed since `epoch`, or the task was
     /// cancelled. A continuation resumed by ``advanceAppliedSequence(to:)``, by the end of the batch or event that
     /// changed the connection, and by the end of ``run(connection:scheduler:)``: no observation, timer or poll;
-    /// the caller's deadline cancels it (the oracle's settle, p15-oracle-031).
+    /// the caller's deadline cancels it (the oracle's settle).
     ///
     /// A connection already changed since `epoch` ends the wait at once: a sequence of another connection says
     /// nothing about this one's. A wait that is parked when its connection drops ends reached when the batch

@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// The held prewarms (p04-input-042/043): FIFO of 2, oldest evicted first, as Chrome holds at most two
+/// The held prewarms: FIFO of 2, oldest evicted first, as Chrome holds at most two
 /// non-eager prerenders (prerender_host_registry.cc, `kMaxNumOfRunningNonEagerPrerendersExceeded`).
 struct IntentPrewarmTests {
     @Test func theQueueHoldsTwoAndEvictsTheOldest() {
@@ -64,7 +64,7 @@ struct IntentPrewarmTests {
         #expect(queue.trigger(of: "b") == nil)
     }
 
-    /// p04-input-042: hover and press prewarms share the one FIFO; each held one keeps the trigger that
+    /// Hover and press prewarms share the one FIFO; each held one keeps the trigger that
     /// started it until it leaves, so a use is counted by trigger.
     @Test func pressAndHoverShareTheFIFOAndEachKeepsItsTrigger() {
         var queue = IntentPrewarmQueue<String>()

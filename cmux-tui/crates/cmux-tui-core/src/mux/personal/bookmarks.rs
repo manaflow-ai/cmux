@@ -6,6 +6,7 @@
 //! `list-bookmarks`.
 
 use super::super::*;
+use std::sync::PoisonError;
 
 /// Payload of `MuxEvent::BookmarksChanged`: the bookmark tree of one
 /// browser profile in the home session changed (`bookmarks-v1`). Consumers
@@ -23,7 +24,10 @@ impl Mux {
         &self,
         browser_profile_id: &str,
     ) -> anyhow::Result<(u64, Vec<crate::workspace_registry::personal_bookmarks::Bookmark>)> {
-        self.workspace_registry.lock().unwrap().list_bookmarks(browser_profile_id)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .list_bookmarks(browser_profile_id)
     }
 
     /// Run one bookmark mutation under the registry lock. The mutation
@@ -35,7 +39,8 @@ impl Mux {
         mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, Option<(String, u64)>)>,
     ) -> anyhow::Result<(T, bool)> {
         let (value, changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             mutation(&mut registry)?
         };
         let Some((browser_profile_id, revision)) = changed else {

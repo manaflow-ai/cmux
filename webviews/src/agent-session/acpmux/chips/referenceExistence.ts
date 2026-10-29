@@ -11,7 +11,7 @@
 // life (the oldest past MAX_KEPT go, and a shown chip asks again); resetReferenceExistence clears
 // the timers.
 //
-// The rounds rest while the page is hidden, frozen or parked (p13-webui-069, MQ4b): a round's wait
+// The rounds rest while the page is hidden, frozen or parked (MQ4b): a round's wait
 // is a page timeout that arms nothing then, and a batch asked for while hidden waits for the show.
 // On show a round counts its whole wait again (`onResume: "wait"`): the agent page reads nothing on
 // show (scripts/cmux-next/check-switch-fetches.py).

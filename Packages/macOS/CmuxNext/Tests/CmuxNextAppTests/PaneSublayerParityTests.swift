@@ -5,7 +5,7 @@ import QuartzCore
 import CmuxNextWakeups
 import Testing
 
-/// Pane chrome on the render server (chrome-parity p03-rendering-029, `motion.renderServer` on): the ring,
+/// Pane chrome on the render server (`motion.renderServer` on): the ring,
 /// glow, attention ring, border, dim and focus flash ride their pane's spring. The overlay's frame follows
 /// the host's presented frame, and each sublayer that keeps its thickness sits where the overlay's layout
 /// puts it for the size the pane shows, within 0.5 pt at the start and at 25, 50 and 75 % of Cmd-D, of

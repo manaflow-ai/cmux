@@ -42,7 +42,7 @@ extension AppBrowserPage {
     static func awakePage(_ key: String, page: any BrowserTab, cache: TabContentCache,
                           within: Duration) async -> (any BrowserTab)? {
         if page is DeferredBrowserTab {
-            // A command starts Chromium at once (`.automation`, p08-startup-040); a crash deferral waits for the person.
+            // A command starts Chromium at once (`.automation`); a crash deferral waits for the person.
             guard cache.startLaunchDeferred(key) else { return page }
             return await installedLivePage(key, cache: cache, method: "browser.start", owner: "browser.page.start", within: within)
         }

@@ -1,7 +1,7 @@
 import CmuxNextTrace
 public import CmuxNextWakeups
 
-/// The local daemon in the process's crash-key page (p09-observability-078): its connection state and pid, the
+/// The local daemon in the process's crash-key page: its connection state and pid, the
 /// Ghostty commit it reports, and how many workspaces its tree holds, so a crash or a fatal hang names the daemon
 /// the app talked to. Only the local daemon's store has the app's ``CrashKeySlots`` (`DaemonService`).
 extension CrashKeySlots {

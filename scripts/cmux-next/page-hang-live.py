@@ -183,7 +183,7 @@ def run_cmux_page():
         return
     reply = rpc("debug.dialog", {"id": card["id"], "press": "exit"})
     check(reply.get("pressed") is True, f"{name}: Exit page runs ({reply})")
-    # The renderer ends; the shown page's crash recovery reloads it at once (p13-webui-039).
+    # The renderer ends; the shown page's crash recovery reloads it at once.
     back = quiet_wait(lambda: not hang_card() and page_state().get("painted") is True, 30)
     check(bool(back), f"{name}: Exit page ends the renderer and the page reloads ({page_state()})")
 

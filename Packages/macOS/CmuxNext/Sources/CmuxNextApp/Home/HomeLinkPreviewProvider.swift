@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextTabs
 import MessagesLabHome
+import CmuxNextCompat
 
 /// What a Home link chip's target is now, for its hover card (plans/cmux-next/home-link-chips-DESIGN.md):
 /// a workspace's name and tabs, a tab's title, place and (terminal) last lines or (page)
@@ -151,7 +152,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
     /// The tab with durable id `id` and its pane, on any machine, for one card read.
     private static func locate(_ id: String, in services: AppServices) -> (TabModel, PaneModel)? {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per card; no scan, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per card; no scan, no observation
         services.locateTab(id)
     }
 
@@ -164,12 +165,12 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
     /// A file's first non-empty lines (or a folder's first names); nil when it is gone.
     nonisolated static func firstLines(_ path: String, folder: Bool) -> [String]? {
         if folder {
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+            guard let names = try? FileManager.checked.contentsOfDirectory(atPath: path) else { return nil }
             return Array(names.filter { !$0.hasPrefix(".") }.sorted().prefix(maxLines))
         }
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
         defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: fileBytes)) ?? Data()
+        let data = (try? handle.blockingRead(upToCount: fileBytes)) ?? Data()
         let text = String(decoding: data, as: UTF8.self)
         guard !text.contains("\u{0}") else { return [] }
         return Array(text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(maxLines))

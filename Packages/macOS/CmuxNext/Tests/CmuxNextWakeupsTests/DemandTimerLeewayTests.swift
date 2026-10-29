@@ -2,7 +2,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// DemandTimer's delay policy and tolerance (p14-energy-012): each sleep asks the ``WakeLeeway``
+/// DemandTimer's delay policy and tolerance: each sleep asks the ``WakeLeeway``
 /// window of the timer's ``DelayPolicy`` (Chromium's `subtle::DelayPolicy`, base/task/delay_policy.h),
 /// on the injected Energy Saver alignment, and the deadline itself never moves.
 @Suite("DemandTimer leeway")

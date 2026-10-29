@@ -1,4 +1,4 @@
-//! Per-terminal input order (p05-ipc-085): a 1 MiB control `send` (its
+//! Per-terminal input order: a 1 MiB control `send` (its
 //! text, its bytes and its submit Return), typed or pasted, and 1k keys
 //! typed on a stream at the same time reach the PTY with no key inside the
 //! send.
@@ -37,7 +37,7 @@ impl Recorder {
 }
 
 /// One key of an INPUT frame on the surface's stream, written the way the
-/// stream item writes it (`cmd_terminal_io::write_input`, p05-ipc-078):
+/// stream item writes it (`cmd_terminal_io::write_input`):
 /// the creating-input flush, then the surface's input write.
 fn stream_key(mux: &Arc<Mux>, surface: &Arc<crate::Surface>) {
     mux.wait_for_creating_input_flush(surface);

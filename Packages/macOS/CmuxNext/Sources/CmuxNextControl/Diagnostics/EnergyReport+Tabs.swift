@@ -2,7 +2,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
 
-/// `debug.energy`'s `tabs` (p14-energy-124): each Chromium tab with the renderers that serve it.
+/// `debug.energy`'s `tabs`: each Chromium tab with the renderers that serve it.
 extension EnergyReport {
     /// Each tab's renderers: the sampled tab renderers (``ProcessSample/rendererClientID``), matched by
     /// the pid of the tab's main frame and the client ids of its frames.

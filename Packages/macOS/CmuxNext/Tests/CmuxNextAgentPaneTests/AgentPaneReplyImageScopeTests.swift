@@ -5,6 +5,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import CmuxNextWakeups
 
 /// Reply image paths have a read-only local scope separate from ordinary path chips, and large
 /// RGBA PNGs are normalized before the page or its viewer receives them.
@@ -44,7 +45,7 @@ struct AgentPaneReplyImageScopeTests {
         let file = folder.appendingPathComponent("sidebar-clean-cmux.png")
         try Self.largePNG.write(to: file)
 
-        let result = await AgentPaneReplyImages.local(file.path)
+        let result = await AgentPaneReplyImages.local(file.path, runner: BackgroundWork(label: "test.reply-images"))
         guard case .success(let source) = result, let comma = source.firstIndex(of: ","),
               let data = Data(base64Encoded: String(source[source.index(after: comma)...])) else {
             Issue.record("large PNG did not become a data URL: \(result)")

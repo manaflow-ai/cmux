@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextHibernation
 import Testing
 
-/// ``HiddenFrameLRU`` (p03-rendering-099), Chrome's FrameEvictionManager for terminal frames: a
+/// ``HiddenFrameLRU``, Chrome's FrameEvictionManager for terminal frames: a
 /// locked frame is never evicted, the least recently used unlocked frame goes first past the soft
 /// limit on the evictions deadline (never in the culling turn), a frame unused 5 min goes on one
 /// deadline aimed at the oldest, and a lowered memory limit (warning or critical) purges every

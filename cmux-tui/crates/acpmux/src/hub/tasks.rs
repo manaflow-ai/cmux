@@ -30,6 +30,7 @@
 //! A task for a peer's session is not here yet.
 
 use super::{Fatal, Hub, PromptOptions, ShutdownBehavior};
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -104,7 +105,7 @@ pub(crate) fn result(params: &Value, state: &str, by: &str) -> Result<Value, Rpc
         "at": crate::store::now_ms(), "by": by,
     });
     if let Some(why) = why {
-        result["why"] = json!(why);
+        result.set("why", json!(why));
     }
     Ok(result)
 }
@@ -181,7 +182,11 @@ impl Hub {
         }
         let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default().to_owned();
         let Ok(giver) = self.resolve(to) else {
-            self.result_undelivered(&id, &row["result"]["at"], "the chat that gave it is gone");
+            self.result_undelivered(
+                &id,
+                row.field("result").field("at"),
+                "the chat that gave it is gone",
+            );
             return;
         };
         let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -287,7 +292,7 @@ impl Hub {
                 match events.recv().await {
                     Ok(ev) => {
                         let rec = &ev.record;
-                        let closed = rec.kind == "status" && rec.msg["status"] == "closed";
+                        let closed = rec.kind == "status" && rec.msg.field("status") == "closed";
                         if rec.dir != "mux"
                             || ev.remote.is_some()
                             || !(closed || rec.kind == "purged")
@@ -311,7 +316,7 @@ impl Hub {
     /// send the giver had before a crash a duplicate. A card whose giver is not loaded (a start
     /// whose session list failed loads none) waits for a later pass.
     fn send_owed_cards(self: &Arc<Self>, start: bool) {
-        let owed = |row: &Value| orphaned(row) && row["result"]["cardOwed"] == true;
+        let owed = |row: &Value| orphaned(row) && row.field("result").field("cardOwed") == true;
         for row in self.briefs.matching(owed) {
             let giver = row.get("fromSession").and_then(Value::as_str).unwrap_or_default();
             if self.resolve(giver).is_err() {
@@ -320,8 +325,8 @@ impl Hub {
             let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default();
             let mut mine = false;
             let row = self.briefs.update(id, |r| {
-                if owed(r) && (start || r["result"]["cardSending"] != true) {
-                    r["result"]["cardSending"] = json!(true);
+                if owed(r) && (start || r.field("result").field("cardSending") != true) {
+                    r.set_path(&["result", "cardSending"], json!(true));
                     mine = true;
                 }
             });
@@ -339,12 +344,12 @@ impl Hub {
 
     /// Ends a send's claim on task `id`'s card made `at`; `delivered` also clears its owed mark.
     fn card_claim_ends(&self, id: &str, at: &Value, delivered: bool) {
-        if self.briefs.get(id).is_none_or(|r| r["result"]["cardSending"] != true) {
+        if self.briefs.get(id).is_none_or(|r| r.field("result").field("cardSending") != true) {
             return;
         }
         self.briefs.update(id, |r| {
-            if &r["result"]["at"] == at
-                && let Some(result) = r["result"].as_object_mut()
+            if r.field("result").field("at") == at
+                && let Some(result) = r.get_mut("result").and_then(Value::as_object_mut)
             {
                 result.remove("cardSending");
                 if delivered {
@@ -359,8 +364,8 @@ impl Hub {
     /// delivered. Nothing when the task has a newer result since.
     fn result_undelivered(&self, id: &str, at: &Value, why: &str) {
         self.briefs.update(id, |r| {
-            if &r["result"]["at"] == at {
-                r["result"]["undelivered"] = json!(why);
+            if r.field("result").field("at") == at {
+                r.set_path(&["result", "undelivered"], json!(why));
             }
         });
         // An owed card stays owed, for a later pass.

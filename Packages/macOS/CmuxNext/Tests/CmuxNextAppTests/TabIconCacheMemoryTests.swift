@@ -5,7 +5,7 @@ import CmuxNextIcons
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p07-memory-052: the tab strips' drawn icon caches (tinted symbols, icon pack images, agent marks, user
+/// The tab strips' drawn icon caches (tinted symbols, icon pack images, agent marks, user
 /// emoji, known symbol names) were dictionaries emptied whole at 257 entries, outside the memory
 /// coordinator. Each is now a lossless ``TabImageMemo`` consumer: a new limit frees nothing, a release frees
 /// idle values least recently used first, at limit 0 an idle memo holds 0 values and 0 bytes, values drawn in

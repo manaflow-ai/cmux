@@ -7,7 +7,7 @@ import UIKit
 // opened from the + menu, "Add Choice", Poll Details and the vote-failed
 // recovery. Geometry and colors are shared with macOS (PollCardGeometry).
 
-struct PollVoter: Hashable {
+struct PollVoter: Hashable, Sendable {
     var name: String
     var initials: String
     var colorHex: String
@@ -15,7 +15,7 @@ struct PollVoter: Hashable {
 }
 
 /// Everything a poll row renders beyond the message itself.
-struct PollRowModel: Hashable {
+struct PollRowModel: Hashable, Sendable {
     var poll: ConversationPoll
     var meID: String?
     var voteFailed: Bool

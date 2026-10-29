@@ -1,7 +1,7 @@
 @testable import CmuxNextWakeups
 import Testing
 
-/// ShownWindows (p14-energy-032): whether any tracked window is visible, told once per flip of
+/// ShownWindows: whether any tracked window is visible, told once per flip of
 /// the whole set, never for a change that leaves it as it was.
 @MainActor
 @Suite("ShownWindows")

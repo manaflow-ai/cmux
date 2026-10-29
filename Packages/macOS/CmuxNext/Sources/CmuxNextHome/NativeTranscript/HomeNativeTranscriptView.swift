@@ -34,7 +34,7 @@ public final class HomeNativeTranscriptView: NSView {
     let noticeButton = NSButton(title: "", target: nil, action: nil)
     private(set) var noticeAction: HomeNoticeAction?
     /// The message box's mic (Debug Settings > Home > Mic button in the message box).
-    let voice = HomeVoiceDictation()
+    let voice: HomeVoiceDictation
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
@@ -156,6 +156,7 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
+        voice = HomeVoiceDictation(deadlines: deadlines)
         let wake = HomeDemandWake(node: visibility, deadlines: deadlines)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: wake,
                                          frames: HomeFrameTicks(), diagrams: diagrams)
@@ -203,7 +204,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?

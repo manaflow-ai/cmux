@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// chrome-parity p03-rendering-105: a hover card's fades run on its content layer's opacity, on the
+/// A hover card's fades run on its content layer's opacity, on the
 /// render server. The window's `alphaValue` is never written: an `animator().alphaValue` fade set
 /// the window's alpha in the window server once per frame from the main thread (and a glass card
 /// ignores window alpha).

@@ -7,8 +7,8 @@ import Dispatch
 import Foundation
 import Testing
 
-/// A session sends its input through one ``TerminalInputLane`` drained on the IO's own queue
-/// (p04-input-058): the bytes it sends arrive in order, each handled on that queue, with no writer task
+/// A session sends its input through one ``TerminalInputLane`` drained on the IO's own queue:
+/// the bytes it sends arrive in order, each handled on that queue, with no writer task
 /// between the main thread and the IO.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TerminalSessionTests {
     @Test func sentBytesReachTheIOQueueInOrder() async throws {
@@ -26,7 +26,7 @@ import Testing
         #expect(received.allSatisfy { $0.onIOQueue }, "a record was handled off the IO's drain queue")
     }
 
-    /// The session's part of the echo lane's order (p04-input-083): it names no lane before the first content,
+    /// The session's part of the echo lane's order: it names no lane before the first content,
     /// names the surface's lane after the first replay and the swapped-in surface's after a later one, names
     /// none on close, and resumes a marker only once every event before it is on the lane. Each marker's
     /// resume sends live bytes straight to the lane named then, as the attach reader does once the route

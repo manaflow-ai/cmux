@@ -167,8 +167,11 @@ fn request(
     deadline: Instant,
 ) -> anyhow::Result<Value> {
     let (request_id, idempotency_key) = random_identifiers()?;
-    params["machine"] = json!("current");
-    params["session"] = json!("current");
+    let Some(fields) = params.as_object_mut() else {
+        bail!("{operation} params are not a JSON object");
+    };
+    fields.insert("machine".into(), json!("current"));
+    fields.insert("session".into(), json!("current"));
     let mut request = json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
@@ -176,8 +179,8 @@ fn request(
         "operation": operation,
         "params": params,
     });
-    if mutation {
-        request["idempotency_key"] = Value::String(idempotency_key);
+    if mutation && let Some(fields) = request.as_object_mut() {
+        fields.insert("idempotency_key".into(), Value::String(idempotency_key));
     }
     let mut encoded = serde_json::to_vec(&request)?;
     encoded.push(b'\n');
@@ -196,12 +199,13 @@ fn request(
         AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error) => error,
     })?;
     let response: Value = serde_json::from_slice(&response)?;
-    if response["id"].as_str() != Some(request_id.as_str()) {
+    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");
     }
-    if response["ok"] != true {
-        bail!("{operation} failed: {}", response["error"]["message"]);
+    if response.get("ok") != Some(&Value::Bool(true)) {
+        let message = response.pointer("/error/message").unwrap_or(&Value::Null);
+        bail!("{operation} failed: {message}");
     }
-    let result = response["result"].clone();
-    Ok(if mutation { result["value"].clone() } else { result })
+    let result = response.get("result").cloned().unwrap_or(Value::Null);
+    Ok(if mutation { result.get("value").cloned().unwrap_or(Value::Null) } else { result })
 }

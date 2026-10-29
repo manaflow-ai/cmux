@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The oracle's settle waits (p15-oracle-029): `waitApplied(atLeast:since:)` and `waitIntentsIdle()` are
+/// The oracle's settle waits: `waitApplied(atLeast:since:)` and `waitIntentsIdle()` are
 /// continuations the store resumes from its own state changes (the applied sequence advancing, the end of the
 /// batch or run that changed the connection, the overlay lift that empties the intent log), never an observation
 /// loop, a timer or a poll; a cancelled wait resumes and leaves no continuation behind.
@@ -207,7 +207,7 @@ struct StoreWaitsTests {
         #expect(store.pendingWaitCount == 0)
     }
 
-    /// The oracle's settle waits on the connection change while the daemon cannot answer its sync (p15-oracle-031).
+    /// The oracle's settle waits on the connection change while the daemon cannot answer its sync.
     @Test func aConnectionChangeResumesTheConnectionWait() async {
         let store = Self.store()
         let epoch = store.connectionEpoch

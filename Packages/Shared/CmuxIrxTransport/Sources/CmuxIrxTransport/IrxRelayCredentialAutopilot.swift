@@ -91,6 +91,8 @@ public actor IrxRelayCredentialAutopilot {
 
     private func run(generation: UInt64, rotationGeneration: UInt64) async {
         var failureCount = 0
+        // wakeup-allow: deadline each pass waits for the soonest credential's refresh date (hours apart)
+        // or, after a failed mint, a capped backoff; stop() and kick() end it
         while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -104,7 +106,9 @@ public actor IrxRelayCredentialAutopilot {
                     "credential-autopilot", "sleeping",
                     ["until_refresh_s": wait.journalInteger]
                 )
-                try? await Task.sleep(for: .seconds(wait))
+                let refreshIn = Duration.seconds(wait)
+                // wakeup-allow: deadline the refresh date of the soonest credential, with leeway
+                try? await Task.sleep(for: refreshIn, tolerance: IrxWakeLeeway(delay: refreshIn).tolerance)
                 if Task.isCancelled || generation != loopGeneration { return }
             }
             do {
@@ -141,7 +145,8 @@ public actor IrxRelayCredentialAutopilot {
                         "retry": String(describing: delay),
                     ]
                 )
-                try? await Task.sleep(for: delay)
+                // wakeup-allow: backoff 5 s doubling to 120 s after a failed mint, or the server's Retry-After
+                try? await Task.sleep(for: delay, tolerance: IrxWakeLeeway(delay: delay).tolerance)
                 if Task.isCancelled || generation != loopGeneration { return }
             }
         }

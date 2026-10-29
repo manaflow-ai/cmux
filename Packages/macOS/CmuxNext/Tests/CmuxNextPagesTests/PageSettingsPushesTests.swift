@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// A page follows the UI scale and the status look through service observations on its host's scheduler
-/// (``PageSettingsPushes``, p06-scheduler-336): a change reaches the page as one posted visible task, never in the
+/// (``PageSettingsPushes``): a change reaches the page as one posted visible task, never in the
 /// setting's own turn, and it reaches a hidden page too, so the page's first frame after a show is at the new scale.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PageSettingsPushesTests {

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Screenshot Section's drag on frame-aligned input (feature `pointerFrameDrags`, p04-input-089): the rect
+/// Screenshot Section's drag on frame-aligned input (feature `pointerFrameDrags`): the rect
 /// follows a frame interval's first drag event at once and the rest once at the frame, at the latest point
 /// (Chromium's rAF-aligned moves); the release lands the pending point first, so the selection equals the
 /// per-event one.

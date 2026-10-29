@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -145,12 +146,12 @@ import UniformTypeIdentifiers
     /// A cache file holding the list as the last session left it (that session settled, then quit).
     static func lastSession() throws -> HomeSidebarLaunchCache {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-launch-\(UUID().uuidString)/sidebar.json")
-        let cache = HomeSidebarLaunchCache(url: url)
+        let cache = HomeSidebarLaunchCache(url: url, files: BackgroundWork(label: "test.home-launch"))
         let last = Launch()
         _ = try last.settle()
         cache.save(last.source.launchSnapshot(archivedChiefs: last.archived))
         cache.flush()
-        return HomeSidebarLaunchCache(url: url)
+        return HomeSidebarLaunchCache(url: url, files: BackgroundWork(label: "test.home-launch"))
     }
 
     @Test func theFirstFrameIsTheListAsTheLastSessionLeftIt() throws {

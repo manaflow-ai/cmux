@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
-/// The Home list's launch read on the main thread (p08-startup-076): the steps that need the last launch's list
+/// The Home list's launch read on the main thread: the steps that need the last launch's list
 /// (the seed of the store, the inboxes and the roster, then the store's start) run in this turn when the read has
 /// ended, else on its landing, in the order they were asked. Nothing waits and no file is read on main; the Home
 /// list draws the theme background until ``isLanded`` (p08-startup.md: a step that needs a read that is not done

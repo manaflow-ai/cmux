@@ -4,6 +4,7 @@ import CmuxNextPagesTestSupport
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 import WebKit
 
@@ -43,7 +44,7 @@ struct PageChatOpenStageTests {
         return PageWebView(descriptor: descriptor, configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                            options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: true,
-                           chromium: chromium, trace: PageTraceRecorder(), chatOpen: chatOpen)
+                           chromium: chromium, deadlines: .testing(), trace: PageTraceRecorder(), chatOpen: chatOpen)
     }
 
     @Test func aWebKitPageOfAnOpenWritesItsStagesOnTheIntentID() {

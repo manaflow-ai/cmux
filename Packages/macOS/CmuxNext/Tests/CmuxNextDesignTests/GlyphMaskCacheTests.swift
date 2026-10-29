@@ -4,7 +4,7 @@ import CmuxNextCompat
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p03-rendering-075: chrome labels that show the same glyphs share one image from a byte-capped LRU
+/// Chrome labels that show the same glyphs share one image from a byte-capped LRU
 /// (Skia's `SkStrikeCache`), held by the theme scope tree the composition root gives it to.
 @MainActor @Suite struct GlyphMaskCacheTests {
     private static let shape = LabelText.Shape(lines: 1, wraps: false, lineBreak: .byTruncatingTail, alignment: .natural,

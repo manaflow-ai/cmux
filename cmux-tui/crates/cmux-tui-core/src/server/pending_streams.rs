@@ -1,4 +1,4 @@
-//! Pending streams (p05-ipc-087; plans/cmux-next/chrome-parity/p05-ipc.md,
+//! Pending streams (plans/cmux-next/chrome-parity/p05-ipc.md,
 //! sections 1.2 and 3.2): a client may send a stream's INPUT and requests
 //! right behind the request that opens it, without waiting for its reply.
 //!
@@ -466,7 +466,7 @@ impl StreamEndpoint {
         }
     }
 
-    /// Writes an INPUT frame's bytes as `send` writes them (p05-ipc-078),
+    /// Writes an INPUT frame's bytes as `send` writes them,
     /// under the connection's cause, caller class and request path, as a
     /// request runs. A failure is the stream's `input-failed`, once per end
     /// of its terminal.

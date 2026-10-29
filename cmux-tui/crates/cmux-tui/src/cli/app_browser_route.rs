@@ -26,6 +26,7 @@ use serde_json::{Map, Value, json};
 
 use super::GlobalArgs;
 use super::command::{RequestPlan, WireOperation};
+use crate::cli::json_fields::JsonFields;
 
 /// The `extra.code` of the daemon's refusal.
 pub(super) const CODE: &str = "browser_rendered_by_app";
@@ -33,7 +34,7 @@ pub(super) const CODE: &str = "browser_rendered_by_app";
 /// The tab of an app-drawn browser the daemon refused to drive, if `error`
 /// is that refusal.
 pub(super) fn refused_tab(error: &Value) -> Option<&str> {
-    let extra = &error["details"]["extra"];
+    let extra = &error.field("details").field("extra");
     (error["code"] == "operation.failed" && extra["code"] == CODE)
         .then(|| extra["tab_id"].as_str())
         .flatten()

@@ -1,4 +1,4 @@
-// The host's `availability` (Swift `SettingsAvailability`, p14-energy-129): the page leaves out a
+// The host's `availability` (Swift `SettingsAvailability`): the page leaves out a
 // row whose feature is off (Energy Saver while `energySaver` is off) and a choice this Mac cannot use
 // (Energy Saver's On Battery on a Mac with no battery), keeps the current value, and search never
 // finds a hidden row. The schema keeps every row and choice.

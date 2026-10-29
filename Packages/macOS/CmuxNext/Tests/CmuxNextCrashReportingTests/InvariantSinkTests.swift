@@ -70,7 +70,7 @@ private final class HeldLane: Sendable {
     }
 }
 
-/// p10-stability-099: the app's invariant sink builds and sends nothing on the failing thread (only a stack walk
+/// The app's invariant sink builds and sends nothing on the failing thread (only a stack walk
 /// and one enqueue), sends one event per site per launch, and sends nothing while crash reporting is off.
 @Suite struct InvariantSinkTests {
     @Test func theFailingThreadOnlyEnqueues() {

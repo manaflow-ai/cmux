@@ -103,9 +103,9 @@ impl Mux {
                 if !closing_keys.contains(key) {
                     continue;
                 }
-                let Some(index) = state.workspace_index(*id) else { continue };
+                let Some(workspace) = state.workspace_by_id(*id) else { continue };
                 let mut panes = Vec::new();
-                for screen in &state.workspaces[index].screens {
+                for screen in &workspace.screens {
                     screen.root.pane_ids(&mut panes);
                 }
                 let before = surfaces.len();

@@ -18,9 +18,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
+
+use cmux_threads::sync::Condvar;
 
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
@@ -227,14 +229,14 @@ impl ProviderEventQueue {
         }
 
         if let Some(delivery) = event.delivery.as_ref()
-            && let Some(index) = state.events.iter().position(|queued| {
+            && let Some(queued) = state.events.iter().find(|queued| {
                 queued
                     .delivery
                     .as_ref()
                     .is_some_and(|queued| queued.notice_id == delivery.notice_id)
             })
         {
-            if state.events[index] != event {
+            if *queued != event {
                 state.events.clear();
                 state.disconnected = true;
                 drop(state);
@@ -247,7 +249,7 @@ impl ProviderEventQueue {
         }
 
         if let ProviderEvent::ConnectionClosed(closed) = &event.event
-            && let Some(index) = state.events.iter().position(|queued| {
+            && let Some(queued) = state.events.iter_mut().find(|queued| {
                 matches!(
                     &queued.event,
                     ProviderEvent::ConnectionClosed(queued)
@@ -258,7 +260,7 @@ impl ProviderEventQueue {
         {
             // One connection can only be closed once. Retain its latest
             // provider reason without growing the priority queue.
-            state.events[index] = event;
+            *queued = event;
             drop(state);
             self.ready.notify_one();
             return Ok(());
@@ -411,11 +413,11 @@ impl ProviderClientInner {
     }
 
     fn publish_to_event_subscribers(
-        events: &mut ProviderEventHubState,
+        subscribers: &mut Vec<Weak<ProviderEventQueue>>,
         event: ReceivedProviderEvent,
     ) -> Result<(), ReaderFailure> {
         let mut overflowed = false;
-        events.subscribers.retain(|subscriber| {
+        subscribers.retain(|subscriber| {
             let Some(subscriber) = subscriber.upgrade() else {
                 return false;
             };
@@ -496,7 +498,7 @@ impl ProviderClientInner {
             }
         }
 
-        Self::publish_to_event_subscribers(&mut events, event)
+        Self::publish_to_event_subscribers(&mut events.subscribers, event)
     }
 
     fn begin_notice_subscription(&self) -> ProviderResult<()> {
@@ -550,9 +552,9 @@ impl ProviderClientInner {
         }
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
-        for index in 0..events.retained_durable.len() {
-            let event = events.retained_durable[index].clone();
-            Self::publish_to_event_subscribers(&mut events, event)?;
+        let events = &mut *events;
+        for event in &events.retained_durable {
+            Self::publish_to_event_subscribers(&mut events.subscribers, event.clone())?;
         }
         Ok(())
     }
@@ -635,9 +637,11 @@ impl ProviderClient {
         });
         let weak = Arc::downgrade(&inner);
         // supervise-allow: the provider connection's reader; a panic drops its guard, which closes the connection, so requests fail.
-        std::thread::Builder::new()
-            .name("machine-provider-reader".to_string())
-            .spawn(move || control_reader_loop(reader, guard, weak))?;
+        cmux_threads::spawn(
+            "machine-provider-reader",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || control_reader_loop(reader, guard, weak),
+        )?;
         Ok(Self { inner })
     }
 
@@ -1154,7 +1158,7 @@ impl ProviderClient {
             return Err(error);
         }
 
-        let mut frame = match receiver.recv_timeout(timeout) {
+        let mut frame = match crate::blocking::sync::recv_timeout(&receiver, timeout) {
             Ok(Ok(frame)) => frame,
             Ok(Err(failure)) => return Err(failure.into()),
             Err(RecvTimeoutError::Timeout) => {
@@ -1388,11 +1392,16 @@ fn read_bounded_frame_with_progress<R: BufRead>(
             return if frame.is_empty() { Ok(None) } else { Err(FrameReadFailure::Truncated) };
         }
 
-        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+        if let Some(line) = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .and_then(|newline| available.get(..newline))
+        {
+            let newline = line.len();
             if frame.len().saturating_add(newline) > limit {
                 return Err(FrameReadFailure::TooLarge { limit });
             }
-            frame.extend_from_slice(&available[..newline]);
+            frame.extend_from_slice(line);
             reader.consume(newline + 1);
             on_progress(&frame);
             if frame.last() == Some(&b'\r') {

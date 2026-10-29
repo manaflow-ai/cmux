@@ -1,0 +1,31 @@
+[package]
+name = "cmux-vt-worker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A sandboxed VT parser process: it maps terminal output rings read-only, runs the daemon's output rewrites, parses its shard with ghostty-vt and publishes screens and terminal modes into seqlock pages (std, libc, ghostty-vt, the shared output rewrites and the cmux-ipc descriptor FIFO)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-vt-worker"
+path = "src/main.rs"
+
+[dependencies]
+# The SCM_RIGHTS descriptor FIFO for the rings and pages the daemon passes (std and libc only).
+cmux-ipc.workspace = true
+# The output rewrites the daemon's parser runs, so both parsers read the same
+# stream: Kitty file media (deferred to the daemon here), titles, prompt marks.
+cmux-kitty-media.workspace = true
+cmux-vt-stream.workspace = true
+ghostty-vt.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+# The ring segments the tests parse are the holder's own (layout 2).
+cmux-holder.workspace = true
+# The integration tests spawn the worker binary with only fd 3 passed.
+cmux-process.workspace = true

@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The blocking detector's sink (p02-threads-008): every site to the hang report collector; to crash
+/// The blocking detector's sink: every site to the hang report collector; to crash
 /// reporting only with consent, at most 5 per launch and 1 per site per 24 h, the last-sent times
 /// saved for the next launch; the event names no path.
 struct BlockingReportSinkTests {

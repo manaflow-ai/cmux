@@ -6,30 +6,20 @@ import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextResources
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import SwiftUI
 import Testing
 
-/// Page policies, batch 1 (`memoryDiscardInternalPages`, p07-memory-024): Settings, Debug Settings,
+/// Page policies, batch 1 (`memoryDiscardInternalPages`): Settings, Debug Settings,
 /// Keyboard Shortcuts, the changelog (What's New), Stats and the Task Manager each declare when a
 /// hidden tab's view may go, what keeps it, and what the view built again shows. Every test calls
 /// the provider methods the tab store calls (InternalPageTabStore+Show).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct InternalPageDiscardPolicyCoverageTests {
-    static let packageRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-
-    /// Each page of the batch, the source that declares its policy, and the declaration there: a
-    /// provider's own `discardPolicy(for:)`, a `WebPageTab`'s `discardPolicy:` argument, or the
-    /// `// discard: default <why>` marker (p07-memory-029).
-    static let batchOne: [(page: InternalPageID, source: String, declaration: String)] = [
-        (.settings, "Sources/CmuxNextApp/Settings/SettingsWindowService.swift", "func discardPolicy(for key: String)"),
-        (.debugSettings, "Sources/CmuxNextApp/Settings/DebugSettingsService.swift", "func discardPolicy(for key: String)"),
-        (.keybindings, "Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift", "func discardPolicy(for key: String)"),
-        (.changelog, "Sources/CmuxNextApp/Pages/ChangelogPageTab.swift", "func discardPolicy(for key: String)"),
-        (.stats, "Sources/CmuxNextApp/Pages/StatsPage.swift", "discardPolicy: ."),
-        (.taskManager, "Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift", "func discardPolicy(for key: String)"),
-    ]
+    /// Each page of the batch. ``InternalPageProvider``'s default policy, and a `WebPageTab`'s, is never: a
+    /// page that answers another policy chose it.
+    static let batchOne: [InternalPageID] = [.settings, .debugSettings, .keybindings, .changelog, .stats, .taskManager]
 
     static func services() -> AppServices {
         let services = TaskManagerActionTests.services()
@@ -58,22 +48,22 @@ struct InternalPageDiscardPolicyCoverageTests {
 
     // MARK: Every page of the batch declares its policy
 
-    @Test func everyPageOfTheBatchDeclaresItsPolicy() throws {
+    @Test func everyPageOfTheBatchDeclaresItsPolicy() {
         let services = Self.services()
-        for entry in Self.batchOne {
-            #expect(services.pages.provider(entry.page) != nil, "\(entry.page.rawValue) registers at launch")
-            let source = try String(contentsOf: Self.packageRoot.appending(path: entry.source), encoding: .utf8)
-            #expect(source.contains(entry.declaration) || source.contains("// discard: default "),
-                    "\(entry.page.rawValue) chose its policy in \(entry.source)")
+        for page in Self.batchOne {
+            let provider = services.pages.provider(page)
+            #expect(provider != nil, "\(page.rawValue) registers at launch")
+            #expect(provider.map { $0.discardPolicy(for: "tab") != .never } == true,
+                    "\(page.rawValue) is on the default policy (never discarded)")
         }
     }
 
     @Test func theTaskManagerGoesAMinuteAfterItHidesAndTheOthersAfterTen() throws {
         let services = Self.services()
-        for entry in Self.batchOne {
-            let provider = try #require(services.pages.provider(entry.page))
-            let expected: ContentDiscardPolicy = entry.page == .taskManager ? .afterHidden(.seconds(60)) : .standard
-            #expect(provider.discardPolicy(for: "tab") == expected, "\(entry.page.rawValue)")
+        for page in Self.batchOne {
+            let provider = try #require(services.pages.provider(page))
+            let expected: ContentDiscardPolicy = page == .taskManager ? .afterHidden(.seconds(60)) : .standard
+            #expect(provider.discardPolicy(for: "tab") == expected, "\(page.rawValue)")
         }
     }
 
@@ -278,7 +268,8 @@ struct InternalPageDiscardPolicyCoverageTests {
         let tabs = processes.map { TabResourceSources(tabID: "tab_\($0.pid)", title: "t\($0.pid)", kind: .terminal, processes: [$0]) }
         let samples = Dictionary(uniqueKeysWithValues: processes.map { ($0, TaskManagerMemorySavedTests.sample($0, memory: 1 << 20)) })
         let source = TaskManagerMemorySavedTests.Source([TaskManagerSampleSet(resources: ResourceSampleSet(tabs: tabs, shared: [], samples: samples))])
-        let model = TaskManagerModel(source: source, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     kill: { _ in })
         let table = TaskManagerTableState(scrollTarget: ProcessKey(pid: 2040))
         let host = NSHostingView(rootView: TaskManagerView(model: model, table: table))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)

@@ -1,4 +1,0 @@
-{"notifications":{"sources":{"terminal":{"dismissal":"click"}},},"agentPane":{"display":{"width":7520,}},/* {"k": 1} */ "appearance":{"statusIndicator":{"showAgentWorkingOnTabs":true}},"layout":{// url: https://localhost/x
-"linkPlacement":"split-right",/* block */ "minimumPaneWidth":"1",},// "quoted"
-"focusRing":{"contrast":"subtle",},"browser":{/* // inside */ "defaultEngine":"chromium"}}
-/* not closed

@@ -4,7 +4,7 @@ import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 @testable import CmuxVNC
 
-/// p02-threads-146: the transport's open/close state lives in CmuxThreading's Mutex (no NSLock). These pin that an
+/// The transport's open/close state lives in CmuxThreading's Mutex (no NSLock). These pin that an
 /// open resumes exactly once, whichever of the connection state or a close comes first.
 struct TransportLifecycleTests {
     @Test func aReadyConnectionResumesTheOpen() async throws {

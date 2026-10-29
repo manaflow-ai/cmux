@@ -3,15 +3,19 @@
 # host_mirror.mm and host_text_input.mm, no AppKit in them, so as C++) against
 # the generated cases gen-chromium-host-wire.py writes for this header and ops
 # JSON (into a scratch root, never the checkout), and runs:
-#   host_dispatch_test.cpp  the dispatcher alone, frame by frame, and the App
+#   host_dispatch_test.cpp  the dispatcher alone, frame by frame, the App
 #                           Nap activity it holds while a page shows
-#                           (host_page_activity.h, task p14-energy-128)
+#                           (host_page_activity.h) and
+#                           the helper ends it forwards (host_helper_exits.h)
 #   host_text_input_test.cpp  the text input pushes, alone and through the
-#                           dispatcher (task p01-process-044)
+#                           dispatcher
 #   host_resize_test.cpp    a page's resize and its fence (host_resize.h),
-#                           alone and through the dispatcher (task p01-process-052)
+#                           alone and through the dispatcher
 #   host_wheel_ack_test.cpp the wheel acks, alone and through the dispatcher
-#                           (task p01-process-234)
+#   host_provider_link_test.cpp  agent CDP straight from the browser host:
+#                           the relays alone, through the dispatcher, and the
+#                           link's transport against a fake browser host
+#                           (host_provider_link.{h,mm})
 #   host_mirror_test.cpp    the dispatcher and the real remote shim
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
@@ -19,10 +23,10 @@
 #   host_choosers_test.cpp  the chooser payloads (host_choosers.h), then the
 #                           dispatcher and the real remote shim on a socket
 #                           pair: the color, device and screen-share handlers
-#                           end to end (task p01-process-228)
+#                           end to end
 #   host_page_resource_test.cpp  the same pair: cmux-page:// schemes as preinit
 #                           ops with their verdicts, PAGE_RESOURCE and a 10 MB
-#                           answer in shared memory (task p01-process-070)
+#                           answer in shared memory
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
 # them all). First, the sources compile alone with -Werror against the same
@@ -31,7 +35,7 @@
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
 # host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
-# host_page_activity.h, host_choosers.h, the generator's host output or the ops JSON.
+# host_page_activity.h, host_choosers.h, host_helper_exits.{h,cc}, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -65,8 +69,9 @@ mkdir -p "$work/src/generated"
 cp "$host"/src/*.h "$host"/src/*.mm "$host"/src/*.cc "$work/src/"
 cp "$gen/Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc" "$work/src/generated/"
 
-flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header")
-for src in host_dispatch.mm host_mirror.mm host_text_input.mm; do
+# host_provider_link.h reads DevTools ids with the shim's scanner (CEFShim/src/devtools_message_id.h).
+flags=(-std=c++20 -Wall -Wextra -Werror -pthread -I"$work/src" -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src")
+for src in host_dispatch.mm host_mirror.mm host_text_input.mm host_helper_exits.cc; do
   "${cxx[@]}" "${flags[@]}" -fsyntax-only -x c++ "$work/src/$src"
 done
 
@@ -84,7 +89,8 @@ for e in exports:
 print("}")
 PY
 
-sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm" "$work/shim_stubs.cpp")
+sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host_text_input.mm"
+  "$work/src/host_helper_exits.cc" "$work/shim_stubs.cpp")
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_dispatch_test" "$host/tests/host_dispatch_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_dispatch_test"
@@ -97,6 +103,9 @@ sources=("$work/src/host_dispatch.mm" "$work/src/host_mirror.mm" "$work/src/host
 "${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_wheel_ack_test" "$host/tests/host_wheel_ack_test.cpp" \
   -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc"
 "$work/host_wheel_ack_test"
+"${cxx[@]}" "${flags[@]}" -O1 -o "$work/host_provider_link_test" "$host/tests/host_provider_link_test.cpp" \
+  -x c++ "${sources[@]}" "$work/src/host_provider_link.mm" -x none "$work/src/chromium_host_control.cc"
+"$work/host_provider_link_test"
 
 # The remote shim, as remote-shim-abi.test.sh builds it (from the committed generated client).
 client_flags=(-std=c++20 -Wall -Wextra -Werror -O1 -pthread -I"$shim_header" -I"$root/Packages/macOS/CmuxNext/CEFShim/src"

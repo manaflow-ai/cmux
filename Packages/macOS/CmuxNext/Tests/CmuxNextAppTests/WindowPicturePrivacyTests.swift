@@ -7,7 +7,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The window pictures' privacy rules at the app layer that decides them (p08-startup-063): a page reopened for
+/// The window pictures' privacy rules at the app layer that decides them: a page reopened for
 /// protected media and a page that took Secure Input while the page captures ran are filled even when a picture of
 /// them exists.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WindowPicturePrivacyTests {

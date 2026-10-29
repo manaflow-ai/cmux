@@ -5,7 +5,7 @@ import Testing
 
 /// Markdown in Home shows only the attachment pictures Home wrote (``HomeMarkdownImages``), and
 /// the Markdown layout and the row bitmaps ask for them off the main thread: the provider is
-/// Sendable, its pictures behind one lock (p10-stability-043).
+/// Sendable, its pictures behind one lock.
 @Suite struct HomeMarkdownImagesTests {
     private static func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("home-md-images-\(UUID().uuidString)")

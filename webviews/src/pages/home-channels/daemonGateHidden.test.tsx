@@ -1,4 +1,4 @@
-// The Channels page's reconnect backoff rests while the page is hidden (p13-webui-069, MQ4b): a host
+// The Channels page's reconnect backoff rests while the page is hidden (MQ4b): a host
 // with no daemon is asked again only while the page is shown. Hidden for a minute it is asked
 // nothing; the show asks once, at once (retryBackoff.ts).
 import { afterAll, beforeAll, expect, test } from "bun:test";

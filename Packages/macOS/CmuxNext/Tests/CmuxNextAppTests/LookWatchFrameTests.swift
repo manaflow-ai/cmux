@@ -5,8 +5,8 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The sidebar's and the layout's Debug Settings looks follow through one FrameObservation per root
-/// (p04-input-027), not one `withObservationTracking` hop per view: any number of changes in a turn
+/// The sidebar's and the layout's Debug Settings looks follow through one FrameObservation per root,
+/// not one `withObservationTracking` hop per view: any number of changes in a turn
 /// reach every view once, in the next frame, and nothing in the change's own turn.
 @MainActor @Suite(.serialized) struct SidebarLookWatchTests {
     final class Follower: NSView, SidebarLookFollower {

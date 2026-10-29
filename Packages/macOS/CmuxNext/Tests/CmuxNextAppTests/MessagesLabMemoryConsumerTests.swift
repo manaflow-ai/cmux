@@ -7,7 +7,7 @@ import CmuxNextWakeups
 @testable import MessagesLabSidebar
 import Testing
 
-/// p07-memory-081: the Home transcript's shared pixel caches (row bitmaps 160 MB, media 96 MB, tiles 48 MB) and
+/// The Home transcript's shared pixel caches (row bitmaps 160 MB, media 96 MB, tiles 48 MB) and
 /// the Home lists' bitmaps (40 MB each) had fixed sizes outside the memory coordinator. Now they are one lossless
 /// consumer on one budget: the limit scales the caps, a release trims to them, limit 0 holds 0 bytes, and once
 /// no Home view has shown for 60 s one background deadline empties them; a Home view that shows gives the

@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextFeatures
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// GPU audit 2026-10-21, offender #1: the sidebar's show/hide slide moved the main pane's edge on
@@ -39,7 +40,7 @@ struct SidebarSlideHoldsContentTests {
 
     private func openRoot(holds: Bool = true) -> (NSWindow, WindowRootView, NSView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing(),
                                   slideHoldsContent: { holds })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -71,7 +72,7 @@ struct SidebarSlideHoldsContentTests {
         root.layoutSubtreeIfNeeded()
     }
 
-    /// p12-perf-process-102: the hold is feature `sidebarSlideHoldsContent`, on by default on every channel.
+    /// The hold is feature `sidebarSlideHoldsContent`, on by default on every channel.
     @Test func holdingIsTheDefault() {
         for channel in [Feature.Channel.dev, .nightly, .release] {
             #expect(holds(channel, tunable: nil), "\(channel)")

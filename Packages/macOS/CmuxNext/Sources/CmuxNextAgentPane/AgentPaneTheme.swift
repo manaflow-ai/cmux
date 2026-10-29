@@ -77,7 +77,7 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
-            // Static status indicators, Reduce Motion (cx-sya4n) or Energy Saver (p14-energy-027):
+            // Static status indicators, Reduce Motion (cx-sya4n) or Energy Saver:
             // the page stops its status loops and draws a shape per state (`data-status-indicators`).
             "statusIndicators": motion.reduceMotion || motion.energySaver
                 || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",

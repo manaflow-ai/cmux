@@ -519,6 +519,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
         input_flow: false,
+        input_stages: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

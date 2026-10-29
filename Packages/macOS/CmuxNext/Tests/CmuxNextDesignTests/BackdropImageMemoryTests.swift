@@ -6,7 +6,7 @@ import ImageIO
 import Testing
 import UniformTypeIdentifiers
 
-/// p07-memory-053: the backdrop image store is a lossless memory consumer. It holds at most the limit's
+/// The backdrop image store is a lossless memory consumer. It holds at most the limit's
 /// share of ``BackdropImageStore/fullCount`` decoded pictures, a new limit frees nothing, a release lets go
 /// of one picture per turn down to the limit, a picture a window still shows is found again without a
 /// second decode, and one no window shows decodes again on its next read.

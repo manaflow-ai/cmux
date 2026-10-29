@@ -1,7 +1,7 @@
 // The Mobile Pairing page's state owner: the host's pairing status, read again on every change
 // event and whenever the shown QR code expires. React reads it through `useSyncExternalStore`; a
 // reply older than a newer read is dropped. The expiry wait rests while the page is hidden
-// (pagePoll.ts, p13-webui-069): a code that expired while hidden is replaced once, on show.
+// (pagePoll.ts): a code that expired while hidden is replaced once, on show.
 import type { PageClient } from "../shared/pageClient";
 import { type PagePollSeams, startPageTimeout } from "../shared/pagePoll";
 import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus } from "./types";

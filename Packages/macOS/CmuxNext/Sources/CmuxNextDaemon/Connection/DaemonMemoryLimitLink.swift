@@ -1,6 +1,6 @@
 public import CmuxNextCompat
 
-/// The local daemon's memory limit as one consumer of the app's memory coordinator (p07-memory-109): the
+/// The local daemon's memory limit as one consumer of the app's memory coordinator: the
 /// coordinator hands it each change of the level, the Memory Saver mode and the debug override, and it tells its
 /// ``DaemonMemoryLimitFollow`` the limit the coordinator acts on now (the follow drops a repeat), as Chrome's
 /// `ChildMemoryConsumerRegistryHost` stands in the browser's registry for a child process's consumers

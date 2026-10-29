@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::GlobalArgs;
 use super::link::{Link, LinkError};
 use crate::cli::OutputMode;
+use crate::cli::json_fields::JsonFields;
 
 /// The largest picture the daemon takes.
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
@@ -64,8 +65,8 @@ fn parse(args: &[String]) -> Result<Request, String> {
     let mut request = Request::default();
     let mut positional = Vec::new();
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--clear" => request.clear = true,
             "--json" => request.json = true,
             "--out" => {
@@ -186,7 +187,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
                 Failure::Usage(t.no_picture.replace("{participant}", participant))
             })?;
             let bytes = STANDARD.decode(data).map_err(|e| Failure::Usage(e.to_string()))?;
-            std::fs::write(out, bytes)
+            cmux_blocking::fs::write(out, bytes)
                 .map_err(|e| Failure::Usage(format!("{}: {e}", out.display())))?;
         }
         if json_out {
@@ -200,18 +201,18 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
         } else {
             println!(
                 "{}\t{}\t{}",
-                avatar["sha256"].as_str().unwrap_or(""),
-                avatar["media_type"].as_str().unwrap_or(""),
-                avatar["bytes"]
+                avatar.field("sha256").as_str().unwrap_or(""),
+                avatar.field("media_type").as_str().unwrap_or(""),
+                avatar.field("bytes")
             );
         }
         return Ok(());
     }
     let mut params = json!({"participant_id": participant});
     if request.clear {
-        params["clear"] = json!(true);
+        params.insert("clear", json!(true));
     } else if let Some(file) = &request.file {
-        let size = std::fs::metadata(file)
+        let size = cmux_blocking::fs::metadata(file)
             .map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?
             .len();
         if size > MAX_AVATAR_BYTES {
@@ -220,24 +221,27 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
                 file.display()
             )));
         }
-        let bytes =
-            std::fs::read(file).map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
-        params["bytes"] = json!(STANDARD.encode(bytes));
+        let bytes = cmux_blocking::fs::read(file)
+            .map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
+        params.insert("bytes", json!(STANDARD.encode(bytes)));
     }
     let key = super::link::new_message_id();
     let written = link.call("participant.avatar.set", params, Some(&key))?;
     let value = written.get("value").cloned().unwrap_or(Value::Null);
     if json_out {
         println!("{value}");
-    } else if value["avatar"].is_null() {
+    } else if value.field("avatar").is_null() {
         println!("{}", t.cleared.replace("{participant}", participant));
     } else {
         println!(
             "{}",
             t.set
                 .replace("{participant}", participant)
-                .replace("{media_type}", value["avatar"]["media_type"].as_str().unwrap_or(""))
-                .replace("{bytes}", &value["avatar"]["bytes"].to_string())
+                .replace(
+                    "{media_type}",
+                    value.field("avatar").field("media_type").as_str().unwrap_or("")
+                )
+                .replace("{bytes}", &value.field("avatar").field("bytes").to_string())
         );
     }
     Ok(())

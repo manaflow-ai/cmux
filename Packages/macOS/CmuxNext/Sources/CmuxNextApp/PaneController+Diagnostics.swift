@@ -113,6 +113,12 @@ struct PaneSurfaceStatus {
                 "hidden": .bool(terminal.hidden),
                 "view_size": .string("\(Int(terminal.viewSize.width))x\(Int(terminal.viewSize.height))"),
                 "layer_size": .string("\(Int(terminal.layerSize.width))x\(Int(terminal.layerSize.height))"),
+                // The last unpause and the layer's first frame after it (Debug and bench builds; record only).
+                "show": terminal.showTiming.map { (show: TerminalShowTiming) -> JSONValue in
+                    .object(["unpaused_ns": .number(Double(show.unpausedNanos)),
+                             "first_frame_ns": show.firstFrameNanos.map { .number(Double($0)) } ?? .null,
+                             "unpause_to_frame_ms": show.unpauseToFrameMilliseconds.map(JSONValue.number) ?? .null])
+                } ?? .null,
             ]
         }
         return .object(object)

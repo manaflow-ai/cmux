@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// The transcript's remaining caches are bounded or given to the host (p07-memory-115): Markdown's pictures are a
+/// The transcript's remaining caches are bounded or given to the host: Markdown's pictures are a
 /// byte-capped LRU the host sizes and trims and no Markdown layout keeps their pixels, the text measurements keep a
 /// few widths per part, are counted and trimmed by the host and keep their estimate bases, and the context menu
 /// keeps glyphs for the tapbacks and the recent emoji alone.

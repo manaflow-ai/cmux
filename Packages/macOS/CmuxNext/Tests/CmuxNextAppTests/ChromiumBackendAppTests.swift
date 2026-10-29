@@ -151,7 +151,7 @@ import Testing
             let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
             runtime.handle(.afterCreated(browser: Self.browser, request: request, window: 1))
             #expect(tab.browserID == Self.browser)
-            // The host detached the page (its layer hosting reply): its focus is embedder-active (p01-process-046).
+            // The host detached the page (its layer hosting reply): its focus is embedder-active.
             tab.hostDetachedPage(browser: Self.browser)
         }
     }

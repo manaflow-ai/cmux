@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// libghostty's side of Energy Saver (p14-energy-114): sends the app's saver state to
+/// libghostty's side of Energy Saver: sends the app's saver state to
 /// `ghostty_app_set_energy_saver` on each edge of ``EnergyPolicy/isSaver``, as Chrome's
 /// `BatterySaverModeManager` throttles frame sinks only when the mode changes
 /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc,

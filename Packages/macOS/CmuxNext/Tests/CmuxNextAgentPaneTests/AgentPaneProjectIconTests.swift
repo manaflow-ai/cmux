@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The project pickers' favicons (`project.icon {cwd}`): the host looks for a few well-known icon
 /// files in a project folder and answers a small data URL, and never stats or reads anything in a
@@ -214,10 +215,10 @@ struct AgentPaneProjectIconTests {
         defer { fixture.remove() }
         try fixture.write(Self.png, "code/site/favicon.png")
         let folder = fixture.home + "/code/site"
-        let remote = AgentPaneModel(host: NoHost())
+        let remote = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         remote.remoteChat = true
         #expect((await remote.respond(to: .projectIcon(folder))["value"] as? [String: Any])?["src"] == nil)
-        let local = AgentPaneModel(host: NoHost())
+        let local = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         #expect((await local.respond(to: .projectIcon(folder))["value"] as? [String: Any])?["src"] as? String
             == "data:image/png;base64," + Self.png.base64EncodedString())
     }

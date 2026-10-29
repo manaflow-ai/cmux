@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "idleHelperBackgroundPriority",
+  "owner": "PL-acpmux",
+  "description": "Pooled acpmux agents run at background process priority until a session takes them, and the acpmux daemon does while no client is connected and no agent runs; each goes back to normal priority before it is used.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["idle-budget"],
+  "sticky": false,
+  "runtimeMutable": false
+}

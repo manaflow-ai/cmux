@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-323, the sweep of CmuxNextBrowser/{WebKit,PageInfo,Engine,Core,Omnibox,Screenshot}: one case per
+/// The sweep of CmuxNextBrowser/{WebKit,PageInfo,Engine,Core,Omnibox,Screenshot}: one case per
 /// migrated owner class (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitSchedulerSweepTests {
     final class Count { var value = 0 }

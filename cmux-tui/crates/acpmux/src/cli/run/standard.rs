@@ -1,6 +1,8 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::StrExt;
 use std::sync::Arc;
 
 pub(super) fn handles(cmd: &Command) -> bool {
@@ -261,7 +263,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         status_ok && (!pending || pend) && tag_ok
                     })
                     .collect();
-                v["sessions"] = Value::Array(keep);
+                v.set("sessions", Value::Array(keep));
             }
             if json_out {
                 print_json(&v);
@@ -313,28 +315,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
-                meta["harness"] = json!(h);
+                meta.set("harness", json!(h));
                 if let Some(m) = m {
-                    meta["model"] = json!(m);
+                    meta.set("model", json!(m));
                 }
             }
             if let Some(p) = &args.preset {
-                meta["preset"] = json!(p);
+                meta.set("preset", json!(p));
             }
             if let Some(h) = &host {
-                meta["peer"] = json!(h);
+                meta.set("peer", json!(h));
             }
             if let Some(n) = &launch.name {
-                meta["name"] = json!(n);
+                meta.set("name", json!(n));
             }
             if let Some(p) = &args.policy {
-                meta["policy"] = json!(p);
+                meta.set("policy", json!(p));
             }
             if let Some(m) = &args.mode {
-                meta["mode"] = json!(m);
+                meta.set("mode", json!(m));
             }
             if let Some(e) = &args.effort {
-                meta["effort"] = json!(e);
+                meta.set("effort", json!(e));
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
@@ -356,13 +358,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // turn, by a caller's timeout, or a lost connection. The kill after
             // the reply below stays the normal path.
             if ephemeral {
-                meta["ephemeral"] = json!(true);
+                meta.set("ephemeral", json!(true));
             }
             if let Some((w, _)) = &launch.worktree {
-                meta["worktree"] = w.clone();
+                meta.set("worktree", w.clone());
             }
             if let Some(tools) = launch.disallowed_tools() {
-                meta["disallowedTools"] = tools;
+                meta.set("disallowedTools", tools);
             }
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
@@ -381,7 +383,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
-                p["cwd"] = json!(cwd);
+                p.set("cwd", json!(cwd));
             }
             let v = match reused.clone() {
                 Some(info) => info,
@@ -441,19 +443,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 show();
                 if json_out {
                     let mut info = info.clone();
-                    info["reused"] = json!(true);
-                    info["prompted"] = json!(first.is_some());
+                    info.set("reused", json!(true));
+                    info.set("prompted", json!(first.is_some()));
                     print_json(&info);
                 } else if first.is_some() {
                     println!(
                         "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
-                        &id[..8.min(id.len())]
+                        id.head(8)
                     );
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
                          use `acpmux send {name}` to give it more",
-                        &id[..8.min(id.len())]
+                        id.head(8)
                     );
                 }
                 return Ok(());
@@ -465,11 +467,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .await
                     .unwrap_or(v.clone());
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
-                    info["worktree"] = w.clone();
+                    info.set("worktree", w.clone());
                 }
                 print_json(&info);
             } else if !one_shot {
-                println!("created {name} ({})", &id[..8.min(id.len())]);
+                println!("created {name} ({})", id.head(8));
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
                     println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));

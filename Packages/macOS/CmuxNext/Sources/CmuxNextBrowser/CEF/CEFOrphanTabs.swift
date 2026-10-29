@@ -7,7 +7,7 @@ import Foundation
 /// for the fork to insert them into a pane window (`unplaced`, fork API 8).
 @MainActor
 final class CEFOrphanTabs {
-    /// The runtime, which owns this as `CEFRuntime.orphans` (p10-stability-091).
+    /// The runtime, which owns this as `CEFRuntime.orphans`.
     private let runtimeReference: OwnerReference<CEFRuntime>
     /// The runtime; nil (reported) only once it is gone, and then no tab is adopted.
     private var runtime: CEFRuntime? { runtimeReference.resolve() }

@@ -9,7 +9,7 @@ import CmuxNextTerminalGeometry
 /// next generation; Ghostty refuses an older one. A fresh surface starts a
 /// new lock (generation 1).
 ///
-/// The generation is the lane's, not the main actor's (p03-rendering-085): the session's events loop
+/// The generation is the lane's, not the main actor's: the session's events loop
 /// queues a `.resize` lock on the lane in stream order without waiting for main, as Chrome's
 /// compositor commits a new viewport size in its own frame sequence (`cc/trees/layer_tree_host_impl.cc`,
 /// `LayerTreeHostImpl::SetViewportRectAndScale`) without a round trip to the main thread. Read and

@@ -249,7 +249,7 @@ final class TabDragGhostPanel {
 
 // MARK: Render server
 
-/// The ghost on the render server (chrome-parity p03-rendering-035): additive springs keep the presented
+/// The ghost on the render server: additive springs keep the presented
 /// value and velocity continuous on a retarget (cc/animation/scroll_offset_animation_curve.cc `UpdateTarget`).
 extension TabDragGhostPanel {
     /// The overlay host keeps an overlay this far inside the window (`WindowOverlayHost.origin`):

@@ -32,7 +32,9 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
-    /// When a tab's origin lets it start Chromium during launch (p08-startup-040).
+    /// The App's cmux page host scripts for every renderer (fork API 29, ``CEFPageSchemes/HostScript``).
+    let pageHostScripts: [CEFPageSchemes.HostScript]
+    /// When a tab's origin lets it start Chromium during launch.
     let launchDeferral: CEFLaunchDeferral
     private(set) lazy var loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start: its load, then CefInitialize on a picked turn (built on first use, as the runtime)
 
@@ -48,7 +50,7 @@ public final class CEFEngine: BrowserEngine {
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
-    ///     nil (tests, fixtures): a queue of the engine's own.
+    ///     nil (tests, fixtures): the process runtime's (``CEFRuntime/wakeUps``), never a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap).
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input.
@@ -71,7 +73,7 @@ public final class CEFEngine: BrowserEngine {
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
-    ///     nil (tests, fixtures): a queue of the engine's own.
+    ///     nil (tests, fixtures): the process runtime's (``CEFRuntime/wakeUps``), never a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap). The
     ///     process-wide runtime hears the tap of the engine made last.
     ///   - crashKeys: The app's crash keys: the process-wide runtime names Chromium's state there
@@ -90,6 +92,7 @@ public final class CEFEngine: BrowserEngine {
     ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
     ///   - launch: The launch's scheduler, which orders a restored tab's start by its origin (feature
     ///     `cefLaunchOrigin`, ``CEFLaunchDeferral``). Nil: every tab starts Chromium at once.
+    ///   - pageHostScripts: The cmux page host's scripts, installed in every renderer on fork API 29.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
@@ -97,14 +100,15 @@ public final class CEFEngine: BrowserEngine {
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
                 pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                disabledChromiumFeatures: [String] = [], prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
+                disabledChromiumFeatures: [String] = [], prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil,
+                pageHostScripts: [CEFPageSchemes.HostScript] = []) {
         runtimeSource = source
         launchDeferral = CEFLaunchDeferral(startup: launch)
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
-        self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        self.waitDeadlines = waitDeadlines ?? CEFRuntime.shared.wakeUps
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
         if let launchMarks { CEFRuntime.shared.adoptLaunchMarks(launchMarks) }
@@ -113,6 +117,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
         CEFRuntime.shared.disabledChromiumFeatures = disabledChromiumFeatures
         CEFRuntime.shared.prefetchWork = prefetchWork
+        self.pageHostScripts = pageHostScripts
     }
 
     public var availability: BrowserEngineAvailability {
@@ -226,7 +231,7 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Whether spare windows hold a renderer-less placeholder where the fork makes one (the
-    /// `rendererlessSpareWindow` feature, p13-webui-019); off, a spare holds a frozen about:blank
+    /// `rendererlessSpareWindow` feature); off, a spare holds a frozen about:blank
     /// page. Set before the first ``prepareSpareWindow(pages:)``; a spare already built keeps its kind.
     public func setRendererlessSpareWindows(_ on: Bool) {
         CEFRuntime.shared.spareWindow.rendererlessPlaceholders = on
@@ -345,6 +350,31 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
     }
 
+    /// cmux.json `browser.builtInAdBlocker` set to true by the person, not left at its default; asked once, when
+    /// Chromium starts (a fork without the first-tab load then still loads the ad blocker at start).
+    public var builtInAdBlockerChosen: @MainActor () -> Bool {
+        get { CEFRuntime.shared.builtInAdBlockerChosen }
+        set { CEFRuntime.shared.builtInAdBlockerChosen = newValue }
+    }
+
+    /// Where this Chromium's built-in extensions went, and from what (`debug.cef` `built_in_extensions`); nil
+    /// before Chromium started.
+    public var builtInExtensionsReport: BuiltInExtensionsReport? {
+        CEFRuntime.shared.builtInLoader.lastStart.map {
+            BuiltInExtensionsReport(placement: $0.placement.rawValue, feature: $0.feature, forkSupports: $0.forkSupports,
+                                    personChose: $0.personChose, folders: $0.folders)
+        }
+    }
+
+    /// One Chromium start's built-in extensions: `placement` is `at_first_tab`, `at_start` or `off`.
+    public nonisolated struct BuiltInExtensionsReport: Equatable, Sendable {
+        public let placement: String
+        public let feature: Bool
+        public let forkSupports: Bool
+        public let personChose: Bool
+        public let folders: Int
+    }
+
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from (`com.google.Chrome`), asked once when Chromium starts; nil reads none.
     public var chromePolicyID: @MainActor () -> String? {
@@ -402,9 +432,9 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
-    /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
-    /// Chromium's first use, not at launch).
+    /// Hands the stores, sign-in tabs, wait deadlines, page host scripts and host supervisor
+    /// (``CEFRuntimeSource/backend``) to the process's runtime before it starts or makes a tab (not in
+    /// `init`: the runtime is built on Chromium's first use, not at launch).
     func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets,
@@ -412,7 +442,8 @@ public final class CEFEngine: BrowserEngine {
                       hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
                       hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers,
                       hostFileDialogs: runtimeSource.hostFileDialogs, hostLocks: runtimeSource.handlesHostLocks,
-                      hostAppEvents: runtimeSource.appEvents)
+                      hostAppEvents: runtimeSource.appEvents, helperParent: runtimeSource.helperParent,
+                      pageHostScripts: rendererPageHost)
         if runtimeSource.watchesHostHangs {
             runtime.watchHostHangs(reports: { [weak runtimeSource] hang in runtimeSource?.onHostHang?(hang) })
         }
@@ -424,6 +455,11 @@ public final class CEFEngine: BrowserEngine {
     func startRuntime(trigger: String = "tab") async throws(BrowserEngineError) {
         adoptStores()
         try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
+    }
+
+    /// The App's page host scripts as cmux-page document scripts (``CEFDocumentScripts/Scope/cmuxPages``).
+    private var rendererPageHost: [CEFDocumentScripts.Script] {
+        pageHostScripts.map { CEFDocumentScripts.Script(world: $0.world, body: $0.source, allFrames: $0.allFrames, scope: .cmuxPages) }
     }
 
     /// Makes `configuration`'s tab in a Chromium that runs: the process's runtime, or a test's runtime over a stand-in shim.

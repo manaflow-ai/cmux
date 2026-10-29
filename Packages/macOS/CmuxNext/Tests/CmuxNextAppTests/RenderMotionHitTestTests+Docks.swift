@@ -4,7 +4,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 
-/// Hit testing during a render-server spring beside dock columns (p03-rendering-098): a strip pane unzooming
+/// Hit testing during a render-server spring beside dock columns: a strip pane unzooming
 /// above a docked column takes the presses where it is drawn over the dock, and an overlay column's glass keeps
 /// its presses while a docked column grows in on the other side and the strip's range springs.
 extension RenderMotionHitTestTests {

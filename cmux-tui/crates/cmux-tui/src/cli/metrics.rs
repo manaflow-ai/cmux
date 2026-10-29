@@ -157,15 +157,18 @@ pub(super) fn table(reply: &Value, messages: &MetricsMessages) -> String {
             .collect::<Vec<_>>(),
     ];
     rows.extend(histograms.iter().map(row));
-    let columns = rows[0].len();
-    let widths: Vec<usize> = (0..columns)
-        .map(|column| rows.iter().map(|row| row[column].width()).max().unwrap_or(0))
-        .collect();
+    let columns = rows.first().map_or(0, Vec::len);
+    let mut widths = vec![0; columns];
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.width());
+        }
+    }
     let mut text = String::new();
     for row in &rows {
         let mut line = String::new();
-        for (column, cell) in row.iter().enumerate() {
-            let pad = widths[column] - cell.width();
+        for (column, (cell, width)) in row.iter().zip(&widths).enumerate() {
+            let pad = width.saturating_sub(cell.width());
             if column == 0 || column == 1 {
                 line.push_str(cell);
                 line.push_str(&" ".repeat(pad));

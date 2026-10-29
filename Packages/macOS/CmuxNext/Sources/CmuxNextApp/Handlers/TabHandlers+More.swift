@@ -69,7 +69,7 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
         let services = ctx.services, first = tabs.first ?? tab, rest = tabs.dropFirst()
         // The moves are awaited off main, in order; placing the new workspace is one task on main. A new window's
@@ -180,7 +180,7 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = services.landingWindow(tab: tab.id, workspaceID: nil)
         let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in

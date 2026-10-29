@@ -4,10 +4,11 @@ import CmuxNextHibernation
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Native pushes to a frozen page (p13-webui-065, MQ12): a frozen page gets no script, the thaw runs
+/// Native pushes to a frozen page (MQ12): a frozen page gets no script, the thaw runs
 /// the latest held push of each kind once, before anything sent after it, and a push that thaws first
 /// (a command, a call that waits for the page's answer) thaws the page in the caller's turn, through
 /// the page lifecycle, which freezes it again one recently visible window later. Every step is a call
@@ -38,7 +39,7 @@ struct PageFrozenEvaluateTests {
 
     /// A loaded WebKit page in the tab whose scripts go to `bridge`.
     private func webKitView(_ bridge: RecordingBridge) throws -> PageWebView {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         view.frame = tab.bounds
         tab.addSubview(view)
         view.loaded = true
@@ -159,7 +160,7 @@ struct PageFrozenEvaluateTests {
     /// Chromium: the page thaws (`setFrozen(false)`) before the held pushes run, and it stays hidden.
     @Test func aChromiumPageThawsBeforeItsHeldPushesRun() async throws {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting, deadlines: .testing()))
         defer { finish(view) }
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
@@ -220,7 +221,7 @@ struct PageFrozenEvaluateTests {
     /// answer came, the next pass freezes it.
     @Test func aPageWaitingForACallsAnswerIsNotFrozenUntilTheAnswerComes() async throws {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting, deadlines: .testing()))
         defer { finish(view) }
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value

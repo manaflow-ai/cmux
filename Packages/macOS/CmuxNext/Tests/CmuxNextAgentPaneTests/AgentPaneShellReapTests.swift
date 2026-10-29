@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Shell mode's commands and its Tab completions are reaped through ``ChildExitWatch`` (p02-threads-120): a
+/// Shell mode's commands and its Tab completions are reaped through ``ChildExitWatch``: a
 /// command's exit code reaches its read, and a completion shell answers once it was reaped and its pipe closed.
 /// Without the reap neither ever ends: the read reports no exit and the completion times out.
 @MainActor @Suite(.serialized)

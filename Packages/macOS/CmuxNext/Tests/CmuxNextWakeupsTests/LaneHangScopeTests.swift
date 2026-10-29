@@ -16,7 +16,8 @@ import Testing
         _ = BackgroundWork(cpuWidth: 3, label: "test.hang-scope-lanes", hangs: hangs)
         let files = WorkPriority.allCases.map(FilesLaneWidths.standard.width).reduce(0, +)
         #expect(hangs.lanes == Array(repeating: "lane.files", count: files)
-            + Array(repeating: "lane.system", count: BackgroundWork.systemWidth) + Array(repeating: "lane.cpu", count: 3))
+            + Array(repeating: "lane.system", count: BackgroundWork.systemWidth) + Array(repeating: "lane.cpu", count: 3)
+            + Array(repeating: "lane.bulk-files", count: BackgroundWork.bulkFilesWidth))
     }
 
     /// Two items of one lane that run at once open their scopes on two registrations. On one, the scope that

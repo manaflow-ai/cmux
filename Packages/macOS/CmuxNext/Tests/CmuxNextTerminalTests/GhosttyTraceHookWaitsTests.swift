@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Dispatch
 import Testing
 
-/// The trace hook's lock-free parts (p09-observability-049): a surface's GPU waits, where a handoff and a
+/// The trace hook's lock-free parts: a surface's GPU waits, where a handoff and a
 /// GPU completion race from two threads and each flow goes to the presents exactly once, and the surface
 /// table that finds a surface by `ghostty_surface_trace_id`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

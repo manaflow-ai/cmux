@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture chat names, not shipped UI.
-// The paused agent pair row in the real transcript (App.tsx's AgentPairRow): its Resume goes
+// The paused agent pair row in the real transcript (rows/AgentPairRow.tsx): its Resume goes
 // through the page's `chat.agentPair.resume` action, which the pane wires to the direct client, and
 // reaches acpmux as `_acpmux/agent_pair_resume` for the chat on screen. A double click sends one.
 import { afterAll, expect, test } from "bun:test";

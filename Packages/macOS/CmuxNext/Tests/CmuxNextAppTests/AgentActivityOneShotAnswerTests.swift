@@ -8,7 +8,7 @@ import Testing
 
 /// `AgentActivityLineConnection.oneShot` resumes its one continuation exactly once: the first reply
 /// line answers, and the lines after it in the same read, the server's close and the deadline find
-/// the call answered (p10-stability-171: its private resume-once box is gone, so a second resume
+/// the call answered (its private resume-once box is gone, so a second resume
 /// would be a `resumedTwice` fault here).
 struct AgentActivityOneShotAnswerTests {
     @Test func theFirstLineAnswersAndNothingResumesAgain() async throws {

@@ -75,7 +75,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (CLAUDE.md "Go past Chrome where cmux is scripted"). Its root counts the passes it still gets then.
     private(set) var isOffScreen = false { didSet { layoutView.isOffScreen = isOffScreen } }
     /// The workspace's visibility node, under its window's, that its panes' nodes hang under
-    /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
+    /// (`PaneController`). nil until p06-scheduler-023 gives each mounted workspace its
     /// node (an unmounted workspace has none); until then each pane's node is a root.
     var visibilityNode: VisibilityNode? { nil }
     /// The node this content's view observations follow (the empty state, the attention rings): its workspace
@@ -86,7 +86,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var deferredApply: LayoutMapping.Result? { didSet { if deferredApply != nil { services.hiddenLayoutWork.noteApply() } } }
     /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
     /// observation and drives no repair or focus again, so a daemon reply or a repair that lands
-    /// after the teardown leaves nothing behind (p07-memory-034). Chrome's WebContentsImpl stops
+    /// after the teardown leaves nothing behind. Chrome's WebContentsImpl stops
     /// its observers and drops its views at destruction the same way, so no late callback finds a
     /// half-live tab (content/browser/web_contents/web_contents_impl.cc, ~WebContentsImpl).
     private(set) var isTornDown = false
@@ -163,7 +163,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        // An agent's or a script's burst of splits lands with no spring (p06-scheduler-038).
+        // An agent's or a script's burst of splits lands with no spring.
         if services.features.isEnabled(.automationBurstSnap) {
             layoutModel.snapsAutomationBursts = true
             changeCauses = LayoutChangeCauses(workspace, causes: services.mainWork.causes)
@@ -206,7 +206,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if let record { restoreScroll(record) }
     }
 
-    // MARK: View record (p07-memory-033)
+    // MARK: View record
 
     /// The offsets this content's views show that nothing else keeps, for a remount after `teardown`:
     /// where each scroll settles; a pane or screen not mounted yet keeps what its record gave it while

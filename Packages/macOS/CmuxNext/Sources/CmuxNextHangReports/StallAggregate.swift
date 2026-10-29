@@ -24,8 +24,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public private(set) var stalls: [HangSample] = []
     /// The longest hangs, longest first.
     public private(set) var hangs: [HangSample] = []
-    /// The longest hangs of watched threads other than the main thread (``HangSample/Source/hangWatch``,
-    /// p09-observability-068), longest first: their own ``maxSamples`` slots, as Chrome's `HangWatcher` keeps
+    /// The longest hangs of watched threads other than the main thread (``HangSample/Source/hangWatch``),
+    /// longest first: their own ``maxSamples`` slots, as Chrome's `HangWatcher` keeps
     /// each thread type's hangs apart from the UI thread's.
     public private(set) var threadHangs: [HangSample] = []
     /// The launches that reached `startup_complete`.

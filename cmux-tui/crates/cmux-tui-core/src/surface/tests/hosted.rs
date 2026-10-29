@@ -319,7 +319,7 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
     ));
 }
 
-/// p09-observability-018: the host's echo frame names the key press the
+/// The host's echo frame names the key press the
 /// host's PTY read took, and the daemon applies that flow, not a guess of
 /// its own. A connection that did not negotiate the flag refuses it.
 #[cfg(unix)]
@@ -337,7 +337,7 @@ fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
     let mut stager = HostedFrameStager::new(0, true).with_input_flow(true);
     assert!(matches!(
         stager.push(flagged(1)).unwrap(),
-        Some(HostedTransition::FlowOutput { output, flow: 42 }) if output == b"ls"
+        Some(HostedTransition::FlowOutput { output, flow: 42, .. }) if output == b"ls"
     ));
     let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
     plain.sequence = 2;
@@ -349,6 +349,36 @@ fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
 
     let mut unnegotiated = HostedFrameStager::new(0, true);
     assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
+}
+
+/// A host that negotiated key stages sends its PTY write and
+/// read of the press with the flow; one that did not negotiate them, or a
+/// connection that asked for none, fails closed on such a frame.
+#[cfg(unix)]
+#[test]
+fn input_stages_hosted_stager_takes_the_hosts_write_and_read() {
+    let staged = |sequence| {
+        let mut frame = Frame::new(
+            MessageKind::Output,
+            crate::terminal_host_protocol::stages_trailer_payload(b"ls", 42, 1_000, 2_000),
+        );
+        frame.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
+        frame.sequence = sequence;
+        frame
+    };
+    let mut stager = HostedFrameStager::new(0, true).with_input_flow(true).with_input_stages(true);
+    assert!(matches!(
+        stager.push(staged(1)).unwrap(),
+        Some(HostedTransition::FlowOutput { output, flow: 42, host_stages: Some((1_000, 2_000)) })
+            if output == b"ls"
+    ));
+    let mut short = Frame::new(MessageKind::Output, vec![0; 23]);
+    short.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
+    short.sequence = 2;
+    assert!(stager.push(short).is_err(), "a short trailer fails closed");
+
+    let mut flow_only = HostedFrameStager::new(0, true).with_input_flow(true);
+    assert!(flow_only.push(staged(1)).is_err(), "unnegotiated stages fail closed");
 }
 
 #[cfg(unix)]

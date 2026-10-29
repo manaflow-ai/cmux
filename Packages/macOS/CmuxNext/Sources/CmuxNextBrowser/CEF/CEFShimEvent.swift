@@ -85,7 +85,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
     /// Chromium Host: the page did not handle the Command or Control chord whose key frame had
-    /// input seq `seq` (KEY_UNHANDLED with b bit 1, p01-process-030); cmux runs the action it held
+    /// input seq `seq` (KEY_UNHANDLED with b bit 1); cmux runs the action it held
     /// for the page or re-dispatches the key to its menus.
     case keyUnhandledChord(browser: Int32, seq: UInt32)
     /// An extension install or permission prompt (fork API 12); prompt 0
@@ -138,6 +138,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
     /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
     case popupMenuHidden(browser: Int32, token: Int64)
+    /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode): the host
+    /// watches its children as ``CEFChildProcessMonitor`` watches the app's in process.
+    case helperExit(CEFChildProcessMonitor.Exit)
+    /// The renderers of the tab's frames changed (FRAME_RENDERERS): an iframe's renderer came
+    /// or went after the load. In host mode `tab.renderer_client_ids` was pushed before it.
+    case frameRenderers(browser: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -221,6 +227,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 66:
             let result = CEFWindowRequestResult(browser: browser, window: request, anchor: a, packed: b, url: s1, placement: s2)
             self = result.map(Self.windowRequestResult) ?? .unknown(kind: kind)
+        case 67: self = .frameRenderers(browser: browser)
+        case 68: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
@@ -241,12 +249,13 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .subframeRenderer(let b, _, _, _), .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _):
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _),
+             .frameRenderers(let b):
             b
         case .widgetContext(let context):
             context.owner
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult,
-             .windowRequestResult, .unknown:
+             .windowRequestResult, .helperExit, .unknown:
             nil
         }
     }

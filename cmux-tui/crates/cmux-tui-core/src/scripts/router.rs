@@ -10,6 +10,7 @@ use crate::apps::routing::{answer, is_daemon_op, request};
 use crate::mux::Mux;
 use crate::request_origin::{RequestOrigin, require_origin};
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{Actor, resource_router};
 
 /// Streams a committed resource change publishes. The journal epoch does not
@@ -111,21 +112,27 @@ impl ScriptRouter for DaemonRouter {
         mux.wake_journal_waiters_on(&interrupt);
         // Without a thread the session gets no events: `cmux.wait` then ends
         // at its own timeout.
-        let _ = std::thread::Builder::new().name("cmux-script-events".into()).spawn(move || {
-            let mut epoch = mux.journal_event_epoch();
-            loop {
-                let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
-                if interrupt.is_fired() {
-                    return;
-                }
-                if next != epoch {
-                    epoch = next;
-                    for stream in STREAMS {
-                        publish(stream);
+        let _ = supervised::spawn_at(
+            "cmux-script-events",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut epoch = mux.journal_event_epoch();
+                loop {
+                    let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
+                    if interrupt.is_fired() {
+                        return;
+                    }
+                    if next != epoch {
+                        epoch = next;
+                        for stream in STREAMS {
+                            publish(stream);
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
         guard
     }
 }

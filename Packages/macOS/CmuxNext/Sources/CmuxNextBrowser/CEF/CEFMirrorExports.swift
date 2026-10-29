@@ -12,6 +12,7 @@ nonisolated enum CEFMirrorExports {
     typealias ActionsString = @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     typealias BoundsRead = @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
+    typealias IDsRead = @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
     typealias Free = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
 
     /// The cache the functions read. A C function of the shim's ABI carries no context, so the
@@ -60,6 +61,8 @@ nonisolated enum CEFMirrorExports {
             unsafe address({ unsafe CEFMirrorExports.bounds(CEFMirrorKey(.popupWindowBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
         case .devToolsInspectedBounds:
             unsafe address({ unsafe CEFMirrorExports.bounds(CEFMirrorKey(.devToolsInspectedBounds, id: $0), $1, $2, $3, $4) } as BoundsRead)
+        case .rendererClientIDs:
+            unsafe address({ unsafe CEFMirrorExports.ids(CEFMirrorKey(.rendererClientIDs, id: $0), $1, $2) } as IDsRead)
         }
     }
 
@@ -104,6 +107,20 @@ nonisolated enum CEFMirrorExports {
         // SAFETY: as for x.
         unsafe height?.pointee = bounds.height
         return bounds.result
+    }
+
+    /// The ids that fit `capacity` into `out`; returns how many the value holds, as the shim does.
+    private static func ids(_ key: CEFMirrorKey, _ out: UnsafeMutablePointer<Int32>?, _ capacity: Int32) -> Int32 {
+        guard Thread.isMainThread else { return offMain(key.field.export, 0) }
+        let ids = MainActor.assumeIsolated { () -> [Int32] in // main-proof: guarded by Thread.isMainThread above
+            if case .ints(let ids)? = served?.value(key) { ids } else { [] }
+        }
+        for (index, id) in ids.prefix(Int(max(capacity, 0))).enumerated() {
+            // SAFETY: a non-NULL `out` is the caller's buffer of `capacity` Int32s, writable during this call (the
+            // C ABI); `index` stays below `capacity`.
+            unsafe out?[index] = id
+        }
+        return Int32(ids.count)
     }
 
     /// Off the main thread nothing can tell whose string it is, so it stays allocated.

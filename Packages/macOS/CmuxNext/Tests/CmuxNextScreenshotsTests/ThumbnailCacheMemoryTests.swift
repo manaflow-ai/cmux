@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The grid's thumbnail cache as a memory consumer (p07-memory-059): a new limit frees nothing, a
+/// The grid's thumbnail cache as a memory consumer: a new limit frees nothing, a
 /// release frees down to it, the critical limit keeps only the working set, and a tile asked for
 /// after a release renders again.
 @Suite struct ThumbnailCacheMemoryTests {

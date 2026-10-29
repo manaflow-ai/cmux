@@ -108,7 +108,7 @@ fn draw_render_frame_with_catalog(
         for col in 0..available {
             let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let cell = &cells[source_col];
+            let Some(cell) = cells.get(source_col) else { break };
             let partial = partial_wide_cell(cells, source_x, source_end, source_col);
             let selected = selected_cell(cells, source_col, row, &selected);
             let target = &mut buf[(x, y)];
@@ -153,9 +153,10 @@ fn selected_cell(
     row: usize,
     selected: &impl Fn(u16, u16) -> bool,
 ) -> bool {
+    let Some(cell) = cells.get(source_col) else { return false };
     let selected_here =
-        cells[source_col].width != CellWidth::SpacerHead && selected(source_col as u16, row as u16);
-    let paired_col = match cells[source_col].width {
+        cell.width != CellWidth::SpacerHead && selected(source_col as u16, row as u16);
+    let paired_col = match cell.width {
         CellWidth::Wide
             if cells
                 .get(source_col.saturating_add(1))
@@ -220,7 +221,8 @@ fn partial_wide_cell(
     source_end: usize,
     source_col: usize,
 ) -> bool {
-    match cells[source_col].width {
+    let Some(cell) = cells.get(source_col) else { return false };
+    match cell.width {
         CellWidth::Wide => cells
             .get(source_col.saturating_add(1))
             .filter(|_| source_col.saturating_add(1) < source_end)
@@ -372,6 +374,10 @@ impl<'a> PaletteResolver<'a> {
         }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: a u8 palette index is always below the 256 entries of both tables"
+    )]
     fn resolve(&self, spec: ColorSpec, default: Rgb) -> Color {
         match spec {
             ColorSpec::Default => rgb_color(default),
@@ -413,10 +419,7 @@ fn resolve_palette_color(idx: u8, overridden: bool, rgb: Rgb) -> Color {
     if overridden {
         return Color::Rgb(rgb.r, rgb.g, rgb.b);
     }
-    if idx < 16 {
-        return BASIC_PALETTE_COLORS[idx as usize];
-    }
-    Color::Indexed(idx)
+    BASIC_PALETTE_COLORS.get(usize::from(idx)).copied().unwrap_or(Color::Indexed(idx))
 }
 
 const BASIC_PALETTE_COLORS: [Color; 16] = [
@@ -448,13 +451,11 @@ fn apply_cell(
     let text = renderable_cell_text(&cell.text);
     target.set_symbol(&text);
     let columns = match cell.width {
-        CellWidth::Wide => 2,
-        CellWidth::Narrow | CellWidth::SpacerTail | CellWidth::SpacerHead => 1,
+        CellWidth::Wide => NonZeroU16::MIN.saturating_add(1),
+        CellWidth::Narrow | CellWidth::SpacerTail | CellWidth::SpacerHead => NonZeroU16::MIN,
     };
-    if text.cell_width() != columns {
-        target.set_diff_option(CellDiffOption::ForcedWidth(
-            NonZeroU16::new(columns).expect("Ghostty cells always occupy at least one column"),
-        ));
+    if text.cell_width() != columns.get() {
+        target.set_diff_option(CellDiffOption::ForcedWidth(columns));
     }
 
     let mut style = Style::default();

@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// A window the person closes (the close button, Close Window, Cmd-Shift-W) fades out as a whole
 /// before it closes (plans/cmux-next/close-animation/DESIGN.md).
 ///
-/// The fade runs on the render server (chrome-parity task p03-rendering-034): one additive `exit`
+/// The fade runs on the render server: one additive `exit`
 /// spring (critically damped, so the window never comes back up) takes the frame view's layer
 /// opacity to 0. Nothing runs on the main thread per frame and the window server gets no call per
 /// frame. This is Chromium's window hide animation (ui/wm/core/window_animations.cc

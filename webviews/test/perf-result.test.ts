@@ -1,5 +1,5 @@
-// scripts/perf-result.mjs, the result-v1 writer of the webviews benches and perf tests
-// (p12-perf-process-219): nothing without PERF_RESULT_DIR, raw samples through
+// scripts/perf-result.mjs, the result-v1 writer of the webviews benches and perf tests:
+// nothing without PERF_RESULT_DIR, raw samples through
 // scripts/perf-lab/bench_results.py with it, and a loud failure when the writer refuses. Also the
 // agent pane browser benches' series (scripts/agent-pane/bench-perf-series.mjs).
 import { afterEach, describe, expect, test } from "bun:test";

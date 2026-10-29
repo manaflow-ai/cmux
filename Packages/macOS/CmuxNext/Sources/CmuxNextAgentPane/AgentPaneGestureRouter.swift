@@ -131,7 +131,7 @@ extension AgentPaneView: AgentPaneGestureTarget {
     var gestureNode: VisibilityNode? { visibilityNode }
 
     /// The router asks only while ``gestureNode`` is not hidden. The view tree is still read: a pane's
-    /// node does not follow its screen's hiding yet (p06-scheduler-023), and a page window is matched
+    /// node does not follow its screen's hiding yet, and a page window is matched
     /// by place, so a pane on a hidden screen at the same rect must not own the shown pane's window.
     func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one pane per press, after the router's O(1) node skip
         page.showsChromium && !isHiddenOrHasHiddenAncestor && chromiumPage?.isPageWindow(eventWindow) == true

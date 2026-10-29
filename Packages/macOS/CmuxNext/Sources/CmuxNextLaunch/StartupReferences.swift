@@ -2,7 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
-/// Marks the startup phase's settle references when the daemon is unavailable (p06-scheduler-007),
+/// Marks the startup phase's settle references when the daemon is unavailable,
 /// since none of them will come then: the first snapshot, the session restore and the visible
 /// page. Chrome's model: the `StartupObserver` of `chrome/browser/after_startup_task_utils.cc`
 /// counts first paint, session restore and the visible WebContents' load stopping before

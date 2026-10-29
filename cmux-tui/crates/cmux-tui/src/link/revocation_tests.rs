@@ -383,7 +383,16 @@ async fn concurrent_reloads_apply_in_order_and_read_the_file_after_admission() {
         std::task::Poll::Ready(())
     })
     .await;
-    assert_eq!(within(updates.recv()).await.unwrap(), fresh);
+    // The second reload reads the file off the runtime thread, so it is
+    // driven while its overlay I/O is awaited.
+    let applied = within(async {
+        tokio::select! {
+            applied = updates.recv() => applied,
+            _ = second.as_mut() => panic!("the second reload ended before its overlay I/O"),
+        }
+    })
+    .await;
+    assert_eq!(applied.unwrap(), fresh);
     overlay.release.add_permits(1);
     within(second).await.unwrap();
     assert_eq!(*peers.snapshot(), fresh);

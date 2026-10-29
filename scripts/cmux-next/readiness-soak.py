@@ -127,7 +127,7 @@ TICKING_PAGE = ("<!doctype html><title>soak ticking</title><h1 id=t>0</h1>"
 # --app-config: the sanitizer runtime the build embeds and the variable its options come from.
 SANITIZER_RUNTIMES = {"asan": "libclang_rt.asan_osx_dynamic.dylib", "tsan": "libclang_rt.tsan_osx_dynamic.dylib"}
 SANITIZER_OPTIONS = {"asan": "ASAN_OPTIONS", "tsan": "TSAN_OPTIONS"}
-TSAN_SUPPRESSIONS = os.path.join(HERE, "tsan-suppressions.txt")  # the reasoned third-party lines (p10-stability-013)
+TSAN_SUPPRESSIONS = os.path.join(HERE, "tsan-suppressions.txt")  # the reasoned third-party lines
 # With Chromium off, the app's malloc zones are read at least this often while it runs (and when a Chromium helper
 # shows), so a PartitionAlloc zone that registers mid-run is seen while the app is still alive to read.
 ZONES_EVERY_S = 600

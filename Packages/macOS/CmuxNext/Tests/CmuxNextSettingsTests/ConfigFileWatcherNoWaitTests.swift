@@ -6,7 +6,7 @@ import Foundation
 import os
 import Testing
 
-/// `ConfigFileWatcher.start` and `stop` never wait for the watcher's queue (p02-threads-035): the main
+/// `ConfigFileWatcher.start` and `stop` never wait for the watcher's queue: the main
 /// thread starts and stops watchers, and its `queue.sync` waited for whatever the queue was running (a
 /// consumer's `onChange`, a directory walk on a slow volume). A save made after a quiet start, before its
 /// arm runs, is still reported; events after `stop` are not.
@@ -84,7 +84,7 @@ struct ConfigFileWatcherNoWaitTests {
     }
 
     /// A watch armed long after its consumer read the file (the Ghostty config watch, posted after
-    /// startup, p08-startup-086) reports a save made between the read's ``mark()`` and the arm: a write
+    /// startup) reports a save made between the read's ``mark()`` and the arm: a write
     /// in place, a rename over the file, a delete, a file that appears.
     @Test(arguments: SaveKind.allCases)
     func aSaveSinceTheMarkIsReportedWhenALaterWatchArms(_ save: SaveKind) async throws {

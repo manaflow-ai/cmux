@@ -2,12 +2,13 @@
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
 private typealias PageJSON = CmuxNextSettings.JSONValue
 
-/// The diff tab's prefs stream through a real ``PageRouter`` hold (p13-webui-027). Each event is
+/// The diff tab's prefs stream through a real ``PageRouter`` hold. Each event is
 /// the whole prefs, so while the page is hidden or frozen the router keeps only the newest
 /// (`.latest`): at release the page gets that one, with no gap, and each older one is reported
 /// dropped once. The languages stream sends the whole pack and names the same policy
@@ -37,7 +38,7 @@ struct DiffPageProviderFrozenDeliveryTests {
         defer { try? FileManager.default.removeItem(at: viewed) }
         let prefs = Prefs()
         let provider = DiffPageProvider(ready: nil, sidecar: nil, languages: nil,
-                                        stores: DiffPageStores(prefs: prefs, viewed: DiffViewedFiles(url: viewed)))
+                                        stores: DiffPageStores(prefs: prefs, viewed: DiffViewedFiles(url: viewed, runner: BackgroundWork(label: "test.diff-viewed"))))
         let page = PageHoldHarness(descriptor: .diff, prefix: "cmux.diff.", provider: provider)
         let reply = await page.subscribe(DiffPageProvider.prefsStream)
         try #require(reply["t"]?.stringValue == "ok", "\(reply)")

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextAppearance
 
 /// The content view every window kit window gets (plans/cmux-next/windows.md,
 /// one backdrop rule): the window's one backdrop, the same material and

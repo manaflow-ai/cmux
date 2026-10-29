@@ -1,0 +1,62 @@
+{
+  "id": "split-right-down",
+  "priority": "P0",
+  "title": "Cmd-D splits right, Cmd-Shift-D splits down: each pane gets its half, its own shell and a PTY of its size",
+  "why": "Splitting is the first thing a person does after typing. Each new pane must start a shell that takes keys, and every pane (the old one too) must refit: the old pane's PTY shrinks to its half, or programs there wrap at the old width.",
+  "source": "window life: split (holistic-quality.md 1), Ghostty's split keys (Cmd-D, Cmd-Shift-D)",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-split"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "left"},
+    {"do": "window_place", "title": "set-up: the window at 70% x 75% of the screen", "fraction": [0.05, 0.05, 0.7, 0.75]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "full"},
+
+    {"do": "key", "title": "Cmd-D", "key": "d", "modifiers": ["cmd"], "mark": "split-right"},
+    {"do": "adopt_pane", "as": "right", "title": "the new pane on the right has the focus and a shell"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo right-${nonce} $(stty size)", "enter": true, "mark": "typed-right"},
+    {"do": "expect", "title": "two panes side by side, each half the width, each fitted; the new shell answers", "since": "typed-right", "timeout": 10,
+     "all": [
+       {"pane_frame": {"pane": "right", "right_of": "left"}},
+       {"pane_frame": {"pane": "left", "vs": "full", "w": 0.5, "h": 1.0, "tol": 0.06}},
+       {"pane_frame": {"pane": "right", "vs": "full", "w": 0.5, "h": 1.0, "tol": 0.06}},
+       {"grid_fits": {"pane": "left", "vs": "full", "cols": "narrower", "rows": "same"}},
+       {"grid_fits": {"pane": "right", "vs": "full", "cols": "narrower", "rows": "same"}},
+       {"pty_size": {"tag": "right-${nonce}", "pane": "right"}},
+       {"app_pane": {"focused": true}},
+       {"app_prompt": true},
+       {"pane_frame_text": "right-${nonce}"}
+     ]},
+    {"do": "remember", "as": "right-half", "pane": "right"},
+
+    {"do": "key", "title": "Cmd-Shift-D in the right pane", "key": "d", "modifiers": ["cmd", "shift"], "mark": "split-down"},
+    {"do": "adopt_pane", "as": "bottom", "title": "the new pane below has the focus and a shell"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo bottom-${nonce} $(stty size)", "enter": true, "mark": "typed-bottom"},
+    {"do": "expect", "title": "the right pane split in two rows, each fitted; the new shell answers", "since": "typed-bottom", "timeout": 10,
+     "all": [
+       {"pane_frame": {"pane": "bottom", "below": "right"}},
+       {"pane_frame": {"pane": "right", "vs": "right-half", "w": 1.0, "h": 0.5, "tol": 0.07}},
+       {"pane_frame": {"pane": "bottom", "vs": "right-half", "w": 1.0, "h": 0.5, "tol": 0.07}},
+       {"grid_fits": {"pane": "right", "vs": "right-half", "cols": "same", "rows": "shorter"}},
+       {"grid_fits": {"pane": "bottom", "vs": "right-half", "cols": "same", "rows": "shorter"}},
+       {"grid_fits": {"pane": "left", "vs": "full", "cols": "narrower", "rows": "same"}},
+       {"pty_size": {"tag": "bottom-${nonce}", "pane": "bottom"}},
+       {"app_prompt": true},
+       {"pane_frame_text": "bottom-${nonce}"}
+     ]},
+
+    {"do": "use_pane", "pane": "left", "click": true, "title": "click into the left pane"},
+    {"do": "type", "text": "echo left-${nonce} $(stty size)", "enter": true, "mark": "typed-left"},
+    {"do": "expect", "title": "the old pane's PTY has its half-width grid", "since": "typed-left", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "left-${nonce}", "pane": "left"}},
+       {"daemon_prompt": true},
+       {"app_text_contains": "left-${nonce} "},
+       {"pane_frame_text": "left-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

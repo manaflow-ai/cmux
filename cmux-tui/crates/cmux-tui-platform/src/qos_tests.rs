@@ -1,4 +1,4 @@
-//! Request QoS and the lock-holder boost (p06-scheduler-035). Each test runs
+//! Request QoS and the lock-holder boost. Each test runs
 //! on its own thread: the scopes are thread-local and change its QoS.
 //!
 //! On Linux an unprivileged thread cannot take back a lowering, so UTILITY
@@ -124,7 +124,7 @@ fn qos_lock_boost_leaves_frontend_and_program_threads_alone() {
     });
 }
 
-/// A thread declared below Default at its start (p05-ipc-080: watchers at
+/// A thread declared below Default at its start (watchers at
 /// utility, idle workers at background) is raised while it holds a ranked
 /// lock, as a thread a request lowered is: a request that waits for the lock
 /// never waits behind it. A thread declared Default or above is left alone.
@@ -177,7 +177,7 @@ fn qos_lock_boost_raises_a_declared_low_thread_until_its_release() {
 /// `spawn_raisable` starts a utility or background thread at its class where
 /// the process can raise it for a lock and take that back, else at Default,
 /// else (a niced process that cannot reach Default) at the creator's own
-/// class: never at a class its start would be refused (p05-ipc-080). The
+/// class: never at a class its start would be refused. The
 /// body reads its class and its registry row's refusals.
 #[test]
 fn qos_spawn_raisable_starts_at_a_class_the_creator_can_reach() {

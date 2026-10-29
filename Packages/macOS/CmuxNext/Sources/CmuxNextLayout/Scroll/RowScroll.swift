@@ -7,7 +7,7 @@ public import CoreGraphics
 /// reducer's camera anchor and remembered focus per row.
 public nonisolated struct RowScroll: Hashable, Sendable {
     public var state = ColumnScrollState()
-    /// While a pan of the rows shows on their motion container (p04-input-050), the offset their views
+    /// While a pan of the rows shows on their motion container, the offset their views
     /// are laid out at; nil when they are laid out at the camera.
     public var panBase: CGFloat?
     /// The offset the last layout pass laid the rows' views out at.

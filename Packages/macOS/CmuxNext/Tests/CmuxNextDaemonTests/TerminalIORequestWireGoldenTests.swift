@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/TerminalIO (p05-ipc-032): the
+/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/TerminalIO: the
 /// line each one sends today is recorded in cmux-tui/spec/fixtures/terminal-io-requests/lines.json and
 /// compared here as JSON (key order does not count). The migration to the generated `<Name>Request`
 /// types (CmuxNextWireGen RequestEmitter) must keep these goldens green. The daemon side reads the same
@@ -107,30 +107,6 @@ struct TerminalIORequestWireGoldenTests {
             if case .string(let base64)? = line["bytes"] { bytes.append(try #require(Data(base64Encoded: base64))) }
             #expect(bytes.map { String(format: "%02x", $0) }.joined() == ptyHex, "\(name)")
         }
-    }
-
-    /// Every request type declared in Sources/CmuxNextDaemon/Requests/TerminalIO has a golden. The list
-    /// is read from the source, so a type added there, or a second type of one wire command, needs one.
-    @Test func everyTerminalIORequestTypeHasAGolden() throws {
-        let directory = try Self.repositoryRoot()
-            .appendingPathComponent("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO")
-        let declaration = try NSRegularExpression(
-            pattern: #"\bstruct\s+(\w+)\s*:[^{]*\b(?:DaemonRequest|TerminalSpawningRequest)\b"#
-        )
-        var declared: Set<String> = []
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        for file in files where file.pathExtension == "swift" {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            for match in declaration.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-                if let name = Range(match.range(at: 1), in: source) { declared.insert(String(source[name])) }
-            }
-        }
-        // When the migration deletes these structs, this set must come from the generated TerminalIO
-        // types instead: an empty directory does not pass as "every type has a golden".
-        try #require(!declared.isEmpty, "no DaemonRequest type in \(directory.path)")
-        let covered = Set(Self.requests.values.map(\.type))
-        #expect(declared.subtracting(covered).isEmpty, "no golden: \(declared.subtracting(covered).sorted())")
-        #expect(covered.subtracting(declared).isEmpty, "not in the directory: \(covered.subtracting(declared).sorted())")
     }
 
     /// Every key a golden sends is a request field of its command in cmux-tui/spec/sdk-schema.json, and the

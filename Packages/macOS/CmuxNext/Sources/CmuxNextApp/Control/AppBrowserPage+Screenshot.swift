@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CoreGraphics
@@ -18,7 +19,8 @@ extension AppBrowserPage {
     nonisolated static let keptScreenshots = 32
     nonisolated static let screenshotLifetime: TimeInterval = 3600
 
-    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: CmuxNextControl.BrowserPageCapture) async throws -> JSONValue {
+    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: CmuxNextControl.BrowserPageCapture,
+                           runner: any MayBlockRunner) async throws -> JSONValue {
         let image: CGImage
         do {
             switch capture {
@@ -36,7 +38,7 @@ extension AppBrowserPage {
         }
         let path: String
         do {
-            path = try await save(png, tabID: tabID)
+            path = try await save(png, tabID: tabID, on: runner)
         } catch {
             throw ControlError(code: "app_error", message: BrowserPageStrings.saveFailed(error.localizedDescription))
         }
@@ -84,31 +86,31 @@ extension AppBrowserPage {
         return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 
-    /// Writes off the main actor to `$TMPDIR/cmux-browser-screenshots/`.
-    @concurrent
-    static func save(_ png: Data, tabID: String) async throws -> String {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // wall-clock: a file name stamp; pruning reads the files' dates.
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        let file = directory.appendingPathComponent("\(tabID)-\(stamp)-\(UUID().uuidString.prefix(8)).png")
-        try png.write(to: file, options: .atomic)
-        prune(directory, keeping: keptScreenshots, newerThan: Date().addingTimeInterval(-screenshotLifetime))
-        return file.path
+    /// Writes to `$TMPDIR/cmux-browser-screenshots/` on the runner's files lane; the agent that asked waits.
+    static func save(_ png: Data, tabID: String, on runner: any MayBlockRunner) async throws -> String {
+        try await runner.runFiles(.userBlocking) {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // wall-clock: a file name stamp; pruning reads the files' dates.
+            let stamp = Int(Date().timeIntervalSince1970 * 1000)
+            let file = directory.appendingPathComponent("\(tabID)-\(stamp)-\(UUID().uuidString.prefix(8)).png")
+            try png.write(to: file, options: .atomic)
+            prune(directory, keeping: keptScreenshots, newerThan: Date().addingTimeInterval(-screenshotLifetime))
+            return file.path
+        }
     }
 
     /// Deletes the PNGs in `directory` past the newest `keeping`, and any
     /// modified before `cutoff`. Best effort: a file another save is
     /// writing or a reader holds open is left for the next prune.
     nonisolated static func prune(_ directory: URL, keeping: Int, newerThan cutoff: Date) {
-        let manager = FileManager.default
-        guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+        guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
                                                            options: [.skipsHiddenFiles]) else { return }
         let dated = files.filter { $0.pathExtension == "png" }.map { file in
             (file, (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
         }.sorted { $0.1 > $1.1 }
         for (index, (file, modified)) in dated.enumerated() where index >= keeping || modified < cutoff {
-            try? manager.removeItem(at: file)
+            try? FileManager.checked.removeItem(at: file)
         }
     }
 }

@@ -15,7 +15,7 @@ import Foundation
 /// ask for "now" when its slice ends with work left and report its next
 /// delayed task; an older fork still runs, demand-only (`CEFRuntime` logs it).
 ///
-/// A fork with `cmux_set_on_schedule_delayed` (p14-energy-046) sends delayed work as an absolute
+/// A fork with `cmux_set_on_schedule_delayed` sends delayed work as an absolute
 /// run time with Chromium's leeway and policy instead (``request(runTimeNanos:leewayNanos:precise:)``),
 /// as `MessagePumpCFRunLoopBase::ScheduleDelayedWork` arms its timer at `delayed_run_time` with
 /// tolerance `next_work_info.leeway` under `kTimerSlackMac`. The whole-millisecond request truncated
@@ -54,7 +54,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
     }()
 
-    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``, p06-scheduler-048):
+    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``):
     /// input while a page has the keyboard or its ack of a page input may still be due
     /// (``RecentPageInput``; Chromium's input router runs inside `CefDoMessageLoopWork`), frame
     /// otherwise. Never a budgeted class and never by visibility: Chromium's one UI thread serves every
@@ -212,7 +212,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     }
 }
 
-// MARK: - The frame deadline (p03-rendering-116)
+// MARK: - The frame deadline
 
 extension CEFPumpSchedule {
     /// The frame a pass must not run into, in the pump's clock (seconds since boot: `CACurrentMediaTime`

@@ -1,6 +1,6 @@
 import AppKit
 
-/// A render-server spring's start (chrome-parity R2, p03-rendering-029): what moves goes to rest once, and
+/// A render-server spring's start (chrome-parity R2): what moves goes to rest once, and
 /// the overlay plane places the pane chrome there before any spring starts.
 extension SplitMotion {
     /// A render-server spring's start: every host of `panes` (with `laysOut`, when its rest has room) goes to

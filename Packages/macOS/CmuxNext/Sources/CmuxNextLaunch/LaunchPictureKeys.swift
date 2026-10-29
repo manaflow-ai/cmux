@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Keys typed while a window shows its launch picture (p08-startup-061), the terminal stand-in buffer. A key changes
+/// Keys typed while a window shows its launch picture, the terminal stand-in buffer. A key changes
 /// only this buffer in its turn and asks the window to build its focused pane's slice in the next frame
 /// (``begin(window:shell:raise:)``); it never builds the window. Two kinds of key wait here:
 ///

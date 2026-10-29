@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextTerminal
 import Testing
 
-/// The terminal's I-beam comes from a cursor area AppKit supports (p04-input-090). NSTrackingArea.h does
+/// The terminal's I-beam comes from a cursor area AppKit supports. NSTrackingArea.h does
 /// not support `.activeAlways` with `.cursorUpdate`, and with no cursor rect left that area was the only
 /// thing to set the I-beam when the pointer entered a terminal from a divider, the sidebar or a browser.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

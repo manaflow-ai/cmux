@@ -62,7 +62,7 @@ impl Daemon {
         let ready: Value =
             serde_json::from_str(&rx.recv_timeout(Duration::from_secs(20)).unwrap()).unwrap();
         let url = ready["webUrl"].as_str().unwrap();
-        let (base, token) = url.split_once("/?token=").unwrap();
+        let (base, token) = url.split_once("/#token=").unwrap();
         let ws = format!("{}/", base.replace("http://", "ws://"));
         Self { child: Some(child), home, ws, token: token.to_owned() }
     }

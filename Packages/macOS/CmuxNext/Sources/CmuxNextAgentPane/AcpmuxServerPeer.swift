@@ -193,13 +193,13 @@ nonisolated enum AcpmuxServerPeer {
 
     private static func tcpSockets(of pid: pid_t) -> [TCPSocket] {
         // SAFETY: with no buffer (nil, 0) proc_pidinfo only answers the byte count it needs.
-        let bytes = unsafe proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        let bytes = unsafe blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard bytes > 0 else { return [] }
         let stride = MemoryLayout<proc_fdinfo>.stride
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
         // SAFETY: proc_pidinfo writes at most the given byte size, exactly the array's (fds.count entries of `stride`
         // bytes), into the array's own storage, lent for the call.
-        let filled = unsafe proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
+        let filled = unsafe blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
         var out: [TCPSocket] = []
         for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
             var info = socket_fdinfo()

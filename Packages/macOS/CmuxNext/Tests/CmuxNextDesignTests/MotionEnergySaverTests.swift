@@ -6,7 +6,7 @@ import QuartzCore
 import Testing
 
 /// Under Energy Saver ambient motion loops hold still and nothing else changes
-/// (plans/cmux-next/chrome-parity/p14-energy.md, D; p14-energy-027): the loop helpers return nil,
+/// (plans/cmux-next/chrome-parity/p14-energy.md, D): the loop helpers return nil,
 /// as under Reduce Motion, while moves, fades, the flash verb, the attention blink and edit mode's
 /// wiggle keep their normal-mode timing. Normal mode is the policy it was before the saver existed.
 @MainActor @Suite(.serialized) struct MotionEnergySaverTests {

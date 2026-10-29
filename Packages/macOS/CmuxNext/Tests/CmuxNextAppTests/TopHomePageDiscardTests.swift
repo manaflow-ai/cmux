@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// Classic Home, discarded and built again through its host (p07-memory-023), comes back on the
+/// Classic Home, discarded and built again through its host, comes back on the
 /// conversation it showed with that conversation's draft, its list where the person left it once the
 /// rows are in (they arrive after the page is built), and its search. An unsent New Message, which
 /// no store keeps, holds the page; a search does not.

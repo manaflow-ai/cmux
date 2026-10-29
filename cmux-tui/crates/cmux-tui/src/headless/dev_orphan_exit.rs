@@ -21,8 +21,10 @@
 //! replace the two intervals.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
+
+use cmux_threads::sync::Condvar;
 
 /// How long an owner must have had no client before it may stop.
 pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
@@ -329,7 +331,7 @@ impl OrphanFacts for OwnerFacts {
     }
 
     fn executable_present(&self) -> bool {
-        self.executable.exists()
+        cmux_blocking::fs::metadata(&self.executable).is_ok()
     }
 
     fn live_terminals(&self) -> Option<usize> {
@@ -347,7 +349,7 @@ impl OrphanExit {
     pub(crate) fn stop(mut self) {
         self.watch.stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

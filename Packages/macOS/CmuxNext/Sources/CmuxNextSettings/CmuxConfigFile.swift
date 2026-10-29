@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Reads and writes `~/.config/cmux/cmux-next.json`. An actor so file IO and
@@ -6,6 +7,14 @@ public import Foundation
 /// publish atomically; the file watcher then reloads and applies them, so
 /// there is one path from disk to live settings.
 public actor CmuxConfigFile {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.settings.config-file`): its config file writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.settings.config-file
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.settings.config-file", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let url: URL
     /// Keys an MDM profile or the team policy manages; every write checks it.
     public nonisolated let managedGuard: ManagedKeyGuard
@@ -33,24 +42,23 @@ public actor CmuxConfigFile {
     /// `cmux.json` when the next file does not exist. An explicit override is
     /// returned unchanged and is never seeded from the user's files.
     ///
-    /// The caller supplies the home and file manager so first-launch behavior
+    /// The caller supplies the home so first-launch behavior
     /// is deterministic in tests and never depends on `$HOME`.
     public static func prepareDefaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> URL {
         if let override = environment[overrideKey], !override.isEmpty {
             return defaultURL(home: home, environment: environment)
         }
 
         let next = defaultURL(home: home, environment: environment)
-        guard !fileManager.fileExists(atPath: next.path) else { return next }
+        guard !FileManager.checked.fileExists(atPath: next.path) else { return next }
 
         let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
-        try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
-            if fileManager.fileExists(atPath: classic.path) {
+            if FileManager.checked.fileExists(atPath: classic.path) {
                 // Its text, never the file: a classic cmux.json symlinked into a
                 // dotfiles repo would otherwise become next's file too, and next's
                 // settings migration would rewrite classic's settings through it.
@@ -174,6 +182,13 @@ public actor CmuxConfigFile {
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
         }
+    }
+
+    /// The managed preferences and the file's text, read in one turn of this actor's queue (a reload's
+    /// inputs; both block, so neither runs on a cooperative pool thread).
+    public func sourceAndManaged(_ reader: any ManagedPreferenceReader) -> (source: Result<String, any Error>, managed: ManagedPreferences) {
+        let managed = reader.read()
+        return (Result { try Self.source(at: url) }, managed)
     }
 
     // MARK: - Key paths

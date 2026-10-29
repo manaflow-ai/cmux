@@ -14,6 +14,7 @@ use rusqlite::{Transaction, params};
 use serde_json::Map;
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history_query::{closed_record, keep_members, remove_closed};
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
@@ -181,7 +182,7 @@ fn delete_one(
 ) -> anyhow::Result<()> {
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
-    let all = record["members"].as_array().cloned().unwrap_or_default();
+    let all = record.field("members").as_array().cloned().unwrap_or_default();
     let removed = match members {
         None => all.clone(),
         Some(chosen) => all

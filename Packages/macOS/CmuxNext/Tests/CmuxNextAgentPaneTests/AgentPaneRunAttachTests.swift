@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// `run.attach` (the Run board's Attach): a redeemed ticket reaches the App only with a live,
 /// trusted-carrier `ws`/`wss` endpoint and the person's fresh gesture in the pane; anything else is
@@ -61,7 +62,7 @@ struct AgentPaneRunAttachTests {
     }
 
     @Test func attachesOnlyWithAFreshGesture() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let recorder = Recorder()
         model.onRunAttach = { [recorder] in recorder.attached.append($0) }
 
@@ -80,7 +81,7 @@ struct AgentPaneRunAttachTests {
     }
 
     @Test func reportsAnInvalidTicketAndAMissingHost() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let invalid = await model.respond(to: Self.request(Self.params(["trustedCarrier": false])))
         #expect(Self.errorCode(invalid) == "run_attach_invalid")
         let unwired = await model.respond(to: Self.request(Self.params()))

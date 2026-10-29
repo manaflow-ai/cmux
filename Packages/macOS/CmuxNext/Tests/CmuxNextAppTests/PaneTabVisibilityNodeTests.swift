@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p06-scheduler-024: the pane and tab nodes of the visibility tree (p06-scheduler.md B). A tab is
+/// The pane and tab nodes of the visibility tree (p06-scheduler.md B). A tab is
 /// visible when it is selected in a visible pane; a pane is hidden while suspended (its workspace
 /// draws nothing). A selection flips both tabs in its own turn, and each subscriber hears one flip.
 @MainActor struct PaneTabVisibilityNodeTests {

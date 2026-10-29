@@ -192,7 +192,8 @@ impl ScriptsSlot {
             ScriptError::new(super::UNAVAILABLE, "this daemon has no script host")
         })?;
         let router = DaemonRouter::new(mux, &format!("{}:{id}", self.nonce()));
-        Session::start(&binary, Arc::new(router), log)
+        let panic_log = crate::diagnostics::HelperPanicLog::AppHost.path();
+        Session::start(&binary, panic_log.as_deref(), Arc::new(router), log)
     }
 
     /// After a start: the session goes live unless the request was cancelled

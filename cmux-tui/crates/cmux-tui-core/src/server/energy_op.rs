@@ -1,4 +1,4 @@
-//! `energy.set` and `energy.status` (p14-energy-033): the daemon's Energy
+//! `energy.set` and `energy.status`: the daemon's Energy
 //! Saver, as [`crate::wake::EnergyMode`] holds it for every periodic owner
 //! of this process.
 //!
@@ -6,7 +6,7 @@
 //! `energy.saver` setting, and sends `energy.set` on each edge, after the
 //! turn that changed it. That is an override of the daemon's own reading,
 //! which follows the app's rule from the same setting and the Mac's own
-//! power inputs (p14-energy-137, server/energy_rule.rs), so the daemon
+//! power inputs (server/energy_rule.rs), so the daemon
 //! decides as the app would after it quits. `saver: null` clears the
 //! override, and so does the end of the control connection that set it, so
 //! a quit or crashed app (or one whose link dropped) leaves no override

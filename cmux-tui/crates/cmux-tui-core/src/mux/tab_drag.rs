@@ -16,6 +16,7 @@ use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
+use std::sync::PoisonError;
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
 /// `tab-split-respawn-v1`): the moved tab's kind, never a copy of its state.
@@ -179,30 +180,30 @@ impl TabDragDestination {
     fn fingerprint(self) -> Value {
         match self {
             Self::Split { pane, edge, ratio, keep_focus } => {
-                let mut fingerprint = serde_json::json!({
-                    "kind": "split",
-                    "pane": pane,
-                    "edge": format!("{edge:?}"),
-                    "ratio": ratio,
-                });
+                let mut fingerprint = Map::from_iter([
+                    ("kind".to_string(), Value::from("split")),
+                    ("pane".to_string(), serde_json::json!(pane)),
+                    ("edge".to_string(), Value::from(format!("{edge:?}"))),
+                    ("ratio".to_string(), serde_json::json!(ratio)),
+                ]);
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.insert("keep_focus".to_string(), Value::Bool(true));
                 }
-                fingerprint
+                Value::Object(fingerprint)
             }
             Self::Column { pane, after_column, width, dock, keep_focus } => {
-                let mut fingerprint = serde_json::json!({
-                    "kind": "column",
-                    "pane": pane,
-                    "after_column": after_column,
-                    "width": width,
-                    "dock": dock,
-                });
+                let mut fingerprint = Map::from_iter([
+                    ("kind".to_string(), Value::from("column")),
+                    ("pane".to_string(), serde_json::json!(pane)),
+                    ("after_column".to_string(), serde_json::json!(after_column)),
+                    ("width".to_string(), serde_json::json!(width)),
+                    ("dock".to_string(), serde_json::json!(dock)),
+                ]);
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.insert("keep_focus".to_string(), Value::Bool(true));
                 }
-                fingerprint
+                Value::Object(fingerprint)
             }
         }
     }
@@ -285,7 +286,7 @@ impl Mux {
     ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
         let model = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             anyhow::ensure!(
                 state.panes.get(&pane).is_some_and(|candidate| candidate.tabs == [surface]),
                 "bad request: respawn applies only to a split of the pane's only tab"
@@ -445,7 +446,8 @@ impl Mux {
                 let source_key = state
                     .pane_of(surface)
                     .and_then(|pane| state.screen_of(pane))
-                    .map(|(workspace, _)| state.workspaces[workspace].key.clone());
+                    .and_then(|(workspace, _)| state.workspace_at(workspace).ok())
+                    .map(|workspace| workspace.key.clone());
                 let target_key = projected
                     .workspace_by_id(outcome.workspace)
                     .map(|workspace| workspace.key.clone())
@@ -524,14 +526,14 @@ impl Mux {
         }
         let mut undoable = false;
         if let Some((origin_pane, origin_index)) = origin {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             // A non-structural move leaves the layout unchanged, so the
             // current layout is the one undo restores.
             if state.pane_of(surface) == Some(pane)
                 && let Some((workspace, screen)) = state.screen_of(pane)
                 && state.screen_of(origin_pane) == Some((workspace, screen))
+                && let Ok(screen) = state.screen_at_mut(workspace, screen)
             {
-                let screen = &mut state.workspaces[workspace].screens[screen];
                 let before = screen.layout_snapshot();
                 screen.record_tab_drag_change(
                     before,
@@ -563,7 +565,7 @@ impl Mux {
         {
             hook();
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let presentation = self.presentation.lock().unwrap_or_else(|e| e.into_inner());
         decorations.presentation = Arc::clone(&presentation);
         let delta = presentation::tab_changed_delta(&state, &decorations, surface);
@@ -603,13 +605,13 @@ struct KeptFocus {
 }
 
 impl KeptFocus {
-    fn read(state: &State, workspace: usize, screen: usize) -> Self {
-        let target = &state.workspaces[workspace];
-        Self {
+    fn read(state: &State, workspace: usize, screen: usize) -> Result<Self, StaleTopology> {
+        let target = state.workspace_at(workspace)?;
+        Ok(Self {
             workspace: state.workspaces.get(state.active_workspace).map(|item| item.id),
             screen: target.screens.get(target.active_screen).map(|item| item.id),
-            pane: target.screens[screen].active_pane,
-        }
+            pane: state.screen_at(workspace, screen)?.active_pane,
+        })
     }
 
     /// Puts the focus back on the target screen (`workspace`, `screen`: its
@@ -621,13 +623,13 @@ impl KeptFocus {
             return false;
         }
         let active = self.workspace.and_then(|id| state.workspaces.iter().position(|w| w.id == id));
-        let target = &mut state.workspaces[workspace];
-        if let Some(index) =
-            self.screen.and_then(|id| target.screens.iter().position(|s| s.id == id))
-        {
+        let Ok(target) = state.workspace_at_mut(workspace) else { return false };
+        let kept_screen = self.screen.and_then(|id| target.screens.iter().position(|s| s.id == id));
+        let Some(target_screen) = target.screens.get_mut(screen) else { return false };
+        target_screen.active_pane = self.pane;
+        if let Some(index) = kept_screen {
             target.active_screen = index;
         }
-        target.screens[screen].active_pane = self.pane;
         if let Some(active) = active {
             state.active_workspace = active;
         }
@@ -657,7 +659,7 @@ pub(crate) fn apply_tab_drag(
     let source_pane =
         state.pane_of(surface).with_context(|| format!("unknown surface {surface}"))?;
     anyhow::ensure!(state.panes.contains_key(&target_pane), "unknown pane {target_pane}");
-    let source_tabs = state.panes[&source_pane].tabs.len();
+    let source_tabs = state.live_pane(source_pane)?.tabs.len();
     // `pinned-dock-alone-v1`: a pane's only tab may become a lone pinned column (Home's
     // dock): its pane closes and the pinned column is all the screen holds.
     let lone_pinned = destination.makes_lone_pinned_column(state, surface);
@@ -665,7 +667,8 @@ pub(crate) fn apply_tab_drag(
         source_pane != target_pane || source_tabs > 1 || lone_pinned,
         "bad request: a pane's only tab cannot be split out of that pane"
     );
-    let origin_index = state.panes[&source_pane]
+    let origin_index = state
+        .live_pane(source_pane)?
         .tabs
         .iter()
         .position(|candidate| *candidate == surface)
@@ -673,19 +676,20 @@ pub(crate) fn apply_tab_drag(
     let (target_wi, target_si) =
         state.screen_of(target_pane).context("target pane has no screen")?;
     let source_location = state.screen_of(source_pane).context("source pane has no screen")?;
-    let target_screen = state.workspaces[target_wi].screens[target_si].id;
-    let source_screen = state.workspaces[source_location.0].screens[source_location.1].id;
-    let target_workspace = state.workspaces[target_wi].id;
+    let target_screen = state.screen_at(target_wi, target_si)?.id;
+    let source_screen = state.screen_at(source_location.0, source_location.1)?.id;
+    let target_workspace = state.workspace_at(target_wi)?.id;
     let undoable = record_undo && target_screen == source_screen && source_tabs > 1;
     let kept_focus = matches!(
         destination,
         TabDragDestination::Split { keep_focus: true, .. }
             | TabDragDestination::Column { keep_focus: true, .. }
     )
-    .then(|| KeptFocus::read(state, target_wi, target_si));
-    let before = state.workspaces[target_wi].screens[target_si].layout_snapshot();
+    .then(|| KeptFocus::read(state, target_wi, target_si))
+    .transpose()?;
+    let before = state.screen_at(target_wi, target_si)?.layout_snapshot();
     {
-        let screen = &mut state.workspaces[target_wi].screens[target_si];
+        let screen = state.screen_at_mut(target_wi, target_si)?;
         match destination {
             TabDragDestination::Split { edge, ratio, .. } => {
                 let (dir, before_target) = edge.split();
@@ -779,7 +783,7 @@ pub(crate) fn apply_tab_drag(
         // the same rules as `set-column-dock` must hold on the result (one
         // column per edge, the old holder scrolls again; one column scrolls).
         // A refusal fails the whole drag on this projected copy.
-        let screen = &mut state.workspaces[target_wi].screens[target_si];
+        let screen = state.screen_at_mut(target_wi, target_si)?;
         let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
         let index = index.context("new column disappeared")?;
         let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.dock).collect();
@@ -797,7 +801,7 @@ pub(crate) fn apply_tab_drag(
         }
     }
     if undoable {
-        state.workspaces[target_wi].screens[target_si].record_tab_drag_change(
+        state.screen_at_mut(target_wi, target_si)?.record_tab_drag_change(
             before,
             LayoutUndoTabRestore {
                 surface,
@@ -809,9 +813,9 @@ pub(crate) fn apply_tab_drag(
     } else {
         // Older entries on either screen describe layouts without this
         // change; undoing them would orphan or duplicate the moved tab.
-        state.workspaces[target_wi].screens[target_si].invalidate_layout_undo();
+        state.screen_at_mut(target_wi, target_si)?.invalidate_layout_undo();
         if let Some((workspace, screen)) = screen_location(state, source_screen) {
-            state.workspaces[workspace].screens[screen].invalidate_layout_undo();
+            state.screen_at_mut(workspace, screen)?.invalidate_layout_undo();
         }
     }
     Mux::rebuild_split_screen_index(state);
@@ -835,7 +839,7 @@ pub(super) fn restore_dragged_tab(
     restore: LayoutUndoTabRestore,
 ) -> anyhow::Result<()> {
     let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
-    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
+    let screen_panes = state.screen_at(workspace_index, screen_index)?.root.pane_ids_vec();
     let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
     if !screen_panes.contains(&restore.origin_pane)
         || !state.panes.contains_key(&restore.origin_pane)
@@ -866,13 +870,16 @@ pub(super) fn restore_dragged_tab(
         }
         None => {}
     }
+    let old = state
+        .live_pane(current)?
+        .tabs
+        .iter()
+        .position(|candidate| *candidate == restore.surface)
+        .ok_or_else(|| stale("the dragged tab left its pane"))?;
+    let workspace = state.workspace_at(workspace_index)?.id;
+    let screen = state.screen_at(workspace_index, screen_index)?.id;
     {
-        let pane = state.panes.get_mut(&current).expect("checked current pane");
-        let old = pane
-            .tabs
-            .iter()
-            .position(|candidate| *candidate == restore.surface)
-            .expect("checked tab membership");
+        let pane = state.live_pane_mut(current)?;
         pane.tabs.remove(old);
         if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
             pane.active_tab -= 1;
@@ -881,13 +888,11 @@ pub(super) fn restore_dragged_tab(
     if restore.created_pane == Some(current) {
         state.remove_pane(current);
     }
-    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
+    let origin = state.live_pane_mut(restore.origin_pane)?;
     let index = restore.origin_index.min(origin.tabs.len());
     origin.tabs.insert(index, restore.surface);
     origin.active_tab = index;
     state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
-    let workspace = state.workspaces[workspace_index].id;
-    let screen = state.workspaces[workspace_index].screens[screen_index].id;
     mux.subscribers.update_surface_session_path(
         restore.surface,
         workspace,

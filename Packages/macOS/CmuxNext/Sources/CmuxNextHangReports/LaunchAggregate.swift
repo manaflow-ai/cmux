@@ -18,7 +18,7 @@ public nonisolated struct LaunchAggregate: Codable, Sendable, Equatable {
     public struct Record: Sendable, Equatable {
         /// The temperature decided at `run_loop_start`.
         public var temperature: LaunchTemperature
-        /// Whether something other than cmux's own work slowed the launch (task p08-startup-108).
+        /// Whether something other than cmux's own work slowed the launch.
         public var interrupted: Bool
         /// To `first_window_frame_committed`; nil when no window showed.
         public var firstFrame: Duration?

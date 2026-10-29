@@ -1,4 +1,4 @@
-//! The app's memory limit in the daemon's registry (p07-memory-109): the
+//! The app's memory limit in the daemon's registry: the
 //! worse of the daemon's own level and the app's, the app's vote ending with
 //! the client that set it, and the relay told once per change.
 

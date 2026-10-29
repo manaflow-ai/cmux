@@ -104,7 +104,7 @@ fn attach_rejects_mode_change_on_existing_read_only_observer() {
 }
 
 /// The attach and observe routes are found by the line's decoded `cmd`, never by
-/// a substring of the raw line (p05-ipc-065): a `cmd` spelled with a JSON escape
+/// a substring of the raw line: a `cmd` spelled with a JSON escape
 /// reaches their handlers, which answer that this daemon has no acpmux.
 #[test]
 fn an_escaped_agent_session_cmd_reaches_its_route() {

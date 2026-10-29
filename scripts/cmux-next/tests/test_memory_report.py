@@ -104,7 +104,7 @@ def consumer(name: str, footprint: int | None, storage: str | None = None) -> di
             "footprint_bytes": footprint, "volatile_bytes": None, "entries": 40}
 
 
-# The debug.memory reply as task 010 writes it (cp/p07-memory-010, MemoryDiagnosticsReport.swift).
+# The debug.memory reply as task 010 writes it (MemoryDiagnosticsReport.swift).
 DEBUG_MEMORY = {
     "pressure": {"level": "normal", "kernel_level": "normal", "override": None, "since_ms": None},
     "mode": "medium",

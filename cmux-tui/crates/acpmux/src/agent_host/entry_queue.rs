@@ -6,7 +6,7 @@
 //! safe in the host. The owner keeps only enough read ahead to stay busy.
 //! Before this bound, the queue held up to 4096 decoded entries per agent:
 //! with 100 fake agents streaming faster than the daemon logged, about 3 MB
-//! per agent of one-word chunks (p07-memory-064); 4096 entries of a few KB
+//! per agent of one-word chunks; 4096 entries of a few KB
 //! each are the 24 MB per agent measured with real agents
 //! (plans/cmux-next/resource-efficiency-DESIGN.md, offender 6). Chrome bounds
 //! a reader the same way: a Mojo data pipe has a fixed byte capacity, and its

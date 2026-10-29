@@ -1,6 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use crate::session_identity::SessionReceipt;
 
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
@@ -73,7 +75,7 @@ impl Hub {
             self.peer_notices.clone(),
         );
         let settled = peer.settled();
-        if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
+        if let Some(old) = self.peers.lock_or_recover().insert(name.to_owned(), peer.clone()) {
             old.stop();
             // A reconnect keeps when the peer was last seen.
             peer.seed_last_seen(old.link().last_seen);
@@ -203,7 +205,7 @@ impl Hub {
     /// Drop every row of peer `name` and tell watching clients they left.
     pub(super) fn purge_peer_rows(&self, name: &str) {
         let gone: Vec<Value> = {
-            let mut map = self.remote_sessions.lock().unwrap();
+            let mut map = self.remote_sessions.lock_or_recover();
             let ids: Vec<String> =
                 map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
             ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
@@ -234,9 +236,9 @@ impl Hub {
         let mut v: Vec<Value> = listed
             .into_iter()
             .map(|(name, mut s)| {
-                s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
+                s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
                 if leased.contains(&name) {
-                    s["leased"] = Value::Bool(true);
+                    s.set("leased", Value::Bool(true));
                 }
                 s
             })
@@ -278,8 +280,7 @@ impl Hub {
 
     pub fn connected_peers(&self) -> Vec<Arc<crate::peer::Peer>> {
         self.peers
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .filter(|p| p.connected.load(std::sync::atomic::Ordering::SeqCst))
             .cloned()
@@ -287,7 +288,7 @@ impl Hub {
     }
 
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
-        self.peers.lock().unwrap().get(name).cloned()
+        self.peers.lock_or_recover().get(name).cloned()
     }
 
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`.
@@ -304,19 +305,20 @@ impl Hub {
                 summary.get("agentSessionId").and_then(Value::as_str).map(str::to_owned),
                 generation,
             );
-            summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-            summary["sessionReceipt"] = receipt.to_value();
+            summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+            summary.set("sessionReceipt", receipt.to_value());
         }
         if let Some(name) = summary.get("name").and_then(Value::as_str)
             && !name.starts_with(&format!("{peer}/"))
         {
             let full = format!("{peer}/{name}");
-            summary["name"] = Value::String(full);
+            summary.set("name", Value::String(full));
         }
-        summary["peer"] = Value::String(peer.to_owned());
+        summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        let old_lane =
+            summary.field("lane").as_object().is_some_and(|lane| !lane.contains_key("title"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
@@ -387,7 +389,7 @@ impl Hub {
                     }
                     // Keep the last known list, but flag it.
                     let changed: Vec<Value> = {
-                        let mut map = self.remote_sessions.lock().unwrap();
+                        let mut map = self.remote_sessions.lock_or_recover();
                         if !self.is_current(&peer, generation) {
                             return;
                         }
@@ -410,7 +412,7 @@ impl Hub {
                     // The list can land after clients took their snapshot (an
                     // ssh tunnel is slow to open), so tell watchers what changed.
                     let (changed, gone) = {
-                        let mut map = self.remote_sessions.lock().unwrap();
+                        let mut map = self.remote_sessions.lock_or_recover();
                         if !self.is_current(&peer, generation) {
                             return;
                         }
@@ -448,7 +450,7 @@ impl Hub {
                     };
                     if kind == "purged" {
                         let removed = {
-                            let mut map = self.remote_sessions.lock().unwrap();
+                            let mut map = self.remote_sessions.lock_or_recover();
                             if !self.is_current(&peer, generation) {
                                 return;
                             }
@@ -482,7 +484,7 @@ impl Hub {
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
-                        let mut map = self.remote_sessions.lock().unwrap();
+                        let mut map = self.remote_sessions.lock_or_recover();
                         if !self.is_current(&peer, generation) {
                             return;
                         }
@@ -554,8 +556,7 @@ impl Hub {
                     };
                     let summary = self
                         .remote_sessions
-                        .lock()
-                        .unwrap()
+                        .lock_or_recover()
                         .values()
                         .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
                         .map(|r| r.summary.clone())
@@ -725,7 +726,7 @@ impl Hub {
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
-        let map = self.remote_sessions.lock().unwrap();
+        let map = self.remote_sessions.lock_or_recover();
         let hit = if let Some(r) = map.get(key) {
             Some((r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
         } else {
@@ -780,9 +781,9 @@ impl Hub {
         map.values()
             .map(|r| {
                 let mut summary = r.summary.clone();
-                summary["stale"] = Value::Bool(summary["stale"] == true);
+                summary.set("stale", Value::Bool(summary.field("stale") == true));
                 if let Some(state) = states.get(&r.peer) {
-                    summary["peerState"] = Value::String((*state).to_owned());
+                    summary.set("peerState", Value::String((*state).to_owned()));
                 }
                 summary
             })

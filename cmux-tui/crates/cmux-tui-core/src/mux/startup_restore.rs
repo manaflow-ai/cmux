@@ -1,6 +1,7 @@
 //! Startup restore follow-ups: pending agent hook retries and materializing interrupted resource workspaces and restored browsers.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -12,7 +13,7 @@ impl Mux {
             let (pending, next_cursor) = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .unwrap_or_else(PoisonError::into_inner)
                 .pending_agent_hook_projections_page(cursor.clone())?;
             let Some(next_cursor) = next_cursor else { break };
             cursor = Some(next_cursor);
@@ -32,7 +33,7 @@ impl Mux {
             let pending = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .unwrap_or_else(PoisonError::into_inner)
                 .pending_agent_hook_projections_for_terminal(terminal_id)?;
             if pending.is_empty() {
                 break;
@@ -57,7 +58,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(PoisonError::into_inner)
                         .clear_agent_hook_pending(&producer_id, &origin, &key)
                         .is_ok()
                     {
@@ -70,7 +71,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(PoisonError::into_inner)
                         .clear_agent_hook_pending(&producer_id, &origin, &key)
                         .is_ok()
                     {
@@ -83,7 +84,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(PoisonError::into_inner)
                         .enqueue_agent_hook_pending(
                             &producer_id,
                             &origin,
@@ -113,7 +114,7 @@ impl Mux {
     #[track_caller]
     pub(super) fn materialize_interrupted_resource_workspaces(&self) -> anyhow::Result<()> {
         let (recoveries, staged) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             (
                 registry.interrupted_resource_creation_recoveries()?,
                 registry.interrupted_resource_workspaces()?,
@@ -133,8 +134,8 @@ impl Mux {
         let active_workspace = staged
             .last()
             .map(|(_, workspace)| workspace.id)
-            .expect("non-empty staged workspace list");
-        let mut state = self.state.lock().unwrap();
+            .context("interrupted workspace creation list is empty")?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         for (position, workspace) in staged {
             anyhow::ensure!(
                 position <= state.workspaces.len(),
@@ -184,8 +185,8 @@ impl Mux {
         self: &Arc<Self>,
         contents: &[RestoredResourceContent],
     ) -> anyhow::Result<()> {
-        let opts = self.surface_options.lock().unwrap().clone();
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let opts = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let cell_pixels = *self.cell_pixels.lock().unwrap_or_else(PoisonError::into_inner);
         let presentation = self.presentation_snapshot();
         for content in contents {
             let Some(browser) = content.browser.clone() else { continue };
@@ -205,7 +206,10 @@ impl Mux {
             if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
                 runtime.set_frontend_location(None, record.title.clone());
             }
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+            insert_surface_checked(
+                &mut self.state.lock().unwrap_or_else(PoisonError::into_inner),
+                surface.clone(),
+            )?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
                     self.start_browser_bootstrap(

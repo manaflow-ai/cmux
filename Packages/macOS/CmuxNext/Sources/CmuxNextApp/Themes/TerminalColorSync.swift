@@ -64,13 +64,13 @@ extension AppServices {
     /// `terminalColors` is built here, its first reader, so every daemon holds the colors terminals are painted
     /// with before it connects: its first answers to OSC 10/11/12 queries match the screen, and each connect sends
     /// them again. With feature `drainCauseSplit`, its program and agent changes apply in budgeted tasks of the
-    /// app's scheduler (p06-scheduler-223, `DrainTail`).
+    /// app's scheduler (`DrainTail`).
     /// The prompts subscribe to the store's side events first: side events keep no backlog, and the first events
     /// of a trusted subscribe are the daemon's pending pairings, so a prompt started after the connect misses them.
     func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) -> DaemonPrompts {
         let prompts = DaemonPrompts.start(self)
         terminalColors.apply()
-        if features.isEnabled(.drainCauseSplit) { daemon.store.drainTailScheduler = mainWork }
+        installDrainTail()
         let now = launch.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.startLocal") { [weak self] landed in
             self?.startLocalDaemon(landed)
         }
@@ -78,12 +78,20 @@ extension AppServices {
         return prompts
     }
 
+    /// With feature `drainCauseSplit` on, the local store's drain applies program and agent changes past the
+    /// person's last one in budgeted tasks of `mainWork` (`DrainTail`); off, every frame drain
+    /// applies its whole batch. Before the store's first connection, which reads it when it starts.
+    func installDrainTail() {
+        daemon.store.drainTailScheduler = features.isEnabled(.drainCauseSplit) ? mainWork : nil
+    }
+
     private func startLocalDaemon(_ landed: DaemonLaunchStart) {
         daemon.start(work: work, launch: environment.launch, team: landed.team, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration,
-                     terminalStreams: CmuxNextApp.terminalStreams(features), prestart: landed.prestart,
+                     terminalStreams: CmuxNextApp.terminalStreams(features),
+                     wireUpgrades: CmuxNextApp.wireUpgrades(features), prestart: landed.prestart,
                      launchSnapshot: landed.launchSnapshot,
                      featureHello: environment.daemonFeatureHello)
         daemon.launchSnapshot.endExpectedTake()  // a start that failed before its take holds no window

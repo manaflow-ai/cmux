@@ -16,7 +16,7 @@ import Testing
     // MARK: beforeunload, live (real WebKit pages, critical memory pressure)
 
     /// The person used the page and its `beforeunload` asks: Chrome and Safari would ask before a close. The asked
-    /// discard failed, so the page carries the discard-attempt mark until it shows (p07-memory-104).
+    /// discard failed, so the page carries the discard-attempt mark until it shows.
     @Test func aUsedPageWhoseBeforeUnloadAsksIsNeverDiscarded() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
@@ -139,7 +139,7 @@ import Testing
     /// A page whose beforeunload asks is asked once while it stays hidden (each run is its own
     /// unload logic on a page that lives on), and without a user gesture: a handler cannot open a
     /// popup or see an activation on cmux's behalf. The discard-attempt mark keeps every later
-    /// replan from probing it again (p07-memory-104).
+    /// replan from probing it again.
     @Test func aPageWhoseBeforeUnloadAsksIsAskedOnceWithoutAGesture() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }

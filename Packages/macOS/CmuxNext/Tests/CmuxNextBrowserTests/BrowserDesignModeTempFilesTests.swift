@@ -35,7 +35,7 @@ import Testing
         #expect(kept.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
-    /// The launch cleanup runs on a files lane once the window is up (p08-startup-083), so a card this
+    /// The launch cleanup runs on a files lane once the window is up, so a card this
     /// launch wrote before it runs must survive it.
     @Test func theLaunchCleanupRemovesEarlierLaunchesButNotThisLaunchsCards() throws {
         defer { try? FileManager.default.removeItem(at: base) }

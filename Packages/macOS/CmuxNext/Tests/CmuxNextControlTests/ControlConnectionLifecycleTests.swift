@@ -5,7 +5,7 @@ import Testing
 
 /// A control connection's whole life over a socket pair: the client's lines reach the consumer, the
 /// replies reach the client before the descriptor closes, and `onClosed` runs exactly once, after the
-/// close, whatever comes later (p10-stability-059: the state behind a checked lock instead of
+/// close, whatever comes later (the state behind a checked lock instead of
 /// unchecked queue confinement).
 @Suite(.timeLimit(.minutes(1))) struct ControlConnectionLifecycleTests {
     @Test func repliesFlushBeforeTheCloseAndOnClosedRunsOnce() async throws {

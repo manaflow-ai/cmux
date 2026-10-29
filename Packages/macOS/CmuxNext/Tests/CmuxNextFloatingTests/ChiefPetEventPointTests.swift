@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import Testing
 
-/// The pet's drag follows each event's own screen point, not the live cursor (p04-input-095): the
+/// The pet's drag follows each event's own screen point, not the live cursor: the
 /// events below land far from wherever the real mouse rests, and the panel moves by their offsets.
 @MainActor @Suite(.serialized) struct ChiefPetEventPointTests {
     @Test func aDragFollowsItsEventsNotTheLiveCursor() {

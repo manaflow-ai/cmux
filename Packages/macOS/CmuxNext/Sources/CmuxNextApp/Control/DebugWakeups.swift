@@ -23,9 +23,10 @@ import Darwin
 ///   every mode's timers with their interval and callout, sources and observers. An idle bench reads
 ///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
-    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler) async -> JSONValue {
+    /// `helperParent`: whose children the Chromium helpers are (``ChromiumHelperParent/pid``).
+    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, helperParent: pid_t?) async -> JSONValue {
         var object = mainActorPart(params, budgeted: budgeted)
-        object["processes"] = .array(AppProcesses.sample().map(\.json))
+        object["processes"] = .array(AppProcesses.sample(helperParent: helperParent).map(\.json))
         return .object(object)
     }
 
@@ -68,7 +69,9 @@ enum DebugWakeups {
 }
 
 /// This app, its Chromium helpers, and the bundled cmux-tui (daemon and
-/// terminal hosts).
+/// terminal hosts). The helpers are the children of `helperParent`
+/// (``ChromiumHelperParent/pid``): the app in process, the Chromium Host in
+/// host mode, none while no host is attached.
 nonisolated enum AppProcesses {
     struct Sample {
         var kind: String
@@ -100,25 +103,26 @@ nonisolated enum AppProcesses {
     /// Chromium helpers for the busy watchdog, labeled with their kind; a tab renderer carries its client
     /// id. Chromium assigns renderers per site, so the tabs a busy renderer serves come from the
     /// watchdog's tab source (``TabContentCache/tabRenderers``).
-    static func chromiumHelpers() -> [BusyWatchdog.Helper] {
-        let renderers = tabRendererClients()
-        return ProcessUsage.children(of: getpid()).compactMap { pid in
+    static func chromiumHelpers(helperParent: pid_t?) -> [BusyWatchdog.Helper] {
+        guard let helperParent else { return [] }
+        let renderers = tabRendererClients(helperParent: helperParent)
+        return ProcessUsage.children(of: helperParent).compactMap { pid in
             guard let path = ProcessUsage.path(of: pid), let kind = helperKind(path) else { return nil }
             return BusyWatchdog.Helper(pid: pid, label: kind, rendererClientID: renderers[pid])
         }
     }
 
-    /// The app's tab renderers by pid, with their `--renderer-client-id`, from ``ChromiumHelperProcess``
+    /// The tab renderers of `helperParent` by pid, with their `--renderer-client-id`, from ``ChromiumHelperProcess``
     /// (argv cached per pid; extension renderers are not tab renderers).
-    static func tabRendererClients() -> [pid_t: Int32] {
+    static func tabRendererClients(helperParent: pid_t?) -> [pid_t: Int32] {
         var clients: [pid_t: Int32] = [:]
-        for helper in ChromiumHelperProcess.list() {
+        for helper in ChromiumHelperProcess.list(parent: helperParent) {
             if case .renderer(let clientID) = helper.kind { clients[helper.pid] = clientID }
         }
         return clients
     }
 
-    /// Every Chromium tab with what it reports about its renderers (p14-energy-124), read now: the pids
+    /// Every Chromium tab with what it reports about its renderers, read now: the pids
     /// are matched to processes off the main actor.
     @MainActor
     static func tabRenderers(_ services: AppServices) -> [ProcessUsage.TabRenderers] {
@@ -127,12 +131,14 @@ nonisolated enum AppProcesses {
         }
     }
 
-    static func sample() -> [Sample] {
+    static func sample(helperParent: pid_t?) -> [Sample] {
         let me = getpid()
         var out: [Sample] = []
         if let usage = ProcessUsage.sample(me) { out.append(Sample(kind: "app", usage: usage)) }
-        let renderers = tabRendererClients()
-        for child in ProcessUsage.children(of: me) {
+        let renderers = tabRendererClients(helperParent: helperParent)
+        // The app's children, then the Chromium Host's in host mode (its helpers are not the app's).
+        let hostChildren = helperParent.flatMap { $0 == me ? nil : ProcessUsage.children(of: $0) } ?? []
+        for child in ProcessUsage.children(of: me) + hostChildren {
             guard let usage = ProcessUsage.sample(child), let kind = helperKind(usage.path) else { continue }
             out.append(Sample(kind: kind, usage: usage, rendererClientID: renderers[child]))
         }
@@ -148,18 +154,18 @@ nonisolated enum AppProcesses {
 }
 
 extension EnergyReport {
-    /// `debug.energy` over the energy services AppServices builds once (p14-energy-024): the monitor's
-    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram (p14-energy-008), the
+    /// `debug.energy` over the energy services AppServices builds once: the monitor's
+    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram, the
     /// scheduler's policy and wake queue; the app's ledger (where the main wake queue counts its wakes);
     /// and one sample of the processes ``AppProcesses`` lists.
     init(services: AppServices) {
-        self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: {
-            AppProcesses.sample().map { ProcessSample(kind: $0.kind, usage: $0.usage, rendererClientID: $0.rendererClientID) }
+        self.init(state: { [weak services] in services.map(Self.state) }, ledger: .shared, processes: { [parent = services.cache.chromium.source.helperParent] in
+            AppProcesses.sample(helperParent: parent.pid).map { ProcessSample(kind: $0.kind, usage: $0.usage, rendererClientID: $0.rendererClientID) }
         })
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.energy.simulate` over the app's one ``EnergyMonitor`` (p14-energy-123).
+    /// `debug.energy.simulate` over the app's one ``EnergyMonitor``.
     static func simulateMethod(services: AppServices) -> ControlMethod {
         EnergyReport(services: services).simulateMethod { [weak services] in services?.energyMonitor.simulate($0) }
     }
@@ -185,7 +191,7 @@ extension EnergyReport {
             policy: services.mainWork.energy.policy,
             inputs: inputs(services),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
-            // No early-pass count yet (p14-energy-018).
+            // No early-pass count yet.
             cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),
             idle: services.energy.idle.stats,
             tabs: AppProcesses.tabRenderers(services)

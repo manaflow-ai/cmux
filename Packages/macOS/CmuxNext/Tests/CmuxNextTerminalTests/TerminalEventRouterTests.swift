@@ -6,7 +6,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// A session's events loop never waits for the main actor (p03-rendering-085): output and grid locks
+/// A session's events loop never waits for the main actor: output and grid locks
 /// reach the output lane in stream order, at the lane's own generation, while the main actor is held,
 /// and the grid, status and chip the main actor shows coalesce to one main turn however many came.
 /// The lane's parse and set_grid are the test's recorder, so no Ghostty surface is made.

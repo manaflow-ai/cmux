@@ -1,4 +1,4 @@
-//! `_acpmux/trace` (p09-observability-015): the cmux daemon's `trace-start`,
+//! `_acpmux/trace`: the cmux daemon's `trace-start`,
 //! `trace-stop` and `trace-status` reach acpmux here. Params `{op: "start" |
 //! "stop" | "status", categories?: u64}`; no path: acpmux records into
 //! `$ACPMUX_HOME/trace`. The local unix socket

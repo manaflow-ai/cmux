@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// A daemon terminal's input lane drains through `DaemonTerminalIO.inputDrain(on:driver:creating:)`
-/// (p04-input-058, the drain `inputDrain()` returns): every record reaches the attach driver on the input
+/// (the drain `inputDrain()` returns): every record reaches the attach driver on the input
 /// queue, in lane order. While the terminal is still being created a chunk goes by id and the lane holds every later
 /// record until that send returned; a chunk the daemon refused goes by the attachment before them; once the
 /// input goes by the attachment, bytes go to the link without an await.
@@ -47,6 +47,28 @@ import Testing
         #expect(log.offQueue.isEmpty, "driver calls ran off the input queue: \(log.offQueue)")
         let inputs = log.linkCalls.filter { $0.hasPrefix("input") || $0.hasPrefix("snapshot") }
         #expect(inputs == ["input b", "snapshot gap", "input c"])
+    }
+
+    /// A key's bytes reach the live link with its latency slot's flow, so the daemon stamps the
+    /// key's stages; other bytes go without one.
+    @MainActor @Test func aKeysBytesCarryItsFlowToTheLiveLink() async {
+        let log = RouteLog()
+        let link = RouteLink(log: log)
+        // qos-allow: a test queue standing for the attach input queue, which runs at this class
+        let queue = DispatchQueue(label: "com.cmuxterm.next.test.attach-input-flow", qos: .userInteractive)
+        let driver = TerminalAttachDriver<RouteLink>(initialSize: CellSize(cols: 80, rows: 24), opener: { _ in link })
+        defer { driver.close() }
+        let lane = TerminalInputLane(drain: DaemonTerminalIO.inputDrain(on: queue, driver: driver, creating: nil))
+        driver.resize(CellSize(cols: 100, rows: 30))
+        driver.start()
+        link.feed.yield(.replay(TerminalReplay(cols: 80, rows: 24, data: Data())))
+        await log.waitForLink("claim 100x30")
+
+        lane.push(.keyBytes(Data("k".utf8), keyFlow: 7))
+        lane.push(.bytes(Data("p".utf8)))
+        await log.waitForLink("input p")
+        let inputs = log.linkCalls.filter { $0.hasPrefix("input") || $0.hasPrefix("key") }
+        #expect(inputs == ["key k flow 7", "input p"])
     }
 }
 
@@ -117,7 +139,10 @@ private nonisolated final class RouteLink: TerminalAttachLink {
         self.log = log
     }
 
-    func sendInput(_ data: Data) { log.link("input \(String(decoding: data, as: UTF8.self))") }
+    func sendInput(_ data: Data, keyFlow: UInt64) {
+        let text = String(decoding: data, as: UTF8.self)
+        log.link(keyFlow == 0 ? "input \(text)" : "key \(text) flow \(keyFlow)")
+    }
     func sendClaim(reporting size: CellSize) { log.link("claim \(size.cols)x\(size.rows)") }
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) { log.link("takeOver \(size.cols)x\(size.rows)") }
     func sendHidden(_ hidden: Bool) { log.link(hidden ? "hide" : "unhide") }

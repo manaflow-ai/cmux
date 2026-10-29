@@ -6,7 +6,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The connection's request path takes no turn on its actor (p05-ipc-091): `request` and `resourceRequest`
+/// The connection's request path takes no turn on its actor: `request` and `resourceRequest`
 /// read the ready connection from a `Mutex` snapshot and pass the quiet-handoff gate with atomics. Before,
 /// both were actor methods: every request waited for the actor, behind reconnect and handoff work.
 @Suite(.timeLimit(.minutes(1))) struct DaemonConnectionTests {

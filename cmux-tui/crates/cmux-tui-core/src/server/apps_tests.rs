@@ -303,7 +303,7 @@ fn a_cancel_request_is_answered_on_the_apps_door() {
 }
 
 /// The route is found by the line's decoded `cmd`, never a substring of the
-/// raw line (p05-ipc-067): an `apps-*` or `cancel-request` name spelled with
+/// raw line: an `apps-*` or `cancel-request` name spelled with
 /// a JSON escape answers as its plain spelling, and every line, accepted or
 /// refused, takes two parses (the head and the route's one decode).
 #[test]
@@ -407,7 +407,7 @@ fn apps_command_names() -> Vec<&'static str> {
     }
 }
 
-/// The SDK schema (spec/sdk-schema.json, p05-ipc-013) describes exactly
+/// The SDK schema (spec/sdk-schema.json) describes exactly
 /// the commands this door serves: the `apps` family holds them and no
 /// other, each is local-admin (the door refuses non-Unix connections) and
 /// names the capability `identify` advertises for it.

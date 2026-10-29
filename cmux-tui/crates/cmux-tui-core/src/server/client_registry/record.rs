@@ -43,12 +43,14 @@ pub(in crate::server) struct ClientRecord {
     /// The connection's client class, which its reader and request threads
     /// rest at (connection_qos.rs); set by [`Self::classify`].
     pub(in crate::server) connection_class: Arc<ConnectionClassCell>,
+    /// The surfaces this frontend shows and its subscriptions they scope
+    /// (`frontend.visibility.set`, server/frontend_visibility.rs).
+    pub(in crate::server) frontend_visibility: crate::server::frontend_visibility::ClientVisibility,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
     /// What this connection's `subscribe` received and rendered (tests).
     #[cfg(test)]
-    pub(in crate::server) subscribe_probe:
-        std::sync::Arc<crate::server::cmd_subscribe::SubscribeProbe>,
+    pub(in crate::server) subscribe_probe: Arc<crate::server::cmd_subscribe::SubscribeProbe>,
 }
 
 /// What `server-threads` says of the connection a thread works for
@@ -62,6 +64,9 @@ pub(in crate::server) struct ConnectionFacts {
     /// The socket peer's PID at accept, from its kernel peer key.
     pub(in crate::server) peer_pid: Option<u32>,
     pub(in crate::server) class: &'static str,
+    /// The class its lines run at under `daemonRequestQos`
+    /// (`ConnectionClass::qos` of a reader).
+    pub(in crate::server) reader_qos: cmux_threads::ThreadQos,
 }
 
 impl super::ClientRegistry {
@@ -87,6 +92,9 @@ impl super::ClientRegistry {
                         .as_deref()
                         .and_then(crate::server::origin_gate::peer_pid),
                     class: record.connection_class.get().as_str(),
+                    reader_qos: record.connection_class.get().qos(
+                        crate::server::connection_scheduler::connection_qos::ConnectionThread::Reader,
+                    ),
                 };
                 Some((client, facts))
             })

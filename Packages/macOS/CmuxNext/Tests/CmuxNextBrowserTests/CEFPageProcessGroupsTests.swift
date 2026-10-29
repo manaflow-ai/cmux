@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// First-party pages reach the fork's renderer groups (p13-webui-012) only through the optional
+/// First-party pages reach the fork's renderer groups only through the optional
 /// export `cmux_shim_page_scheme_set_group`: a fork without it still loads and gets no call, and a
 /// table made with the `pageProcessGroups` feature off names no group, so it makes no call either.
 /// A `solo` or `secrets` page names no group in the app's table (FirstPartyPageSchemes), so it makes

@@ -34,7 +34,7 @@ import CmuxNextWakeups
 ///   while a page window takes the mouse (``pageWindowsTakeMouse``),
 ///   `DividerMouseCatchers` covers them with click-catching panels above
 ///   the pages that forward the mouse to the parent. A page attached as a
-///   view of its pane (p03-rendering-045) has no window of its own: the
+///   view of its pane has no window of its own: the
 ///   divider views take the mouse in this window, as over a terminal, and
 ///   no catcher or panel is made. A visible content panel (a remote page's
 ///   popup) cuts a hole in every catcher it overlaps: the popup is below

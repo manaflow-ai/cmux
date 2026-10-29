@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The focus coordinator names what has the keyboard in the focused pane in the crash keys
-/// (p10-stability-207, ``CrashKeySlots/Key/paneKind``): one store per drain, from its resolved focus.
+/// (``CrashKeySlots/Key/paneKind``): one store per drain, from its resolved focus.
 @MainActor
 struct CrashKeyPaneKindTests {
     @Test func aFocusMoveNamesTheFocusedPanesKind() {

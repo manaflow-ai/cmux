@@ -13,7 +13,7 @@ public import Foundation
 /// image UUID + offset frames only.
 ///
 /// ``record(daemonSite:)`` takes the daemon's sites (``DaemonDiagnosticSite/Sighting``, the
-/// `server-diagnostic-site` events of the local daemon, p02-threads-233) the same way, with the daemon as their
+/// `server-diagnostic-site` events of the local daemon) the same way, with the daemon as their
 /// source: each pair of daemon life and site once across launches (``DaemonSiteLedger``), as one
 /// ``HangSample/Source/daemon`` sample (in slots of their own, ``StallAggregate/maxDaemonSamples``) and a
 /// non-fatal event within a budget of its own, so a daemon's replay never takes the app's own sites' room.

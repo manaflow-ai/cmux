@@ -9,7 +9,7 @@
 //! allowlist as every other tool.
 //!
 //! An entry with a `socket` is a tool set the acpmux daemon serves itself
-//! (acpmux `subsession_mcp::DaemonTools`, p07-memory-092): this server dials
+//! (acpmux `subsession_mcp::DaemonTools`): this server dials
 //! that socket and sends the entry's `initializeMeta` with its `initialize`,
 //! which proves the session, so the tools run with no process of their own.
 //! Its command (the acpmux relay) is for a `cmux mcp serve` that reads no
@@ -23,6 +23,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+
+use crate::cli::json_fields::JsonFields;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -191,7 +193,7 @@ impl Upstream {
                     return None;
                 }
                 let mut tool = tool.clone();
-                let description = tool["description"].as_str().unwrap_or_default();
+                let description = tool.field("description").as_str().unwrap_or_default();
                 // The server's own instructions (the computer use consent
                 // rules) no longer reach the model through its `initialize`:
                 // they go with each of its tools, which a harness with tool
@@ -202,8 +204,8 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("\n\n{server} rules: {r}"))
                     .unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}{rules}"));
-                tool["name"] = json!(name);
+                tool.insert("description", json!(format!("[{server}] {description}{rules}")));
+                tool.insert("name", json!(name));
                 Some(tool)
             })
             .collect()
@@ -260,10 +262,10 @@ impl Upstream {
         });
         // The daemon's tool sets: the caller that proves the session, and the server (module docs).
         if let Some(meta) = &self.spec.initialize_meta {
-            init["_meta"] = meta.clone();
+            init.insert("_meta", meta.clone());
         }
         let init = self.request("initialize", init, START_TIMEOUT).map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        self.instructions = init.field("instructions").as_str().map(str::to_owned);
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -271,8 +273,8 @@ impl Upstream {
             let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
             let page =
                 self.request("tools/list", params, START_TIMEOUT).map_err(Failure::message)?;
-            tools.extend(page["tools"].as_array().cloned().unwrap_or_default());
-            match page["nextCursor"].as_str() {
+            tools.extend(page.field("tools").as_array().cloned().unwrap_or_default());
+            match page.field("nextCursor").as_str() {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
                 _ => break,
             }
@@ -327,17 +329,19 @@ impl Upstream {
     ) -> Result<mpsc::Receiver<String>, String> {
         let (tx, lines) = mpsc::channel();
         // supervise-allow: one upstream connection's output reader; it ends at EOF, and a panic drops `tx`, so requests to that upstream fail.
-        std::thread::Builder::new()
-            .name(format!("cmux-mcp-upstream-{}", self.prefix))
-            .spawn(move || {
+        cmux_threads::spawn(
+            format!("cmux-mcp-upstream-{}", self.prefix),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 for line in BufReader::new(output).lines() {
                     let Ok(line) = line else { break };
                     if tx.send(line).is_err() {
                         break;
                     }
                 }
-            })
-            .map_err(|error| error.to_string())?;
+            },
+        )
+        .map_err(|error| error.to_string())?;
         Ok(lines)
     }
 
@@ -366,7 +370,7 @@ impl Upstream {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let line = match conn.lines.recv_timeout(left) {
+            let line = match crate::blocking::sync::recv_timeout(&conn.lines, left) {
                 Ok(line) => line,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     let secs = timeout.as_secs();
@@ -385,7 +389,7 @@ impl Upstream {
                 }
                 continue;
             }
-            if reply["id"] != id {
+            if reply.field("id") != id {
                 continue;
             }
             if let Some(error) = reply.get("error") {
@@ -393,7 +397,7 @@ impl Upstream {
                     error["message"].as_str().unwrap_or("error").to_owned(),
                 ));
             }
-            return Ok(reply["result"].clone());
+            return Ok(reply.field("result").clone());
         }
     }
 }

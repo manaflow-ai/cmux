@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The remote desktop's pointer once per frame (feature `pointerFrameRemoteInput`, p04-input-035): with
-/// the window's FrameInputCoalescer (p04-input-030) a frame interval's first move goes to the host at
+/// The remote desktop's pointer once per frame (feature `pointerFrameRemoteInput`): with
+/// the window's FrameInputCoalescer a frame interval's first move goes to the host at
 /// once and the rest once at the frame, to the latest point; scrolls in the middle of a gesture sum per
 /// phase; a button, a key or a scroll phase edge sends what waits first (Chromium's rAF-aligned input
 /// and `ShouldFlushQueue`, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).

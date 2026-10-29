@@ -1,5 +1,5 @@
 //! A running brain's exit: the mux's one child reaper waits for it (no
-//! thread per brain, p02-threads-237), ends what is left of its process
+//! thread per brain), ends what is left of its process
 //! group, reaps it and tells the supervisor.
 
 use std::sync::{Arc, Mutex, PoisonError, mpsc};

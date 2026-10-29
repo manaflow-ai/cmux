@@ -27,7 +27,7 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
 
     /// The identity, `MethodTable.schema` (task 023) and the app's `cmux.protocol/2` requests
     /// (task 024) of cmux-tui/spec. `DaemonWireEvent+Schema.swift` joins them once TypeEmitter's
-    /// payload types build (p05-ipc-020, then p05-ipc-195).
+    /// payload types build (then p05-ipc-195).
     private static func schemaBindings(tool: URL, spec: URL, work: URL, target: String) throws -> Command {
         let sdkSchema = spec.appending(path: "sdk-schema.json", directoryHint: .notDirectory)
         let resourceOperations = spec.appending(path: "resource-operations-v2.json", directoryHint: .notDirectory)

@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// While the app launches, only the panes on screen make their content (p08-startup-065, feature
+/// While the app launches, only the panes on screen make their content (feature
 /// `launchVisiblePanesOnly`): a pane the layout reports off screen, in the keep-alive band or away,
 /// makes no terminal surface, page or engine until startup completes, and the focused pane's content
 /// comes before the other visible panes'. Hidden workspaces build no controller at all (a window

@@ -36,7 +36,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///   next ring frame (task 092); 0 with no host attached; optional.
 /// - `void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch)`: where the host
 ///   watch goes, `watch(ctx, event, a, b)` on the main thread: input waiting for the host's dispatch,
-///   its progress and its end, and the host's UI hangs (task p01-process-084). Optional: a remote shim
+///   its progress and its end, and the host's UI hangs. Optional: a remote shim
 ///   without it has no busy banner.
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.

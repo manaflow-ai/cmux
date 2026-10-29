@@ -88,7 +88,7 @@ extension AppServices {
         // Built now so it reads each machine's browser status when the machine connects.
         let hosts = machineBrowserHosts
         browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
-        // The remote localhost is made by the first remote route it gives, not here (p08-startup-021).
+        // The remote localhost is made by the first remote route it gives, not here.
         browserTabs.localhostRoute = { [weak self] daemon, pane, engine in
             if RemoteLocalhostService.routesToThisMac(daemon) { return .thisMac }
             return self?.remoteLocalhost.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)

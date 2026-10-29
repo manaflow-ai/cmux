@@ -56,7 +56,7 @@ final class GhosttyConfigLiveReload {
         rearm()
     }
 
-    /// Arms the watch after startup completes (Q13, p08-startup-086): nothing before it reads a config edit, as Chrome
+    /// Arms the watch after startup completes (Q13): nothing before it reads a config edit, as Chrome
     /// posts non-critical launch work (chrome/browser/after_startup_task_utils.cc). Each file's state is marked now, off
     /// main, and a file written, replaced, created or deleted since then reloads once when the watch arms.
     func startAfterStartup(on startup: StartupScheduler) {

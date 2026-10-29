@@ -1,8 +1,8 @@
 import CmuxNextIPC
 import Foundation
 
-/// How one connection sends typed v12 commands once `ipc-frames-v2` is granted (p05-ipc-092;
-/// cmux-tui/spec/transports.md, "Binary frames").
+/// How one connection sends typed v12 commands once `ipc-frames-v2` is granted
+/// (cmux-tui/spec/transports.md, "Binary frames").
 ///
 /// A REQUEST frame carries the request's JSON line without its `\n`; its header names the method by the id
 /// and priority of the ``MethodTable`` and the request by the low 32 bits of the connection's request id. The
@@ -39,13 +39,15 @@ struct FramedRequests: Sendable {
         return bodyBytes <= Int(truncatingIfNeeded: bound) ? method : nil
     }
 
-    /// One REQUEST frame on stream 0: the 16-byte header (cmux-ipc frame.rs `Aux::Call`: request id u32,
-    /// method id u16, the table's priority, no flags), then `body`.
-    static func requestFrame(_ body: Data, requestID: UInt64, method: MethodAttributes) -> Data {
+    /// One REQUEST frame: the 16-byte header (cmux-ipc frame.rs `Aux::Call`: request id u32, method id u16, the
+    /// table's priority, no flags), then `body`. `stream` is 0, the control sequence, except for a stream opener
+    /// (`attach-surface`), whose header names the stream it opens: that announces the stream to the daemon, which
+    /// routes INPUT frames only to an announced stream (pending_streams.rs).
+    static func requestFrame(_ body: Data, requestID: UInt64, method: MethodAttributes, stream: UInt16 = 0) -> Data {
         var frame = Data(capacity: FrameHeader.byteCount + body.count)
         frame.append(FrameHeader.magic)
         frame.append(requestKind)
-        append(UInt16.zero, to: &frame)
+        append(stream, to: &frame)
         append(UInt32(truncatingIfNeeded: body.count), to: &frame)
         append(UInt32(truncatingIfNeeded: requestID), to: &frame)
         append(method.id.rawValue, to: &frame)

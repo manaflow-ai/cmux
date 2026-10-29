@@ -1,6 +1,7 @@
 //! Owns the session record type and its small state accessors.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
@@ -174,16 +175,16 @@ impl Session {
     }
 
     pub fn meta(&self) -> SessionMeta {
-        self.meta.lock().unwrap().clone()
+        self.meta.lock_or_recover().clone()
     }
     pub fn turn(&self) -> Option<TurnInfo> {
-        self.turn.lock().unwrap().clone()
+        self.turn.lock_or_recover().clone()
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
     }
     pub fn queue(&self) -> Vec<QueuedPrompt> {
-        self.queue.lock().unwrap().clone()
+        self.queue.lock_or_recover().clone()
     }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -194,15 +195,14 @@ impl Session {
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .pending
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
     }
     pub(super) fn status(&self) -> SessionStatus {
-        self.meta.lock().unwrap().status
+        self.meta.lock_or_recover().status
     }
 }
 /// Tags that have not expired, as a flat map.

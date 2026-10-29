@@ -8,7 +8,7 @@ import Foundation
 import Testing
 @testable import CmuxNextApp
 
-/// The app's `memory.saver` wiring (p07-memory-065), behind `memorySaverSetting`: a mode action run on
+/// The app's `memory.saver` wiring, behind `memorySaverSetting`: a mode action run on
 /// the app's registry sets the memory coordinator's mode and writes cmux-next.json; a failed write puts
 /// the coordinator's previous mode back; cmux-next.json's value reaches the coordinator when the app
 /// follows the setting. With the feature off, neither the actions nor the file change the mode.

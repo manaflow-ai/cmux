@@ -4,8 +4,8 @@ import IOSurface
 import Testing
 
 /// A paused surface's held frame (``TerminalHeldFrame``) and an evicted terminal's last frame read the
-/// renderer's presented frame and hide, show and purge it through the renderer (``TerminalFrameSource``,
-/// p03-rendering-081); nothing writes a layer's contents.
+/// renderer's presented frame and hide, show and purge it through the renderer (``TerminalFrameSource``);
+/// nothing writes a layer's contents.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct TerminalHeldFrameTests {
     /// A renderer that presents `presented` and records what main asks of it, with ghostty-next's

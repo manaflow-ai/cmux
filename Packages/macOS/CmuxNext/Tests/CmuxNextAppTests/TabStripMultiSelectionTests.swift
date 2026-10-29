@@ -3,7 +3,7 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// The strip's Escape exits through the app's input tap (p04-input-014): a multi-selection holds an
+/// The strip's Escape exits through the app's input tap: a multi-selection holds an
 /// Escape intercept on the strip's window only while it lasts and lets the key go on; a drag holds one
 /// that cancels the drag and stops the key; both leave the tap when their mode ends or the strip
 /// leaves its window, and another window's Escape is not theirs.

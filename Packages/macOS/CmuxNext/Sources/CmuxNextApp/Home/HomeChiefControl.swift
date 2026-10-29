@@ -71,7 +71,7 @@ struct HomeChiefControl {
             // The owner daemon starts a named Chief's brain (chief_brains.rs);
             // only the default Chief's host is this app's to start.
             let named = named
-            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection },
+            return HomeChiefLocalEngine(files: files, lanes: services.work, connection: { [weak services] in services?.home.connection },
                                         startBrain: { [weak services] asked in
                                             named == nil ? services?.home.brain.ensure(asked: asked) ?? false : false
                                         }, chief: named)
@@ -81,12 +81,12 @@ struct HomeChiefControl {
         if isHosted {
             return HomeChiefHostedEngine(
                 chief: { HomeChiefControl(services: services, conversation: conversation, muxHome: muxHome).hostedChiefID },
-                send: services.home.hostedChief.brainRoute, files: files)
+                send: services.home.hostedChief.brainRoute, files: files, lanes: services.work)
         }
         return HomeChiefRemoteEngine(
             connection: { HomeChiefControl(services: services, conversation: conversation, muxHome: muxHome).connection },
             place: server?.name ?? services.home.cloudChiefs.chief(for: conversation.rawValue)?.brainPlace?.host,
-            files: files)
+            files: files, lanes: services.work)
     }
 
     /// `chief.stop` on this Chief's brain; nil when it stopped (or had no

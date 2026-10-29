@@ -4,7 +4,7 @@ import AppKit
 /// the page inside the pane, resizable, or in its own window. The docked
 /// DevTools is a Chromium child window over `views.host`, a subview of the
 /// tab's content view, so it follows the pane's layout, clipping and moves
-/// like the page. Where the fork hosts or attaches DevTools (p03-rendering-056)
+/// like the page. Where the fork hosts or attaches DevTools
 /// its pixels show in `views.host`'s layers, or its Chromium view is a subview of it,
 /// as a pane's page. In host mode it is a hosted context shown in
 /// a page view inside `views.host` instead (`CEFDevToolsController+Hosted.swift`).

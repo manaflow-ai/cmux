@@ -109,13 +109,13 @@ mod platform {
     use super::Process;
 
     pub(super) fn read(pid: u32) -> Option<Process> {
-        let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+        let stat = cmux_blocking::fs::read(format!("/proc/{pid}/stat")).ok()?;
         // `pid (comm) state ppid ...`; comm may hold spaces, parentheses and
         // bytes that are not UTF-8.
-        let after_comm =
-            std::str::from_utf8(&stat[stat.iter().rposition(|b| *b == b')')? + 1..]).ok()?;
+        let comm_end = stat.iter().rposition(|b| *b == b')')?;
+        let after_comm = std::str::from_utf8(stat.get(comm_end + 1..)?).ok()?;
         let parent = after_comm.split_whitespace().nth(1)?.parse().ok()?;
-        let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+        let environ = cmux_blocking::fs::read(format!("/proc/{pid}/environ")).ok()?;
         let environment = environ
             .split(|byte| *byte == 0)
             .filter(|entry| !entry.is_empty())
@@ -184,7 +184,7 @@ mod platform {
         if status != 0 {
             return None;
         }
-        parse_procargs2(&buffer[..size.min(buffer.len())])
+        parse_procargs2(buffer.get(..size)?)
     }
 
     /// `KERN_PROCARGS2`: argc (i32), the exec path, NUL padding, argc
@@ -192,8 +192,9 @@ mod platform {
     /// Apple-signed program the system leaves the environment out, so it
     /// reads back empty.
     fn parse_procargs2(data: &[u8]) -> Option<Vec<Vec<u8>>> {
-        let argc = usize::try_from(i32::from_ne_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
-        let mut strings = data[4..].split(|byte| *byte == 0);
+        let (argc, rest) = data.split_first_chunk::<4>()?;
+        let argc = usize::try_from(i32::from_ne_bytes(*argc)).ok()?;
+        let mut strings = rest.split(|byte| *byte == 0);
         strings.next()?; // exec path
         let mut rest = strings.skip_while(|entry| entry.is_empty());
         for _ in 0..argc {

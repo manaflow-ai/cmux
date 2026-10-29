@@ -78,7 +78,7 @@ enum WorkspaceMerge {
     static func moveRest(_ tabs: [TabModel], following anchor: String, services: AppServices,
                          completion: @escaping @MainActor (Bool) -> Void) {
         guard let tab = tabs.first else { return completion(true) }
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per moved tab, no observation
+        // view-observation-allow: one MachineTabIndex lookup per moved tab, no observation
         guard let (_, pane) = services.locateTab(anchor) else { return completion(false) }
         TabMoves.move(tab, to: pane, index: pane.tabs.count, services: services) { ok in
             guard ok else { return completion(false) }

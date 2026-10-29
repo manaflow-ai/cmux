@@ -20,7 +20,7 @@ extension MainFrameBudget {
         let now = uptimeNanos()
         if isRenderStarved || isInputResponseOpen || inputPending(now) { return true }
         guard let last = open.indices.last, let index = Self.index(open[last].workClass),
-              let share = budgets.budget(open[last].workClass) else { return false }
+              let share = shares.budget(open[last].workClass) else { return false }
         let own = open[last].ownNanos(at: now)
         let chunk = own &- min(open[last].ownAtYieldCheck, own)
         open[last].ownAtYieldCheck = own

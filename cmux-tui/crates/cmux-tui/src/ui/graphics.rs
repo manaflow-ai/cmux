@@ -716,10 +716,9 @@ impl GraphicsState {
         ordered_images: &[GraphicImageKey],
         index: usize,
     ) -> Option<u32> {
-        let previous =
-            ordered_images[..index].iter().rev().find_map(|key| self.image_ids.get(key).copied());
-        let next =
-            ordered_images[index + 1..].iter().find_map(|key| self.image_ids.get(key).copied());
+        let (before, after) = ordered_images.split_at_checked(index)?;
+        let previous = before.iter().rev().find_map(|key| self.image_ids.get(key).copied());
+        let next = after.get(1..)?.iter().find_map(|key| self.image_ids.get(key).copied());
         match (previous, next) {
             (None, None) => Some(u32::MAX / 2),
             (None, Some(next)) => next.checked_sub(1).filter(|id| *id != 0),
@@ -733,6 +732,11 @@ impl GraphicsState {
         }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        clippy::expect_used,
+        reason = "INVARIANT: assign_image_ids passes an index of ordered_images; `assigned` holds that key plus only keys with an ID, and the window bounds stay inside it, so every lookup outside the inserted key is present"
+    )]
     fn relabel_image_window(
         &mut self,
         ordered_images: &[GraphicImageKey],
@@ -796,6 +800,10 @@ impl GraphicsState {
         }
     }
 
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: the frame assigns an ID to every ordered image before it emits placements"
+    )]
     fn image_id(&self, key: GraphicImageKey) -> u32 {
         self.image_ids[&key]
     }
@@ -930,9 +938,9 @@ impl StartupTerminalInput {
         while !remaining.is_empty() {
             let available =
                 STARTUP_INPUT_MAX_INCOMPLETE_BYTES.saturating_sub(self.incomplete.len());
-            let take = available.min(remaining.len());
-            self.incomplete.extend_from_slice(&remaining[..take]);
-            remaining = &remaining[take..];
+            let (taken, rest) = remaining.split_at(available.min(remaining.len()));
+            self.incomplete.extend_from_slice(taken);
+            remaining = rest;
 
             let parsed = split_pending_input(&self.incomplete);
             self.events.extend(parsed.events);
@@ -1093,7 +1101,8 @@ fn read_stdin_until(timeout: Duration, complete: impl Fn(&[u8]) -> bool) -> Vec<
         if n <= 0 {
             break;
         }
-        out.extend_from_slice(&buf[..n as usize]);
+        let Some(read) = usize::try_from(n).ok().and_then(|n| buf.get(..n)) else { break };
+        out.extend_from_slice(read);
         if complete(&out) {
             // Drain bytes that are already queued with the replies so an
             // input sequence split at this read boundary remains intact.
@@ -1123,42 +1132,37 @@ fn terminal_probe_complete(bytes: &[u8]) -> bool {
 
 fn parse_terminal_probe(bytes: &[u8]) -> ParsedTerminalProbe {
     let mut parsed = ParsedTerminalProbe::default();
-    let mut offset = 0;
-    while offset < bytes.len() {
-        if bytes[offset..].starts_with(b"\x1b[")
-            && let Some(relative_end) =
-                bytes[offset + 2..].iter().position(|byte| (0x40..=0x7e).contains(byte))
+    let mut rest = bytes;
+    while let Some((&first, tail)) = rest.split_first() {
+        if let Some(csi) = rest.strip_prefix(b"\x1b[")
+            && let Some(final_index) = csi.iter().position(|byte| (0x40..=0x7e).contains(byte))
+            && let Some((parameters, final_and_next)) = csi.split_at_checked(final_index)
+            && let Some((&final_byte, next)) = final_and_next.split_first()
         {
-            let end = offset + 2 + relative_end + 1;
-            let sequence = &bytes[offset..end];
-            let parameters = &sequence[2..sequence.len() - 1];
-            let final_byte = sequence[sequence.len() - 1];
             if final_byte == b'c' && parameters.starts_with(b"?") {
                 parsed.primary_device_attributes = true;
-                offset = end;
+                rest = next;
                 continue;
             }
             if final_byte == b't'
                 && let Some(pixels) = parse_window_pixel_response(parameters)
             {
                 parsed.window_pixels = Some(pixels);
-                offset = end;
+                rest = next;
                 continue;
             }
         }
-        if bytes[offset..].starts_with(b"\x1b_")
-            && let Some(relative_end) = find_bytes(&bytes[offset + 2..], b"\x1b\\")
+        if let Some(apc) = rest.strip_prefix(b"\x1b_")
+            && let Some(terminator) = find_bytes(apc, b"\x1b\\")
+            && let Some((sequence, next)) = rest.split_at_checked(terminator.saturating_add(4))
+            && let Some(supported) = parse_kitty_probe_response(sequence)
         {
-            let end = offset + 2 + relative_end + 2;
-            let sequence = &bytes[offset..end];
-            if let Some(supported) = parse_kitty_probe_response(sequence) {
-                parsed.kitty_supported = Some(supported);
-                offset = end;
-                continue;
-            }
+            parsed.kitty_supported = Some(supported);
+            rest = next;
+            continue;
         }
-        parsed.pending_input.push(bytes[offset]);
-        offset += 1;
+        parsed.pending_input.push(first);
+        rest = tail;
     }
     parsed
 }
@@ -1176,23 +1180,20 @@ fn parse_window_pixel_response(parameters: &[u8]) -> Option<(u32, u32)> {
 
 fn parse_kitty_probe_response(sequence: &[u8]) -> Option<bool> {
     let marker = b"Gi=31;";
-    let status_start = find_bytes(sequence, marker)? + marker.len();
-    let status_end = find_bytes(&sequence[status_start..], b"\x1b\\")? + status_start;
-    Some(sequence[status_start..status_end].starts_with(b"OK"))
+    let marker_start = find_bytes(sequence, marker)?;
+    let status = sequence.get(marker_start.saturating_add(marker.len())..)?;
+    let status_end = find_bytes(status, b"\x1b\\")?;
+    Some(status.get(..status_end)?.starts_with(b"OK"))
 }
 
 fn split_pending_input(bytes: &[u8]) -> StartupTerminalInput {
     let mut events = Vec::new();
-    let mut offset = 0;
-    while offset < bytes.len() {
-        if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
-            events.push(event);
-            offset += consumed;
-            continue;
-        }
-        break;
+    let mut rest = bytes;
+    while let Some((event, next)) = parse_one_input_event(rest) {
+        events.push(event);
+        rest = next;
     }
-    StartupTerminalInput { events, incomplete: bytes[offset..].to_vec() }
+    StartupTerminalInput { events, incomplete: rest.to_vec() }
 }
 
 #[cfg(test)]
@@ -1202,14 +1203,14 @@ fn parse_pending_input(bytes: &[u8]) -> Vec<crossterm::event::Event> {
 
 fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
     let mut events = Vec::new();
-    let mut offset = 0;
-    while offset < bytes.len() {
-        if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
+    let mut rest = bytes;
+    while let Some((&first, tail)) = rest.split_first() {
+        if let Some((event, next)) = parse_one_input_event(rest) {
             events.push(event);
-            offset += consumed;
+            rest = next;
             continue;
         }
-        let code = if bytes[offset] == b'\x1b' {
+        let code = if first == b'\x1b' {
             crossterm::event::KeyCode::Esc
         } else {
             crossterm::event::KeyCode::Char(char::REPLACEMENT_CHARACTER)
@@ -1218,7 +1219,7 @@ fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
             code,
             crossterm::event::KeyModifiers::NONE,
         )));
-        offset += 1;
+        rest = tail;
     }
     events
 }
@@ -1259,7 +1260,11 @@ pub(crate) fn finish_startup_input(
                 if count <= 0 {
                     break;
                 }
-                pending.append(&bytes[..count as usize]);
+                let Some(read) = usize::try_from(count).ok().and_then(|count| bytes.get(..count))
+                else {
+                    break;
+                };
+                pending.append(read);
                 read_more = true;
                 break;
             }
@@ -1275,13 +1280,13 @@ pub(crate) fn finish_startup_input(
     pending.events
 }
 
-fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
+/// The first complete input event in `bytes` and the bytes after it.
+fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, &[u8])> {
     let minimum = usize::from(bytes.first() == Some(&b'\x1b') && bytes.len() > 1) + 1;
-    for end in minimum..=bytes.len() {
-        let Some(event) = parse_startup_input_event(&bytes[..end]) else { continue };
-        return Some((event, end));
-    }
-    None
+    (minimum..=bytes.len()).find_map(|end| {
+        let (event_bytes, next) = bytes.split_at_checked(end)?;
+        parse_startup_input_event(event_bytes).map(|event| (event, next))
+    })
 }
 
 #[cfg(unix)]

@@ -69,6 +69,7 @@ extension CEFTab {
             // nothing on an ordinary navigation: the memo already matches.
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
+            pageEvents?.committed?(URL(string: url))
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
@@ -81,6 +82,7 @@ extension CEFTab {
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
+            pageEvents?.finished?()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             isDiscardedInPlace = false
@@ -133,9 +135,12 @@ extension CEFTab {
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _, _, _):
+            rendererHang.ended()
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .frameRenderers: if runtime.hostStart == nil { onRenderersMayChange?() } // an iframe's renderer came or went
+        // In this tab only, with Chrome's visibility rules (CEFRendererHang.swift).
+        case .renderUnresponsive: rendererBecameUnresponsive()
+        case .renderResponsive: rendererBecameResponsive()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json): agentRelay.deliver(json)

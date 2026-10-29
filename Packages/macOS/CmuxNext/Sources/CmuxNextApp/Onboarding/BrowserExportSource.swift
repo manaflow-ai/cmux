@@ -26,7 +26,7 @@ nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
 
     /// The bundled rows, in the order the picker lists them; empty when the file is missing. A file read:
     /// the picker awaits it on the files lane (``BrowserFileImport``), never a static initializer that
-    /// blocks whichever thread reads it first (once-blocking, p02-threads-122).
+    /// blocks whichever thread reads it first (once-blocking).
     static func loadBundled() -> [BrowserExportSource] {
         struct File: Decodable { let browsers: [BrowserExportSource] }
         guard let url = Bundle.module.url(forResource: "browser-export-steps", withExtension: "json"),

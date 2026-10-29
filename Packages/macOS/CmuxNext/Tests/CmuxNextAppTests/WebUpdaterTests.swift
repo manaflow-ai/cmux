@@ -123,7 +123,7 @@ import Testing
         #expect(store.readState().active == nil)
     }
 
-    /// The app's launch read of the kept update (p08-startup-077) is what the relaunched updater
+    /// The app's launch read of the kept update is what the relaunched updater
     /// serves: the followed channel's update, and the bundled web for another channel or off.
     @Test func aRelaunchServesTheKeptUpdateItsLaunchReadFound() async throws {
         let root = try WebUpdateStoreTests.scratch()

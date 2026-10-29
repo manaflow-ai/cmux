@@ -5,7 +5,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// p10-stability-082: libghostty's runtime callbacks (`wakeup_cb`, `action_cb`, ...) get the runtime context's
+/// libghostty's runtime callbacks (`wakeup_cb`, `action_cb`, ...) get the runtime context's
 /// ``RuntimeCallbackContext/callbacks`` token as their userdata, never the context's address, so a callback whose
 /// context is unregistered or gone resolves to nothing instead of reading freed memory (Chromium's MiraclePtr
 /// property, applied to C callback contexts). Run under `--sanitize=address` and `--sanitize=thread` too.

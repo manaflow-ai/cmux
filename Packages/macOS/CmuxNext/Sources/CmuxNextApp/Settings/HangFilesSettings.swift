@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages

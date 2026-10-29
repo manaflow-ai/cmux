@@ -8,7 +8,7 @@
 ///   login, offers no browser import, and keeps a Debug hang alive for its evidence.
 ///
 /// An isolated launch without no-activate may activate. idle-budget's shipping measurement mode
-/// (p14-energy-100) launches that way, so it measures an active app at the bench's fixed window.
+/// launches that way, so it measures an active app at the bench's fixed window.
 public struct LaunchIsolation: Sendable, Equatable {
     /// The environment key of ``noActivate``.
     public static let noActivateKey = "CMUX_NEXT_NO_ACTIVATE"

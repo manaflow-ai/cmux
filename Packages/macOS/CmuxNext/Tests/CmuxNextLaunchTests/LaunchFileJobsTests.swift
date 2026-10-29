@@ -16,8 +16,8 @@ nonisolated private struct Ran: Sendable {
     }
 }
 
-/// The launch's design-mode cleanup and CLI pointer write are files-lane posts (p08-startup-083, Q12):
-/// the cleanup is held behind the launch's best-effort fence until the reveal (p06-scheduler-204), then runs at
+/// The launch's design-mode cleanup and CLI pointer write are files-lane posts (Q12):
+/// the cleanup is held behind the launch's best-effort fence until the reveal, then runs at
 /// `.background`; the pointer is not held (a script that opens the app and runs `cmux` at once gets this
 /// app's CLI) and survives a quit during startup.
 @MainActor

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// p03-rendering-061: a view that paints in `updateLayer` redraws only when it asks to
+/// A view that paints in `updateLayer` redraws only when it asks to
 /// (`.onSetNeedsDisplay`), not on every frame of a resize (AppKit's `.duringViewResize`); a container
 /// with nothing to draw never redraws. Chromium's compositor does the same: a geometry change moves
 /// and clips a layer, and only contents marked invalid repaint (cc/layers/layer.cc, SetNeedsDisplayRect).

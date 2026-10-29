@@ -464,13 +464,13 @@ fn failed_first_attach_restores_pre_attach_surface_geometry() {
     rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
 
     // The browser takes the restored size on its own worker; the rollback
-    // does not wait for it (p02-threads-221).
+    // does not wait for it.
     settle_browser_size(&surface, (120, 40));
     assert_eq!(mux.client_surface_size(surface.id, client), None);
     assert!(!mux.control_clients.attached_client_ids().contains(&client));
 }
 
-/// p02-threads-221: a failed attach's size rollback runs on the request
+/// A failed attach's size rollback runs on the request
 /// thread, and the wait for the browser to take the restored size never does.
 #[test]
 fn attach_rollback_on_a_request_thread_never_waits_for_the_browser() {

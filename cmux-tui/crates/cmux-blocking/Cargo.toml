@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 default = []
-# The lab's tokio slow-poll detector (p10-stability-033, `poll_watch`), built
+# The lab's tokio slow-poll detector (`poll_watch`), built
 # only with RUSTFLAGS="--cfg tokio_unstable" in the lab lane. Off in every
 # shipped build. Consumer crates forward their own `cmux-stability` here.
 cmux-stability = []

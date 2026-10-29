@@ -141,7 +141,7 @@ import Testing
         _ = springs
     }
 
-    /// A frame client the input stage wakes ticks in the same frame (p04-input-032): a ghost spring
+    /// A frame client the input stage wakes ticks in the same frame: a ghost spring
     /// that settled while the pointer rested, woken by the frame's move, steps at this vsync, not the
     /// next (Blink's `WidgetBase::BeginMainFrame` dispatches rAF-aligned input before the frame's rAF).
     /// One a frame client wakes ticks next frame.

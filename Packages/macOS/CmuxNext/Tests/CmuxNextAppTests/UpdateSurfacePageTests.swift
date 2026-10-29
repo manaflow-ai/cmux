@@ -5,7 +5,7 @@ import CmuxNextPages
 @testable import CmuxNextSidebar
 import Testing
 
-/// p13-webui-054: the sidebar's update card is a `privileged` page opened and ended through the app's
+/// The sidebar's update card is a `privileged` page opened and ended through the app's
 /// WebUIHost. No page exists while there is no update, the card's page joins the page lifecycle under
 /// its own key, and the dismissed card's page leaves the host and the lifecycle.
 @MainActor

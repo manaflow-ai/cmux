@@ -40,7 +40,7 @@ extension AppActions {
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
         // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
         // only while its Debug tunable is on.
-        // From a key, the item one more step that way prewarms (`directionalPrewarm`, p04-input-044).
+        // From a key, the item one more step that way prewarms (`directionalPrewarm`).
         registry.bindEffect("nextSidebarTab", effect: { SidebarNavigation.stepAction(by: 1, $0, services) })
         registry.bindEffect("prevSidebarTab", effect: { SidebarNavigation.stepAction(by: -1, $0, services) })
         registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }

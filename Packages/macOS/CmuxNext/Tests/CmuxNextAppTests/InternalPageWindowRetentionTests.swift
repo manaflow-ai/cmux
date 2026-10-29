@@ -5,7 +5,7 @@ import CmuxNextPages
 import Foundation
 import Testing
 
-/// p07-memory-099: the page tab store holds each tab's window weakly. A closed window with a restorable
+/// The page tab store holds each tab's window weakly. A closed window with a restorable
 /// page tab is freed, with every workspace it parked; the tab stays. A Chrome tab helper holds a
 /// `raw_ptr<Browser>` and finds its window again with `chrome::FindBrowserWithTab`
 /// (chrome/browser/ui/browser_finder.cc); it never owns the window.

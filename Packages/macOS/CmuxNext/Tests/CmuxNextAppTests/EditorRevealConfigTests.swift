@@ -2,6 +2,8 @@
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -38,7 +40,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: "a.swift")
         try Data("one\ntwo\nthree\n".utf8).write(to: url)
-        let provider = FilePageProvider(kind: .editor, file: url, host: Host(), libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: .editor, file: url, host: Host(), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { provider.close() }
         provider.reveal = FilePosition(line: 3, column: 2)
         let context = PageCallContext(page: FilePageKind.editor.namespace)

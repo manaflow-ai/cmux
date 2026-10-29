@@ -22,12 +22,12 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32>
     if surface != Surface::Cmux || !is_requested(args) {
         return None;
     }
-    Some(run_ui_layer(&args[UI_LAYER_WORDS.len()..]))
+    Some(run_ui_layer(args.get(UI_LAYER_WORDS.len()..).unwrap_or_default()))
 }
 
 fn is_requested(args: &[String]) -> bool {
-    args.len() >= UI_LAYER_WORDS.len()
-        && args[..UI_LAYER_WORDS.len()].iter().map(String::as_str).eq(UI_LAYER_WORDS)
+    args.get(..UI_LAYER_WORDS.len())
+        .is_some_and(|words| words.iter().map(String::as_str).eq(UI_LAYER_WORDS))
 }
 
 fn run_ui_layer(args: &[String]) -> i32 {
@@ -50,7 +50,7 @@ fn run_ui_layer(args: &[String]) -> i32 {
         }
     };
     let launcher = repository.join(UI_LAYER_LAUNCHER);
-    if !launcher.is_file() {
+    if !cmux_blocking::fs::metadata(&launcher).is_ok_and(|metadata| metadata.is_file()) {
         eprintln!(
             "cmux: `dev ui-host` launcher is missing: {}\n  set {UI_LAYER_REPO_ENV} to a cmux checkout containing {UI_LAYER_LAUNCHER}",
             launcher.display()
@@ -104,7 +104,7 @@ fn repository_root() -> Result<PathBuf, String> {
 
 fn validate_repository(path: PathBuf) -> Result<PathBuf, String> {
     let launcher = path.join(UI_LAYER_LAUNCHER);
-    if launcher.is_file() {
+    if cmux_blocking::fs::metadata(&launcher).is_ok_and(|metadata| metadata.is_file()) {
         Ok(path)
     } else {
         Err(format!("no {UI_LAYER_LAUNCHER} under {}", path.display()))

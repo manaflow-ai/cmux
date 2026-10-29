@@ -5,7 +5,7 @@ import CmuxNextPages
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-342: a page a window shows as its top page (the Phone page in a window with no pane) follows the
+/// A page a window shows as its top page (the Phone page in a window with no pane) follows the
 /// node its key has in `TabContentCache.node(for:)`, as a pane's tab does. The top page host holds that node under the
 /// window's node and sets it visible while the window shows the page, so the phone's screen streams there and its
 /// controls follow the service; before, no pane selected the top page's key, so its node stayed hidden for good.

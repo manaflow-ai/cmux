@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p09-observability-110: the previous run whose fatal-hang record the next launch reports (`AppRunMarker.previousUnreported`)
+/// The previous run whose fatal-hang record the next launch reports (`AppRunMarker.previousUnreported`)
 /// is one that no crash report covers: a killed run or one the Mac's shutdown ended, never a quit or a crash, which
 /// would report the same end twice.
 struct AppRunMarkerUnreportedRunTests {

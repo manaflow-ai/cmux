@@ -74,7 +74,7 @@ import Testing
         #expect(log.summary.count == 0)
     }
 
-    /// p14-energy-124: a busy renderer's record names every tab it serves. This process stands in for
+    /// A busy renderer's record names every tab it serves. This process stands in for
     /// renderer 7: one tab reports it as its main frame's renderer, a same-site tab hosts a frame in it
     /// (client id 7), and a third has another renderer and is not named.
     @Test func aBusyRendererNamesEveryTabItServes() async throws {

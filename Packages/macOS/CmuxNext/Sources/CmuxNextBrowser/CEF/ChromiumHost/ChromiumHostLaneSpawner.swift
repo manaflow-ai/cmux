@@ -16,14 +16,14 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
 
     /// The host this app bundles (`Contents/MacOS/<App> Chromium Host`, embed-cef.sh) with the remote shim beside
     /// the framework, or nil when the build has neither. Reads the disk: on a lane.
-    static func bundled(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        fileManager: FileManager = .default) -> ChromiumHostLaunchPlan? {
-        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment, fileManager: fileManager),
-              let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+    static func bundled(bundle: Bundle = .main,
+                        environment: [String: String] = ProcessInfo.processInfo.environment) -> ChromiumHostLaunchPlan? {
+        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment),
+              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let identifier = bundle.bundleIdentifier ?? "cmux"
         guard let configuration = ChromiumHostConfiguration.bundled(
             in: layout, rootCache: support.appending(path: identifier).appending(path: "ChromiumHost"),
-            bundleIdentifier: identifier, environment: environment, fileManager: fileManager) else { return nil }
+            bundleIdentifier: identifier, environment: environment) else { return nil }
         let remoteShim = layout.frameworksDirectory.appending(path: "libcmux_cef_shim_remote.dylib")
         guard FileManager.checked.fileExists(atPath: remoteShim.path) else { return nil }
         let resources = layout.frameworkDirectory.appending(path: "Resources")

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import Testing
 
-/// The cross-window stage `CmuxApplication.sendEvent` runs on every key-down (p04-input-057): it
+/// The cross-window stage `CmuxApplication.sendEvent` runs on every key-down: it
 /// sits behind one window-number compare, so a key typed into the key window never asks the guard
 /// (`CrossWindowInputGuard`). The guard's own judgement is MultiWindowInputRoutingTests'; the find
 /// pill stage is FindPillTests'; the hint watcher's is ShortcutHintTests'.

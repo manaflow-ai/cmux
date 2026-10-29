@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// p07-memory-054: the sidebar's caches. The document store's projection memo is one lossless memory
+/// The sidebar's caches. The document store's projection memo is one lossless memory
 /// consumer that its owner registers: a new limit frees nothing, a release at critical drops the memo
 /// and keeps what the sidebar draws, and the next projection rebuilds it with a reducer call. The emoji
 /// ink cache grew with every emoji and size it measured; it now stays within its limit.

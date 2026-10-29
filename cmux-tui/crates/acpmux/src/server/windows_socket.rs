@@ -51,8 +51,13 @@ pub async fn bind_unix(path: &Path) -> Result<UnixListener> {
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<cmux::local_socket::Stream>(16);
     // The daemon's only way in: a panic in it is fatal.
-    hub.supervisor()
-        .supervise_thread("acpmux-accept", Fatal, ShutdownBehavior::Continue, move |_stop| {
+    crate::supervised::thread(
+        hub.supervisor(),
+        "acpmux-accept",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move |_stop| {
             loop {
                 match listener.0.accept_with_peer() {
                     Ok((stream, _peer)) => {
@@ -70,8 +75,9 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     }
                 }
             }
-        })
-        .context("start the daemon socket's accept thread")?;
+        },
+    )
+    .context("start the daemon socket's accept thread")?;
     while let Some(socket) = rx.recv().await {
         match crate::local_stream::bridge(socket) {
             Ok(stream) => {
@@ -123,8 +129,13 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
     let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
     // The router's admin way in: a panic in it is fatal to the router process.
     let supervisor = crate::supervised::embedded();
-    supervisor
-        .supervise_thread("router-admin-accept", Fatal, ShutdownBehavior::Continue, move |_stop| {
+    crate::supervised::thread(
+        &supervisor,
+        "router-admin-accept",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move |_stop| {
             loop {
                 match listener.accept_with_peer() {
                     Ok((stream, _peer)) => {
@@ -141,8 +152,9 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                     }
                 }
             }
-        })
-        .context("start the router admin accept thread")?;
+        },
+    )
+    .context("start the router admin accept thread")?;
     let (tx, rx) = mpsc::channel(16);
     crate::supervised::task(
         &supervisor,

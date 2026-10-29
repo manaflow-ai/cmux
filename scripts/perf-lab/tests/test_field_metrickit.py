@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """field_metrickit.py: every schema-2 metric field decodes, wire limits skip a report, series per build and
-hardware class, the Field tab shows launch p50/p95 and hitch ms/s per Nightly, and the read is field.py's.
+hardware class (p50, p95, p99), the Field tab shows launch percentiles and hitch ms/s per Nightly, and the read is
+field.py's.
 
   python3 -m unittest scripts/perf-lab/tests/test_field_metrickit.py
 """
@@ -201,7 +202,26 @@ class AggregationTests(unittest.TestCase):
         self.assertNotIn("interval.action.commit.hitch_ms_per_s.p50", rows)
         self.assertFalse(any("main_turn" in metric for metric in rows))
         other = by_metric(fm.field_rows(result.groups), "0.71.0 (2002)")
-        self.assertEqual(sorted(other), ["launch.first_draw.p50", "launch.first_draw.p95", "metrickit.reports"])
+        self.assertEqual(sorted(other), ["launch.first_draw.p50", "launch.first_draw.p95", "launch.first_draw.p99",
+                                         "metrickit.reports"])
+
+    def test_launch_and_hang_series_have_a_p99_per_build(self):
+        """The field targets are percentiles per build and hardware class with the tail Chrome's UMA reads (p50, p95,
+        p99): every series has a p99 row beside its p50 and p95, from the same merged buckets or ratios."""
+        rows = by_metric(fm.field_rows(fm.aggregate([ROW]).groups))
+        # launchFirstDraw (200,300,6), (300,400,3), (1000,2000,1): rank 9.9 of 10 is 0.9 into the last bucket.
+        self.assertAlmostEqual(rows["launch.first_draw.p99"]["value"], 1900.0)
+        self.assertEqual((rows["launch.first_draw.p99"]["unit"], rows["launch.first_draw.p99"]["samples"]), ("ms", 10))
+        # hangTime (0,100,40), (100,400,10): rank 49.5 of 50 is 0.95 into (100, 400).
+        self.assertAlmostEqual(rows["hang.time.p99"]["value"], 385.0)
+        # The open top stall bucket is a point at its low edge.
+        self.assertEqual(rows["hang.stall.p99"]["value"], 10_000)
+        self.assertEqual(rows["hang.stall.p99"]["samples"], 16)
+        self.assertAlmostEqual(rows["interval.action.commit.p99"]["value"], 19.0)
+        self.assertAlmostEqual(rows["hitch.ms_per_s.p99"]["value"], 4.0)
+        for series in ("launch.resume", "launch.optimized_first_draw", "launch.extended"):
+            self.assertIn(f"{series}.p99", rows)
+        self.assertEqual(fm.QUANTILES, field.PERCENTILES)
 
     def test_an_open_stall_bucket_counts_at_its_low_edge(self):
         rows = by_metric(fm.field_rows(fm.aggregate([ROW]).groups))
@@ -223,6 +243,8 @@ class AggregationTests(unittest.TestCase):
         result = fm.report(fm.aggregate([ROW]), since_hours=None, channel="nightly", source="fixture")
         self.assertEqual(result["targets"]["launch.first_draw.p50"], "launch")
         self.assertEqual(result["targets"]["hang.time.p95"], "hangs")
+        self.assertEqual(result["targets"]["launch.first_draw.p99"], "launch")
+        self.assertEqual(result["targets"]["hang.stall.p99"], "hangs")
         self.assertEqual(result["targets"]["hitch.ms_per_s.p50"], "motion-dropped")
         self.assertNotIn("interval.action.commit.p50", result["targets"])
         target_ids = {t["id"] for t in json.loads((LAB / "targets.json").read_text(encoding="utf-8"))["targets"]}

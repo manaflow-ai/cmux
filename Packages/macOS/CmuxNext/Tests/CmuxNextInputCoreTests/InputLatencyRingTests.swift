@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The input latency core (p04-input-001): the slot is a plain value, the open-slot table takes
+/// The input latency core: the slot is a plain value, the open-slot table takes
 /// each stage once from any thread and refuses stale tokens, a full table drops and counts, and
 /// the closed-slot ring hands over halves, wraps and counts what it overwrote. Run under TSan:
 /// `swift test --sanitize=thread --filter InputLatencyRingTests`.

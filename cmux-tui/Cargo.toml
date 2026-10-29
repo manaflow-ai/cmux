@@ -52,6 +52,8 @@ members = [
     "crates/cmux-memory",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-vt-worker",
+    "crates/cmux-vt-stream",
     "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
@@ -245,6 +247,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
+cmux-vt-stream = { path = "crates/cmux-vt-stream" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
@@ -409,20 +412,3 @@ opt-level = 0
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
 opt-level = 3
-
-# The correctness oracle's daemon build (plans/cmux-next/chrome-parity/p15-oracle.md,
-# task 201; scripts/cmux-next/oracle/linux_run.sh). Chrome's "release with DCHECKs"
-# configuration: is_debug = false with dcheck_always_on = true
-# (build/config/dcheck_always_on.gni) and symbol_level = 1 for file:line only
-# (build/config/compiler/compiler.gni). Release code generation, so the oracle
-# runs the timing the product ships, but debug assertions and overflow checks on,
-# so cfg(debug_assertions) checks and test knobs run too. No LTO and many codegen
-# units keep a cold build of both SHAs of a diff, and a rebuild after a leaf edit,
-# short. Use with `--features oracle`; the release profile is unchanged.
-[profile.oracle]
-inherits = "release"
-lto = "off"
-codegen-units = 256
-debug-assertions = true
-overflow-checks = true
-debug = "line-tables-only"

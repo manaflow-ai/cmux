@@ -283,6 +283,11 @@ public abstract class GeneratedCmuxClient {
         return BindConversationTabSessionResult.fromWire(result);
     }
 
+    public final BridgeHelloResult bridgeHello(BridgeHelloRequest request) throws CmuxException {
+        Object result = execute(Commands.BRIDGE_HELLO, request.toWire());
+        return BridgeHelloResult.fromWire(result);
+    }
+
     public final EmptyResult browserActivate(BrowserActivateRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_ACTIVATE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -1590,6 +1595,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SPLIT_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetStreamPriorityResult setStreamPriority(SetStreamPriorityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_STREAM_PRIORITY, request.toWire());
+        return SetStreamPriorityResult.fromWire(result);
     }
 
     public final Object setTabPinned(SetTabPinnedRequest request) throws CmuxException {

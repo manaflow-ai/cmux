@@ -1,7 +1,8 @@
-//! Lane order and frame chunking of the bounded outbound queue (p05-ipc-072):
+//! Lane order and frame chunking of the bounded outbound queue:
 //! a reply waits for at most one chunk of a queued snapshot, the pop order is
 //! `cmux_ipc::LaneWriter`'s, and the frame cut comes from the environment.
 
+use super::super::cmd_server::IdentifyParams;
 use super::lanes::{BULK_FRAME_MIN, parse_bulk_frame_max};
 use super::*;
 use crate::server::{MessageWriter, RenderService};
@@ -22,7 +23,7 @@ fn payload(service: &RenderService, len: usize) -> Arc<BudgetedText> {
 
 fn stream_on(service: &RenderService, id: u64, lane: StreamLane) -> OutboundStream {
     let overflow = service.serialize_control(&json!({"event": "overflow", "stream": id})).unwrap();
-    OutboundStream { lane, ..OutboundStream::new(id, overflow) }
+    OutboundStream::with_sequence(id, overflow, false, lane)
 }
 
 fn reply(service: &RenderService, id: u64) -> Arc<BudgetedText> {
@@ -343,7 +344,10 @@ fn bounded_outbound_frame_cut_comes_from_the_environment_value() {
 fn bounded_outbound_identify_reports_the_frame_cut_with_revisions() {
     let mux = crate::Mux::new_for_test("bulk-frame-max-identify", crate::SurfaceOptions::default());
     let client = mux.local_test_client(0);
-    let identify = |revisions| super::super::cmd_server::identify(&mux, client, false, revisions);
+    let identify = |revisions| {
+        let params = IdentifyParams { revisions, ..IdentifyParams::default() };
+        super::super::cmd_server::identify(&mux, client, params)
+    };
     assert!(identify(false).unwrap().get("bulk_frame_max").is_none());
     assert_eq!(identify(true).unwrap()["bulk_frame_max"], json!(mux.bulk_frame_max()));
     mux.shutdown();
@@ -359,7 +363,8 @@ fn bounded_outbound_identify_revisions_reply_keys_are_in_the_schema() {
     assert_eq!(declared["bulk_frame_max"]["type"]["name"], "uint32");
     let mux = crate::Mux::new_for_test("bulk-frame-max-schema", crate::SurfaceOptions::default());
     let client = mux.local_test_client(0);
-    let reply = super::super::cmd_server::identify(&mux, client, false, true).unwrap();
+    let params = IdentifyParams { revisions: true, ..IdentifyParams::default() };
+    let reply = super::super::cmd_server::identify(&mux, client, params).unwrap();
     let undeclared: Vec<&String> =
         reply.as_object().unwrap().keys().filter(|key| !declared.contains_key(*key)).collect();
     assert!(undeclared.is_empty(), "identify keys missing from IdentifyResult: {undeclared:?}");

@@ -1,5 +1,5 @@
 //! The daemon's own power reading against the app's override, the
-//! `energy.saver` setting and "Turn Off for Now" (p14-energy-137). The rule
+//! `energy.saver` setting and "Turn Off for Now". The rule
 //! table is server/energy_rule_tests.rs; the clock thread's wait on a fake
 //! notify source is covered in cmux-wake (`maintenance::power_tests`).
 

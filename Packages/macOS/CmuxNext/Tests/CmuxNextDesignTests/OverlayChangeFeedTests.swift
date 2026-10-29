@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// The overlay change feed (p15-oracle-038): an overlay host tells it when an overlay is presented, stops taking
+/// The overlay change feed: an overlay host tells it when an overlay is presented, stops taking
 /// the mouse or is dismissed; a subscription ends when its subscriber drops it.
 /// Run: `swift test --filter OverlayChangeFeedTests`.
 @MainActor @Suite(.serialized) struct OverlayChangeFeedTests {

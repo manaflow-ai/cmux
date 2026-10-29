@@ -1,4 +1,4 @@
-//! The reader runs no handler (p05-ipc-086): every line goes to its
+//! The reader runs no handler: every line goes to its
 //! connection's control sequence in arrival order, so a slow v2 operation
 //! never delays reading the next line, v2 and v1 replies leave in arrival
 //! order, and in Debug a handler that runs on a `mux-conn` thread panics.

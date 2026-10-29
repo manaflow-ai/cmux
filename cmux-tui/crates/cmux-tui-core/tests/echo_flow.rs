@@ -1,4 +1,4 @@
-//! Exact echo flows end to end (p09-observability-018): a `send` that
+//! Exact echo flows end to end: a `send` that
 //! carries a key press's `flow` gets that flow on the terminal's next
 //! `output` event, once; output with no flow behind it has no `flow` field.
 use std::io::{BufRead, BufReader, Write};

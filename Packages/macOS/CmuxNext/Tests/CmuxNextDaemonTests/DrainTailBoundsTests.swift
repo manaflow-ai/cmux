@@ -2,7 +2,7 @@
 import CmuxNextWakeups
 import Testing
 
-/// The drain's tail is bounded and cut on real daemon output (p06-scheduler-223, ``DrainTail``,
+/// The drain's tail is bounded and cut on real daemon output (``DrainTail``,
 /// ``TransactionRun``): a whole-value event replaces the waiting one of its field, a storm past the
 /// limit collapses into one snapshot, an untagged storm spreads over tasks, and a request's untagged
 /// events stay with its tagged ones.

@@ -7,6 +7,7 @@
 //! pages never wait forever for an endpoint. The reply names the endpoint
 //! only; the credential stays in the 0600 file.
 
+use crate::json_fields::JsonFields;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -89,11 +90,14 @@ impl PageListener {
             }
             let addr = server.local_addr();
             // The startup write failed, or someone removed the file: the app reads only the file.
-            if file.is_none() || !websocket_credential::path_for(&self.socket).exists() {
+            if file.is_none()
+                || cmux_blocking::fs::metadata(websocket_credential::path_for(&self.socket))
+                    .is_err()
+            {
                 *file = Some(websocket_credential::write(&self.socket, addr, token)?);
             }
             let mut reply = endpoint(addr, false);
-            reply["origins"] = json!(state.origins);
+            reply.insert("origins", json!(state.origins));
             return Ok(reply);
         }
         let mux =
@@ -125,7 +129,7 @@ impl PageListener {
         state.token = Some(token);
         state.origins = access.origins;
         let mut reply = endpoint(addr, true);
-        reply["origins"] = json!(state.origins);
+        reply.insert("origins", json!(state.origins));
         Ok(reply)
     }
 }

@@ -10,7 +10,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// The tab drag ghost on the render server (chrome-parity p03-rendering-035, `motion.renderServer` on).
+/// The tab drag ghost on the render server (`motion.renderServer` on).
 /// Inside its source window the ghost is a view in that window's overlay, moved per pointer event with
 /// no window call; the drag panel shows it only outside the window. A jump is one `RenderSpring` group,
 /// the release's flight closes the ghost when it lands, and no `TabDrag.ghost` frame client steps it.

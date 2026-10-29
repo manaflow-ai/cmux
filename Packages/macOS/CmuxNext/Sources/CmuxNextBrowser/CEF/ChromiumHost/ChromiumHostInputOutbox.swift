@@ -23,8 +23,8 @@
 /// - One ``flush(_:)`` is one `write` of every waiting byte.
 ///
 /// The host's ACK of a sequence's first wheel (one wheel in flight, as in
-/// `mouse_wheel_event_queue.cc`) comes with the host's ACK frame, task
-/// p01-process-042; until then wheels go at once like moves.
+/// `mouse_wheel_event_queue.cc`) comes with the host's ACK frame;
+/// until then wheels go at once like moves.
 nonisolated struct ChromiumHostInputOutbox: Sendable {
     /// Discrete frames (keys, clicks, focus, navigation) that may wait.
     static let discreteLimit = 4_096

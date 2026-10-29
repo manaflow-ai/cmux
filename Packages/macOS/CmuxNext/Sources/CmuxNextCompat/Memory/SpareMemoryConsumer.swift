@@ -34,7 +34,7 @@ public final class SpareMemoryConsumer: MemoryLevelConsumer {
         /// the next idle moment after normal).
         case atAnyPressure
         /// Only critical closes them; warning keeps the untaken ones and refuses new ones, Chrome's
-        /// default for its spare renderer (Chromium's spare windows, p13-webui-047).
+        /// default for its spare renderer (Chromium's spare windows).
         case atCritical
 
         /// Whether `level` closes the untaken spares.

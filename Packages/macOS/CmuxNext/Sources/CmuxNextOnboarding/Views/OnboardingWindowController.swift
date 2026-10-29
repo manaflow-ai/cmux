@@ -22,7 +22,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.title = model.step == .importData ? OnboardingStrings.importTitle : OnboardingStrings.computerUseTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        window.isRestorable = false  // AppKit state restoration is off for every cmux window
         window.animationBehavior = Motion.panes.animatesMovement ? .alertPanel : .none
         // The close button stays visible (Lane 20: every window of its own
         // shows it); Escape and Skip also dismiss.

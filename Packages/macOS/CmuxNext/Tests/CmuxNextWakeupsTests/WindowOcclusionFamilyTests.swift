@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// p03-rendering-097: an occluded window makes no frames. Its ``WindowOcclusionFamily`` tells the
+/// An occluded window makes no frames. Its ``WindowOcclusionFamily`` tells the
 /// content producers first (the window's scheduler parks its animation clients, so the window holds no
 /// display subscription and gets no ticks), then diagnostics; the window seen again restores them in one
 /// step. The fake signal is the family's own setter, which the app's checker drives.

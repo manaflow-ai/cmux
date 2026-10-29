@@ -51,7 +51,7 @@ public struct HomeDockSelection: Equatable, Sendable {
 }
 
 /// What a docked Home view showed when the sidebar section planner let it go (feature
-/// `memoryDiscardSidebarSections`, p07-memory-100): the next show makes the view again from it, as Chrome builds a
+/// `memoryDiscardSidebarSections`): the next show makes the view again from it, as Chrome builds a
 /// discarded tab again from its navigation entry (content/public/browser/navigation_entry.h).
 public struct HomeDockRecord: Equatable, Sendable {
     /// The conversation (and message) the view showed.
@@ -75,7 +75,7 @@ public struct HomeDockRecord: Equatable, Sendable {
 /// entry shows hq-ec's `home-channels` page. The app's subclass makes the two views and answers
 /// their selection; this view owns which view shows and the order of switches. Each view is made on
 /// its first show and kept, so a switch back keeps its scroll, draft and selection. With the app's
-/// sidebar section planner (feature `memoryDiscardSidebarSections`, p07-memory-100) the hidden view
+/// sidebar section planner (feature `memoryDiscardSidebarSections`) the hidden view
 /// goes when the planner says, its ``HomeDockRecord`` kept, and its next show makes it again from that record.
 /// A switch hands the selection over as a permalink.
 open class HomeDockSwitchView: NSView {

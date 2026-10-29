@@ -53,7 +53,7 @@ pub(crate) mod model_availability;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url,
+    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 mod model_hint;
 mod models_view;
@@ -139,6 +139,8 @@ pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
+#[cfg(test)]
+mod panic_free_tests;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -163,6 +165,7 @@ pub use web_token::WebToken;
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
+use crate::no_panic::LockExt;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
@@ -613,13 +616,13 @@ impl Hub {
 
     /// Drive lifecycle timers from `clock` (tests pass a `ManualClock`).
     pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
-        *self.clock.lock().unwrap() = clock;
+        *self.clock.lock_or_recover() = clock;
         self.idle_wake.notify_one();
     }
 
     /// How long an unused session harness lives; None keeps it forever.
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
-        *self.idle_child.lock().unwrap() = idle;
+        *self.idle_child.lock_or_recover() = idle;
         self.idle_wake.notify_one();
     }
 
@@ -661,7 +664,7 @@ impl Hub {
                 return;
             }
         };
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock_or_recover();
         *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
@@ -702,13 +705,17 @@ impl Hub {
         // Debug builds only: a test makes the load fail as a corrupt log could
         // (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
+        #[allow(
+            clippy::panic,
+            reason = "a debug-build test seam: the test sets the env and asks for this panic"
+        )]
         if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         let sessions = self.sessions();
         self.on_every_core(&sessions, |session| self.catch_up(session));
-        let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
+        let waiting = std::mem::take(&mut *self.waiting_at_load.lock_or_recover());
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
@@ -754,11 +761,11 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
-        let last_seq = session.meta.lock().unwrap().last_seq;
+        let last_seq = session.meta.lock_or_recover().last_seq;
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
-            let mut meta = session.meta.lock().unwrap();
+            let mut meta = session.meta.lock_or_recover();
             meta.event_count += extra;
             meta.last_seq = last;
             // The log ran ahead of the saved session (a hard stop): a newer command list may be
@@ -776,13 +783,18 @@ impl Hub {
     ) {
         let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
         let next = std::sync::atomic::AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..workers.min(sessions.len()) {
-                scope.spawn(|| {
-                    while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        work(session);
-                    }
-                });
+        let drain = || {
+            while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
+                work(session);
+            }
+        };
+        let qos = cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility);
+        cmux_threads::scope(|scope| {
+            let started = (0..workers.min(sessions.len()))
+                .filter(|_| scope.spawn("acpmux-session-worker", qos, drain).is_ok())
+                .count();
+            if started == 0 {
+                drain();
             }
         });
     }
@@ -862,12 +874,12 @@ impl Hub {
     // ------------------------------------------------------------ lookup
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
-        let v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+        let v: Vec<_> = self.sessions.lock_or_recover().values().cloned().collect();
         newest_first(v)
     }
 
     fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock_or_recover();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
         if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
@@ -895,10 +907,13 @@ impl Hub {
             .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
-        match by_prefix.len() {
-            1 => Ok(by_prefix.into_iter().next().unwrap()),
-            0 => Err(RpcError::not_found(format!("no session matches {key:?}"))),
-            n => Err(RpcError::invalid_params(format!("{key:?} matches {n} sessions; use the id"))),
+        match by_prefix.as_slice() {
+            [only] => Ok(only.clone()),
+            [] => Err(RpcError::not_found(format!("no session matches {key:?}"))),
+            many => Err(RpcError::invalid_params(format!(
+                "{key:?} matches {} sessions; use the id",
+                many.len()
+            ))),
         }
     }
 
@@ -980,7 +995,7 @@ impl Hub {
             self.store.close_log(&session.id);
         }
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
@@ -1239,7 +1254,7 @@ impl Hub {
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
         let (was, link) = {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
@@ -1265,7 +1280,7 @@ impl Hub {
             }
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
-            self.care_status(status);
+            self.status_changed(status);
         }
     }
 
@@ -1296,7 +1311,8 @@ pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
     if !meta.is_object() {
         *meta = json!({});
     }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let mux = meta.entry("acpmux").or_insert_with(|| json!({}));
     if !mux.is_object() {
         *mux = json!({});
     }

@@ -7,8 +7,8 @@ import Darwin
 import Foundation
 import Testing
 
-/// The control socket's accept queue and each connection's queue are hang-watched lanes, one scope per job
-/// (p09-observability-070): an accept pass on `control.accept` with its 1 s budget, each connection job on
+/// The control socket's accept queue and each connection's queue are hang-watched lanes, one scope per job:
+/// an accept pass on `control.accept` with its 1 s budget, each connection job on
 /// `control.connection` with 1 s, or 2 s for a job that sends. A scope never nests inside another of its lane,
 /// since each queue job opens exactly one.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct ControlHangScopeTests {

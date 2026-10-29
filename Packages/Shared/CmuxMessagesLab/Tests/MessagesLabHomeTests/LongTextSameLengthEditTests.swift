@@ -4,7 +4,7 @@ import Testing
 
 /// `LongTextStore` found a text's index by its print (length and hashes of the first and last KiB), so an
 /// edit in the middle that keeps the length (a typo fixed in a long message) drew the old text: the
-/// measurement of one text drawn for another. Found by HomeMarkdownRenderFuzzTests (p10-stability-028);
+/// measurement of one text drawn for another. Found by HomeMarkdownRenderFuzzTests;
 /// the vendored LongText.swift now compares the bytes on a print hit (cmux patch).
 @MainActor @Suite(.serialized) struct LongTextSameLengthEditTests {
     static func texts() -> (original: String, edited: String) {

@@ -3,7 +3,7 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// p13-webui-016: one spare Chromium window per store kind (the default profile's and the cmux
+/// One spare Chromium window per store kind (the default profile's and the cmux
 /// pages profile's). A cmux page's key takes the pages spare instead of building a window on its
 /// key's turn (`window_built_on_key_turn` stays 0); an incognito window's or a remote machine's
 /// key never takes one; at most one untaken spare per kind; a spare that came up asks for the next
@@ -197,7 +197,7 @@ import Testing
         #expect(runtime.hosts[host.key] === host)
     }
 
-    /// p07-memory-047, p13-webui-047: memory pressure holds the spares (`CEFEngine.holdSpareWindows`,
+    /// Memory pressure holds the spares (`CEFEngine.holdSpareWindows`,
     /// from the warmup's memory consumer): holding keeps the untaken ones (Chrome keeps its spare
     /// renderer at warning), critical closes them (`closeUntakenSpareWindows`), no spare is made, a
     /// taken spare whose tab closed before it joined is not given back, and a window that comes up

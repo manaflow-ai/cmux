@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cef-idle-probe.py CEF-IDLE-POSTED (p14-energy-041): a recorded trace's posting locations, highest per_s first, each
+"""cef-idle-probe.py CEF-IDLE-POSTED: a recorded trace's posting locations, highest per_s first, each
 naming process and thread; `--queue` keeps per_s >= 0.02 (3 locations in, 1 out) and needs a window >= 50 s (default 100 s); the browser main thread's task rate
 beside the pump counters. Runs anywhere (no app, no Chromium).
 Run: python3 -I scripts/cmux-next/tests/test_cef_idle_probe.py"""

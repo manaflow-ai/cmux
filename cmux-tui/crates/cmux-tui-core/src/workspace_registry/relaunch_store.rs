@@ -220,7 +220,11 @@ fn looks_like_credential(value: &str) -> bool {
         return false;
     }
     let mut counts = [0usize; 256];
-    value.bytes().for_each(|byte| counts[usize::from(byte)] += 1);
+    for byte in value.bytes() {
+        if let Some(count) = counts.get_mut(usize::from(byte)) {
+            *count += 1;
+        }
+    }
     let length = value.len() as f64;
     let entropy: f64 = counts
         .iter()
@@ -408,8 +412,8 @@ impl WorkspaceRegistry {
             .filter(|agent| agent[NON_INTERACTIVE] != true);
         let agent_launch = agent.as_ref().and_then(stored_agent_launch);
         let agent = agent.and_then(|agent| {
-            let harness = agent["harness"].as_str()?.to_string();
-            let session_id = agent["session_id"].as_str()?.to_string();
+            let harness = agent.get("harness")?.as_str()?.to_string();
+            let session_id = agent.get("session_id")?.as_str()?.to_string();
             resumable_session_id(&session_id).then_some((harness, session_id))
         });
         let argv = argv
@@ -449,16 +453,26 @@ impl WorkspaceRegistry {
                     AgentStart::Launch(launch) => Some(launch.clone()),
                     _ => stored.as_ref().and_then(stored_agent_launch),
                 };
-                let mut record = json!({"harness": harness, "session_id": session_id});
+                let mut record = Map::from_iter([
+                    ("harness".to_string(), json!(harness)),
+                    ("session_id".to_string(), json!(session_id)),
+                ]);
                 if non_interactive {
-                    record[NON_INTERACTIVE] = json!(true);
+                    record.insert(NON_INTERACTIVE.into(), json!(true));
                 } else if let Some(launch) = kept {
-                    record["args"] = json!(launch.args);
-                    record["env"] = Value::Object(
-                        launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
+                    record.insert("args".into(), json!(launch.args));
+                    record.insert(
+                        "env".into(),
+                        Value::Object(
+                            launch
+                                .env
+                                .into_iter()
+                                .map(|(key, value)| (key, json!(value)))
+                                .collect(),
+                        ),
                     );
                 }
-                Some(record.to_string())
+                Some(Value::Object(record).to_string())
             }
             Some(_) => return Ok(()),
             None => None,
@@ -526,8 +540,10 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
         args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
     let args = kept_agent_args(harness, &args);
     let key = account_env_key(harness)?;
-    let env = agent["env"][key]
-        .as_str()
+    let env = agent
+        .get("env")
+        .and_then(|env| env.get(key))
+        .and_then(Value::as_str)
         .filter(|dir| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
         .map(|dir| vec![(key.to_string(), dir.to_string())])
         .unwrap_or_default();
@@ -570,7 +586,7 @@ pub(crate) fn closed_fields(
 /// is never run again.
 pub(crate) fn replay(tab: &Value) -> (Option<String>, Vec<(String, String)>) {
     let cwd = tab["cwd"].as_str().and_then(absolute).filter(|path| Path::new(path).is_dir());
-    let env = tab["relaunch"]["env"].as_object().cloned().unwrap_or_default();
+    let env = tab.pointer("/relaunch/env").and_then(Value::as_object).cloned().unwrap_or_default();
     let terminfo_usable =
         env.get("TERMINFO").and_then(Value::as_str).is_none_or(|path| Path::new(path).is_dir());
     let env = env

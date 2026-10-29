@@ -95,6 +95,7 @@ public:
     [[nodiscard]] Result<EmptyResult> apps_unmount(const AppsUnmountRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BridgeHelloResult> bridge_hello(const BridgeHelloRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
@@ -356,6 +357,7 @@ public:
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizePolicyResult> set_size_policy(const SetSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SetStreamPriorityResult> set_stream_priority(const SetStreamPriorityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_tab_pinned(const SetTabPinnedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalCommandHistoryResult> set_terminal_command_history(const SetTerminalCommandHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetTerminalIdlePolicyResult> set_terminal_idle_policy(const SetTerminalIdlePolicyRequest& request = {}, RequestOptions options = {});

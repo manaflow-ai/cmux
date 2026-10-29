@@ -83,8 +83,9 @@ impl std::error::Error for Refused {}
 pub(super) fn shareable(folder: &Path) -> Result<PathBuf, Refused> {
     let refused = |why: &str| Refused(format!("{} cannot be shared: {why}", folder.display()));
     let home = home().ok_or_else(|| refused("this Mac has no home folder"))?;
-    let canonical = std::fs::canonicalize(folder).map_err(|_| refused("it does not exist"))?;
-    if !std::fs::metadata(&canonical).is_ok_and(|meta| meta.is_dir()) {
+    let canonical =
+        cmux_blocking::fs::canonicalize(folder).map_err(|_| refused("it does not exist"))?;
+    if !cmux_blocking::fs::metadata(&canonical).is_ok_and(|meta| meta.is_dir()) {
         return Err(refused("it is not a folder"));
     }
     let Ok(inside) = canonical.strip_prefix(&home) else {
@@ -115,8 +116,9 @@ pub(super) fn shareable(folder: &Path) -> Result<PathBuf, Refused> {
 /// [`shareable`], and a file must not be a secret file.
 pub(super) fn shareable_item(path: &Path) -> Result<(PathBuf, bool), Refused> {
     let refused = |why: &str| Refused(format!("{} cannot be shared: {why}", path.display()));
-    let canonical = std::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
-    let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
+    let canonical =
+        cmux_blocking::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
+    let meta = cmux_blocking::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
     if meta.is_dir() {
         return Ok((shareable(&canonical)?, true));
     }
@@ -142,7 +144,7 @@ pub(super) fn shareable_item(path: &Path) -> Result<(PathBuf, bool), Refused> {
 /// people's folders shareable).
 fn home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let home = std::fs::canonicalize(home).ok()?;
+    let home = cmux_blocking::fs::canonicalize(home).ok()?;
     (home.components().filter(|part| matches!(part, Component::Normal(_))).count() >= 2)
         .then_some(home)
 }
@@ -172,7 +174,9 @@ pub(super) fn remote_root(root: &str) -> Option<String> {
     let root = root.trim_end_matches('/');
     let plain = root.starts_with('/')
         && root.len() <= MAX_REMOTE_BYTES
-        && root[1..].split('/').all(|name| !matches!(name, "" | "." | ".."))
+        && root
+            .get(1..)
+            .is_some_and(|names| names.split('/').all(|name| !matches!(name, "" | "." | "..")))
         && !root.chars().any(char::is_control);
     plain.then(|| root.to_string())
 }
@@ -183,7 +187,7 @@ pub(super) fn remote_root(root: &str) -> Option<String> {
 /// folder never lands on a moved one (those go right under `<root>`).
 pub(super) fn remote_of(root: &str, folder: &Path) -> String {
     let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
-    let hash: String = digest[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+    let hash: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let name = folder.file_name().map(|name| name.to_string_lossy().into_owned());
     let mut name: String = name
         .unwrap_or_default()
@@ -212,26 +216,28 @@ impl Store {
             bail!("this Mac has no state folder to keep grants in");
         };
         let dir = state.join("link-access");
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&dir)
-            .with_context(|| format!("cannot make {}", dir.display()))?;
+        crate::blocking::fs::create_dir_with(
+            std::fs::DirBuilder::new().recursive(true).mode(0o700),
+            &dir,
+        )
+        .with_context(|| format!("cannot make {}", dir.display()))?;
         // A folder made earlier with other permissions is this user's only.
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        crate::blocking::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("cannot protect {}", dir.display()))?;
-        let lock = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(dir.join("grants.lock"))
-            .context("cannot open the grants lock")?;
+        let lock = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW),
+            dir.join("grants.lock"),
+        )
+        .context("cannot open the grants lock")?;
         lock.lock().context("cannot lock the grants")?;
         let path = dir.join("grants.json");
-        let grants = match std::fs::read(&path) {
+        let grants = match cmux_blocking::fs::read(&path) {
             Ok(bytes) => {
                 let record: Record = serde_json::from_slice(&bytes)
                     .with_context(|| format!("{} is not a grants record", path.display()))?;
@@ -251,17 +257,19 @@ impl Store {
     pub(super) fn save(&self) -> anyhow::Result<()> {
         let record = Record { version: VERSION, grants: self.grants.clone() };
         let part = self.path.with_extension(format!("{}.part", std::process::id()));
-        let _ = std::fs::remove_file(&part);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&part)
-            .with_context(|| format!("cannot write {}", part.display()))?;
+        let _ = cmux_blocking::fs::remove_file(&part);
+        let mut file = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW),
+            &part,
+        )
+        .with_context(|| format!("cannot write {}", part.display()))?;
         file.write_all(&serde_json::to_vec(&record)?)?;
-        file.sync_all()?;
-        std::fs::rename(&part, &self.path)
+        crate::blocking::fs::sync_all(&file)?;
+        cmux_blocking::fs::rename(&part, &self.path)
             .with_context(|| format!("cannot write {}", self.path.display()))
     }
 

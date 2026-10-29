@@ -5,7 +5,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// p03-rendering-036: with the `pageSpringResizeOnce` feature a page in a springing pane resizes once, at the
+/// With the `pageSpringResizeOnce` feature a page in a springing pane resizes once, at the
 /// spring's start, to the size its pane rests at, and not again at the landing (F12: both engines); a page in
 /// its own window hides while its pane shows a render-server move instead of showing at the pane's rest place.
 /// `PageSpringPaneHostTests` (CmuxNextAppTests) drives the same pages from a real `PaneHostView`.
@@ -258,7 +258,7 @@ import WebKit
     }
 
     /// Two Chromium pages a Cmd-D resizes (the new pane's and its neighbour's): each takes its rest size once,
-    /// in the start's turn, so a hosted page's resize joins that turn's one fence (p03-rendering-043), and the
+    /// in the start's turn, so a hosted page's resize joins that turn's one fence, and the
     /// landing resizes neither.
     @Test func twoChromiumPagesResizeInTheStartsTurnOnlyAndNotAtTheLanding() throws {
         let (runtime, root) = try Self.runtime()

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "relaunchReattach",
+  "owner": "Performance Lead",
+  "description": "A launch after a run that ended without a quit in this boot (kill -9, a crash) skips the terminal frames and the window picture an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first. After a reboot they still show.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["relaunch-e2e"],
+  "sticky": false,
+  "runtimeMutable": false
+}

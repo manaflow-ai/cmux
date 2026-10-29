@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// The echo predictions' display and overlay hooks (p04-input-046): what shows in a key's turn, what
+/// The echo predictions' display and overlay hooks: what shows in a key's turn, what
 /// an echo, an input method, secure input or a write that is not a key does to it, and that the
 /// setting's off makes no engine at all.
 @MainActor

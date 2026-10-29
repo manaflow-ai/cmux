@@ -23,7 +23,7 @@ import Testing
 /// CMUX_DAEMON_FUZZ=1 CMUX_FUZZ_DEADLINE=$(( $(date +%s) + 300 )) swift test --filter DaemonWireFuzzTests
 /// ```
 ///
-/// The runs are CmuxFuzzSupport `FuzzRun`s (p10-stability-016): `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS`
+/// The runs are CmuxFuzzSupport `FuzzRun`s: `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS`
 /// replay a failure, and with `CMUX_FUZZ_ARTIFACTS` set a trap leaves the case it was in behind
 /// (`DaemonWire.<run>.inflight`). The suite is serialized, so `CMUX_FUZZ_DEADLINE` is split: each of its
 /// ``runCount`` runs gets an equal share of the time left when the first one starts (5 minutes give each
@@ -59,8 +59,8 @@ struct DaemonWireFuzzTests {
         return FuzzRun(name, seed: seed, iterations: iterations, environment: environment)
     }
 
-    /// One input of the in-process checks, its choices read from `data` (the libFuzzer entry,
-    /// p10-stability-182). The transport run needs sockets and threads, so it is not part of it.
+    /// One input of the in-process checks, its choices read from `data` (the libFuzzer entry).
+    /// The transport run needs sockets and threads, so it is not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(6) {

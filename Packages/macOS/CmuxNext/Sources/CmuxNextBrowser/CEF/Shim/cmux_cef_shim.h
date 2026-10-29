@@ -280,6 +280,13 @@ typedef enum {
   // source pane's, else the normalized profile directory). An INSERT's tab
   // comes in its own AFTER_CREATED, which names it by that minted id.
   CMUX_SHIM_WINDOW_REQUEST_RESULT = 66,
+  // The renderer processes that host browser_id's frames changed: a frame
+  // attached to its renderer, left it or became the main frame
+  // (CefFrameHandler), as an iframe added after the load, an out-of-process
+  // iframe's swap or its renderer's end do. Sent once after a task's
+  // changes, and only when the set of the frames' renderer client ids
+  // (cmux_shim_renderer_client_ids) differs from the one it last reported.
+  CMUX_SHIM_FRAME_RENDERERS = 67,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -688,6 +695,24 @@ typedef struct {
 } cmux_shim_restore_entry;
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int browser_id, const cmux_shim_restore_entry* entries, int count,
                                                    int current);
+// Fork API 31 (task p01-process-170): a detached page's IME. The four ops
+// the page view's NSTextInputClient makes (Chrome's RenderWidgetHostViewCocoa
+// calls on its RenderWidgetHostNSViewHost) are the shim's optional exports
+// cmux_shim_browser_ime_set_composition, _commit_text, _finish_composing and
+// _cancel_composition (plans/cmux-next/chromium-host-ops.json
+// optional_exports, task p04-input-064's kIme layout: UTF-16LE text, 16-byte
+// clauses); shim_helper_host.mm runs them on the fork's cmux_browser_ime_*.
+//
+// Watches the page's composition bounds for firstRectForCharacterRange:.
+// `bounds` points at the fork's cmux_composition_bounds_t (include/cef_cmux.h:
+// size, kind 1 range changed or 2 cancelled (discard the marked text), the
+// composition range, one rect x, y, width, height per character in the page
+// view's points, top left origin), valid only during the call. fn NULL stops
+// the watch. Returns 0 when the fork is older than API 31.
+CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                                                void (*fn)(void* context, int browser_id,
+                                                                           const void* bounds),
+                                                                void* context);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
@@ -1361,6 +1386,18 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, cons
 // Returns 1 when the fork took the vote, 0 when the fork lacks the call,
 // for a level out of range, or once quit began (nothing changes).
 CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
+// Evicts every back-forward cache entry of browser_id's tab (fork
+// cmux_flush_back_forward_cache, p07-memory-101): the tab's
+// NavigationController's BackForwardCache::Flush
+// (content/public/browser/back_forward_cache.h). cmux calls it for a hidden
+// tab when the tab freezes and when memory pressure reaches warning, as
+// Chrome turns the cache off on low memory (BackForwardCacheMemoryControls);
+// the evicted pages' renderers and documents go, and a later Back loads the
+// page again. The tab's own page stays. In host library mode the call is one
+// post to the Chromium Host. UI thread, after cmux_shim_initialize. Returns 1
+// when the fork flushed, 0 for an unknown browser, a fork without the call,
+// or once quit began.
+CMUX_SHIM_EXPORT int cmux_shim_tab_flush_back_forward_cache(int browser_id);
 // 1: page cursors come to the host as CMUX_SHIM_CURSOR and tooltips as
 // CMUX_SHIM_TOOLTIP, and Chromium sets no NSCursor and shows no tooltip of
 // its own (the Chromium Host, whose page windows never show: the page view in

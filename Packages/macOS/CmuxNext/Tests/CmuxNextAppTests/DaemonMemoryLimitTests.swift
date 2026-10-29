@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The app tells the local daemon its memory limit on each change (p07-memory-109): the coordinator hands the
+/// The app tells the local daemon its memory limit on each change: the coordinator hands the
 /// link each level and mode, each connection of the store is told the current limit once, a repeat is no
 /// change, and a daemon without `memory-limit-v1` is skipped (cmux-tui-core server/memory_limit.rs answers
 /// `memory.limit`).

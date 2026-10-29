@@ -63,7 +63,9 @@ impl Hub {
                         "harness {resolved} is unavailable: {reason}"
                     )));
                 }
-                let profile = cfg.harnesses[&resolved].clone();
+                let profile = cfg.harnesses.get(&resolved).cloned().ok_or_else(|| {
+                    RpcError::invalid_params(format!("harness {resolved} has no profile"))
+                })?;
                 let d = cfg.defaults_for(&resolved);
                 (resolved, profile, d, None)
             }
@@ -120,10 +122,11 @@ impl Hub {
 /// A remote request never chooses argv[0] with cwd/model expansion or the
 /// child working directory. Freeze a bare PATH program or configured
 /// absolute path to its canonical absolute executable before any spawn.
-pub(super) fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
-    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused()) };
-    profile.argv[0] = remote_executable(program)?;
-    Ok(())
+/// Returns that executable.
+pub(super) fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<&str, RpcError> {
+    let Some(program) = profile.argv.first_mut() else { return Err(remote_executable_refused()) };
+    *program = remote_executable(program)?;
+    Ok(program.as_str())
 }
 
 /// Canonicalize one final remote program. This runs both on profile argv0

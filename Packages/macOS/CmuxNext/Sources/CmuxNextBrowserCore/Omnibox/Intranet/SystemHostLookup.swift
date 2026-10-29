@@ -15,6 +15,7 @@ public nonisolated struct SystemHostLookup: HostLookup {
         self.runner = runner
     }
 
+    /// Whether `host` resolves; false when it does not or the lookup was refused (quit began).
     public func resolves(_ host: String) async -> Bool {
         // A person is typing the word; the omnibar shows the answer.
         let status = try? await runner.runHostResolution(.userBlocking) { () -> Int32 in

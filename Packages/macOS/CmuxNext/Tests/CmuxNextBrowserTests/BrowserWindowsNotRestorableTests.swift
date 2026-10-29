@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// p08-startup-087: AppKit state restoration is off for every cmux window, the Chromium ones too: DevTools and the
+/// AppKit state restoration is off for every cmux window, the Chromium ones too: DevTools and the
 /// page info windows never land in Saved Application State.
 @MainActor struct BrowserWindowsNotRestorableTests {
     @Test func theDevToolsWindowIsNotRestorable() {

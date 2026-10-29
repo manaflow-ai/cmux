@@ -359,7 +359,7 @@ struct ChatDockLinkSplitMotionTests {
         #expect(wrong.isEmpty, "the terminal's pane mask is off the strip: \(wrong.prefix(8).joined(separator: "; "))")
     }
 
-    /// The strip's clip beside a docked chat is layer structure (p03-rendering-023): the link's pane
+    /// The strip's clip beside a docked chat is layer structure: the link's pane
     /// sits in the strip container, whose frame is the strip's range and whose layer masks to its
     /// bounds; the host carries no mask, and the chat's pane is a sibling stacked above the container.
     @Test func theStripContainerClipsAHostAtItsOwnPlace() throws {

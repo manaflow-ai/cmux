@@ -5,7 +5,7 @@ import Testing
 
 /// The local PTY's `events` hold at most `outputBound` bytes the session has not taken, plus the one
 /// read chunk that filled them: the read source pauses there and resumes once the session took half
-/// (p07-memory-098; Mojo's data pipe capacity, mojo/core/data_pipe_producer_dispatcher.cc). The stream
+/// (Mojo's data pipe capacity, mojo/core/data_pipe_producer_dispatcher.cc). The stream
 /// was unbounded, so a shell printing faster than the session took its output grew it without limit.
 @Suite(.serialized, .timeLimit(.minutes(3))) struct LocalPTYTerminalIOOutputBoundTests {
     /// A shell prints 100 MB to a session that takes nothing until it holds the bound, then takes it all

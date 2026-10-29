@@ -30,7 +30,7 @@ public import CmuxNextWakeups
 ///   utility-QoS queue. Each escalation to critical asks the sink for one heap relief when that
 ///   level's release pass has finished; warning, a repeated level, or a level that leaves critical
 ///   before the pass ends asks for none.
-/// - Hysteresis (p07-memory-070): after the level falls, lossless consumers keep the limits of the
+/// - Hysteresis: after the level falls, lossless consumers keep the limits of the
 ///   stricter ``limitLevel`` until the level has not changed for ``limitRiseDelay`` (30 s, one
 ///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Only limits a
 ///   release already ran at are held, so a level that comes back before its release still releases
@@ -57,7 +57,7 @@ public import CmuxNextWakeups
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
 /// schedule: the pressure events, the app's visibility and input calls, the slicer's frames and
 /// turns, and the hysteresis and working-set one-shots are its only inputs. The level is also its
-/// vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), next to
+/// vote in in-process Chromium's pressure aggregator (``pressureVote``), next to
 /// Chromium's own platform voter.
 ///
 /// ```swift

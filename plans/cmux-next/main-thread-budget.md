@@ -128,8 +128,8 @@ records `stall.render_starved` with the top unattributed turn from `MainTurnMete
   and turn_ms, or `unattributed`.
 - Main-actor jobs that the scheduler did not post (continuation resumes, the resume after `await apply`) stay FIFO
   on `DispatchQueue.main`. `MainTurnMeter`'s unattributed share is the proof of how much remains, not a grep
-  count. `MainExecutorHook` (CmuxNextWakeups/MainExecutorHook.swift, task 202, spec'd, default off) is the spike that may
-  give every main job a class from its task priority; its decision is recorded here when the gate runs.
+  count. No hook reorders them (section 17); the main-job census's input window (`CMUX_NEXT_MAIN_JOB_CENSUS=input`,
+  `debug.main_jobs.input`) names the ones that ran between an input's arrival and its dispatch, by enqueue site.
 
 ## 7. Visibility tree (Chrome `content::Visibility`)
 
@@ -368,7 +368,7 @@ perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and 
 | `MainDelivery(class:owner:)` (today `MainDelivery()` with no class) | MainDelivery.swift | 217 | spec'd |
 | `InputEventTap` (the input tap that task 220's node filter builds on) | CmuxNextInput/InputEventTap.swift | p04-input-011 | landed |
 | `InputObserverHub` (the node filter) | InputObserverHub.swift | 220 | spec'd |
-| `MainExecutorHook` (default off, decision-gated) | MainExecutorHook.swift | 202 | spec'd |
+| `MainExecutorHook`, `MainWorkScheduler.installMainExecutorHook(requested:)` (section 17) | - | 202 | deleted (sequence-manager S6) |
 | The budget turn (a CFRunLoopSource that `AfterFrameCommit` signals) and the setting `debug.scheduler.inTickBudget` | AfterFrameCommit.swift, MainWorkScheduler.swift | 201 | spec'd |
 | `StoreWaiters` (the waits are `DaemonStore.waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection`, `waitTabGone`) | CmuxNextDaemon/Store/StoreWaiters.swift | 027 | landed |
 | `PageWaiters` | CmuxNextBrowser/Engine/PageWaiters.swift | 028 | spec'd |
@@ -607,3 +607,14 @@ After task 347, `p06_queue.py --residual` lists 42 hits:
 `arch-ratchet.py --update` refuses at this head, because of rises that are not from this program: `layer_hard` 34 over
 33 and `layer_unplaced` 2 (`CmuxNextAppCore`, `CmuxNextUiLayerPreview` are not in `architecture-layers.json`). Run
 it again when those are placed or carry a reviewed exception; it then records the drops above.
+
+## 17. Priority-ordered main executor (task 202): deleted
+
+`MainExecutorHook` (task 202, feature `mainExecutorHook`, off on every channel, its decision gate never run) was
+deleted in sequence-manager S6 with the p04-input MainJobGate. Both reordered the main queue through
+`swift_task_enqueueMainExecutor_hook`, by task priority or by origin. cmux-ad's review of
+[sequence-manager-DESIGN.md](sequence-manager-DESIGN.md) (Q4, Q5) chose a record-only hook with one owner: priority
+is set at the post site (a runner post), and the main queue is not reordered until a supported custom main executor
+exists (Q4, checked apart). The one owner of the hook is CmuxNextCompat's `MainJobRing` (the main-job census, Debug
+and bench builds); guardrail `executor-hook` refuses the symbol anywhere else. The risks this spike recorded
+(escalation, nested run loops, order against non-Swift main work) are why: see the design's section 2.7.

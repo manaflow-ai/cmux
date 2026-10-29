@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The GitHub poll follows the feed's surfaces (p14-energy-066b): each feed host the app makes (here the
+/// The GitHub poll follows the feed's surfaces: each feed host the app makes (here the
 /// right sidebar's Feed section) counts in `FeedService.surfaces` through its own node, which sits under
 /// its window's node while it is in the window and leaves it with the host.
 @MainActor @Suite(.serialized)

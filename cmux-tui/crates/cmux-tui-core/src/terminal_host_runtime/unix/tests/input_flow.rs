@@ -1,5 +1,5 @@
-//! Key-press flows on host input and output (`FLAG_INPUT_FLOW`,
-//! p09-observability-018): the owner sends the trailer only to a host that
+//! Key-press flows on host input and output (`FLAG_INPUT_FLOW`):
+//! the owner sends the trailer only to a host that
 //! negotiated it on the smart stream, the host never writes it to the PTY,
 //! its next PTY read after the bytes reached the PTY takes the flow and its
 //! Output frame carries it back, once; input that never reached the PTY arms
@@ -141,11 +141,11 @@ fn echo_flow_output_loses_the_trailer_toward_a_client_without_the_flag() {
     let mut echo = Frame::new(MessageKind::Output, flow_trailer_payload(b"ls", 42));
     echo.flags = FLAG_INPUT_FLOW;
     echo.sequence = 7;
-    assert_eq!(&*client_wire_frame(&echo, true), &echo);
-    let plain = client_wire_frame(&echo, false);
+    assert_eq!(&*client_wire_frame(&echo, true, false), &echo);
+    let plain = client_wire_frame(&echo, false, false);
     assert_eq!((plain.flags, plain.sequence, plain.payload.as_slice()), (0, 7, &b"ls"[..]));
     let resized = Frame::new(MessageKind::Resized, vec![1, 0, 1, 0]);
-    assert!(matches!(client_wire_frame(&resized, false), std::borrow::Cow::Borrowed(_)));
+    assert!(matches!(client_wire_frame(&resized, false, false), std::borrow::Cow::Borrowed(_)));
 }
 
 /// Input that never reached the PTY (here the write failed) arms nothing,
@@ -210,6 +210,7 @@ fn echo_flow_records_from_before_the_flag_still_load() {
     let (record_path, record, lease) = record_fixture("input-flow-old-record");
     let mut json = serde_json::to_value(&record).unwrap();
     json.as_object_mut().unwrap().remove("supports_input_flow");
+    json.as_object_mut().unwrap().remove("supports_input_stages");
     let old: TerminalHostRecord = serde_json::from_value(json).unwrap();
     assert!(!old.supports_input_flow);
     assert!(validate_terminal_host_record(&record_path, &old).is_ok());
@@ -230,4 +231,69 @@ fn echo_flow_records_from_before_the_flag_still_load() {
     assert!(validate_terminal_host_record(&record_path, &pre_v4).is_err());
     drop(lease);
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
+}
+
+/// The smart stream with key-press flows and their stages.
+const SMART_STAGES: u32 = SMART_FLOW | FLAG_INPUT_STAGES;
+
+/// A host that negotiated key stages stamps its PTY write of
+/// a flagged input and the read that echoes it, and the echo's Output frame
+/// carries both with the flow, once.
+#[test]
+fn input_stages_host_echo_carries_its_write_and_read() {
+    let mut served = served_host(SMART_STAGES);
+    write_frame(&mut served.client, &flagged_input(b"ls\r", 42)).unwrap();
+    let mut written = [0u8; 3];
+    served.pty.read_exact(&mut written).unwrap();
+    assert_eq!(&written, b"ls\r");
+
+    served.pty.write_all(b"ls\r\n").unwrap();
+    read_once(&served);
+    let echo = read_required_frame(&mut served.client, "echo").unwrap();
+    assert_eq!((echo.kind, echo.flags), (MessageKind::Output, FLAG_INPUT_FLOW | FLAG_INPUT_STAGES));
+    let (bytes, flow, write_ns, read_ns) = split_stages_trailer(&echo.payload).unwrap();
+    assert_eq!((bytes, flow), (&b"ls\r\n"[..], 42));
+    assert!(write_ns != 0 && read_ns >= write_ns, "write {write_ns} read {read_ns}");
+
+    served.pty.write_all(b"$ ").unwrap();
+    read_once(&served);
+    let next = read_required_frame(&mut served.client, "prompt").unwrap();
+    assert_eq!((next.flags, next.payload.as_slice()), (0, &b"$ "[..]), "only once");
+    finish(served);
+}
+
+/// A client that negotiated only the flow (an older daemon) gets the flow
+/// trailer of a staged echo; one with neither gets the bytes alone.
+#[test]
+fn input_stages_output_keeps_only_what_the_client_negotiated() {
+    let mut echo = Frame::new(MessageKind::Output, stages_trailer_payload(b"ls", 42, 10, 20));
+    echo.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
+    echo.sequence = 7;
+    assert!(matches!(client_wire_frame(&echo, true, true), std::borrow::Cow::Borrowed(_)));
+    let flow_only = client_wire_frame(&echo, true, false);
+    assert_eq!((flow_only.flags, flow_only.sequence), (FLAG_INPUT_FLOW, 7));
+    assert_eq!(split_flow_trailer(flow_only.flags, &flow_only.payload), Some((&b"ls"[..], 42)));
+    let plain = client_wire_frame(&echo, false, false);
+    assert_eq!((plain.flags, plain.payload.as_slice()), (0, &b"ls"[..]));
+}
+
+/// Stages ride on the flow: a record may not advertise them alone.
+#[test]
+fn input_stages_need_the_flow() {
+    let (record_path, record, lease) = record_fixture("input-stages-record");
+    let mut stages_only = record;
+    stages_only.supports_input_flow = false;
+    stages_only.supports_input_stages = true;
+    assert!(validate_terminal_host_record(&record_path, &stages_only).is_err());
+    drop(lease);
+    let _ = fs::remove_dir_all(record_path.parent().unwrap());
+}
+
+#[test]
+fn input_stages_split_rejects_a_short_trailer() {
+    assert_eq!(split_stages_trailer(&[0; 23]), None);
+    assert_eq!(
+        split_stages_trailer(&stages_trailer_payload(b"", 7, 1, 2)),
+        Some((&[][..], 7, 1, 2))
+    );
 }

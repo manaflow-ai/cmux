@@ -5,7 +5,7 @@ import CmuxNextMemory
 import CmuxNextPages
 import Testing
 
-/// Hidden top pages follow `memory.saver` (p07-memory-065) through the memory coordinator: the mode
+/// Hidden top pages follow `memory.saver` through the memory coordinator: the mode
 /// scales a page's timeout (aggressive: half; off: no timed release), a change of mode plans again
 /// right after its turn, and at critical pressure a hidden page goes whatever the mode, never one
 /// the person just left.

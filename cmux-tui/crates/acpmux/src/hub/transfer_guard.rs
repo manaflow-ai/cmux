@@ -19,6 +19,7 @@
 
 use super::*;
 use crate::config::HarnessKind;
+use crate::no_panic::JsonExt;
 
 /// The longest `from` (serialized) a guarded finish records.
 const MAX_FROM: usize = 4 << 10;
@@ -104,12 +105,13 @@ impl Guard {
             Err(e) => return Err(guard_error("guard", e)),
         };
         let v: Value = serde_json::from_slice(&raw).map_err(|e| guard_error("guard", e))?;
-        let control = match v["control"].as_str() {
+        let control = match v.field("control").as_str() {
             Some("peer") => Control::Peer,
             Some("web") => Control::Web,
             _ => return Err(guard_error("guard", "the stored guard is unreadable")),
         };
-        let roots: Vec<PathBuf> = v["roots"]
+        let roots: Vec<PathBuf> = v
+            .field("roots")
             .as_array()
             .into_iter()
             .flatten()
@@ -206,9 +208,9 @@ pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
     if matches!(rec.kind.as_str(), "queued" | "queue_updated" | "turn_started")
         && rec.msg.is_object()
     {
-        rec.msg["control"] = json!(control.as_str());
+        rec.msg.set("control", json!(control.as_str()));
         if control == Control::Web {
-            rec.msg["trustGate"] = json!(true);
+            rec.msg.set("trustGate", json!(true));
         }
     }
 }
@@ -221,7 +223,7 @@ impl Hub {
         guard: &Guard,
         manifest: &Value,
     ) -> Result<(), RpcError> {
-        let harness = manifest["session"]["harness"].as_str().unwrap_or("");
+        let harness = manifest.field("session").field("harness").as_str().unwrap_or("");
         let family = {
             let cfg = self.config.read().await;
             let profile = cfg.harnesses.get(harness).filter(|p| p.kind != HarnessKind::Terminal);

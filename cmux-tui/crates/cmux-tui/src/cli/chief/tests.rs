@@ -737,3 +737,64 @@ fn chat_rows_name_the_chief_and_unread() {
     assert!(line.starts_with("*  1  "), "{line}");
     assert!(line.contains("#9  unread 3"), "{line}");
 }
+
+#[test]
+fn editor_word_moves_skip_the_gap_then_the_word() {
+    let mut editor = Editor::default();
+    editor.insert("one  two\nthree");
+    assert_eq!(editor.cursor(), (1, 5));
+    let _ = editor.key(key(KeyCode::Char('b'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (1, 0), "back over `three`");
+    let _ = editor.key(key(KeyCode::Char('b'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (0, 5), "back over the line break, then `two`");
+    let _ = editor.key(key(KeyCode::Char('b'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (0, 0), "back over two spaces, then `one`");
+    let _ = editor.key(key(KeyCode::Char('b'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (0, 0), "at the start it stays");
+    let _ = editor.key(key(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (0, 3));
+    let _ = editor.key(key(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (0, 8));
+    let _ = editor.key(key(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(editor.cursor(), (1, 5), "down clamps the column to the shorter line");
+    let _ = editor.key(key(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(editor.cursor(), (1, 5), "at the end it stays");
+    let _ = editor.key(key(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor(), (1, 0));
+    let _ = editor.key(key(KeyCode::Up, KeyModifiers::NONE));
+    let _ = editor.key(key(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor(), (0, 8));
+}
+
+#[test]
+fn wrap_keeps_the_spaces_between_words_and_a_trailing_word() {
+    assert_eq!(wrap("a b c", 80), vec!["a b c"]);
+    assert_eq!(wrap("ab  cd ", 80), vec!["ab  cd"]);
+    assert_eq!(wrap("", 80), vec![""]);
+}
+
+#[test]
+fn hyperlinks_end_where_the_link_ends_and_drop_unopened_brackets() {
+    use super::hyperlink::split;
+
+    let (shown, links) = split("see [the docs](https://cmux.dev/a_(b)) now");
+    assert_eq!(shown, "see the docs now");
+    assert_eq!(links, vec![("the docs".to_owned(), "https://cmux.dev/a_(b)".to_owned())]);
+
+    let (shown, links) = split("(at https://cmux.dev/x). and https://cmux.dev/y]");
+    assert_eq!(shown, "(at https://cmux.dev/x). and https://cmux.dev/y]");
+    assert_eq!(
+        links.iter().map(|(_, url)| url.as_str()).collect::<Vec<_>>(),
+        ["https://cmux.dev/x", "https://cmux.dev/y"]
+    );
+
+    // Multibyte text around and inside a URL: a non-ASCII URL is not a link.
+    let (shown, links) = split("`https://cmux.dev/code` é https://cmux.dev/é");
+    assert_eq!(shown, "`https://cmux.dev/code` é https://cmux.dev/é");
+    assert!(links.is_empty(), "{links:?}");
+
+    // An unclosed Markdown target is not a Markdown link; its URL is still a bare one.
+    let (shown, links) = split("[unclosed](https://cmux.dev");
+    assert_eq!(shown, "[unclosed](https://cmux.dev");
+    assert_eq!(links, vec![("https://cmux.dev".to_owned(), "https://cmux.dev".to_owned())]);
+}

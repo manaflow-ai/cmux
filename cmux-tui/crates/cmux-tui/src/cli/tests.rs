@@ -789,3 +789,17 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
 }
 
 mod machine_catalog;
+
+#[test]
+fn scope_suggestion_distance_is_levenshtein() {
+    use super::scope_help::edit_distance;
+
+    assert_eq!(edit_distance("", ""), 0);
+    assert_eq!(edit_distance("", "pane"), 4);
+    assert_eq!(edit_distance("pane", ""), 4);
+    assert_eq!(edit_distance("pane", "pane"), 0);
+    assert_eq!(edit_distance("pnae", "pane"), 2);
+    assert_eq!(edit_distance("kitten", "sitting"), 3);
+    assert_eq!(edit_distance("workspce", "workspace"), 1);
+    assert_eq!(edit_distance("é", "e"), 1, "counts characters, not bytes");
+}

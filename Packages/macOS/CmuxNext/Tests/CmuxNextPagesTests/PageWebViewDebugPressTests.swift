@@ -2,6 +2,8 @@
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -22,7 +24,7 @@ struct PageWebViewDebugPressTests {
     @Test func pressSendsADevToolsPressAndReleaseAtThePoint() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -41,7 +43,7 @@ struct PageWebViewDebugPressTests {
     /// A WebKit page has no DevTools input: the caller clicks it with AppKit events.
     @Test func aWebKitPageIsNotPressed() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil, deadlines: .testing()))
         #expect(await view.debugPress(x: 1, y: 1) == nil)
         view.close()
     }

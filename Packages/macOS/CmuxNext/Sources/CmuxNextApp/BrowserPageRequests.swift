@@ -77,7 +77,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let titleAttention = BrowserTitleAttention()
     /// Closed tabs' histories, for Reopen Closed Tab.
     let closedHistories = ClosedBrowserHistories()
-    /// The panes zoomed for a hosted page's HTML fullscreen (task p01-process-229).
+    /// The panes zoomed for a hosted page's HTML fullscreen.
     let fullscreenZoom = BrowserFullscreenPaneZoom()
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.

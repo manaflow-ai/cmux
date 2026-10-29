@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The chat menu's Edit CLAUDE.md (cx-ncc.65, Claude desktop's project instructions): after a real
 /// click in the pane, the chat folder's instructions file opens in a file tab, created empty when
@@ -15,7 +16,7 @@ struct AgentPaneProjectInstructionsTests {
     /// A pane whose folder is a new temporary folder, with the opened files recorded.
     private final class Rig {
         let folder: String
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var opened: [(String, AgentPaneFileTarget)] = []
 
         init() throws {

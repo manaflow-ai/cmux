@@ -10,7 +10,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// MQ6 (p12-perf-process-103): `hostPressure.enabled` and `hibernation.compressedSnapshots` became the features
+/// MQ6: `hostPressure.enabled` and `hibernation.compressedSnapshots` became the features
 /// `hostPressure` and `compressedSnapshots`. The readers read the launch's feature; each toggle is only its
 /// feature's local override, which the launch reads from the Debug Settings file as step 3
 /// (`FeatureLaunchLocalOverrides`), so `features.list` reports the value the code uses, with source `local`.
