@@ -130,7 +130,7 @@ extension SidebarListViewComponents {
         case let .intoGroup(id):
             return displayed.row(for: .group(id)).map(frame(for:))
         case .newWorkspace:
-            return displayed.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight) }
+            return displayed.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: displayed.gapHeight) }
         case let .beforeTab(workspace, tab):
             // An insertion line on the tab row's top edge.
             // Inside a group the line starts right of the group's line, as the row does.

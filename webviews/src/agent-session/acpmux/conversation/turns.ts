@@ -134,6 +134,9 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
+  messageBreaks: readonly number[];
+  /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
+  waitingSteers?: readonly string[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -141,13 +144,16 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
+const NO_MESSAGE_BREAKS: readonly number[] = [];
+
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
@@ -158,6 +164,8 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    waitingSteers,
+    messageBreaks = NO_MESSAGE_BREAKS,
   }: {
     now?: number;
     working?: boolean;
@@ -165,6 +173,10 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
+    waitingSteers?: readonly string[];
+    /// Sorted insertion times of synthetic rows that must separate received message runs.
+    messageBreaks?: readonly number[];
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -175,8 +187,10 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
+    previous.waitingSteers === waitingSteers &&
     (!previous.starts.length ||
       showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
   )
@@ -190,6 +204,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -210,11 +225,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -258,7 +275,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
-    for (const row of shapedTurn(
+    const shaped = shapedTurn(
       rows,
       start,
       end,
@@ -270,9 +287,11 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
-    ))
-      out.push(row);
-    ends.push(out.length);
+    );
+    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
+    // never folded into one card (Leo, 2026-10-29).
+    for (const row of shaped) out.push(row);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
     source: rows,
@@ -282,6 +301,8 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
+    messageBreaks,
+    ...(waitingSteers ? { waitingSteers } : {}),
     lead,
     starts,
     times,
@@ -528,6 +549,7 @@ function shapeTurn(
     // The last "Worked for" of the turn's last part ended as the turn did ("You stopped after"),
     // whichever stretch it folds (a stretch with no work draws none).
     let lastWorked: AcpmuxRow | undefined;
+    let workedRows = 0;
     for (const segment of foldSegments(part.opener, part.rows)) {
       const said = segment.takeaway;
       const before = segment.rows;
@@ -559,6 +581,7 @@ function shapeTurn(
                   : Math.max(0, summary.at - from),
         };
         shaped.push(worked);
+        workedRows += 1;
         if (lastPart) lastWorked = worked;
         // Open, each run of its work folds into its summary line between the commentary, as in a
         // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
@@ -578,7 +601,13 @@ function shapeTurn(
       if (said) shaped.push(said);
       shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
     }
-    if (lastWorked) lastWorked.status = summary.status;
+    if (lastWorked) {
+      lastWorked.status = summary.status;
+      // The turn's tokens (its `turn_result`'s) on its "Worked for" when that line is the turn's
+      // only one: an unsteered turn (its last part is its prompt's, its only part) folded into one
+      // stretch. A steered turn's, or a turn folded into several stretches, are not split by line.
+      if (lastPart && part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
+    }
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -1055,7 +1084,9 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   if (
     group.type === "item" ||
     group.type === "message" ||
+    group.type === "send" ||
     group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )

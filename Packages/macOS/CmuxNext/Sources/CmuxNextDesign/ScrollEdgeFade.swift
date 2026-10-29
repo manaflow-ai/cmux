@@ -60,6 +60,11 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
+    /// Whether hidden content fades at the edges. Off, the mask stays opaque at every edge, so the
+    /// whole list shows (`sidebar.noFade`). Setting it re-reads the edges at once.
+    public var fades = true {
+        didSet { if oldValue != fades { updateFade(animated: true) } }
+    }
     private let fadeMask = CAGradientLayer()
     private var observers: [MainActorObservation] = []
     private weak var observedDocument: NSView?
@@ -148,7 +153,7 @@ public final class ScrollEdgeFadeView: NSView {
     public func updateFade(animated: Bool = true) {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
-        let next = Self.hiddenEdges(of: scrollView)
+        let next = fades ? Self.hiddenEdges(of: scrollView) : []
         let fade = Self.fadeFraction(height: layer.bounds.height)
         maskedSize = layer.bounds.size
         maskedFraction = fade
@@ -170,7 +175,7 @@ public final class ScrollEdgeFadeView: NSView {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
               Self.fadeFraction(height: layer.bounds.height) == maskedFraction else { return updateFade() }
         observeDocument(scrollView.documentView)
-        setEdges(Self.hiddenEdges(of: scrollView), animated: true)
+        setEdges(fades ? Self.hiddenEdges(of: scrollView) : [], animated: true)
     }
 
     /// The band's share of the list height (the fade length, capped by the tunable).

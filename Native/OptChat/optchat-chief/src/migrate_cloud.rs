@@ -417,7 +417,13 @@ pub fn import_messages(local: &[Value], user: &str, chief: &str) -> Vec<Value> {
 
 /// The memory's text export lines, sorted as the server takes them.
 pub fn memory_lines(memory_db: &Path) -> Result<(Vec<String>, Vec<String>), String> {
-    let dir = std::env::temp_dir().join(format!("chief-move-export-{}", std::process::id()));
+    // One folder per call: two exports in one process (parallel tests, or an import's plan and its write) must not share one.
+    static EXPORTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "chief-move-export-{}-{}",
+        std::process::id(),
+        EXPORTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     let db = optchat_host::db::ReadOnly::open(memory_db)
         .map_err(|e| format!("{}: {e}", memory_db.display()))?;

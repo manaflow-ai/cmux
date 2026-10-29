@@ -342,6 +342,76 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
     Ok(())
 }
 
+/// The most UTF-8 bytes of one answer's notes (Claude Code's own limit is 8192 characters).
+pub(super) const MAX_NOTES_BYTES: usize = 8192;
+
+/// Checks a client's `annotations` and returns what goes into the tool input beside `answers`.
+/// They are Claude Code's AskUserQuestion answer field (question text -> `{preview?, notes?}`):
+/// the agent reads `"Q"="A" selected preview: <mockup> notes: <text>`, so it learns which mockup
+/// the person picked. Only Claude Code's own AskUserQuestion (`_meta.claude.tool`, with its
+/// `questions` in the tool input) gets them; for any other question they are dropped (`None`),
+/// never refused, so a card that sends them for a Claude-shaped ask from another agent still
+/// answers it. Keyed by a question's exact text; `preview` must be one of that question's option
+/// previews as the card shows it (trimmed, `normalize`), and the agent's own text goes back,
+/// since Claude Code refuses a preview it did not write; `notes` is free text of at most
+/// [`MAX_NOTES_BYTES`] bytes. Nothing else rides along.
+pub(super) fn check_annotations(
+    request: &Value,
+    annotations: &Value,
+) -> Result<Option<Value>, RpcError> {
+    let invalid = |why: &str| Err(RpcError::invalid_params(format!("annotations {why}")));
+    let asks = request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str)
+        == Some("AskUserQuestion")
+        && question(request).is_some_and(|q| q["harness"] == "claude");
+    let questions = request.pointer("/toolCall/rawInput/questions").and_then(Value::as_array);
+    let (true, Some(questions)) = (asks, questions) else {
+        return Ok(None);
+    };
+    let Some(annotations) = annotations.as_object().filter(|a| !a.is_empty()) else {
+        return invalid("must be a non-empty object");
+    };
+    if annotations.len() > MAX_ANSWER_ITEMS {
+        return invalid(&format!("may hold at most {MAX_ANSWER_ITEMS} items"));
+    }
+    let mut out = Map::new();
+    for (key, value) in annotations {
+        let Some(asked) = questions.iter().find(|q| q["question"].as_str() == Some(key.as_str()))
+        else {
+            return invalid("must name a question by its text");
+        };
+        let Some(value) = value
+            .as_object()
+            .filter(|v| !v.is_empty() && v.keys().all(|k| k == "preview" || k == "notes"))
+        else {
+            return invalid("must be {preview?, notes?} per question");
+        };
+        let mut note = Map::new();
+        if let Some(preview) = value.get("preview") {
+            let shown = preview.as_str().map(str::trim);
+            let raw = asked["options"].as_array().into_iter().flatten().find_map(|o| {
+                (shown.is_some() && text(&o["preview"]).as_deref() == shown)
+                    .then(|| o["preview"].clone())
+            });
+            let Some(raw) = raw else {
+                return invalid("preview must be one of the question's option previews");
+            };
+            note.insert("preview".into(), raw);
+        }
+        if let Some(notes) = value.get("notes") {
+            match notes.as_str() {
+                Some(n) if !n.trim().is_empty() && n.len() <= MAX_NOTES_BYTES => {
+                    note.insert("notes".into(), json!(n));
+                }
+                _ => {
+                    return invalid(&format!("notes must be text of 1 to {MAX_NOTES_BYTES} bytes"));
+                }
+            }
+        }
+        out.insert(key.clone(), Value::Object(note));
+    }
+    Ok(Some(Value::Object(out)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

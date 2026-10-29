@@ -8,6 +8,7 @@
 // fallback picker. Nothing here ships.
 import { PAGE_COMMAND } from "../shared/pageStreams";
 import { RECEIVE_NAME } from "../shared/pageClient";
+import { NATIVE_MENU_OP, type NativeMenuRequest } from "../../ui/nativeMenu";
 import { createStrings } from "../shared/i18n";
 import { devOp, showDevPicker } from "../../viewer-empty/dev";
 import table from "./generated/strings.json";
@@ -43,6 +44,13 @@ let nextSub = 1;
 let nextCall = 1_000_000;
 /** The app actions the page asked the host to run (`cmux.app.action.run`), oldest first. */
 const appActions: unknown[] = [];
+/**
+ * The app's native right-click menu (ui/nativeMenu.ts): this bridge is the page's host, so the page
+ * sends its menus here. Each request is noted; the menu answers `menuPick` (a row id, then cleared)
+ * or null, a dismissed menu, as the app's NSMenu would.
+ */
+const menus: NativeMenuRequest[] = [];
+const dev = { callPage, emit, appActions, menus, menuPick: null as string | null };
 
 function receive(message: unknown): void {
   (globalThis as unknown as Record<string, (message: unknown) => void>)[RECEIVE_NAME]?.(message);
@@ -107,6 +115,12 @@ async function postMessage(message: Envelope): Promise<unknown> {
     appActions.push((message.params as { action?: unknown } | undefined)?.action);
     return { t: "ok", id: message.id, value: { ran: true } };
   }
+  if (message.op === NATIVE_MENU_OP) {
+    menus.push(message.params as NativeMenuRequest);
+    const picked = dev.menuPick;
+    dev.menuPick = null;
+    return { t: "ok", id: message.id, value: { picked } };
+  }
   if (message.op === EDITOR_RECENTS_OP) {
     try {
       return { t: "ok", id: message.id, value: await devOp("/__cmux-viewer/op", EDITOR_RECENTS_OP, {}) };
@@ -130,7 +144,7 @@ async function postMessage(message: Envelope): Promise<unknown> {
 }
 
 (window as unknown as { webkit: unknown }).webkit = { messageHandlers: { cmuxPage: { postMessage } } };
-(window as unknown as { __cmuxEditorDev: unknown }).__cmuxEditorDev = { callPage, emit, appActions };
+(window as unknown as { __cmuxEditorDev: unknown }).__cmuxEditorDev = dev;
 
 // The app's key dispatcher: its chords become page commands or are swallowed, never Monaco's.
 addEventListener(

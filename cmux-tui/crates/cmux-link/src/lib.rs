@@ -37,6 +37,8 @@ pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;
 pub mod registration;
+#[cfg(any(test, target_os = "macos"))]
+mod sign_clone;
 pub mod stamp;
 pub mod token;
 

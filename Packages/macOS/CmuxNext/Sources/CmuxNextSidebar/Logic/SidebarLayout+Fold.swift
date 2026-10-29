@@ -44,7 +44,7 @@ nonisolated extension SidebarLayout {
         // The group's block: its header and the member rows right after it.
         var end = headerIndex + 1
         while end < rows.count, rows[end].group == group.id, !rows[end].key.isGroupHeader { end += 1 }
-        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, collapsed: header.isCollapsed, metrics: m)
+        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, metrics: m)
 
         let shown = group.workspaces.filter { !o.excludedWorkspaces.contains($0.id) }
         let shownIDs = Set(shown.map(\.id))
@@ -104,7 +104,7 @@ nonisolated extension SidebarLayout {
                 }
             }
         }
-        let newEnd = Self.blockEnd(header: header, last: built.last, collapsed: collapsed, metrics: m)
+        let newEnd = Self.blockEnd(header: header, last: built.last, metrics: m)
         var folded = header
         folded.isCollapsed = collapsed
         setRow(folded, at: headerIndex)
@@ -131,10 +131,10 @@ nonisolated extension SidebarLayout {
         return layout
     }
 
-    /// Where the list goes on after a group's block (`make`): an open group adds its bottom padding.
-    private static func blockEnd(header: SidebarRow, last: SidebarRow?, collapsed: Bool, metrics m: SidebarLayoutMetrics) -> CGFloat {
-        let after = (last ?? header).maxY + m.rowSpacing
-        return collapsed ? after : after + m.groupBottomPadding
+    /// Where the list goes on after a group's block (`make`): one row spacing under its last row, open or
+    /// folded (no padding under a group, Leo 2026-10-21).
+    private static func blockEnd(header: SidebarRow, last: SidebarRow?, metrics m: SidebarLayoutMetrics) -> CGFloat {
+        (last ?? header).maxY + m.rowSpacing
     }
 }
 

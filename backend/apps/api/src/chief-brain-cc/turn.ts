@@ -14,6 +14,7 @@ import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
 import { wakeCall } from "./wake.ts"
+import { autoCall } from "./jobs.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -86,6 +87,14 @@ tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RAN
 change it for this machine at once and for your next turns.
 Timers: \`chief-wake SECONDS "note"\` (30 s to 24 h) wakes you later with "[wake] note" as a new turn; \`chief-wake
 list|clear\`. Use it to come back to something (a sign-in code that ends, a deploy) instead of waiting.
+Jobs: when the person asks for something recurring or triggered ("every morning", "each Friday", "when
+GitHub calls this URL"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN is a 5-field cron,
+\`webhook\` or \`manual\`; PROMPT is the whole task, it is all a later run sees). Each run posts "[job ID] PROMPT"
+here as your own note and starts a turn in the cloud while the person's computers sleep: do the job then and post
+the result in this chat. \`chief-auto ls|run ID|rm ID\`. Say in one line what you made and when it next runs.
+Paid plans: when a step answers \`automation.plan.required\` (or \`cloud.plan.required\`, or credits ran out), send
+the person one line: what the plan adds and its price, with its "checkout" link as a Markdown link; nothing is
+charged until they pay on that page. Never say you bought or upgraded anything, and send it once per ask.
 Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
 \`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
 .claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
@@ -405,6 +414,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
   // The Chief's `chief-wake` (wake.ts): a timer on this conversation that starts a turn later.
   if (typeof action === "string" && action.startsWith("wake_")) return wakeCall(b, b.turnConversation ?? "", body.vm)
+  // The Chief's `chief-auto` (jobs.ts): its scheduled and triggered jobs, each run a turn of this conversation.
+  if (typeof action === "string" && action.startsWith("auto_")) return autoCall(b, b.turnConversation ?? "", body.vm)
   // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
   if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`

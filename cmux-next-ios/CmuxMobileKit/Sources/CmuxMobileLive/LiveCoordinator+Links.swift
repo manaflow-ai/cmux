@@ -61,6 +61,18 @@ extension LiveCoordinator {
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
+        session.workspaces.onRows = { [weak self, weak session] tree, ids, agentChanged in
+            guard let self, let session, self.sessions[session.macID] === session else { return }
+            session.tree = tree
+            self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            if agentChanged {
+                session.terminalFeed.treeChanged(tree, macID: session.macID,
+                                                connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)
+            } else {
+                session.terminalFeed.updateTreeMetadata(tree)
+            }
+            self.scheduleSnapshotSave()
+        }
         session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
             guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
             // A Feed reply into a terminal agent: this connection's channel only, pasted and
@@ -389,6 +401,11 @@ extension LiveCoordinator {
         let onWaiting: @MainActor @Sendable () -> Void = { [weak self, weak session] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, let session, session.currentLink === link else { return }
+            // A code for this Mac came in after this link's challenge: a new link presents it.
+            if pairing.invites.pending(mac: macID) != nil {
+                self.redial(session)
+                return
+            }
             self.setPairing(keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name), for: session)
         }
         let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
@@ -398,6 +415,8 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                // Allowed already: a code for this Mac has nothing left to approve.
+                pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
                     try await keys.authorizeApproval(reason: reason)
                 }
@@ -561,7 +580,14 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
+            if chiefMacID != nil {
+                chiefOffline()
+            } else {
+                // Name the Mac first: what is written to its cloud copy is for this Mac
+                // (the outbox's target), not for whichever Mac connects next.
+                ChiefSession.shared.macID = owner.macID
+                useChiefCloudCopy(macName: owner.name)
+            }
             return
         }
         Task { [weak self] in
