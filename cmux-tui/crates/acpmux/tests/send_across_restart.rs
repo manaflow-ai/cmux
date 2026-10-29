@@ -442,7 +442,7 @@ fn daemon_lock_holder_exits_with_systemd_prevented_status() {
     let second = cli(&dir, &["daemon", "run", "--log", "warn"]);
     daemon.stop();
     assert_eq!(second.status.code(), Some(75), "{}", text(&second));
-    fs::remove_dir_all(dir).unwrap();
+    drop(_shutdown);
 }
 
 #[test]
