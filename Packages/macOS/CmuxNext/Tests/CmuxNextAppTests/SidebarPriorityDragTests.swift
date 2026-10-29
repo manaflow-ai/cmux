@@ -138,6 +138,45 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
     }
 
+    @Test(arguments: [false, true], [CGFloat(0), CGFloat(3)])
+    func hidingOrRerankingBeforeTheDragThresholdCancelsThePress(hide: Bool, jitter: CGFloat) throws {
+        let entries = Self.entries.map { var entry = $0; entry.state = .needsYou; return entry }
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(entries: entries, sidebar: sidebar)
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["b"])
+        let originalFrame = row.frame
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "b"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "b", dy: jitter))
+        #expect(harness.panel.draggingID == nil, "the press has not crossed the drag threshold")
+
+        let updated = hide ? entries : Array(entries.reversed())
+        sidebar.showPriority(SidebarPriorityPanel(entries: updated, shown: !hide))
+        #expect(harness.panel.isHidden == hide)
+        if hide { sidebar.showPriority(SidebarPriorityPanel(entries: updated, shown: true)) }
+        #expect(harness.panel.rows["b"] === row)
+        // The middle row keeps its geometry, so the stale release still lands inside it.
+        #expect(row.frame == originalFrame)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "b", dy: jitter))
+        #expect(harness.actions.isEmpty, "an invalidated press must neither open nor place a chat")
+        #expect(harness.panel.panel.entries.map(\.id) == updated.map(\.id))
+
+        try harness.press("b", moves: [3])
+        #expect(harness.actions == [.open("b")], "a fresh click must work after cancellation")
+    }
+
+    @Test func updatingRowContentBeforeTheDragThresholdKeepsTheClick() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["b"])
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "b"))
+        var entries = Self.entries
+        entries[1].title = "Updated chat"
+        harness.panel.show(SidebarPriorityPanel(entries: entries))
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "b"))
+        #expect(harness.actions == [.open("b")])
+    }
+
     @Test(arguments: [false, true])
     func escapeCancelsPriorityDragWithoutPlacingOrOpening(fromChildWindow: Bool) throws {
         let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
