@@ -704,13 +704,13 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-submit[data-action=next]{padding-right:12px}
 .acpmux-question-hint{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-actions button:disabled{cursor:default}
-.acpmux-question-answered{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:7px 10px;border-radius:10px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:12px;line-height:18px}
-.acpmux-question-answered-icon{flex:none;display:inline-flex;align-self:center;color:var(--agent-soft,var(--agent-text))}
-.acpmux-question-answered-lines{display:flex;flex-direction:column;min-width:0;flex:1}
-.acpmux-question-answered-line{overflow-wrap:anywhere}
-.acpmux-question-answered-key{color:var(--agent-muted)}
-.acpmux-question-answered-by{color:var(--agent-muted);font-size:11px}
-.acpmux-question-cancelled{padding:4px 2px;color:var(--agent-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+/* A decided ask's record (QuestionCard.tsx AnsweredQuestion, Leo 2026-10-29 after Claude desktop): a compact bordered card, each question in the text colour and the chosen answers in grey under it, then who answered. An ask that ended unanswered is the same card with how it ended in the answer's place. */
+.acpmux-question-answered,.acpmux-question-cancelled{display:flex;flex-direction:column;gap:8px;align-self:flex-start;width:fit-content;min-width:min(100%,320px);max-width:100%;box-sizing:border-box;padding:10px 14px;border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:12px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing);line-height:var(--text-body--line-height)}
+.acpmux-question-cancelled{gap:2px}
+.acpmux-question-answered-item{display:flex;flex-direction:column;gap:2px;min-width:0}
+.acpmux-question-answered-prompt{overflow-wrap:anywhere}
+.acpmux-question-answered-answer{color:var(--agent-muted);overflow-wrap:anywhere}
+.acpmux-question-answered-by{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);line-height:16px}
 /* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
 

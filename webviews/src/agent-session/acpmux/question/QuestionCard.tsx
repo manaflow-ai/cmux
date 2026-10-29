@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -30,7 +30,6 @@ import {
   hasPreviews,
   itemAnswerText,
   QuestionProblemError,
-  cancelledKey,
   consentChoice,
   reply,
   type AgentQuestion,
@@ -38,7 +37,6 @@ import {
   type Option,
   type QuestionReply,
 } from "./model";
-import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
@@ -82,14 +80,21 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// including from Other, and claims the key so it cannot also stop the turn or hide the floating
 /// chat. Other accepts Enter to submit and Shift-Enter for a newline. A reply acpmux refuses shows
 /// its error on the card, which takes input again for a retry. Only a person's click or key sends
-/// an answer.
-export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
+/// an answer. Memoized on its immutable question (and reply handler): a decided ask's record in the
+/// transcript never redraws while tokens stream elsewhere in the turn.
+export const QuestionCard = memo(function QuestionCard({
+  question,
+  onReply,
+}: {
+  question: AgentQuestion;
+  onReply: ReplyHandler;
+}) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
   if (question.state.kind === "cancelled") return <CancelledQuestion question={question} />;
   // Keyed by the ask: a new ask starts unfolded with fresh choices.
   return <PendingAsk key={question.id} question={question} onReply={onReply} />;
-}
+});
 
 /// Hands the host a reply. A promise that rejects means the reply was refused and the ask stays.
 type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
@@ -740,40 +745,50 @@ function respondentLine(t: Translate, answer: Answer): string | undefined {
   return undefined;
 }
 
-/// An answered ask collapses to one row: a check, "header: chosen labels" per item, and who
-/// answered on which device.
+/// An answered ask collapses to a compact card in the transcript (Claude desktop's, Leo 2026-10-29):
+/// each question, the chosen answers (with any Other text) in grey under it, then who answered on
+/// which device.
 function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answer: Answer }) {
   const t = useT();
   const by = respondentLine(t, answer);
   return (
     <div className="acpmux-question-answered" data-remote={answer.respondent?.isRemote || undefined}>
-      <span className="acpmux-question-answered-icon">
-        <Check size={14} strokeWidth={1.6} />
-      </span>
       <span className="acpmux-hidden-label">{t("question.answered")}</span>
-      <span className="acpmux-question-answered-lines">
-        {question.items.map((item) => (
-          <span key={item.id} className="acpmux-question-answered-line">
-            <span className="acpmux-question-answered-key">{item.header ?? inlineText(item.prompt)}:</span>{" "}
-            {inlineText(itemAnswerText(item, answer))}
-          </span>
-        ))}
-      </span>
+      {question.items.map((item) => {
+        const chosen = itemAnswerText(item, answer);
+        return (
+          <div key={item.id} className="acpmux-question-answered-item">
+            <span className="acpmux-question-answered-prompt">{inlineText(item.prompt)}</span>
+            <span className="acpmux-question-answered-answer">
+              {chosen === "" ? t("question.outcome.none") : inlineText(chosen)}
+            </span>
+          </div>
+        );
+      })}
       {by && <span className="acpmux-question-answered-by">{by}</span>}
     </div>
   );
 }
 
-/// An ask that ended unanswered: one muted line that says how, when the record says (Skip, or the
-/// turn stopped before an answer), else "Not answered", and the question.
+/// An ask that ended unanswered: the same card, its questions, and in the answer's place how it
+/// ended when the record says (Skipped, or the turn stopped before an answer), else Not answered.
 function CancelledQuestion({ question }: { question: AgentQuestion }) {
   const t = useT();
+  const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
+  const outcome =
+    reason === "skipped"
+      ? "question.outcome.skipped"
+      : reason === "stopped"
+        ? "question.outcome.stopped"
+        : "question.outcome.none";
   return (
-    <div
-      className="acpmux-question-cancelled"
-      data-reason={question.state.kind === "cancelled" ? question.state.reason : undefined}
-    >
-      {t(cancelledKey(question), cancelledArgs(question))}
+    <div className="acpmux-question-cancelled" data-reason={reason}>
+      {question.items.map((item) => (
+        <span key={item.id} className="acpmux-question-answered-prompt">
+          {inlineText(item.prompt)}
+        </span>
+      ))}
+      <span className="acpmux-question-answered-answer">{t(outcome)}</span>
     </div>
   );
 }
