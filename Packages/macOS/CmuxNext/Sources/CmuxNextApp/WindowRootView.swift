@@ -268,13 +268,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
+        // Before the pass solves the constraints: the traffic lights' frame does not depend on it,
+        // and a top set after `super.layout()` showed only on the next pass (bottom tab bars' card
+        // sat under the lights until something else relaid the window).
+        updateMainPaneTopInset()
         super.layout()
         // Inside the window's layout pass the cursor order and the sidebar
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
