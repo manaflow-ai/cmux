@@ -367,7 +367,7 @@ fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
 
 /// Drops every line of the logs under `dir` that `cut` picks: a stop that cut them off.
 fn cut_lines(dir: &std::path::Path, cut: impl Fn(&str) -> bool) -> usize {
-    let mut cut = 0;
+    let mut dropped = 0;
     let mut dirs = vec![dir.to_path_buf()];
     while let Some(d) = dirs.pop() {
         for path in std::fs::read_dir(&d).unwrap().flatten().map(|e| e.path()) {
@@ -376,13 +376,13 @@ fn cut_lines(dir: &std::path::Path, cut: impl Fn(&str) -> bool) -> usize {
             } else if path.extension().is_some_and(|e| e == "ndjson") {
                 let log = std::fs::read_to_string(&path).unwrap();
                 let kept: Vec<&str> = log.lines().filter(|l| !cut(l)).collect();
-                cut += log.lines().count() - kept.len();
+                dropped += log.lines().count() - kept.len();
                 std::fs::write(&path, kept.iter().map(|l| format!("{l}\n")).collect::<String>())
                     .unwrap();
             }
         }
     }
-    cut
+    dropped
 }
 
 /// The digest's `queued` record is logged first, then the queue's order and the originals'
@@ -490,4 +490,67 @@ async fn a_restart_queues_again_a_steered_digest_the_stop_cut_before_it_was_writ
     assert!(!order.iter().any(|p| p == "p-a"), "{order:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Waits until session `id`'s log holds a `kind` record that `pred` takes, and returns it.
+async fn record_until(
+    hub: &Arc<Hub>,
+    id: &str,
+    kind: &str,
+    pred: impl Fn(&Value) -> bool,
+) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let events = hub.events(id, 0, 10_000).unwrap();
+        if let Some(e) = find(&events, kind).into_iter().find(|e| pred(&e.msg)) {
+            return e.msg.clone();
+        }
+        assert!(tokio::time::Instant::now() < deadline, "no {kind} record came");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A digest refused before its turn (its chat's folder is gone, `cold_prompt_check`) loses no
+/// message: every one it took goes back to the queue as it was (held, as the failed turn held
+/// them), its sender still waiting, and a restart restores them all, never the digest.
+#[tokio::test]
+async fn a_digest_refused_before_its_turn_puts_every_message_back_and_a_restart_keeps_them() {
+    let root = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let (state, folder) = (root.join("state"), root.join("work"));
+    std::fs::create_dir_all(&folder).unwrap();
+    let hub = durable_hub(&state);
+    // The held messages' own retry waits out the test.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut c = connect(&hub).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": folder, "mcpServers": []})).await;
+    let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, prompt(&id, "die-later: gone", Some("p-die"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "dying ").await;
+    let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let b = queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    record_until(&hub, &id, "queue_paused", |m| m["held"] == json!(["p-a", "p-b"])).await;
+    std::fs::remove_dir_all(&folder).unwrap();
+
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 2, "{made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    let refused = record_until(&hub, &id, "prompt_refused", |m| m["promptId"] == *digest).await;
+    assert!(refused["error"].as_str().unwrap().contains("session.folder_missing"), "{refused}");
+    for original in ["p-a", "p-b"] {
+        let back = |m: &Value| m["promptId"] == original && m["requeued"] == true;
+        record_until(&hub, &id, "queued", back).await;
+    }
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"]);
+    // Their senders still wait: no answer came for them.
+    let early = tokio::time::timeout(Duration::from_millis(500), answers(&mut c, &[a, b])).await;
+    assert!(early.is_err(), "a message the refused digest took was answered: {early:?}");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&state);
+    let mut c = connect(&hub).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"], "a restart lost them");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
