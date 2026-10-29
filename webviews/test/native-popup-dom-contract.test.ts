@@ -31,26 +31,14 @@ function fixture(html: string) {
 
 describe("native popup DOM observations", () => {
   test.each([
-    [
-      "roomy ordinary menu",
-      '<div id="popup" role="menu" style="position:absolute;top:20px">Choose</div>',
-    ],
-    [
-      "custom raised surface",
-      '<div id="popup" class="invented-frame" style="position:fixed;z-index:9">Choose</div>',
-    ],
-    [
-      "floating listbox",
-      '<ul id="popup" role="listbox" style="position:absolute"><li>One</li></ul>',
-    ],
+    ["roomy ordinary menu", '<div id="popup" role="menu" style="position:absolute;top:20px">Choose</div>'],
+    ["custom raised surface", '<div id="popup" class="invented-frame" style="position:fixed;z-index:9">Choose</div>'],
+    ["floating listbox", '<ul id="popup" role="listbox" style="position:absolute"><li>One</li></ul>'],
     [
       "anchored nonmodal dialog",
       '<button aria-expanded="true" aria-controls="popup">Open</button><dialog id="popup" open>Choose</dialog>',
     ],
-    [
-      "Summary floating frame",
-      '<aside id="popup" data-placement="popover">Summary contents</aside>',
-    ],
+    ["Summary floating frame", '<aside id="popup" data-placement="popover">Summary contents</aside>'],
     ["HTML popover", '<div id="popup" popover>Choose</div>'],
   ])("rejects %s without relying on shared CSS names", (_name, html) => {
     const f = fixture(html);
@@ -59,9 +47,7 @@ describe("native popup DOM observations", () => {
 
   test("rejects an unlabelled custom portal", () => {
     const f = fixture('<div id="portal">Custom picker</div>');
-    expect(f.inspect({ portalRoots: new Set([f.element("portal")]) })[0]?.element).toBe(
-      f.element("portal"),
-    );
+    expect(f.inspect({ portalRoots: new Set([f.element("portal")]) })[0]?.element).toBe(f.element("portal"));
   });
 
   test("rejects hidden scraping DOM even when WebPopupHost acknowledged the same popup", () => {
@@ -84,9 +70,7 @@ describe("native popup DOM observations", () => {
         .map((violation) => violation.kind),
     ).toEqual(["native-presentation", "dom-popup"]);
     f.element("popup").remove();
-    expect(f.inspect({ presentations: [{ expected, actual: null }] })[0]?.kind).toBe(
-      "native-presentation",
-    );
+    expect(f.inspect({ presentations: [{ expected, actual: null }] })[0]?.kind).toBe("native-presentation");
   });
 
   test("finds popup DOM in an open shadow root", () => {
@@ -126,9 +110,7 @@ describe("native popup DOM observations", () => {
       presentation: { ...shown(expected), state: "rejected", owner: {} },
     });
     expect(
-      f
-        .inspect({ lifecycle: "escape-compatible", semantics })
-        .some((item) => item.kind === "native-presentation"),
+      f.inspect({ lifecycle: "escape-compatible", semantics }).some((item) => item.kind === "native-presentation"),
     ).toBe(true);
   });
 
@@ -160,9 +142,7 @@ describe("native popup DOM observations", () => {
   });
 
   test("reports one frame for a popup with raised internal decoration", () => {
-    const f = fixture(
-      '<div id="popup" role="menu"><span style="position:absolute;z-index:1">Decoration</span></div>',
-    );
+    const f = fixture('<div id="popup" role="menu"><span style="position:absolute;z-index:1">Decoration</span></div>');
     expect(f.inspect()).toHaveLength(1);
   });
 
@@ -183,19 +163,16 @@ describe("native popup DOM observations", () => {
     // JSDOM has no window top layer. This injects the platform observation, not an aria flag.
     const isModal = (element: Element) => element === f.element("modal");
     const semantics = new Map<Element, SurfaceSemantics>([[f.element("modal"), { kind: "modal" }]]);
-    expect(f.inspect({ semantics, isModal }).map((violation) => violation.element?.id)).toEqual([
-      "nested",
-    ]);
+    expect(f.inspect({ semantics, isModal }).map((violation) => violation.element?.id)).toEqual(["nested"]);
   });
 
   test("aria-modal or a declaration alone cannot excuse a floating nonmodal dialog", () => {
-    const f = fixture(
-      '<div id="popup" role="dialog" aria-modal="true" style="position:fixed">Form</div>',
-    );
+    const f = fixture('<div id="popup" role="dialog" aria-modal="true" style="position:fixed">Form</div>');
     const semantics = new Map<Element, SurfaceSemantics>([[f.element("popup"), { kind: "modal" }]]);
-    expect(
-      f.inspect({ semantics, isModal: () => false }).map((violation) => violation.kind),
-    ).toEqual(["invalid-modal", "dom-popup"]);
+    expect(f.inspect({ semantics, isModal: () => false }).map((violation) => violation.kind)).toEqual([
+      "invalid-modal",
+      "dom-popup",
+    ]);
   });
 
   test("native web content needs a matching presentation and does not exempt child popovers", () => {
@@ -211,21 +188,14 @@ describe("native popup DOM observations", () => {
     });
     expect(f.inspect({ semantics }).map((violation) => violation.element?.id)).toEqual(["nested"]);
     semantics.set(f.element("content"), { kind: "native-content", expected, presentation: null });
-    expect(f.inspect({ semantics }).map((violation) => violation.kind)).toEqual([
-      "native-presentation",
-      "dom-popup",
-    ]);
+    expect(f.inspect({ semantics }).map((violation) => violation.kind)).toEqual(["native-presentation", "dom-popup"]);
   });
 
   test("gallery/test DOM adapter is explicit and requires a reason", () => {
     const f = fixture('<div id="popup" role="menu" data-gallery="true">Choose</div>');
     expect(f.inspect()).toHaveLength(1);
-    expect(
-      f.inspect({ adapter: { kind: "test-dom", reason: "Gallery renders a reference menu" } }),
-    ).toEqual([]);
-    expect(() => f.inspect({ adapter: { kind: "test-dom", reason: " " } })).toThrow(
-      "requires a reason",
-    );
+    expect(f.inspect({ adapter: { kind: "test-dom", reason: "Gallery renders a reference menu" } })).toEqual([]);
+    expect(() => f.inspect({ adapter: { kind: "test-dom", reason: " " } })).toThrow("requires a reason");
   });
 });
 
@@ -242,9 +212,7 @@ describe("native popup receipt and event identity", () => {
     const current = identity();
     expect(currentPopupEvent(current, current, current.owner)).toBe(true);
     expect(currentPopupEvent({ ...current, revision: 2 }, current, current.owner)).toBe(false);
-    expect(currentPopupEvent({ ...current, popupId: "mode-picker" }, current, current.owner)).toBe(
-      false,
-    );
+    expect(currentPopupEvent({ ...current, popupId: "mode-picker" }, current, current.owner)).toBe(false);
     expect(currentPopupEvent(current, current, {})).toBe(false);
     expect(currentPopupEvent(current, null, current.owner)).toBe(false);
   });
@@ -270,17 +238,9 @@ describe("native popup receipt and event identity", () => {
   test("native-first WebContextMenu is still a different host, and stale acknowledgements fail", () => {
     const expected = identity();
     expect(nativePresentationProblem(expected, shown(expected))).toBeNull();
-    expect(
-      nativePresentationProblem(expected, { ...shown(expected), host: "WebContextMenu" }),
-    ).toContain("different");
-    expect(nativePresentationProblem(expected, { ...shown(expected), owner: {} })).toContain(
-      "stale",
-    );
-    expect(nativePresentationProblem(expected, { ...shown(expected), revision: 2 })).toContain(
-      "stale",
-    );
-    expect(
-      nativePresentationProblem(expected, { ...shown(expected), state: "dismissed" }),
-    ).toContain("dismissed");
+    expect(nativePresentationProblem(expected, { ...shown(expected), host: "WebContextMenu" })).toContain("different");
+    expect(nativePresentationProblem(expected, { ...shown(expected), owner: {} })).toContain("stale");
+    expect(nativePresentationProblem(expected, { ...shown(expected), revision: 2 })).toContain("stale");
+    expect(nativePresentationProblem(expected, { ...shown(expected), state: "dismissed" })).toContain("dismissed");
   });
 });

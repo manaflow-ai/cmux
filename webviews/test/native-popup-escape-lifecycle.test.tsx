@@ -3,11 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useEscapingPopup, type PopupHost } from "../src/ui/popupHost";
-import {
-  inspectNativePopups,
-  type NativePresentation,
-  type SurfaceSemantics,
-} from "./helpers/nativePopupGuard";
+import { inspectNativePopups, type NativePresentation, type SurfaceSemantics } from "./helpers/nativePopupGuard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -109,9 +105,7 @@ test.each(["shown", "rejected"] as const)(
     expect(shell.hasAttribute("data-escaped")).toBe(true);
     expect(observe("pending")).toEqual([]);
     expect(
-      inspectNativePopups(document, { adapter: "native", semantics }).some(
-        (item) => item.kind === "dom-popup",
-      ),
+      inspectNativePopups(document, { adapter: "native", semantics }).some((item) => item.kind === "dom-popup"),
     ).toBe(true);
     await act(async () => answer!({ shown: outcome === "shown" }));
     expect(shell.hasAttribute("data-escaped")).toBe(outcome === "shown");
