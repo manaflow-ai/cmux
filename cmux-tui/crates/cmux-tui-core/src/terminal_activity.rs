@@ -1146,6 +1146,24 @@ mod tests {
         assert_eq!(activity.idle_since(), None);
     }
 
+    /// Green 65963f6d at ffc304c871b: a hosted terminal takes its host's
+    /// state when it is created (`restore` of the host's first snapshot, no
+    /// marks yet). An `A`/`B`-only shell there: a line typed at the prompt,
+    /// then its next prompt, must read idle.
+    #[test]
+    fn shell_idle_a_fresh_hosted_shell_with_only_a_and_b_pays_its_lines() {
+        let mut activity = ShellActivity::default();
+        activity.restore(ShellActivitySnapshot::default());
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        assert!(activity.idle_since().is_some(), "the first prompt");
+        activity.note_input(b"echo typed");
+        activity.note_input(b"\x15\r");
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert!(activity.idle_since().is_some(), "the prompt after the line");
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
