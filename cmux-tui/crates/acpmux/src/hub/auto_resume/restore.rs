@@ -3,15 +3,9 @@ use super::*;
 
 impl Hub {
     /// After this session's log and queue have been restored, before held messages retry.
-    /// Startup/import can resume queues repeatedly; claim this recovery pass only once.
+    /// Startup/import can resume queues repeatedly; claim this session instance only once.
     pub(in crate::hub) fn restore_auto_resume(self: &Arc<Self>, session: &Arc<Session>) {
-        if !self
-            .auto_resumes
-            .restored
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(session.id.clone())
-        {
+        if session.auto_resume_restored.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let mut pending = self.auto_resumes.lock();
@@ -237,6 +231,54 @@ mod tests {
                 .iter()
                 .any(|e| e.kind == "auto_resume_restored")
         );
+    }
+
+    #[tokio::test]
+    async fn retry_restore_recovers_an_import_replacing_an_already_restored_session() {
+        let (source, incoming) = idle_chat();
+        failed_retry(&source, &incoming);
+        let expected = source.events(&incoming.id, 0, 100).unwrap().pop().unwrap().msg;
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-retry-import-{}", uuid::Uuid::now_v7()));
+        let bundle = source.export(&incoming, &dir).unwrap();
+        for was_closed in [false, true] {
+            let (hub, old) = idle_chat();
+            hub.config.write().await.harnesses.insert(
+                "claude".into(),
+                serde_json::from_value(json!({"argv": ["true"]})).unwrap(),
+            );
+            if was_closed {
+                hub.kill(&old, false).await.unwrap();
+            }
+            hub.resume_queues();
+            assert_eq!(hub.session_summary(&old)["retry"], Value::Null);
+            // A returning move replaces the closed session and its old store. Keep the old
+            // Arc alive, as a concurrent reader may, while importing the same id's journal.
+            *old.moving.lock().unwrap() = Some("previous-move".into());
+            old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
+            hub.kill(&old, false).await.unwrap();
+            // Memory-store equivalent of transfer_finish staging the old store aside.
+            hub.store.delete(&old.id).unwrap();
+            let imported = hub.import_into(&bundle, None, true, None, true, false).await.unwrap();
+            assert_eq!(old.id, imported.id);
+            assert!(!Arc::ptr_eq(&old, &imported));
+            hub.resume_queues();
+            hub.resume_queues();
+            let retry = hub.session_summary(&imported)["retry"].clone();
+            assert_eq!(retry["promptId"], "later-prompt", "import lost retry: {retry}");
+            assert_eq!(retry["nextAt"], expected["nextAt"]);
+            assert_eq!(retry["attempt"], expected["attempt"]);
+            assert_eq!(
+                hub.events(&imported.id, 0, 100)
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e.kind == "auto_resume_restored")
+                    .count(),
+                1,
+                "repeated resume_queues must recover the imported retry only once"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

@@ -45,6 +45,9 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// Claim retry recovery once per session object; imports may replace a chat with the
+    /// same id and a different journal, which must get its own recovery pass.
+    pub(super) auto_resume_restored: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,

@@ -903,6 +903,7 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),

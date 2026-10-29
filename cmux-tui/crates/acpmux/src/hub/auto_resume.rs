@@ -196,8 +196,6 @@ enum Mark {
 #[derive(Default)]
 pub(crate) struct Pending {
     marks: Mutex<HashMap<String, Mark>>,
-    /// A startup/import pass may ask to resume a session more than once.
-    restored: Mutex<HashSet<String>>,
 }
 
 impl Pending {
