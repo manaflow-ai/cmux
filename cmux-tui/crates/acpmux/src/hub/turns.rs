@@ -825,15 +825,38 @@ impl Hub {
         // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
-        let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
+        let running = session.turn().filter(|t| t.turn_id == turn_id);
+        let detached = running.is_none();
+        // Its agent ended the turn and runs on with steers it read after: the next turn starts
+        // as this one ends (`carried_turn.rs`).
+        let carried = super::carried_turn::carried(&result)
+            .filter(|_| !detached && !self.shutting_down())
+            .map(|c| {
+                let next = self.carried_turn(session, running.as_ref(), &c);
+                (c, next)
+            });
+        let next = carried.as_ref().map(|(_, next)| next.clone());
         let mut result = self
-            .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
+            .finish_turn(
+                session,
+                &child,
+                result,
+                &prompt_id,
+                &turn_id,
+                turn_seq,
+                Some(joined),
+                next,
+            )
             .await;
+        if let Some((c, next)) = &carried {
+            self.start_carried(session, &child, &turn_id, next.clone(), c);
+        }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
-            (Err(e), false) => Some(super::auto_resume::CutTurn {
+            // A turn its agent runs on with carried steers was not cut.
+            (Err(e), false) if carried.is_none() => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
                 from: run
                     .provenance
@@ -851,8 +874,9 @@ impl Hub {
         self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
-        // harness stopped; the next prompt's spawn reports why.
-        if session.route_switch.load(Ordering::SeqCst) {
+        // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
+        // task moves it when it ends.
+        if session.route_switch.load(Ordering::SeqCst) && carried.is_none() {
             let _ = self.restart_on_route(session).await;
         }
         drop(guard);
@@ -873,11 +897,17 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
+        next: Option<TurnInfo>,
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
+        // A turn its agent runs on with steers it read after this one ended takes its place
+        // (`carried_turn.rs`).
+        let carries_on = next.is_some();
+        let detached =
+            self.take_turn_then(session, turn_id, next).is_none_or(|t| t.turn_id != turn_id);
+        let carries_on = carries_on && !detached;
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1050,6 +1080,8 @@ impl Hub {
             self.set_status(
                 session,
                 match (ended, alive, asking) {
+                    // The next turn runs already (`carried_turn.rs`).
+                    (false, true, _) if carries_on => SessionStatus::Running,
                     (true, _, _) => SessionStatus::Idle,
                     (false, false, _) => SessionStatus::Disconnected,
                     (false, true, true) => SessionStatus::Waiting,

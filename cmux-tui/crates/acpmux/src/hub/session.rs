@@ -10,6 +10,12 @@ pub(super) struct SteerNow {
     pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
+    /// What each steer of `waiting` is, by prompt id: the turn it starts when its agent reads
+    /// it after the turn it was steered into ended (`carried_turn.rs`).
+    pub(super) sent: std::collections::HashMap<String, super::carried_turn::SteerSent>,
+    /// Steers the agent reads after the turn they were steered into ended, by prompt id: the
+    /// turn they went into and the agent's carry that named them (`carried_turn.rs`).
+    pub(super) carried: std::collections::HashMap<String, (String, u64)>,
 }
 
 pub struct Session {

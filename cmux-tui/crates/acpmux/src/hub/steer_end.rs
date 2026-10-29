@@ -164,6 +164,13 @@ impl Hub {
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let author = crate::author::of_provenance(opts.provenance.as_ref());
             now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            // The turn it starts if its agent reads it after this one ended (`carried_turn.rs`).
+            let sent = super::carried_turn::SteerSent {
+                client: client.to_owned(),
+                text: text.clone(),
+                control,
+            };
+            now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
@@ -190,12 +197,20 @@ impl Hub {
         let answer =
             agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), false, || {})
                 .await;
-        session
-            .steer_now
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .waiting
-            .remove(&prompt_id);
+        // Read after the turn it was steered into ended: it went into the next one, which that
+        // turn named as it ended (`carried_turn.rs`).
+        let into = match super::carried_turn::steer_carry(&answer) {
+            Some(seq) => Self::carried_into(session, &prompt_id, seq).await,
+            None => None,
+        };
+        {
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.waiting.remove(&prompt_id);
+            now.sent.remove(&prompt_id);
+            now.carried.remove(&prompt_id);
+        }
+        let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {
             count.done(steer_entered_turn(&answer));
         }

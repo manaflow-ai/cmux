@@ -1124,11 +1124,26 @@ impl Hub {
                             }
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
+                        // Its agent ended it and runs on with steers it read after: the next turn
+                        // starts as this one ends (`carried_turn.rs`).
+                        let carried = super::carried_turn::carried(&result)
+                            .filter(|_| s.turn().is_some_and(|t| t.turn_id == turn_id))
+                            .map(|c| {
+                                let next = hub.carried_turn(&s, s.turn().as_ref(), &c);
+                                (c, next)
+                            });
+                        let next = carried.as_ref().map(|(_, next)| next.clone());
                         let _ = hub
-                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
                             .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
+                        if let Some((carried, next)) = &carried {
+                            // Its task takes the turn lock once this one lets it go.
+                            hub.start_carried(&s, &c, &turn_id, next.clone(), carried);
+                            drop(guard);
+                            return;
+                        }
                         // A route switch or an update asked for a restart
                         // during the turn (route_switch.rs): the process ends
                         // now and the next prompt starts it again, resuming
