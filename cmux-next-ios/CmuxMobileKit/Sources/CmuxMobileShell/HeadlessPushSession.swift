@@ -8,6 +8,7 @@ final class HeadlessPushSession<Coordinator: AnyObject & Sendable> {
     private(set) var running = false
     @ObservationIgnored private var count = 0
     @ObservationIgnored private var coordinator: Coordinator?
+    @ObservationIgnored private var creation: Task<Coordinator?, Never>?
 
     func withCoordinator(
         create: @escaping @MainActor () async -> Coordinator?,
@@ -21,10 +22,21 @@ final class HeadlessPushSession<Coordinator: AnyObject & Sendable> {
             if count == 0 {
                 if let coordinator { stop(coordinator) }
                 coordinator = nil
+                creation = nil
                 running = false
             }
         }
-        if coordinator == nil { coordinator = await create() }
+        // Publish the task before suspending: another reply can enter while
+        // account restoration or team loading is awaiting its result. Keep a
+        // completed nil result until the batch ends too, so failure is shared.
+        let pending: Task<Coordinator?, Never>
+        if let creation {
+            pending = creation
+        } else {
+            pending = Task { await create() }
+            creation = pending
+        }
+        coordinator = await pending.value
         await deliver(coordinator)
     }
 }
