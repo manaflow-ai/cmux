@@ -117,11 +117,11 @@ struct PaneSurfaceStatus {
                 "show": terminal.showTiming.map { (show: TerminalShowTiming) -> JSONValue in
                     .object(["unpaused_ns": .number(Double(show.unpausedNanos)),
                              "first_frame_ns": show.firstFrameNanos.map { .number(Double($0)) } ?? .null,
+                             "unpause_to_frame_ms": show.unpauseToFrameMilliseconds.map(JSONValue.number) ?? .null])
+                } ?? .null,
                 // The last draw-pause computations (caller, inputs) and what the inputs give now (Debug and bench;
                 // record only): a stale pause is `stale: true` (handoff/v224-gate-triage.md).
                 "pause_record": terminal.pauseRecord.map(Self.pauseRecordJSON) ?? .null,
-                             "unpause_to_frame_ms": show.unpauseToFrameMilliseconds.map(JSONValue.number) ?? .null])
-                } ?? .null,
             ]
         }
         return .object(object)
