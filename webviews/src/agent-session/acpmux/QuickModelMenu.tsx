@@ -113,6 +113,8 @@ export type QuickModel = {
 /// their place (a signed-out harness). `mark` is the AgentMark brand; without one the tab draws
 /// the name's initial.
 export type QuickFamily = {
+  /// Alternate launch configurations inside the canonical harness tab, never duplicate rail tabs.
+  variants?: QuickFamily[];
   id: string;
   name: string;
   mark?: string;
@@ -630,6 +632,26 @@ export function QuickModelMenu({
             </MenuItem>
           )}
         </>
+      )}
+      {!query && shown?.variants && shown.variants.length > 0 && (
+        <MenuGroup label={shown.name}>
+          {shown.variants.map((variant) => (
+            <MenuItem
+              key={variant.id}
+              className="acpmux-quick-item acpmux-quick-variant"
+              disabled={families?.forkReady === false}
+              closeOnClick
+              onSelect={() => {
+                if (variant.logIn) variant.logIn();
+                else families?.onLaunch?.(variant.id);
+              }}
+            >
+              <span className="acpmux-menu-label">
+                {families?.onFork ? t("picker.forkTo", { harness: variant.name }) : variant.name}
+              </span>
+            </MenuItem>
+          ))}
+        </MenuGroup>
       )}
       {!query && onChatTab && effort && levels.length > 1 && (
         <>
