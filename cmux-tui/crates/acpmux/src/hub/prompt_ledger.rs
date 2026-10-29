@@ -2,7 +2,7 @@
 
 use super::{Hub, PromptOutcome, Session};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 /// An adopted turn owns its prompt id until its real answer arrives. A resend then joins
@@ -77,9 +77,17 @@ impl Hub {
             }));
         }
         let mut turn_id: Option<String> = None;
+        let mut stopped_turns = HashSet::new();
         let mut started = false;
         let mut ended: Option<Value> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            // Admission installs the live turn before user_message is durable. Stop can
+            // therefore be journaled before we learn which turn owns this prompt.
+            if rec.kind == "turn_stop_requested"
+                && let Some(id) = rec.msg.get("turnId").and_then(Value::as_str)
+            {
+                stopped_turns.insert(id.to_owned());
+            }
             match (rec.kind.as_str(), &turn_id) {
                 ("user_message" | "queued", _)
                     if !started
@@ -146,6 +154,9 @@ impl Hub {
                 }
                 _ => {}
             }
+            if ended.is_none() && turn_id.as_ref().is_some_and(|id| stopped_turns.contains(id)) {
+                ended = Some(json!({"stopReason": "cancelled", "status": "cancelled"}));
+            }
             true
         });
         let turn_id = turn_id?;
@@ -184,6 +195,8 @@ mod tests {
             ("joined", Some("interrupted")),
             ("withdrawn", Some("withdrawn")),
             ("stopped_before_start", Some("cancelled")),
+            ("stopped_before_message", Some("cancelled")),
+            ("unrelated_stop_before_message", None),
             ("stopped_then_result", Some("failed")),
             ("completed", Some("completed")),
             ("orphan_resend", Some("completed")),
@@ -200,6 +213,12 @@ mod tests {
             })).unwrap()).unwrap();
             let hub = Hub::new(cfg, store);
             let session = hub.resolve("ledger").unwrap();
+            if point == "stopped_before_message" {
+                hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "t"}));
+            }
+            // A later cancellation of another turn must neither replace nor create
+            // cancellation for the prompt we are looking up.
+            hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "unrelated"}));
             let queued = ["queued", "joined", "withdrawn"].contains(&point);
             hub.append(
                 &session,

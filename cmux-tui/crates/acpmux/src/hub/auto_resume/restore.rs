@@ -7,7 +7,7 @@
 //! | transient `turn_result`, no decision | Persist a schedule due at result time + configured delay. |
 //! | `auto_resume_scheduled` | Re-arm that exact attempt and deadline, never compute a new deadline. |
 //! | retry `user_message`, no `turn_started` | Admission never happened; re-arm the same prompt id. |
-//! | retry `user_message`, then `turn_stop_requested` | Settle its original schedule; never resend. |
+//! | retry `user_message` and `turn_stop_requested` (either order) | Settle its original schedule; never resend. |
 //! | retry `turn_started` / `turn_result` | Newest turn owns recovery; never resend the old attempt. |
 //! | `turn_stop_requested` / stopped / skipped / settled / exhausted | Terminal for the cut turn. |
 //! | `auto_resume_restored` | Notification only; the schedule was already durable before this write. |
@@ -373,6 +373,7 @@ mod tests {
             "schedule",
             "message",
             "message_stop",
+            "stop_message",
             "stop",
             "unscheduled_stop",
             "started",
@@ -403,7 +404,7 @@ mod tests {
                     }),
                 );
             }
-            if point == "message_stop" {
+            if ["message_stop", "stop_message"].contains(&point) {
                 // In-memory admission precedes the harness's durable turn_started.
                 // Stop here names `retry`, whereas the saved schedule names `cut`.
                 hub.start_turn(
@@ -421,6 +422,16 @@ mod tests {
                 )
                 .unwrap();
                 hub.stop_auto_resume(&session);
+            }
+            if point == "stop_message" {
+                hub.append(
+                    &session,
+                    "in",
+                    "user_message",
+                    json!({
+                        "turnId": "retry", "promptId": "original~resume-1", "text": "continue"
+                    }),
+                );
             }
             if ["started", "completed"].contains(&point) {
                 hub.append(
@@ -448,7 +459,7 @@ mod tests {
             let expected = ["result", "schedule", "message"].contains(&point);
             let retry = restored.session_summary(&session)["retry"].clone();
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
-            if point == "message_stop" {
+            if ["message_stop", "stop_message"].contains(&point) {
                 assert_eq!(
                     restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
                     "cancelled"
