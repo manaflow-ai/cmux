@@ -159,6 +159,10 @@ export default agentPaneEntry({
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
     },
+    running: {
+      note: "Empty prompt during a running turn: ↵ steer · ⌘↵ queue shares the idle caret column and optical center.",
+      snapshot: row({ isWorking: true }),
+    },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
