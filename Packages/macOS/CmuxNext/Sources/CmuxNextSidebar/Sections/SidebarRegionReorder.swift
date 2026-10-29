@@ -97,3 +97,13 @@ nonisolated enum SidebarRegionReorder {
         }
     }
 }
+
+extension SidebarLayoutOp {
+    /// Expand a visible row move into the saved layout's index space.
+    public func translatingHiddenItemIndex(from projected: SidebarLayoutDocument,
+                                          to stored: SidebarLayoutDocument) -> SidebarLayoutOp {
+        guard case let .itemMove(id, section, index) = self else { return self }
+        return .itemMove(id, section: section,
+                         index: stored.storedInsertionIndex(index, in: section, from: projected, excluding: id))
+    }
+}

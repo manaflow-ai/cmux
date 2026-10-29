@@ -15,17 +15,29 @@ name: Cloud VM image bake
 # (first-build.ts): first-build-before on the dev channel's image while the bake runs,
 # the bake job on the new image after the smoke, and first-build-report puts the two
 # side by side in the run summary.
+# mode prod-copy bakes the production copy of a recorded dev image (prod-copy.ts): the same
+# lock and flags, on the production Freestyle account in environment cmux-next-vm-image-prod,
+# named cmuxnp-prod-vmimg-<tag> (the prefix the production Worker boots), smoked, kept, and
+# written as channel-production.json for cloud-vm-image-promote.yml channel production, which
+# records it as names.production. The prod-gate job refuses before anything runs while that
+# environment is missing or not limited to feat-cmux-next, so production stays inert until it exists.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff
+        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff; prod-copy = the production copy of dev_snapshot (production account)
         required: true
         default: bake
         type: choice
         options:
           - bake
           - repro
+          - prod-copy
+      dev_snapshot:
+        description: "prod-copy only: the dev image (sh-...) in channels/dev.json history to copy; its lock and flags are reused"
+        required: false
+        default: ""
+        type: string
       clones:
         description: Smoke clones (latency sample size; at least 2 for the identity checks)
         required: false
@@ -65,11 +77,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # prod-copy only, before any job names the production environment (a job that names a missing
+  # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
+  prod-gate:
+    if: inputs.mode == 'prod-copy'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROD_ENV: cmux-next-vm-image-prod
+    steps:
+      - name: Check the production environment
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error title=Production environment::$1"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
+          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account) plus the team-owned production Stack test profile (CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD); a trusted production snapshot must already be recorded in channel data for the account check; nothing ran"
+          gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV" > "$RUNNER_TEMP/prod-env.json" 2> /dev/null || refuse "$PROD_ENV does not exist or cannot be read: $inert"
+          [ "$(jq -r '.deployment_branch_policy | "\(.custom_branch_policies // false) \(.protected_branches // false)"' "$RUNNER_TEMP/prod-env.json")" = "true false" ] || refuse "$PROD_ENV has no custom branch policy (or also allows protected branches): $inert"
+          gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
+          [ "$(cat "$RUNNER_TEMP/prod-env-branches.txt")" = "branch:feat-cmux-next" ] || refuse "$PROD_ENV allows $(cat "$RUNNER_TEMP/prod-env-branches.txt"), not branch feat-cmux-next only: $inert"
+          echo "$PROD_ENV exists and allows branch feat-cmux-next only"
+
   bake:
+    needs: prod-gate
+    # Every mode but prod-copy skips prod-gate and runs as before; prod-copy runs only after it passed.
+    if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
-    # The environment allows only feat-cmux-next.
-    environment: cmux-next-vm-image-dev
+    # prod-copy alone bakes on the production account, in its own environment.
+    # Both environments allow only feat-cmux-next.
+    environment: ${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}
     # A dev tree bake runs a cold cmux-tui build on the builder (2 vCPUs), then the after runs.
     timeout-minutes: ${{ inputs.dev_tree && 150 || 60 }}
     defaults:
@@ -79,6 +117,25 @@ jobs:
       OUT_DIR: ${{ github.workspace }}/cmux-vm-image-out
       TAG: ci-${{ inputs.team_vm && 'team-' || '' }}${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      # prod-copy: refuse before anything is created. The flags come from the dev image's record.
+      - name: Check the production copy inputs
+        if: inputs.mode == 'prod-copy'
+        working-directory: .
+        env:
+          DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+          FLAG_INPUTS: ${{ (inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || '' }}
+          # Whether each production secret is set, never its value: the copy is only useful once promote can run too.
+          HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' && 'yes' || '' }}
+          HAS_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' && 'yes' || '' }}
+          HAS_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD != '' && 'yes' || '' }}
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error title=Production copy::$1"; exit 1; }
+          [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
+          [[ "$DEV_SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "dev_snapshot must be the dev image's snapshot id (sh-...)"
+          [ -z "$FLAG_INPUTS" ] || refuse "agent_tools, team_vm, dev_tree and probes come from the dev image's record in prod-copy mode; leave them off"
+          [ -n "$HAS_KEY" ] && [ -n "$HAS_EMAIL" ] && [ -n "$HAS_PASSWORD" ] || refuse "cmux-next-vm-image-prod needs FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD; nothing was created"
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -87,7 +144,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -168,6 +225,113 @@ jobs:
             > "$OUT_DIR/channel-dev.json"
           cat "$OUT_DIR/channel-dev.json"
 
+      # The copy repeats the dev image's lock and flags. The key must not be the dev account's
+      # (prod-copy.ts account-check: it resolves a trusted recorded
+      # production snapshot to its id, and refuses a third account). In every prod-copy step the key reaches
+      # bun only as a 0600 file (FREESTYLE_API_KEY_FILE), never in a child's environment.
+      - name: Plan the production copy
+        if: inputs.mode == 'prod-copy'
+        id: plan
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          bun scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot "$DEV_SNAPSHOT" | tee "$RUNNER_TEMP/prod-copy-plan.out"
+          flags="$(sed -n 's/^FLAGS //p' "$RUNNER_TEMP/prod-copy-plan.out")"
+          var="$(sed -n 's/^VAR //p' "$RUNNER_TEMP/prod-copy-plan.out")"
+          [[ "$flags" =~ ^--prod-copy( --agent-tools)?( --team-vm)?$ ]]
+          [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]]
+          FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check
+          {
+            echo "flags=$flags"
+            echo "var=$var"
+            echo "team_vm=$([ "$var" = TEAM_VM_SNAPSHOT ] && echo --team-vm || true)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bake the production copy
+        if: inputs.mode == 'prod-copy'
+        id: prod_bake
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          FLAGS: ${{ steps.plan.outputs.flags }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          mkdir -p "$OUT_DIR"
+          # shellcheck disable=SC2086
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $FLAGS | tee "$OUT_DIR/bake.out"
+          snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
+          test -n "$snapshot"
+          echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke the production copy
+        if: inputs.mode == 'prod-copy'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT: ${{ steps.prod_bake.outputs.snapshot }}
+          CLONES: ${{ inputs.clones }}
+          TEAM_VM: ${{ steps.plan.outputs.team_vm }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          # shellcheck disable=SC2086
+          FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $TEAM_VM | tee "$OUT_DIR/smoke.out"
+
+      # What promote-record.ts --production-copy records as names.production of the dev entry.
+      - name: Production copy candidate
+        if: inputs.mode == 'prod-copy'
+        id: prod_candidate
+        env:
+          SNAPSHOT: ${{ steps.prod_bake.outputs.snapshot }}
+          DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          SNAPSHOT_VAR: ${{ steps.plan.outputs.var }}
+          FLAGS: ${{ steps.plan.outputs.flags }}
+          TEAM_VM: ${{ steps.plan.outputs.team_vm }}
+          CLONES: ${{ inputs.clones }}
+        run: |
+          set -euo pipefail
+          bake_json="$(find "$OUT_DIR" -maxdepth 1 -name 'bake-*.json' | head -1)"
+          smoke_json="$OUT_DIR/smoke-$TAG.json"
+          jq -e '.passed == true' "$smoke_json" > /dev/null
+          jq -e '.name | startswith("cmuxnp-prod-vmimg-")' "$bake_json" > /dev/null
+          jq -n --slurpfile b "$bake_json" --slurpfile s "$smoke_json" --arg id "$SNAPSHOT" --arg dev "$DEV_SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" \
+            --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $FLAGS" --arg smoke "smoke.ts --clones $CLONES $TEAM_VM" \
+            'def words: split(" ") | map(select(. != "")) | join(" ");
+             ($bake | words) as $bake | ($smoke | words) as $smoke |
+             {schema: 1, env: "production", copy_of: $dev, var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
+              bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
+             + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
+            > "$OUT_DIR/channel-production.json"
+          cat "$OUT_DIR/channel-production.json"
+
       - name: Reproducibility
         if: inputs.mode == 'repro'
         env:
@@ -180,7 +344,7 @@ jobs:
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
       - name: Delete everything this run created
-        if: always()
+        if: always() && inputs.mode != 'prod-copy'
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
@@ -189,6 +353,30 @@ jobs:
           if [ -f "$OUT_DIR/resources.tsv" ]; then
             # shellcheck disable=SC2086
             bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
+          else
+            echo "no ledger; nothing was created"
+          fi
+
+      # The production copy is kept only once its candidate (a passed smoke) is written.
+      - name: Delete everything this production copy run created
+        if: always() && inputs.mode == 'prod-copy'
+        env:
+          FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
+          KEEP: ${{ steps.prod_candidate.outcome == 'success' && '--keep-snapshot' || '' }}
+        run: |
+          set -euo pipefail
+          # First: the key moves to an unexported shell variable, so no child process inherits it.
+          key="$FREESTYLE_KEY_SECRET"
+          unset FREESTYLE_KEY_SECRET
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$key" > "$key_file"
+          unset key
+          chmod 600 "$key_file"
+          if [ -f "$OUT_DIR/resources.tsv" ]; then
+            # shellcheck disable=SC2086
+            FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv" $KEEP
           else
             echo "no ledger; nothing was created"
           fi
@@ -224,7 +412,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -273,7 +461,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Download the measurements
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

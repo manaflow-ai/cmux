@@ -20,6 +20,9 @@ public nonisolated struct ImportScanner: Sendable {
     public var classicWorkspaces: @Sendable () -> Int?
     /// Opens a file to learn whether it can be read (Safari's privacy-protected folder).
     public var probe: @Sendable (URL) -> FileAccess
+    /// Asked before each browser and each other source: true ends the scan there, with what it found
+    /// so far (`browser.import.enabled` turned off while it ran).
+    public var shouldStop: @Sendable () -> Bool
 
     /// The most entries one folder listing counts, so a huge session folder costs a bounded scan.
     public static let listingLimit = 20_000
@@ -28,19 +31,25 @@ public nonisolated struct ImportScanner: Sendable {
 
     public init(home: URL, environment: ImportEnvironment, variables: [String: String] = [:],
                 importedProfiles: Set<String> = [], classicWorkspaces: @escaping @Sendable () -> Int? = { nil },
-                probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe) {
+                probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe,
+                shouldStop: @escaping @Sendable () -> Bool = { false }) {
         self.home = home
         self.environment = environment
         self.variables = variables
         self.importedProfiles = importedProfiles
         self.classicWorkspaces = classicWorkspaces
         self.probe = probe
+        self.shouldStop = shouldStop
     }
 
     /// Every source found, browsers first in the order people most often come from.
     public func scan() -> [ImportFinding] {
         var findings = browsers()
-        findings += [claudeCode(), codex(), classic(), iterm2(), ghostty()].compactMap(\.self)
+        let others: [() -> ImportFinding?] = [claudeCode, codex, classic, iterm2, ghostty]
+        for source in others {
+            if shouldStop() { break }
+            if let found = source() { findings.append(found) }
+        }
         return findings
     }
 
@@ -56,6 +65,7 @@ public nonisolated struct ImportScanner: Sendable {
         let rank = { (browser: ImportBrowser) in Self.leading.firstIndex(of: browser) ?? Self.leading.count }
         var seenFolders = Set<String>()
         return candidates.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.compactMap { _, browser in
+            guard !shouldStop() else { return nil }
             // Another app's container: even a look there can ask the person for "data from other
             // apps", so a registry folder in one is never checked (Safari's is its own grant).
             let folders = (browser.dataDirectories.isEmpty ? [browser.dataDirectory] : browser.dataDirectories)

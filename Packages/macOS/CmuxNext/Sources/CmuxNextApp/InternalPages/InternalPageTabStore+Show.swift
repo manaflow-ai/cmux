@@ -19,6 +19,8 @@ extension InternalPageTabStore {
     @discardableResult
     func show(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
         guard let window else { return nil }
+        if Self.isPreviewPage(page),
+           window.services.settings?.snapshot.previewFeatures != true { return nil }
         if focus, window.shownTopPage == .page(page) || !window.holdsVisiblePageTab {
             return showTopPage(page, in: window)
         }
@@ -49,6 +51,8 @@ extension InternalPageTabStore {
     @discardableResult
     func openNew(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
         guard let window else { return nil }
+        if Self.isPreviewPage(page),
+           window.services.settings?.snapshot.previewFeatures != true { return nil }
         if focus { window.leaveTopPage() }
         // Never in a dock (the docked Home, a chat dock): beside it. Chosen from the model: a
         // workspace parked under a top page shows nothing of a pane the daemon changed meanwhile.

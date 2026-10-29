@@ -105,9 +105,11 @@ final class SidebarTreeRollUpView: NSView {
             let side = Self.dotSide
             chip.dot.frame = CGRect(x: x + Self.pad, y: (h - side) / 2, width: side, height: side)
             chip.dot.cornerRadius = side / 2
+            // The text box sits `space1` after the dot; the frame adds the label's padding around
+            // it (a frame the size of the text alone clipped the digits).
             let text = chip.count.intrinsicContentSize
-            chip.count.frame = NSRect(x: chip.dot.frame.maxX + Metrics.space1, y: (h - text.height) / 2,
-                                      width: ceil(text.width), height: ceil(text.height))
+            chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: chip.dot.frame.maxX + Metrics.space1, y: (h - text.height) / 2,
+                                                                         width: ceil(text.width), height: ceil(text.height)))
             x += w + Metrics.space1
         }
     }

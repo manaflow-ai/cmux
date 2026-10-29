@@ -11,7 +11,9 @@ import os
 /// one session and the chats it started there, `agent-session-children-v1`, read-only), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
-/// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
+/// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
+/// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
+/// an observer never types). Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
 /// machine changes a mode, reads a folder or spawns a process from here.
 ///
@@ -27,7 +29,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
     /// values; nil leaves the host's own choice) and answers its attachment and session.
-    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?, _ model: String?) async throws
         -> (client: any AgentSessionRemoteClient, session: String)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
@@ -114,6 +116,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/typing":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let on = params["on"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.typing(on); return Data("{}".utf8) }
+        case "_acpmux/view":
+            guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
@@ -173,8 +182,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            // A question's answers and annotations go along unchanged: that machine's acpmux checks
+            // them and the proof over them (dropped, the answer was refused there, or counted
+            // without the preview the person chose).
+            let json = { (key: String) in
+                params[key].flatMap { $0 is NSNull ? nil : $0 }
+                    .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+            }
+            let answers = json("answers"), annotations = json("annotations")
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, annotations: annotations,
+                                            decisionNonce: nonce, personDecision: proof)
                 return Data("{}".utf8)
             }
         default:
@@ -210,10 +228,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }) else { return refuse(id, "session/new") }
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
         let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let model = (acpmux?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         // task-owner: the one start of this wire's chat; its reply ends it
         Task { [weak self] in
             do {
-                let (client, session) = try await start(cwd, harness)
+                let (client, session) = try await start(cwd, harness, model)
                 guard let self else { await client.close(); return }
                 let open = state.withLock { state -> Bool in
                     state.starting = false
@@ -311,6 +330,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 Self.noteLinks([session])
             }
             notify("_acpmux/session_changed", change)
+        case .presence(let data):
+            // Only this chat's set (the daemon streams no other's).
+            guard let presence = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  names(presence["sessionId"]) else { return }
+            notify("_acpmux/presence", presence)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
             // The page reconnects (a fresh wire and daemon connection) and replays from the

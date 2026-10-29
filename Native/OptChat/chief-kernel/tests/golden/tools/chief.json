@@ -1,0 +1,417 @@
+[
+  {
+    "description": "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole. With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "n": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "zoom"
+  },
+  {
+    "description": "The date and time of message id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "date"
+  },
+  {
+    "description": "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cwd": {
+          "description": "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "effort": {
+          "description": "How hard they think; by default, as hard as you.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "type": "string"
+        },
+        "place": {
+          "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here.",
+          "enum": [
+            "cloud",
+            "local",
+            "cloud:small",
+            "cloud:medium",
+            "cloud:large"
+          ],
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "tasks"
+      ],
+      "type": "object"
+    },
+    "name": "spawn"
+  },
+  {
+    "description": "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "key": {
+          "description": "Optional idempotency key: a repeat with the same key is not sent again.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "queue": {
+          "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "tell"
+  },
+  {
+    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "status",
+            "interrupt",
+            "answer",
+            "pause",
+            "resume",
+            "cancel",
+            "restart",
+            "priority",
+            "cap",
+            "cloud"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "description": "The subagent (a<N>); status without it shows all.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "description": "interrupt/restart/resume: the prompt sent once it has stopped.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "n": {
+          "description": "cap: subagents at work at once; 0 is no cap.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "option": {
+          "description": "answer: deny (only the user can allow, in the app).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "peer": {
+          "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "name": "control"
+  },
+  {
+    "description": "Start a cmux Cloud workspace for a task: a Cloud machine (a Linux VM) named after `title` and a workspace on it, which shows in the person's sidebar under that machine and is ready for terminals and agents. A machine is billed and on a paid plan cmux makes it at once without asking, so call it only when the person asked for a Cloud workspace, VM or machine for this task, or said yes when you asked. A machine of that name, or one still being made, is answered and never made twice; a create the server is still making answers queued, and the same title later says whether it is up. machine: open another workspace on an existing machine instead. Answers its machine:<id>, which `cmux cloud exec --target` and the other `cmux cloud` verbs take. A cloud.plan.required error means a paid plan: the paid-plans skill.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "machine": {
+          "description": "An existing Cloud machine (machine:<id> from `cmux cloud list-machines`): open another workspace on it instead of making a machine.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "description": "The machine's size; by default the app's. small for docs and edits, medium for builds and tests; large or xlarge only when asked.",
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "xlarge"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "The task in 2-5 words: the machine's name (lowercased, with dashes) and its sidebar group.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "cloud_workspace"
+  },
+  {
+    "description": "Which cmux and Chief you run, read-only: the cmux CLI and the app its socket reaches (version with the nightly build, channel, build sha, bundle id and path, pid), whether the CLI is the app's own, the update state (phase, ready on quit, last check), the bundled acpmux and helper stamps, macOS, and this Chief host's version and engine (each role's harness CLI and its version).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "version"
+  },
+  {
+    "description": "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "move",
+            "status",
+            "reach",
+            "rollback"
+          ],
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "name": {
+          "description": "cloud: the hosted Chief's name (default Chief).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "remote_bin": {
+          "description": "The target's optchat-chief, when it is not on its PATH and the target's OS differs from this one.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_token_file": {
+          "description": "cloud: the person's session token file (0600); never read it aloud.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "to": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "without_transcripts": {
+          "description": "Leave subagent transcripts behind (smaller move).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "move"
+  },
+  {
+    "description": "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like) or any one emoji, shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reaction": {
+          "description": "like, love, laugh, emphasize, question, dislike or ack; or their emoji 👍 ❤️ 😂 ‼️ ❓ 👎; or any one other emoji, such as 🔥 or 🎉.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reaction"
+      ],
+      "type": "object"
+    },
+    "name": "react"
+  },
+  {
+    "description": "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "reply"
+  },
+  {
+    "description": "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "attachments": {
+          "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card).",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        "reply_to": {
+          "description": "A user message's line id: the message goes into its thread. Without it: the top level.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "description": "The message, in Markdown.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "send"
+  },
+  {
+    "description": "Read your conversation exactly as the user sees it: the last n messages as the conversation daemon stores them, every author (the user, you, the host, other Chiefs and agents), with attachments, reactions and threads. Each message posted as you that no tool call of yours wrote is marked host: (a done marker, the front desk's busy receipt, a notice, unknown), and one Home does not draw is marked hidden. Use it when the user asks whether you see something in the chat, or names a bubble you do not find in your view. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "before": {
+          "description": "A message's #seq: only messages older than it (to page back).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "n": {
+          "description": "How many messages, newest last (default 20).",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "transcript"
+  },
+  {
+    "description": "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "stop"
+  },
+  {
+    "description": "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "What to do when you wake: shown to you in the wake message.",
+          "type": "string"
+        },
+        "seconds": {
+          "description": "30 to 86400 seconds until the wake; 0 clears every pending wake.",
+          "maximum": 86400,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "until": {
+          "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake.",
+          "enum": [
+            "time",
+            "event"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "seconds"
+      ],
+      "type": "object"
+    },
+    "name": "sleep"
+  },
+  {
+    "description": "Keep a lasting preference or correction of the user in their profile (optchat/person.md), dated, as one short rule: it holds from now on and in every later turn. Call it at once when the user says how they want things done from now on; a rule the profile already holds is a noop. Never a secret or a one-off task.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\"",
+          "maxLength": 400,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "remember"
+  }
+]

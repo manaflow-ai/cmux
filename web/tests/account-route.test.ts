@@ -77,6 +77,7 @@ const realDestroyVm = workflowsModule.destroyVm;
 const realDeletePrivateNetworkingForAccountDeletion =
   workflowsModule.deletePrivateNetworkingForAccountDeletion;
 const realListUserVms = workflowsModule.listUserVms;
+const realDrainProviderCreateCleanups = workflowsModule.drainProviderCreateCleanups;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
 const publicationAccountDeletionModule = await import("../services/vm-publications/accountDeletion");
@@ -240,6 +241,10 @@ const deletePrivateNetworkingForAccountDeletion = mock((...args: unknown[]) => {
   const [userId] = args as [string];
   return { kind: "deletePrivateNetworking" as const, userId };
 });
+const drainProviderCreateCleanups = mock((...args: unknown[]) => {
+  const [input] = args as [{ readonly userId: string; readonly providerCredential: unknown }];
+  return { kind: "drainProviderCreateCleanups" as const, userId: input.userId, input };
+});
 const destroyVm = mock((...args: unknown[]) => {
   const [input] = args as [{
     readonly userId: string;
@@ -268,6 +273,10 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     routeEvents.push("revoke-identities");
     if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
     return revokedIdentityLeaseCount;
+  }
+  if (program.kind === "drainProviderCreateCleanups") {
+    routeEvents.push("drain-provider-create-cleanups");
+    return undefined;
   }
   if (program.kind === "deletePrivateNetworking") {
     routeEvents.push("delete-private-networking");
@@ -452,6 +461,7 @@ type WorkflowProgram =
       readonly afterBatch?: () => unknown;
     }
   | { readonly kind: "deletePrivateNetworking"; readonly userId: string }
+  | { readonly kind: "drainProviderCreateCleanups"; readonly userId: string; readonly input: unknown }
   | {
       readonly kind: "destroyVm";
       readonly input: {
@@ -703,6 +713,11 @@ mock.module("../services/vms/workflows", () => ({
     if (userId === ACCOUNT_USER_ID) return revokeUserIdentityLeasesForAccountDeletion(...args);
     return realRevokeUserIdentityLeasesForAccountDeletion(...args);
   }) as typeof realRevokeUserIdentityLeasesForAccountDeletion,
+  drainProviderCreateCleanups: ((...args: Parameters<typeof realDrainProviderCreateCleanups>) => {
+    const [input] = args;
+    if (input.userId === ACCOUNT_USER_ID) return drainProviderCreateCleanups(...args);
+    return realDrainProviderCreateCleanups(...args);
+  }) as typeof realDrainProviderCreateCleanups,
   listUserVms: ((...args: Parameters<typeof realListUserVms>) => {
     const [userId] = args;
     if (userId === ACCOUNT_USER_ID) return listUserVms(...args);
@@ -770,6 +785,7 @@ beforeEach(() => {
   listUserVms.mockClear();
   revokeUserIdentityLeasesForAccountDeletion.mockClear();
   destroyVm.mockClear();
+  drainProviderCreateCleanups.mockClear();
   runVmWorkflow.mockClear();
   deleteVmPublicationsForAccountDeletion.mockClear();
   deleteVmPublicationRowsForAccountDeletion.mockClear();
@@ -888,6 +904,35 @@ describe("account deletion route", () => {
     expect(response.status).toBe(401);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  test("hands each GCP teardown its own copy of the user's GCP credential and drains retained creates first", async () => {
+    listedPersonalVmIds = ["personal-vm-1", { providerVmId: "user-project/us-west1-b/cmux-gcp", provider: "gcp" }];
+    const request = accountDeletionRequest();
+    request.headers.set("x-cmux-gcp-access-token", "gcp-delete-token");
+    request.headers.set("x-cmux-gcp-access-token-expires-at", String(Math.floor(Date.now() / 1000) + 300));
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(200);
+    expect(drainProviderCreateCleanups).toHaveBeenCalledTimes(1);
+    expect(routeEvents.indexOf("drain-provider-create-cleanups")).toBeLessThan(routeEvents.indexOf("list-vms"));
+    const calls = destroyVm.mock.calls.map(([input]) => input as { providerVmId: string; providerCredential?: { provider: string } });
+    expect(calls.find((call) => call.providerVmId === "personal-vm-1")?.providerCredential).toBeUndefined();
+    const gcpCredential = calls.find((call) => call.providerVmId === "user-project/us-west1-b/cmux-gcp")?.providerCredential;
+    expect(gcpCredential).toMatchObject({ provider: "gcp" });
+    const [drainInput] = drainProviderCreateCleanups.mock.calls[0] as [{ providerCredential: unknown }];
+    expect(drainInput.providerCredential).not.toBe(gcpCredential);
+  });
+
+  test("without a GCP credential the deletion drains nothing and the GCP teardown runs without one", async () => {
+    listedPersonalVmIds = [{ providerVmId: "user-project/us-west1-b/cmux-gcp", provider: "gcp" }];
+
+    await DELETE(accountDeletionRequest());
+
+    expect(drainProviderCreateCleanups).not.toHaveBeenCalled();
+    const [input] = destroyVm.mock.calls[0] as [{ providerCredential?: unknown }];
+    expect(input.providerCredential).toBeUndefined();
   });
 
   test("destroys personal VMs, deletes cmux rows, then deletes the Stack user", async () => {
@@ -2544,6 +2589,23 @@ describe("account deletion route", () => {
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
+  test("refuses to anonymize a shared-team GCP machine only the user's credential can delete", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000767",
+      billingTeamId: "team-shared",
+      provider: "gcp",
+      providerVmId: null,
+      status: "provisioning",
+    }]];
+    stackUserSelectedTeam = stackTeam("team-shared", ["account-user-1", "other-user"]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(updatedRows.some(({ table }) => table === cloudVms)).toBe(false);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
   test("deletes owned team and shared team devices registered by the deleted user", async () => {
     const response = await DELETE(accountDeletionRequest());
 
@@ -3068,6 +3130,7 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
     return candidate.userId === ACCOUNT_USER_ID;
   }
   if (candidate.kind === "deletePrivateNetworking") return candidate.userId === ACCOUNT_USER_ID;
+  if (candidate.kind === "drainProviderCreateCleanups") return candidate.userId === ACCOUNT_USER_ID;
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
 }

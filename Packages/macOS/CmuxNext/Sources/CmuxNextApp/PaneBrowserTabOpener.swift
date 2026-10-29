@@ -111,7 +111,8 @@ struct PaneBrowserTabOpener {
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
                     let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
-                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
+                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice,
+                                                   activate: !background, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     if beside {

@@ -29,6 +29,7 @@ enum DockColumnHandlers {
         registry.bind("column.float", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             try dock(invocation, edge: nil, mode: .overlay, ctx)
         })
+        bindDockedWorkspaces(into: registry, context: ctx)
         registry.bind("column.undock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
             try ColumnDocking.apply(nil, to: column, in: content)
@@ -89,5 +90,61 @@ enum DockColumnHandlers {
             TabMoves.toNewDockColumn(tab, anchor: anchor, edge: dock.edge, mode: dock.mode, width: width,
                                        respawn: respawn, services: ctx.services, completion: reveal)
         }
+    }
+}
+
+// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md), next to docked columns: the window frame one level up.
+/// Dock Workspace Left/Right/Top/Bottom, Undock Workspace, Float Docked Workspace, Toggle Left/Right/Top/Bottom Dock
+/// and Toggle Dock Corners (plans/cmux-next/docked-workspace-DESIGN.md). Every entry point (palette, CLI verb, MCP,
+/// `action.run`) ends in one `WindowController` frame operation, which changes window view state in this turn: no
+/// await, no daemon round trip (a dock on an empty edge creates its workspace in the background and docks it when the
+/// daemon reports it). Off (Debug Settings `window.dockedWorkspaces`), each refuses with that reason.
+extension DockColumnHandlers {
+    static func bindDockedWorkspaces(into registry: ActionRegistry, context: AppActionContext) {
+        let edges: [(DockEdge, ActionID, ActionID)] = [
+            (.left, "workspace.dockLeft", "window.toggleDockLeft"), (.right, "workspace.dockRight", "window.toggleDockRight"),
+            (.top, "workspace.dockTop", "window.toggleDockTop"), (.bottom, "workspace.dockBottom", "window.toggleDockBottom"),
+        ]
+        for (edge, dock, toggle) in edges {
+            registry.bindEffect(dock) { invocation in
+                guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+                guard let (id, window) = dockedWorkspaceOwner(invocation, context) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+                window.dockWorkspace(id, at: edge)
+                return .done
+            }
+            registry.bindEffect(toggle) { invocation in
+                guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+                guard let window = try? context.window(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+                window.toggleDock(edge, cwd: invocation["cwd"]?.stringValue)
+                return .done
+            }
+        }
+        registry.bindEffect("workspace.undock") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let (id, window) = dockedWorkspaceOwner(invocation, context) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+            // A person sees it on the stage; automation never moves the view (socket focus policy).
+            guard window.undockWorkspace(id, show: invocation.origin == .user) else { return .refused(RefusalStrings.workspaceNotDocked) }
+            return .done
+        }
+        registry.bindEffect("workspace.toggleDockFloating") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let (id, window) = dockedWorkspaceOwner(invocation, context) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+            guard window.toggleDockFloating(id) != nil else { return .refused(RefusalStrings.workspaceNotDocked) }
+            return .done
+        }
+        registry.bindEffect("window.toggleDockOrientation") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let window = try? context.window(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            window.toggleDockOrientation()
+            return .done
+        }
+    }
+
+    /// The targeted workspace (default: the focused one) and the open window that lists it.
+    private static func dockedWorkspaceOwner(_ invocation: ActionInvocation, _ context: AppActionContext) -> (String, WindowController)? {
+        guard let (model, _) = try? context.workspace(invocation),
+              let windowID = context.services.windows.registry.value.owner(of: model.id),
+              let window = context.services.windows.controller(for: windowID) else { return nil }
+        return (model.id, window)
     }
 }

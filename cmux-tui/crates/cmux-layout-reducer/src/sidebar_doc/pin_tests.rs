@@ -198,6 +198,55 @@ fn a_pinned_group_unpins_back_to_its_place() {
     assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5"]);
 }
 
+/// An empty group (a saved group kept when its workspaces closed) has no
+/// workspace to name its machine: Unpin was refused (`no_machine`), so an
+/// empty pinned group stayed in Pinned for good (#22259).
+#[test]
+fn an_empty_pinned_group_unpins_back_to_its_place() {
+    let mut doc = fixture();
+    let empty = Op::GroupCreate {
+        id: Some("g2".into()),
+        name: "Saved".into(),
+        color: None,
+        icon: None,
+        profile: None,
+        items: Vec::new(),
+        to: Some(Target::end(&machine())),
+    };
+    run(&mut doc, vec![empty]);
+    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5", "g2"]);
+    run(&mut doc, vec![Op::Pin { items: vec!["g2".into()] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g2"]);
+    run(&mut doc, vec![Op::Unpin { items: vec!["g2".into()] }]);
+    assert_eq!(
+        list(&doc, &machine(), None),
+        ["w4", "g1", "w5", "g2"],
+        "back where it was pinned from"
+    );
+    assert!(list(&doc, PINNED_SECTION_ID, None).is_empty());
+}
+
+/// An empty group made in Pinned has no place to go back to: Unpin puts it
+/// at the top of the first machine section.
+#[test]
+fn an_empty_group_made_in_pinned_unpins_to_the_top_of_the_first_machine_section() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w5")] }]);
+    let empty = Op::GroupCreate {
+        id: Some("g2".into()),
+        name: "Saved".into(),
+        color: None,
+        icon: None,
+        profile: None,
+        items: Vec::new(),
+        to: Some(Target::end(PINNED_SECTION_ID)),
+    };
+    run(&mut doc, vec![empty]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w5", "g2"]);
+    run(&mut doc, vec![Op::Unpin { items: vec!["g2".into()] }]);
+    assert_eq!(list(&doc, &machine(), None), ["g2", "w4", "g1"]);
+}
+
 #[test]
 fn unpin_falls_back_to_the_top_when_the_old_neighbor_is_gone() {
     let mut doc = fixture();

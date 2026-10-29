@@ -29,7 +29,10 @@ Read the matching skill before changing an area, then only the references needed
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`,
   `xcodebuild build|test`, `cargo build|test|clippy` or `scripts/reload.sh`: run them as a
-  fleet step (`cmux-ci run --class isolated --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  fleet step (`cmux-ci run --class CLASS --script ... --ref SHA`, `cmux-ci build cmux --ref SHA`).
+  CLASS is the script's own class: `light` for Swift suites (`scripts/ci/package-test-lane.sh`,
+  `run-swift-testing-suites.sh`), lints and the Rust check; `isolated` only for the scripts that
+  say so. Any other class is refused with `runs as class X` and no step is made.
   Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
   guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
@@ -254,7 +257,7 @@ with the fast checks. Keep the target at zero queue.
   `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
-- Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
+- Never hand-edit or hand-merge generated files (`settings-schema.json`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
