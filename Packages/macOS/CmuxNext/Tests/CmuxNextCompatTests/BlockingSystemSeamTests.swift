@@ -128,8 +128,7 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.ipcReply) { _ = try? blockingSMAppServiceRegister(missingAgent) }
     seam(.ipcReply) { _ = try? blockingSMAppServiceUnregister(missingAgent) }
 
-    // No such service is registered, so the reply is an XPC_TYPE_ERROR at once (blocking-probe.sh's preflight
-    // makes the same call).
+    // No such service is registered, so the reply is an XPC_TYPE_ERROR at once.
     let connection = xpc_connection_create_mach_service("com.cmuxterm.blocking-probe.none", nil, 0)
     xpc_connection_set_event_handler(connection) { _ in }
     xpc_connection_resume(connection)
