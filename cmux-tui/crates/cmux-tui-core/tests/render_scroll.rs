@@ -481,9 +481,8 @@ fn automation_reads_follow_the_live_screen_while_scrolled_back() {
         &mut seen,
     );
     assert_eq!(response["data"]["matched"], true, "wait-for: {response}");
-    assert_eq!(
-        daemon_position(&fixture.surface).1,
-        false,
+    assert!(
+        !daemon_position(&fixture.surface).1,
         "the output did not snap the scrolled-back render viewport"
     );
 }
