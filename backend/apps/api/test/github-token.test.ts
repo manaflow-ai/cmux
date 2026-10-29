@@ -234,6 +234,33 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(await t("acme/api", { checks: "write" })).toEqual([403, "policy.denied"])
   })
 
+  it("refuses an elevated, extra, or unverifiable GitHub token grant before handing it to a caller", async () => {
+    const a = await signedInWithInstall("gh-token-grant-check", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const endpoint = "https://api.github.com/app/installations/99/access_tokens"
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString()
+    const ask = { team: a.team, repo: "acme/web", permissions: { contents: "read" } }
+    const invalid = [
+      { token: "synthetic_elevated", expires_at: expiresAt, permissions: { contents: "write", metadata: "read" } },
+      { token: "synthetic_extra", expires_at: expiresAt, permissions: { contents: "read", issues: "write", metadata: "read" } },
+      { token: "synthetic_missing_expiry", permissions: { contents: "read", metadata: "read" } },
+    ]
+    for (const reply of invalid) {
+      gh.routes[endpoint] = () => ok(reply, 201)
+      const result = await token(a.session, ask)
+      expect(result.status).toBeGreaterThanOrEqual(400)
+      expect(JSON.stringify(result.body)).not.toContain(reply.token)
+    }
+    // The invalid grants never enter a caller's live reusable token cache.
+    gh.routes[endpoint] = () => ok({
+      token: "synthetic_valid",
+      expires_at: expiresAt,
+      permissions: { contents: "read", metadata: "read" },
+    }, 201)
+    const good = await token(a.session, ask)
+    expect([good.status, good.body.token]).toEqual([200, "synthetic_valid"])
+  })
+
   it("an uninstalled App answers needs_reauth and marks the connection; GitHub's rate limit answers 429 with retry_after", async () => {
     const a = await signedInWithInstall("gh-token-3", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
