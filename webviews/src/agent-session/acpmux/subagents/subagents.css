@@ -671,7 +671,7 @@ button.cv-subagent > :last-child {
    tokens, and what leaves on --agent-motion-out. */
 .acpmux-running-tray {
   --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
-  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 /* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
    the tray enters only when it appears in a chat that showed without it. */
@@ -717,7 +717,7 @@ button.cv-subagent > :last-child {
   animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
 }
 .acpmux-tick__out {
-  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--agent-ease-out, ease-out) both;
 }
 @keyframes acpmux-tick-in {
   from {
