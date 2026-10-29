@@ -219,7 +219,8 @@ import Testing
         #expect(content.model?.id == "replacement")
     }
 
-    @Test func sliderEchoKeepsControlAndEnterDismissal() throws {
+    @Test(arguments: [false, true])
+    func sliderEchoKeepsControlAndEnterDismissal(_ structural: Bool) throws {
         let content = NativePopupContent()
         let spec = NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                             NativePopupSliderStop(value: "high", label: "High")], selectedValue: "low")
@@ -235,11 +236,12 @@ import Testing
             model.revision += 1
             model.rows[0].value = value
             model.rows[0].slider?.selectedValue = "high"
+            if structural { model.title = "Updated" }
             content.update(model)
         }
         slider.slider.doubleValue = 1
         slider.slider.commitValue(true)
-        #expect(content.rowView(id: "slider") === slider)
+        #expect((content.rowView(id: "slider") === slider) == !structural)
         #expect(closes == 1)
     }
 
@@ -286,7 +288,7 @@ import Testing
         var host: DeclarativePopupHost!
         host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { event in
             if let type = event["type"] as? String { events.append(type) }
-            if event["type"] as? String == "pick" { model.revision += 1; host.update(model) }
+            if ["pick", "dismiss"].contains(event["type"] as? String ?? "") { model.revision += 1; host.update(model) }
         }, isAppActive: { true })
         defer { host.hide() }
         #expect(host.show(model)["shown"] as? Bool == true)
@@ -300,8 +302,8 @@ import Testing
         #expect(host.activeID == nil)
     }
 
-    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
-    func legacyReplacementCannotOverwriteAReentrantDeclaration() throws {
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: [false, true])
+    func legacyReplacementCannotOverwriteAReentrantDeclaration(_ dismiss: Bool) throws {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
@@ -328,7 +330,7 @@ import Testing
             "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20]
         ]))
         #expect(host.show(legacy)["shown"] as? Bool == true)
-        _ = host.show(try declaration("outer"))
+        if dismiss { host.dismiss() } else { _ = host.show(try declaration("outer")) }
         let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         let rootView = try #require(panel.contentView)
