@@ -308,12 +308,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
-    // Only the session list before the ready line; the chat logs load right after it.
-    let hub = Hub::new_deferred(config, store, mailbox);
-    // Temporary folders of sessions this daemon no longer has, before the
-    // socket serves (`agent/session_tmp.rs`).
-    #[cfg(unix)]
-    hub.sweep_session_tmp();
+    // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
+    let hub = Hub::new_loading(config, store, mailbox);
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -492,6 +488,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            hub.load_store_async().await;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.

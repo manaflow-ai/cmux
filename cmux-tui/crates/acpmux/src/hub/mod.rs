@@ -113,6 +113,7 @@ pub(crate) mod start_mode;
 mod start_mode_state;
 mod startup;
 mod steer_end;
+mod store_load;
 mod stream;
 mod tags;
 mod tap;
@@ -426,6 +427,7 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    pub(super) store_load: store_load::StoreLoad,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
     /// chat log. A request for one chat waits for that chat's log only (`session_log`).
     pub(super) logs_ready: tokio::sync::watch::Sender<bool>,
@@ -585,14 +587,25 @@ impl Hub {
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
     pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true)
+        Self::build(config, store, mailbox, true, false)
     }
 
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false)
+        Self::build(config, store, mailbox, false, false)
     }
 
-    fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
+    /// A daemon serves immediately; metadata is read after its ready line.
+    pub fn new_loading(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
+        Self::build(config, store, mailbox, true, true)
+    }
+
+    fn build(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        deferred: bool,
+        loading: bool,
+    ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -631,6 +644,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
             queues_resumed: AtomicBool::new(false),
@@ -709,7 +723,12 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
-        hub.load_from_store(deferred);
+        if loading {
+            hub.logs_ready.send_replace(false);
+            hub.adoption_ready.send_replace(false);
+        } else {
+            hub.load_from_store(deferred);
+        }
         if !deferred {
             hub.load_logs();
         }
@@ -784,7 +803,8 @@ impl Hub {
         // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
         #[cfg(debug_assertions)]
         if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_STORE_MS")
-            .ok().and_then(|v| v.parse::<u64>().ok())
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
         {
             std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
         }
@@ -808,49 +828,60 @@ impl Hub {
         if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
-        *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            log_load::LoadPlan {
-                waiting: waiting.collect(),
-                adopting: hosted.clone(),
-                hosted: hosted.clone(),
-            };
+        {
+            let mut plan = self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            plan.waiting.extend(waiting);
+            plan.adopting.extend(hosted.iter().cloned());
+            plan.hosted.extend(hosted.iter().cloned());
+        }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
-        let mut sessions = self.sessions.lock().unwrap();
-        for mut meta in metas {
-            // An agent whose host still runs keeps its saved status until adoption reaches it:
-            // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
-            let kept = deferred
-                && hosted.contains(&meta.id)
-                && matches!(
-                    meta.status,
-                    SessionStatus::Running | SessionStatus::Waiting | SessionStatus::Ready
-                );
-            if meta.status != SessionStatus::Closed && !kept {
-                meta.status = SessionStatus::Idle;
-            }
-            // Every child's short name stays taken (`subsessions.rs`).
-            if let Some(link) = &meta.subsession {
-                self.subsessions.note_name(&link.started_by, &link.short_name);
-            }
-            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
-            if let Some(link) =
-                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
-            {
-                self.subsessions.set_open(&link.started_by, &meta.id, true);
-            }
-            let session = self.make_session(meta);
-            session.caught_up.store(false, Ordering::SeqCst);
-            // Its log is read after the ready line (`log_load.rs`).
-            *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
-            session.log_loaded.store(false, Ordering::SeqCst);
-            sessions.insert(session.id.clone(), session);
+        self.store_load.total.store(metas.len(), Ordering::SeqCst);
+        for meta in metas {
+            let hosted = hosted.contains(&meta.id);
+            self.install_stored_session(meta, deferred, hosted);
         }
-        tracing::info!("loaded {} sessions from store", sessions.len());
-        drop(sessions);
+        tracing::info!("loaded {} sessions from store", self.sessions.lock().unwrap().len());
         if deferred {
             self.logs_ready.send_replace(false);
         }
+    }
+
+    pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
+        // An on-demand read may already have installed and updated this chat. Never replace it
+        // with the snapshot the background list read earlier.
+        let mut sessions = self.sessions.lock().unwrap();
+        if sessions.contains_key(&meta.id) {
+            return;
+        }
+        let mut meta = meta;
+        // An agent whose host still runs keeps its saved status until adoption reaches it:
+        // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
+        let kept = deferred
+            && hosted
+            && matches!(
+                meta.status,
+                SessionStatus::Running | SessionStatus::Waiting | SessionStatus::Ready
+            );
+        if meta.status != SessionStatus::Closed && !kept {
+            meta.status = SessionStatus::Idle;
+        }
+        // Every child's short name stays taken (`subsessions.rs`).
+        if let Some(link) = &meta.subsession {
+            self.subsessions.note_name(&link.started_by, &link.short_name);
+        }
+        // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+        if let Some(link) =
+            meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
+        {
+            self.subsessions.set_open(&link.started_by, &meta.id, true);
+        }
+        let session = self.make_session(meta);
+        session.caught_up.store(false, Ordering::SeqCst);
+        // Its log is read after the ready line (`log_load.rs`).
+        *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        session.log_loaded.store(false, Ordering::SeqCst);
+        sessions.insert(session.id.clone(), session);
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1365,13 +1396,7 @@ impl Hub {
     /// between the list and the store it is checked against.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
-                return;
-            }
-        };
+        let metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
         let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
