@@ -339,6 +339,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)
         scrollView.tile()
