@@ -226,7 +226,7 @@ public enum MachineSnapshotBuilder: Sendable {
         let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
-            activeCount: limits.activeVmCount ?? activeCount,
+            activeCount: activeCount,
             maxActiveVms: limits.maxActiveVms,
             planId: limits.planId,
             freeAccessWindowDays: limits.freeAccessWindowDays,
