@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
-import { Popover } from "../../ui/Popover";
-import { Combobox } from "../../ui/Combobox";
+import { useNativePopup } from "../../ui/nativePopup";
 import { AddProjectDialog } from "./AddProjectPanel";
 import type { ProjectDirectoryHost } from "./projectDirectory";
 import { ProjectBadge } from "./ProjectBadge";
@@ -68,7 +67,6 @@ export function ProjectChooser({
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
-  const search = useRef<HTMLInputElement>(null);
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
@@ -118,7 +116,6 @@ export function ProjectChooser({
 
   useEffect(() => {
     if (!open) return;
-    search.current?.focus();
     const blur = () => setOpen(false);
     window.addEventListener("blur", blur);
     return () => window.removeEventListener("blur", blur);
@@ -127,17 +124,59 @@ export function ProjectChooser({
   const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
   const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
-  const rowLabel = (key: string) => {
-    if (key === ADD_PROJECT_KEY) return t("project.new");
-    const project = rowsByKey.get(key)?.project;
-    return project
-      ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
-      : key === NO_PROJECT_KEY
-        ? t("project.noProject")
-        : key;
-  };
-
   const label = currentLabel ?? t("project.choose");
+  const select = (key: string) => {
+    if (key === ADD_PROJECT_KEY) {
+      close(false);
+      setAdding(true);
+      return;
+    }
+    const row =
+      rowsByKey.get(key) ??
+      (!key && !query.trim()
+        ? (rows.find((candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY)) ??
+          rows[0])
+        : undefined);
+    if (row || (typedPath && key === typedPath)) pick(row);
+  };
+  useNativePopup({
+    open,
+    anchor: () => trigger.current,
+    model: {
+      side,
+      align: "start",
+      width: 360,
+      title: t("project.label"),
+      search: { id: "query", value: query, placeholder: t("project.search") },
+      rows:
+        suggestions.length > 0
+          ? suggestions.map((key) => {
+              const project = rowsByKey.get(key)?.project;
+              return {
+                id: key,
+                kind: "action" as const,
+                label:
+                  key === ADD_PROJECT_KEY
+                    ? t("project.new")
+                    : project
+                      ? project.label
+                      : key === NO_PROJECT_KEY
+                        ? t("project.noProject")
+                        : t("project.usePath", { path: key }),
+                value: key,
+                checked: isCurrent(key),
+                description: project ? [project.host, project.cwd].filter(Boolean).join(" · ") : undefined,
+                icon: key === ADD_PROJECT_KEY ? "plus" : project ? "folder" : key === NO_PROJECT_KEY ? "circle-slash" : "folder",
+              };
+            })
+          : [{ id: "empty", kind: "text" as const, label: t(query.trim() ? "project.none" : "project.noneYet") }],
+    },
+    onEvent: (event) => {
+      if (event.type === "search" && event.id === "query") setQuery(event.value ?? "");
+      else if (event.type === "pick" && event.id) select(event.id);
+    },
+    onDismiss: () => close(true),
+  });
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
       <button
@@ -160,86 +199,6 @@ export function ProjectChooser({
         <span>{label}</span>
         <ChevronIcon />
       </button>
-      <Popover
-        open={open}
-        onOpenChange={(next) => (next ? show() : close(true))}
-        anchor={open ? trigger.current : null}
-        label={t("project.label")}
-        className="acpmux-menu acpmux-project-menu"
-        side={side}
-        initialFocus={search}
-        finalFocus={false}
-      >
-        <div>
-          <Combobox
-            inputRef={search}
-            suggestions={suggestions}
-            pinnedSuggestions={pinned}
-            onQuery={setQuery}
-            onSubmit={(key) => {
-              if (key === ADD_PROJECT_KEY) {
-                close(false);
-                setAdding(true);
-                return;
-              }
-              const row =
-                rowsByKey.get(key) ??
-                (!key && !query.trim()
-                  ? (rows.find(
-                      (candidate) => candidate.key === currentKey || (noProject && candidate.key === NO_PROJECT_KEY),
-                    ) ?? rows[0])
-                  : undefined);
-              if (row || (typedPath && key === typedPath)) pick(row);
-            }}
-            onCancel={() => close(true)}
-            cancelOnBlur={false}
-            autoHighlight
-            label={t("project.search")}
-            placeholder={t("project.search")}
-            inputClassName="acpmux-project-search-field"
-            listClassName="acpmux-project-folders m-0 list-none p-0"
-            itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
-            itemLabel={rowLabel}
-            isItemCurrent={isCurrent}
-            completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
-            renderItem={(key) => {
-              if (key === ADD_PROJECT_KEY)
-                return (
-                  <>
-                    <PlusIcon />
-                    <span>{t("project.new")}</span>
-                  </>
-                );
-              const row = rowsByKey.get(key);
-              const project = row?.project;
-              const checked = isCurrent(key);
-              const name = project ? project.label : row ? t("project.noProject") : t("project.usePath", { path: key });
-              return (
-                <>
-                  {project ? <ProjectBadge project={project} /> : row ? <NoProjectIcon /> : icon}
-                  <span className="acpmux-menu-text">
-                    <span className="acpmux-menu-label">{name}</span>
-                    {project && <span className="acpmux-menu-description" data-path={project.cwd} />}
-                  </span>
-                  {project?.host && (
-                    <span className="acpmux-project-host">
-                      <GlobeIcon />
-                      <span>{project.host}</span>
-                    </span>
-                  )}
-                  <span className="acpmux-project-check" aria-hidden="true">
-                    {checked ? "✓" : ""}
-                  </span>
-                </>
-              );
-            }}
-            inline
-          />
-          {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
-            <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
-          )}
-        </div>
-      </Popover>
       <AddProjectDialog
         open={adding}
         host={projectHost}
@@ -251,64 +210,6 @@ export function ProjectChooser({
         }}
       />
     </span>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="8" cy="8" r="5.75" />
-      <path d="M2.25 8h11.5M8 2.25c-1.8 1.6-2.6 3.5-2.6 5.75S6.2 12.15 8 13.75M8 2.25c1.8 1.6 2.6 3.5 2.6 5.75S9.8 12.15 8 13.75" />
-    </svg>
-  );
-}
-
-function NoProjectIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-project-none-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="8" cy="8" r="5.75" />
-      <path d="m4 12 8-8" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
   );
 }
 

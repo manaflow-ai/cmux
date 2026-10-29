@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Combobox } from "../../ui/Combobox";
-import { Popover } from "../../ui/Popover";
+import { useNativePopup } from "../../ui/nativePopup";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { AddProjectDialog } from "./AddProjectPanel";
 import { translate as t } from "./i18n";
@@ -68,7 +67,7 @@ export function FolderPopover({
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
     if (!next) {
@@ -114,8 +113,7 @@ export function FolderPopover({
         ]
       : []),
   ];
-  const pinned = actions.map((action) => action.value);
-  const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : [])];
+  const suggestions = [...actions.map((action) => action.value), ...shown.keys(), ...(typedPath ? [typedPath] : [])];
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -129,122 +127,77 @@ export function FolderPopover({
     if (action) action.run();
     else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
-  const row = (value: string) => {
-    const action = actions.find((candidate) => candidate.value === value);
-    if (action)
-      return (
-        <span
-          className="acpmux-location-action"
-          data-first={action === actions[0] ? "" : undefined}
-          data-choose={action.value === ACTION + "browse" ? "" : undefined}
-        >
-          <span className="acpmux-menu-label">{action.text}</span>
-          {action.value === ACTION + "none" && (
-            <span className="acpmux-location-check" aria-hidden="true">
-              {noProject && <CheckIcon />}
-            </span>
-          )}
-        </span>
-      );
-    const place = shown.get(value);
-    if (!place)
-      return (
-        <span className="acpmux-location-row">
-          <span className="acpmux-menu-label">{t("project.usePath", { path: value })}</span>
-        </span>
-      );
-    const { group, worktree } = place;
-    if (worktree)
-      return (
-        <span
-          className="acpmux-location-row"
-          // tooltip-allow: the row shows the worktree's branch; the tooltip is its full path
-          title={worktree.id}
-          data-worktree=""
-          data-current={worktree.id === current ? "" : undefined}
-        >
-          <span className="acpmux-location-branch-icon" aria-hidden="true">
-            <BranchIcon />
-          </span>
-          <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{worktreeName(worktree)}</span>
-          </span>
-          <span className="acpmux-location-check" aria-hidden="true">
-            {worktree.id === current && <CheckIcon />}
-          </span>
-        </span>
-      );
-    const folder = group.lead;
-    const repo = folderRepo(folder);
-    // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
-    const suffix = repo && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
-    const others = group.members.length - 1;
-    const open = expanded.has(group.key);
-    return (
-      <span
-        className="acpmux-location-row"
-        // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-        title={folder.id}
-        data-current={folder.id === current ? "" : undefined}
-        data-expanded={others > 0 && !typed ? String(open) : undefined}
-      >
-        <ProjectBadge project={{ cwd: folder.id, label: folder.label, ...(repo ? { repo } : {}) }} />
-        <span className="acpmux-menu-text acpmux-location-name">
-          <span className="acpmux-menu-label">{group.name}</span>
-          {suffix && (
-            <>
-              {" "}
-              <span className="acpmux-location-suffix-dot" aria-hidden="true">
-                ·
-              </span>{" "}
-              <span className="acpmux-location-suffix">{suffix}</span>
-            </>
-          )}
-        </span>
-        {others > 0 && !typed && (
-          // The count opens or closes the repository's other worktrees; a press here never picks
-          // the row (the arrows do the same from the field).
-          <span
-            className="acpmux-location-worktrees"
-            aria-hidden="true"
-            data-open={open ? "" : undefined}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onPointerUp={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
-            onMouseUp={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              toggle(group.key, !open);
-            }}
-          >
-            <BranchIcon />
-            {others}
-            <ChevronRightIcon />
-          </span>
-        )}
-        <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
-        </span>
-      </span>
-    );
-  };
-  // → opens the highlighted repository's worktrees and ← closes them, while the field is empty
-  // (with words typed the arrows move the caret).
-  const arrow = (key: string) => {
-    if (typed || (key !== "ArrowRight" && key !== "ArrowLeft")) return false;
-    const place = highlighted.current ? shown.get(highlighted.current) : undefined;
-    if (!place || place.group.members.length < 2) return false;
-    const open = key === "ArrowRight";
-    // Only from the repository's own row: collapsing under a worktree row would drop the highlight.
-    if (!open && place.worktree) return false;
-    if (expanded.has(place.group.key) === open) return false;
-    toggle(place.group.key, open);
-    return true;
-  };
+  useNativePopup({
+    open,
+    anchor: () => control.current,
+    model: {
+      side,
+      align: "start",
+      width: 380,
+      title: label,
+      search: { id: "query", value: query, placeholder: t("project.search") },
+      rows:
+        suggestions.length > 0
+          ? suggestions.map((value) => {
+              const action = actions.find((candidate) => candidate.value === value);
+              if (action) {
+                return {
+                  id: value,
+                  kind: "action" as const,
+                  label: action.text,
+                  checked: action.value === ACTION + "none" ? noProject : undefined,
+                  icon: action.value === ACTION + "add" ? "plus" : action.value === ACTION + "none" ? "circle-slash" : "folder",
+                };
+              }
+              const place = shown.get(value);
+              if (!place) {
+                return { id: value, kind: "action" as const, label: t("project.usePath", { path: value }), icon: "folder" };
+              }
+              const { group, worktree } = place;
+              if (worktree) {
+                return {
+                  id: value,
+                  kind: "action" as const,
+                  label: worktreeName(worktree),
+                  description: worktree.id,
+                  checked: worktree.id === current,
+                  icon: "branch",
+                };
+              }
+              const folder = group.lead;
+              const repo = folderRepo(folder);
+              const suffix = repo && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
+              const others = group.members.length - 1;
+              const groupOpen = expanded.has(group.key);
+              return {
+                id: value,
+                kind: "action" as const,
+                label: group.name,
+                description: [suffix, folder.id].filter(Boolean).join(" · "),
+                checked: folder.id === current,
+                icon: "folder",
+                actions:
+                  others > 0 && !typed
+                    ? [{ id: EXPAND + group.key, label: String(others), icon: "branch", keepOpen: true }]
+                    : undefined,
+                value: groupOpen ? "expanded" : undefined,
+              };
+            })
+          : [{ id: "empty", kind: "text" as const, label: t(typed ? "project.none" : "project.noneYet") }],
+      footer: note ? [{ id: "note", kind: "text" as const, label: note }] : undefined,
+    },
+    onEvent: (event) => {
+      if (event.type === "search" && event.id === "query") setQuery(event.value ?? "");
+      else if (event.type === "highlight" && event.id) highlighted.current = event.id;
+      else if (event.type === "pick" && event.id) {
+        if (event.id.startsWith(EXPAND)) {
+          const key = event.id.slice(EXPAND.length);
+          toggle(key, !expanded.has(key));
+        } else submit(event.id);
+      }
+    },
+    onDismiss: close,
+  });
 
   return (
     <span ref={control} className="acpmux-location-picker">
@@ -261,54 +214,6 @@ export function FolderPopover({
       >
         {face}
       </button>
-      <Popover
-        open={open}
-        onOpenChange={(next, details) => {
-          if (!next && details?.escape) {
-            escaped.current = true;
-            close();
-          } else {
-            setOpen(next);
-            if (!next) setQuery("");
-          }
-        }}
-        anchor={open ? anchor : null}
-        label={label}
-        className="acpmux-menu acpmux-location-menu acpmux-folder-popover"
-        side={side}
-        flip={false}
-        finalFocus={false}
-      >
-        <Combobox
-          suggestions={suggestions}
-          pinnedSuggestions={pinned}
-          cancelOnBlur={false}
-          onQuery={setQuery}
-          onSubmit={submit}
-          onCancel={close}
-          onHighlight={(value) => {
-            highlighted.current = value;
-          }}
-          // Tab completes a folder's path into the field, never an action's.
-          onCommand={(event) => {
-            if (event.key === "Escape") escaped.current = true;
-            if (arrow(event.key)) event.preventDefault();
-            if (event.key === "Tab" && highlighted.current?.startsWith(ACTION)) event.preventDefault();
-          }}
-          label={t("project.search")}
-          placeholder={t("project.search")}
-          inputClassName="acpmux-location-search"
-          listClassName="acpmux-location-folders"
-          itemClassName="acpmux-menu-item"
-          renderItem={row}
-          autoHighlight
-          inline
-        />
-        {shown.size === 0 && !typedPath && (
-          <div className="acpmux-location-empty">{t(typed ? "project.none" : "project.noneYet")}</div>
-        )}
-        {note && <p className="acpmux-location-note">{note}</p>}
-      </Popover>
       <AddProjectDialog
         open={adding}
         localName={localName}
@@ -326,6 +231,7 @@ export function FolderPopover({
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
+const EXPAND = "\u0000expand:";
 
 function CheckIcon() {
   return (

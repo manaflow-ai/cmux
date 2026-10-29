@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Combobox } from "../../ui/Combobox";
-import { Popover } from "../../ui/Popover";
+import { useNativePopup } from "../../ui/nativePopup";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey } from "./i18n";
 import {
@@ -139,8 +138,7 @@ export function EnvironmentPicker({
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
-  const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, open, setOpen, side } = useLocationPopover();
   const reset = () => {
     setQuery("");
   };
@@ -229,7 +227,6 @@ export function EnvironmentPicker({
     text: string;
     detail?: string;
     kind: "local" | "ssh" | "cloud" | "saved" | "phone";
-    icon?: React.ReactNode;
     run(): void;
   };
   const actions: Action[] = [
@@ -275,7 +272,6 @@ export function EnvironmentPicker({
             value: ACTION + "create",
             text: t("environment.create"),
             kind: "saved" as const,
-            icon: <PlusIcon />,
             run: saved.onCreate,
           },
         ]
@@ -286,7 +282,6 @@ export function EnvironmentPicker({
             value: ACTION + "edit",
             text: t("environment.edit"),
             kind: "saved" as const,
-            icon: <PencilIcon />,
             run: () => saved.onEdit(editing),
           },
         ]
@@ -299,7 +294,6 @@ export function EnvironmentPicker({
             value: ACTION + "phone",
             text: t("composer.connectPhone"),
             kind: "phone" as const,
-            icon: <PhoneIcon />,
             run: () => onConnect("phone"),
           },
           // The list's last row: Add Device, where a machine on the tailnet or in ~/.ssh/config is
@@ -308,16 +302,10 @@ export function EnvironmentPicker({
             value: ACTION + "addMachine",
             text: t("composer.addMachine"),
             kind: "ssh" as const,
-            icon: <PlusIcon />,
             run: () => onConnect("addMachine"),
           },
         ]
       : []),
-  ];
-  const suggestions = [
-    ...savedShown.map((environment) => SAVED + environment.id),
-    ...shown.map((environment) => environment.id),
-    ...actions.map((action) => action.value),
   ];
   const cloudShown = shown.some((environment) => sectionOf(environment) === "fleet");
   const localShown = shown.some((environment) => sectionOf(environment) === "local");
@@ -335,8 +323,6 @@ export function EnvironmentPicker({
   const close = () => {
     setOpen(false);
     reset();
-    if (escaped.current) trigger.current?.focus();
-    escaped.current = false;
   };
   // Picking the environment already chosen changes nothing, so no caller moves focus: the prompt
   // this picker heads takes it back.
@@ -373,8 +359,6 @@ export function EnvironmentPicker({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [control]);
 
-  // The row Base UI highlighted by itself (reason "none"), not by the arrow keys or the pointer.
-  const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
@@ -394,31 +378,53 @@ export function EnvironmentPicker({
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (machine) onPick(value);
   };
-  const row = (value: string) => {
-    if (value === ACTION + "cloud" && sandboxFace) {
-      return (
-        <span
-          className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-kind="cloud"
-          data-mode="sandboxed"
-          data-section={!cloudShown && actions[0]?.value === value ? t(SECTION_LABELS.fleet) : undefined}
-          data-current={sandboxed ? "" : undefined}
-        >
-          <EnvironmentIcon kind="cloud" />
-          <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{t("composer.sandboxed")}</span>
-            <span className="acpmux-env-detail">{t("composer.sandboxedDetail")}</span>
-          </span>
-          <span className="acpmux-location-check" aria-hidden="true">
-            {sandboxed && <CheckIcon />}
-          </span>
-        </span>
+  const nativeRows = useMemo(() => {
+    const rows: Array<{
+      id: string;
+      kind: "action" | "section" | "text";
+      label: string;
+      description?: string;
+      icon?: string;
+      checked?: boolean;
+      disabled?: boolean;
+      disabledReason?: string;
+      shortcut?: string;
+    }> = [];
+    if (savedShown.length > 0) {
+      rows.push({ id: "section:saved", kind: "section", label: t("composer.envSaved") });
+      savedShown.forEach((environment) =>
+        rows.push({
+          id: SAVED + environment.id,
+          kind: "action",
+          label: environment.name,
+          checked: SAVED + environment.id === checkedRow,
+          icon: environment.kind === "cloud" ? "cloud" : environment.kind === "ssh" ? "network" : "computer",
+        }),
       );
     }
-    const action = actions.find((candidate) => candidate.value === value);
-    if (action) {
-      // The cloud action heads its section only when no cloud machine does, as Bring Back Local
-      // heads Local when this Mac isn't listed; the first other action heads New environment.
+    shown.forEach((environment, index) => {
+      const section = sectionOf(environment);
+      const previous = index > 0 ? sectionOf(shown[index - 1]!) : undefined;
+      if (section !== previous) rows.push({ id: `section:${section}`, kind: "section", label: t(SECTION_LABELS[section]) });
+      const ready = environmentReady(environment);
+      const greyed = !ready && !isCloudMachineRow(environment);
+      rows.push({
+        id: environment.id,
+        kind: "action",
+        label: environment.label,
+        description: !ready
+          ? environmentStateLabel(environment)
+          : environment.kind !== "local" && environment.connected !== undefined
+            ? t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")
+            : undefined,
+        checked: environment.id === checkedRow,
+        disabled: greyed,
+        disabledReason: greyed ? environmentStateLabel(environment) : undefined,
+        icon: environment.kind === "cloud" ? "cloud" : environment.kind === "ssh" ? "network" : "computer",
+        shortcut: numbers.get(environment.id) !== undefined ? `⌥⌘${numbers.get(environment.id)}` : undefined,
+      });
+    });
+    actions.forEach((action, index) => {
       const section =
         action.kind === "cloud"
           ? action === actions[0] && !cloudShown
@@ -431,84 +437,37 @@ export function EnvironmentPicker({
             : action === firstNew
               ? t("composer.newEnvironment")
               : undefined;
-      const first = section && savedShown.length === 0 && shown.length === 0 && action === actions[0];
-      return (
-        <span
-          className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-kind={action.kind === "saved" || action.kind === "phone" ? undefined : action.kind}
-          data-section={section}
-          data-first-section={first ? "" : undefined}
-        >
-          {action.icon ?? (
-            <EnvironmentIcon kind={action.kind === "saved" || action.kind === "phone" ? "local" : action.kind} />
-          )}
-          <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{action.text}</span>
-            {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
-          </span>
-        </span>
-      );
-    }
-    if (value.startsWith(SAVED)) {
-      const index = savedShown.findIndex((environment) => SAVED + environment.id === value);
-      const environment = savedShown[index];
-      if (!environment) return null;
-      return (
-        <span
-          className="acpmux-location-row acpmux-env-row acpmux-env-saved"
-          data-kind={environment.kind}
-          data-section={index === 0 ? t("composer.envSaved") : undefined}
-          data-first-section={index === 0 ? "" : undefined}
-          data-current={value === checkedRow ? "" : undefined}
-        >
-          <EnvironmentIcon kind={environment.kind} />
-          <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{environment.name}</span>
-          </span>
-          <span className="acpmux-location-check" aria-hidden="true">
-            {value === checkedRow && <CheckIcon />}
-          </span>
-        </span>
-      );
-    }
-    const position = positions.get(value);
-    if (!position) return null;
-    const { environment, index, sectionStart } = position;
-    const number = numbers.get(environment.id);
-    const ready = environmentReady(environment);
-    // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
-    const greyed = !ready && !isCloudMachineRow(environment);
-    return (
-      <span
-        className="acpmux-location-row acpmux-env-row"
-        data-kind={environment.kind}
-        data-section={sectionStart ? t(SECTION_LABELS[sectionOf(environment)]) : undefined}
-        data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
-        data-current={environment.id === checkedRow ? "" : undefined}
-        data-ready={greyed ? "false" : undefined}
-        aria-disabled={greyed ? true : undefined}
-      >
-        <EnvironmentIcon kind={environment.kind} name={environment.label} />
-        <span className="acpmux-menu-text acpmux-location-name">
-          <span className="acpmux-menu-label">{environment.label}</span>
-        </span>
-        {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
-            Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.kind !== "local" && environment.connected !== undefined && (
-          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
-            <span className="acpmux-env-status-text">
-              {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
-            </span>
-          </span>
-        )}
-        {number !== undefined && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
-        <span className="acpmux-location-check" aria-hidden="true">
-          {environment.id === checkedRow && <CheckIcon />}
-        </span>
-      </span>
-    );
-  };
+      if (section) rows.push({ id: `section:action:${index}`, kind: "section", label: section });
+      const sandbox = action.value === ACTION + "cloud" && sandboxFace;
+      rows.push({
+        id: action.value,
+        kind: "action",
+        label: sandbox ? t("composer.sandboxed") : action.text,
+        description: sandbox ? t("composer.sandboxedDetail") : action.detail,
+        checked: sandbox ? sandboxed : undefined,
+        icon: action.kind === "cloud" ? "cloud" : action.kind === "ssh" ? "network" : action.kind === "phone" ? "phone" : "plus",
+      });
+    });
+    return rows;
+  }, [actions, checkedRow, cloudShown, firstNew, localShown, numbers, sandboxFace, sandboxed, savedShown, sectionOf, shown]);
+
+  useNativePopup({
+    open,
+    anchor: () => control.current,
+    model: {
+      side,
+      align: "start",
+      width: 380,
+      title: label,
+      search: { id: "query", value: query, placeholder: t("composer.environmentSearch") },
+      rows: nativeRows,
+    },
+    onEvent: (event) => {
+      if (event.type === "search" && event.id === "query") setQuery(event.value ?? "");
+      else if (event.type === "pick" && event.id) submit(event.id);
+    },
+    onDismiss: close,
+  });
 
   return (
     // tooltip-allow: at or under a 460 px pane the environment shows only its icon; the tooltip names it
@@ -528,52 +487,6 @@ export function EnvironmentPicker({
       >
         {face}
       </button>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) reset();
-        }}
-        anchor={open ? anchor : null}
-        label={label}
-        className="acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover"
-        side={side}
-        flip={false}
-        finalFocus={false}
-      >
-        <Combobox
-          suggestions={suggestions}
-          onQuery={setQuery}
-          onSubmit={submit}
-          onCancel={close}
-          onCommand={(event) => {
-            if (event.key === "Escape") escaped.current = true;
-            if (event.key === "Tab") event.preventDefault();
-            // Return runs an action (New Cloud Machine creates a machine; Move to Cloud moves the
-            // chat; Open Cloud…, SSH…) only
-            // once the arrow keys or the pointer reached it, never when Base UI highlighted it on its
-            // own: a search that leaves no machine moves that highlight onto the first action.
-            if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
-              event.preventDefault();
-              event.preventBaseUIHandler?.();
-            }
-          }}
-          onHighlight={(value, by) => {
-            autoHighlighted.current = by === "none" ? value : undefined;
-          }}
-          label={t("composer.environmentSearch")}
-          placeholder={t("composer.environmentSearch")}
-          inputClassName="acpmux-location-search"
-          listClassName="acpmux-location-folders"
-          itemClassName="acpmux-menu-item"
-          renderItem={row}
-          autoHighlight
-          inline
-        />
-        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && !sandboxFace && (
-          <div className="acpmux-location-empty">{t("composer.environmentNone")}</div>
-        )}
-      </Popover>
     </span>
   );
 }
@@ -587,66 +500,6 @@ const SAVED = "\u0000saved:";
 function matches(words: readonly string[], text: string): boolean {
   const lower = text.toLowerCase();
   return words.every((word) => lower.includes(word));
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M8 3.5v9M3.5 8h9" />
-    </svg>
-  );
-}
-
-function PhoneIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect x="4.5" y="1.75" width="7" height="12.5" rx="1.75" />
-      <path d="M7 12h2" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M10.5 3.5 12.5 5.5 6 12H4v-2l6.5-6.5Z" />
-    </svg>
-  );
 }
 
 /// A machine's icon: its kind's shape. Another machine draws in its own color (machineColor), so
@@ -682,26 +535,6 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
       ) : (
         <path d="M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15 0 0 0 4.6 12.5Z" />
       )}
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={12}
-      height={12}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="m3.5 8.5 3 3 6-7" />
     </svg>
   );
 }

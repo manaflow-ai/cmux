@@ -1,7 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Combobox } from "../../ui/Combobox";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
-import { Popover } from "../../ui/Popover";
+import { useNativePopup } from "../../ui/nativePopup";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import {
@@ -39,7 +37,6 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 
 export const CONTEXT_LABELS = {
@@ -454,23 +451,35 @@ export function ComposerContext({
 }
 
 function BranchPicker({ branch }: { branch: string }) {
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, open, setOpen, side } = useLocationPopover();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const press = usePopoverTrigger(open, setOpen);
+  useNativePopup({
+    open,
+    anchor: () => control.current,
+    model: {
+      side,
+      align: "end",
+      width: 260,
+      title: t("changes.scope.branch"),
+      rows: [{ id: "branch", kind: "text", label: branch }],
+    },
+    onEvent: () => undefined,
+    onDismiss: () => setOpen(false),
+  });
   return (
     <span ref={control} className="acpmux-location-picker">
-      <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
-          <LocationFace icon={<BranchIcon />} value={branch} chevron />
-        </MenuButton>
-        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
-          <MenuRadioGroup value={branch} onValueChange={() => undefined}>
-            <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
-              <span className="acpmux-menu-text">
-                <span className="acpmux-menu-label">{branch}</span>
-              </span>
-            </MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuPopup>
-      </Menu>
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-location-button ui-ghost ui-ghost-sm"
+        aria-label={t("changes.scope.branch")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        {...press}
+      >
+        <LocationFace icon={<BranchIcon />} value={branch} chevron />
+      </button>
     </span>
   );
 }
@@ -675,13 +684,12 @@ function LocationPicker({
   onOpen?(): void;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, open, setOpen, side } = useLocationPopover();
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
   };
   const press = usePopoverTrigger(open, changeOpen);
-  const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   useMachineRefresh(open && !disabled, onOpen);
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
@@ -697,6 +705,69 @@ function LocationPicker({
       ),
     );
   }, [options, query, suffixes]);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
+  // The folder field suggests folder paths; a typed path that names none is offered as typed.
+  const typedPath = allowPath && /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
+  const nativeRows = useMemo(() => {
+    const rows: Array<{
+      id: string;
+      kind: "action" | "section" | "text";
+      label: string;
+      description?: string;
+      checked?: boolean;
+      disabled?: boolean;
+      disabledReason?: string;
+      icon?: string;
+    }> = [];
+    shown.forEach((option, index) => {
+      if (option.section && (index === 0 || shown[index - 1]!.section !== option.section)) {
+        rows.push({ id: `section:${option.section}`, kind: "section", label: option.section });
+      }
+      rows.push({
+        id: option.id,
+        kind: "action",
+        label: option.label,
+        description: [option.detail, suffixes?.get(option.id)].filter(Boolean).join(" · ") || undefined,
+        checked: option.id === selected,
+        disabled: option.disabled,
+        disabledReason: option.disabled ? option.detail : undefined,
+        icon: kind === "computer" ? "computer" : "folder",
+      });
+    });
+    if (typedPath && !shown.some((option) => option.id === typedPath)) {
+      rows.push({ id: typedPath, kind: "action", label: t("project.usePath", { path: typedPath }), icon: "folder" });
+    }
+    extras?.forEach((extra) => rows.push({ id: extra.id, kind: "action", label: extra.label, icon: "plus" }));
+    if (onBrowse) rows.push({ id: "__choose_folder__", kind: "action", label: t(CONTEXT_LABELS.chooseFolderMenu), icon: "folder" });
+    if (rows.length === 0) rows.push({ id: "empty", kind: "text", label: t("project.noneYet") });
+    return rows;
+  }, [extras, kind, onBrowse, selected, shown, suffixes, t, typedPath]);
+  useNativePopup({
+    open,
+    anchor: () => control.current,
+    model: {
+      side,
+      align: "start",
+      width: 360,
+      title: label,
+      search: { id: "query", value: query, placeholder: t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch") },
+      rows: nativeRows,
+    },
+    onEvent: (event) => {
+      if (event.type === "search" && event.id === "query") setQuery(event.value ?? "");
+      else if (event.type === "pick" && event.id) {
+        const option = options.find((candidate) => candidate.id === event.id);
+        const extra = extras?.find((candidate) => candidate.id === event.id);
+        if (option?.disabled) return;
+        changeOpen(false);
+        if (option || (allowPath && /^(?:\/|~\/)/.test(event.id))) onPick(event.id);
+        else if (extra) extra.onSelect();
+        else if (event.id === "__choose_folder__") onBrowse?.();
+      }
+    },
+    onDismiss: () => changeOpen(false),
+  });
   if (disabled)
     return (
       <span className="acpmux-location-picker" data-kind={kind}>
@@ -709,16 +780,6 @@ function LocationPicker({
         </span>
       </span>
     );
-  const pick = (id: string) => {
-    onPick(id);
-    setOpen(false);
-    setQuery("");
-  };
-  const button = <LocationFace icon={icon} value={value} chevron middle={middle} />;
-  // The folder field suggests folder paths; a typed path that names none is offered as typed.
-  const typedPath = allowPath && /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
-  const suggestions = shown.map((option) => option.id);
-  if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
     // tooltip-allow: the computer chip shows only its icon in narrow panes.
     <span
@@ -738,111 +799,6 @@ function LocationPicker({
       >
         {button}
       </button>
-      <Popover
-        open={open}
-        onOpenChange={changeOpen}
-        anchor={open ? anchor : null}
-        label={label}
-        className="acpmux-menu acpmux-location-menu"
-        side={side}
-        flip={false}
-      >
-        <Combobox
-          suggestions={suggestions}
-          onQuery={setQuery}
-          onSubmit={(id) => {
-            const option = options.find((candidate) => candidate.id === id);
-            if (option?.disabled) return;
-            if (option || (allowPath && /^(?:\/|~\/)/.test(id))) pick(id);
-          }}
-          onCancel={() => changeOpen(false)}
-          cancelOnBlur={false}
-          autoHighlight={kind === "computer" ? "always" : false}
-          // Escape closes back onto the folder chip (escapeFocus.ts).
-          onCommand={(event) => {
-            if (event.key === "Escape") focusAfterEscape(trigger.current);
-          }}
-          label={label}
-          placeholder={t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")}
-          inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
-          listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
-          itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
-          itemLabel={(id) => {
-            const option = options.find((candidate) => candidate.id === id);
-            return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);
-          }}
-          completionText={(id) => (allowPath ? id : (options.find((option) => option.id === id)?.label ?? id))}
-          isItemCurrent={(id) => id === selected}
-          renderItem={(path) => {
-            const folder = options.find((option) => option.id === path);
-            const suffix = suffixes?.get(path);
-            const index = shown.indexOf(folder!);
-            const section =
-              folder?.section && (index <= 0 || shown[index - 1]!.section !== folder.section)
-                ? folder.section
-                : undefined;
-            return (
-              // tooltip-allow: the row shows the folder's name; the tooltip is its full path
-              <span
-                className="acpmux-menu-text acpmux-location-name"
-                title={path}
-                data-section={section}
-                data-first-section={section && index === 0 ? "" : undefined}
-                data-ready={folder?.disabled ? "false" : undefined}
-                aria-disabled={folder?.disabled ? true : undefined}
-              >
-                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
-                {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
-                {suffix && (
-                  <>
-                    {" "}
-                    <span className="acpmux-location-suffix-dot" aria-hidden="true">
-                      ·
-                    </span>{" "}
-                    <span className="acpmux-location-suffix">{suffix}</span>
-                  </>
-                )}
-              </span>
-            );
-          }}
-          inline
-          keepHeight
-        />
-        {extras && extras.length > 0 && <hr className="ui-separator" />}
-        {extras?.map((extra) => (
-          <button
-            key={extra.id}
-            type="button"
-            className="acpmux-menu-item acpmux-location-choose"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              setOpen(false);
-              setQuery("");
-              extra.onSelect();
-            }}
-          >
-            {extra.label}
-          </button>
-        ))}
-        {onBrowse && (
-          <>
-            <hr className="ui-separator" />
-            <button
-              type="button"
-              className="acpmux-menu-item acpmux-location-choose"
-              // The field keeps the keyboard: its blur closes the picker before the click.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                setOpen(false);
-                setQuery("");
-                onBrowse();
-              }}
-            >
-              {t(CONTEXT_LABELS.chooseFolderMenu)}
-            </button>
-          </>
-        )}
-      </Popover>
     </span>
   );
 }
