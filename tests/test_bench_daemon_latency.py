@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""cmux-tui/scripts/bench-daemon-latency.py: the pure logic behind its rows and runtime.Q16.
+"""cmux-tui/scripts/bench-daemon-latency.py: the pure logic behind its rows and its q16 list.
 
 Covers nearest-rank percentiles and stats rows, rows() flattening for the report, select_ops,
 the unserved/failed classification of daemon errors (an unknown command or v2 operation is a
 skip; a bad enum value inside the params is a failure), the automation storm's window and the
-IPC-16 verdict, Conn.pump(0) reading what is readable, write_q16 against a temporary targets file,
-its refusals, and that main writes --out when the
-daemon never starts. No daemon and no build.
+IPC-16 verdict, Conn.pump(0) reading what is readable, the q16 items (slow_ops), and that main
+writes --out when the daemon never starts. No daemon and no build.
 
 Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
-python3 -I tests/test_bench_daemon_latency.py after changing the bench or the Q16 record.
+python3 -I tests/test_bench_daemon_latency.py after changing the bench.
 """
 import contextlib
 import importlib.util
@@ -146,9 +145,6 @@ class OpSelection(unittest.TestCase):
         with self.assertRaises(SystemExit):
             bench.select_ops("ping,no-such-op")
 
-    def test_all_covers_ipc5_ops(self):
-        self.assertFalse([name for name in bench.ipc5_ops() if name not in bench.OPS])
-
 
 class Unserved(unittest.TestCase):
     def test_unknown_command_is_a_skip(self):
@@ -275,68 +271,23 @@ class Pump(unittest.TestCase):
                 server.close()
 
 
-def result_with_ops(build_commit=None, head="0123456789abcdef"):
+def result_with_ops():
     ops = {name: {**latency(1.0), "wire": plan["wire"], "kind": plan["kind"]} for name, plan in bench.OPS.items()}
     ops["new-tab"] = {**latency(3.5), "wire": "v12", "kind": "create"}
     ops["pane.split"] = {**latency(2.5), "wire": "v2", "kind": "create"}
     ops["close-tabs"] = {"n": 0, "wire": "v12", "kind": "write", "skipped": "capability batch-close-v1 not advertised"}
     ops["move-tab"] = {**latency(4.0), "wire": "v12", "kind": "write", "error": "move-tab: boom"}
-    return {
-        "host": {"hostname": "aws-m4pro-1", "os": "Darwin", "macos": "26.0"},
-        "source": {"sha": head, "dirty": False},
-        "daemon": {"version": "1.0.0", "build_commit": build_commit,
-                   "binary": {"path": "/x/cmux-tui", "sha256": "ab" * 32, "mtime": "2026-10-26T00:00:00Z"}},
-        "scenarios": {"scale": {"ops": ops}},
-    }
+    return {"scenarios": {"scale": {"ops": ops}}}
 
 
 class Q16(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.targets = os.path.join(self.tmp.name, "ipc-targets.json")
-        with open(self.targets, "w", encoding="utf-8") as f:
-            json.dump({"about": "x", "allowlist": [], "runtime": {"Q9": []}}, f)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def read(self):
-        with open(self.targets, encoding="utf-8") as f:
-            return json.load(f)
-
-    def test_items_and_run_record(self):
-        items = bench.write_q16(self.targets, result_with_ops())
-        targets = self.read()
-        self.assertEqual(targets["runtime"]["Q9"], [])
-        self.assertEqual(targets["runtime"]["Q16"], items)
+    def test_items_are_the_scale_ops_over_2_ms(self):
+        items = bench.slow_ops(result_with_ops())
         self.assertEqual([item["key"] for item in items], ["move-tab", "new-tab", "pane.split"])
         for item in items:
             self.assertEqual(set(item), {"file", "line", "key", "p95_ms", "wire"})
             self.assertEqual(item["file"], bench.SCRIPT_REL)
             self.assertEqual(item["line"], bench.OPS[item["key"]]["line"])
-        run = targets["runtime"]["Q16_run"]
-        self.assertEqual((run["sha"], run["sha_source"]), ("0123456789abcdef", "script checkout"))
-        self.assertEqual(run["binary"]["sha256"], "ab" * 32)
-        self.assertEqual((run["skipped"], run["failed"]), (["close-tabs"], ["move-tab"]))
-        self.assertEqual(run["host"]["hostname"], "aws-m4pro-1")
-
-    def test_the_daemon_build_commit_names_the_run(self):
-        bench.write_q16(self.targets, result_with_ops(build_commit="0123456"))
-        run = self.read()["runtime"]["Q16_run"]
-        self.assertEqual((run["sha"], run["sha_source"]), ("0123456", "daemon build_commit"))
-        self.assertNotIn("binary", run)
-
-    def test_refusals_leave_the_targets_file_alone(self):
-        before = self.read()
-        with self.assertRaisesRegex(ValueError, "not this checkout's HEAD"):
-            bench.write_q16(self.targets, result_with_ops(build_commit="fedcba9"))
-        partial = result_with_ops()
-        del partial["scenarios"]["scale"]["ops"]["pane.create"]
-        with self.assertRaisesRegex(ValueError, "not measured: pane.create"):
-            bench.write_q16(self.targets, partial)
-        with self.assertRaisesRegex(ValueError, "scale scenario"):
-            bench.write_q16(self.targets, {"scenarios": {"small": {}}})
-        self.assertEqual(self.read(), before)
 
 
 class Main(unittest.TestCase):

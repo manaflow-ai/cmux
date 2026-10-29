@@ -18,8 +18,7 @@ Keys of result["scenarios"][SCENARIO]:
   ops.OP       LATENCY + wire (v12|v2), kind (read|write|create), per op of
                --ops: base (ping, identify, list-workspaces, send, new-tab),
                create (the ops of kind create: v12 and v2 creates, split,
-               browser tab, create-tab-group), all (every op, which covers
-               ipc5_ops of plans/cmux-next/ipc-targets.json), or a comma list.
+               browser tab, create-tab-group), all (every op), or a comma list.
                `skipped`: capability not advertised, or the daemon does not
                know the command (v12 `unknown variant `OP``) or operation (v2,
                once the bench's envelope parses on a served operation). Setup
@@ -115,17 +114,8 @@ Keys of result["scenarios"][SCENARIO]:
 Top level: host (hostname, os, os_version, macos, arch, cpu, cores, load,
 python), source (sha, dirty: the script checkout), daemon (version, protocol,
 build_commit, pid, capabilities, bin, binary {path, sha256, mtime}), args,
-scenarios, q16 (the scale scenario's ops with p95 > 2 ms), error (the run
-stopped), q16_write_error.
-
---write-q16 writes runtime.Q16 of ipc-targets.json (p05-ipc queue Q16: items
-{file, line, key, p95_ms, wire} for ops with p95 > 2 ms in --ops all --scenario
-scale; scripts/cmux-next/ipc-census.py reads it) and runtime.Q16_run (command,
-scenario, threshold_ms, sha, sha_source, host, daemon_version, skipped,
-failed, and binary when sha_source is `script checkout`). sha is the daemon's
-build_commit; a daemon without one is named by the script checkout's HEAD and
-the binary's hash; a build_commit other than HEAD is refused. It needs a passed
-run on a macOS host: VM timing is not perf evidence.
+scenarios, q16 (the scale scenario's ops with p95 > 2 ms: items {file, line,
+key, p95_ms, wire}), error (the run stopped).
 
 --out FILE.json writes the report alone. --out DIR (the perf lab's story
 runner) writes it to DIR/daemon-latency.json and every latency row's raw
@@ -141,7 +131,7 @@ storm's window) records none of its rows.
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
   bench-daemon-latency.py --bin ... --ops all --scenario scale \\
-      --bulk-interference --streams 8 --automation-storm 8 --out r.json [--write-q16]
+      --bulk-interference --streams 8 --automation-storm 8 --out r.json
   bench-daemon-latency.py --bin ... --sha SHA --build-config release --out DIR
 """
 
@@ -170,7 +160,6 @@ import traceback
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 SDK_SCHEMA = os.path.join(SCRIPT_DIR, "..", "spec", "sdk-schema.json")
-TARGETS = os.path.join(REPO_ROOT, "plans", "cmux-next", "ipc-targets.json")
 SCRIPT_REL = "cmux-tui/scripts/bench-daemon-latency.py"
 Q16_THRESHOLD_MS = 2.0
 V2_PROTOCOL = "cmux.protocol/2"
@@ -481,14 +470,6 @@ def binary_info(path):
             "mtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))}
 
 
-def measured_commit(result):
-    """(sha, sha_source) of the measured daemon: its stamped build_commit, else the script checkout's HEAD."""
-    build_commit = (result.get("daemon") or {}).get("build_commit")
-    if build_commit:
-        return build_commit, "daemon build_commit"
-    return (result.get("source") or {}).get("sha"), "script checkout"
-
-
 # ---------------------------------------------------------------------------------------------
 # Daemon process counters (syscalls, context switches, threads)
 
@@ -577,15 +558,6 @@ def select_ops(spec):
     if unknown:
         raise SystemExit(f"--ops: unknown op(s) {', '.join(unknown)}; known: {', '.join(OPS)}")
     return names
-
-
-def ipc5_ops():
-    """The IPC-5 op list of ipc-targets.json; `--ops all` must cover it."""
-    try:
-        with open(TARGETS, encoding="utf-8") as f:
-            return json.load(f).get("ipc5_ops") or []
-    except (OSError, ValueError):
-        return []
 
 
 def schema_capabilities():
@@ -1892,49 +1864,6 @@ def slow_ops(result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
     return items
 
 
-def same_commit(a, b):
-    """True when two (possibly abbreviated) commit ids name the same commit."""
-    return bool(a and b) and (a.startswith(b) or b.startswith(a))
-
-
-def write_q16(targets_path, result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
-    """Writes runtime.Q16 (and its run record) into ipc-targets.json; returns the items.
-
-    The record's sha is the measured daemon's build_commit. A daemon with none is named by the
-    script checkout's HEAD (`sha_source: script checkout`) plus the binary's sha256 and mtime; a
-    build_commit that is not HEAD is refused, since Q16 would credit HEAD with another commit's timings."""
-    if scenario not in (result.get("scenarios") or {}):
-        raise ValueError(f"Q16 needs the {scenario} scenario in the result")
-    ops = result["scenarios"][scenario].get("ops") or {}
-    missing = [name for name in OPS if not isinstance(ops.get(name), dict)]
-    if missing:
-        raise ValueError(f"Q16 needs --ops all; not measured: {', '.join(missing)}")
-    sha, sha_source = measured_commit(result)
-    head = (result.get("source") or {}).get("sha")
-    if sha_source == "daemon build_commit" and not same_commit(sha, head):
-        raise ValueError(f"the measured daemon is build_commit {sha}, not this checkout's HEAD {head}: "
-                         "Q16 would credit the wrong commit; run from a checkout of the binary's commit")
-    items = slow_ops(result, scenario, threshold_ms)
-    with open(targets_path, encoding="utf-8") as f:
-        targets = json.load(f)
-    runtime = targets.setdefault("runtime", {})
-    runtime["Q16"] = items
-    run = {
-        "command": "bench-daemon-latency.py --ops all --scenario scale --write-q16",
-        "scenario": scenario, "threshold_ms": threshold_ms,
-        "sha": sha, "sha_source": sha_source, "host": result.get("host"),
-        "daemon_version": (result.get("daemon") or {}).get("version"),
-        "skipped": sorted(name for name, row in ops.items() if isinstance(row, dict) and "skipped" in row),
-        "failed": sorted(name for name, row in ops.items() if isinstance(row, dict) and "error" in row),
-    }
-    if sha_source == "script checkout":
-        run["binary"] = (result.get("daemon") or {}).get("binary")
-    runtime["Q16_run"] = run
-    with open(targets_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(targets, indent=2, ensure_ascii=False) + "\n")
-    return items
-
-
 def parse_kib(value):
     sizes = [int(v) for v in value.split(",") if v]
     if not sizes or any(v <= 0 for v in sizes):
@@ -1963,8 +1892,6 @@ def parse_args(argv=None):
     ap.add_argument("--streams", type=int, default=0, metavar="N", help="attach N printing terminals")
     ap.add_argument("--automation-storm", type=int, default=0, metavar="N", help="N automation clients")
     ap.add_argument("--storm-seconds", type=float, default=8.0)
-    ap.add_argument("--write-q16", nargs="?", const=TARGETS, default=None, metavar="TARGETS",
-                    help=f"write runtime.Q16 into ipc-targets.json (default {os.path.relpath(TARGETS, REPO_ROOT)})")
     ap.add_argument("--app", help=lab.APP_HELP)
     ap.add_argument("--tag", help=lab.TAG_HELP)
     lab.add_arguments(ap, STORY)
@@ -1977,14 +1904,6 @@ def parse_args(argv=None):
     if args.flood_write_kib <= 0:
         ap.error("--flood-write-kib must be positive")
     select_ops(args.ops)
-    unmeasured = [name for name in ipc5_ops() if name not in OPS]
-    if unmeasured:
-        ap.error(f"ipc5_ops of {os.path.relpath(TARGETS, REPO_ROOT)} names ops this bench has no plan for: "
-                 f"{', '.join(unmeasured)} (add an @op)")
-    if args.write_q16 and (args.ops != "all" or "scale" not in wanted):
-        ap.error("--write-q16 needs --ops all and --scenario scale (Q16's definition)")
-    if args.write_q16 and sys.platform != "darwin":
-        ap.error("--write-q16 runs on a macOS fleet host only: VM and Linux timing is not perf evidence")
     args.bin, out, measured = lab.prepare(ap, args, REPORT_NAME)
     return args, out, measured
 
@@ -1995,8 +1914,7 @@ def write_out(path, result):
 
 
 def main(argv=None):
-    """Writes --out whatever happens (a failed section, a failed start, Ctrl-C), then --write-q16
-    only when the whole run passed."""
+    """Writes --out whatever happens (a failed section, a failed start, Ctrl-C)."""
     args, out, measured = parse_args(argv)
     b = Bench(args)
     b.result.update(host=host_info(), source=source_info(),
@@ -2030,15 +1948,6 @@ def main(argv=None):
             write_out(out.report, b.result)
     if b.failed:
         status = 1
-    if args.write_q16 and status == 0:
-        try:
-            write_q16(args.write_q16, b.result)
-            log("wrote runtime.Q16 to", args.write_q16)
-        except (OSError, ValueError) as e:
-            log("--write-q16 failed:", e)
-            b.result["q16_write_error"] = str(e)
-            write_out(out.report, b.result)
-            status = 1
     return status
 
 
