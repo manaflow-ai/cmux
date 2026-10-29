@@ -535,9 +535,7 @@ class Journey:
         # Set-up, not under test: written into the PTY by the daemon, as a paste would be.
         term = self.need_term()
         # The tty first, on its own line; the neutral prompt is written only after the shell ran it.
-        self.tty_probes += 1
-        # In the journey's own output dir (the capture slot's, removed with the slot), never /tmp.
-        tty_file = self.out / f"tty-{self.tty_probes}.txt"
+        tty_file = self.tty_probe_path()
         if tty_file.exists():
             tty_file.unlink()
         self.app.cmux("terminal", term, "write", "--text", TTY_PROBE.format(tty_file=shlex.quote(str(tty_file))))
@@ -557,6 +555,12 @@ class Journey:
                 return {"prompt": PROMPT, "tty": tty}
             time.sleep(0.1)
         raise StepError(f"the neutral prompt never showed; screen ends {last_line(self.app.screen(self.term)['text'])!r}")
+
+    def tty_probe_path(self):
+        """The next probe file: in the driver's out dir (the capture slot's, removed with the slot; never /tmp),
+        a name of fixed length (no journey id), so the probe line never wraps the 110-column terminal."""
+        self.tty_probes += 1
+        return self.out.parent / f".tty-{self.nonce}-{self.tty_probes}"
 
     @staticmethod
     def read_tty(path, timeout):

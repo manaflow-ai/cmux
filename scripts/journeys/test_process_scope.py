@@ -68,7 +68,8 @@ class Host:
 
 def journey(host, out):
     j = D.Journey.__new__(D.Journey)
-    j.app, j.out, j.binds, j.host_pid, j.pane = host, Path(out), {}, HOST, "pane_1"
+    j.app, j.out, j.binds, j.host_pid, j.pane = host, Path(out) / "ctrl-d", {}, HOST, "pane_1"
+    j.out.mkdir(exist_ok=True)
     j.ttys, j.tty_probes, j.nonce = {}, 0, "234567"
     return j
 
@@ -94,8 +95,8 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         self.assertEqual(j.binds["shell"]["pid"], 230, detail)
         # The tty goes on its own line first; the neutral prompt line itself is written unchanged after it.
         self.assertEqual([text for _, text in host.writes][1::2], [D.NEUTRAL_PROMPT, D.NEUTRAL_PROMPT])
-        self.assertTrue(all(text.startswith(f"tty >| {self.out.name}/tty-") for _, text in host.writes[0::2]), host.writes)
-        self.assertEqual(list(Path(self.out.name).glob("tty-*")), [])
+        self.assertTrue(all(text.startswith(f"tty >| {self.out.name}/.tty-") for _, text in host.writes[0::2]), host.writes)
+        self.assertEqual(list(Path(self.out.name).rglob("*tty-*")), [])
         # Ctrl+D ends the second tab's shell: process_gone holds.
         del host.table[230]
         holds, detail = j.evaluate("process_gone", "shell", {})
@@ -118,7 +119,16 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         j.term = "term_b"
         self.assertEqual(j.step_neutral_prompt({"tty_timeout": 0.1})["tty"], "ttys005")
         self.assertEqual(j.ttys, {"term_b": "ttys005"})
-        self.assertEqual(list(Path(self.out.name).glob("tty-*")), [])
+        self.assertEqual(list(Path(self.out.name).rglob("*tty-*")), [])
+
+    def test_the_probe_line_never_wraps_the_terminal(self):
+        # A capture slot's out dir and the longest journey ids: "$ " + the probe line stays within 110 columns.
+        for slot in ("1", "17"):
+            for journey_id in ("ctrl-d", "spam-cmd-shift-close-bracket", "mw-move-workspace-between-windows" + "-x" * 10):
+                j = journey(Host(), self.out.name)
+                j.out = Path(f"/Users/Shared/cmux-capture/slots/{slot}/lease-606f73db6233/journeys/out/{journey_id}")
+                line = "$ " + D.TTY_PROBE.format(tty_file=shlex.quote(str(j.tty_probe_path()))).rstrip("\r")
+                self.assertLessEqual(len(line), 100, line)
 
     def test_a_terminal_with_an_unknown_tty_never_binds_a_guess(self):
         host = Host(write_tty=False)
