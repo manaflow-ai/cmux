@@ -111,7 +111,7 @@ test.each(["shown", "rejected"] as const)(
     await act(async () => answer!({ shown: outcome === "shown" }));
     expect(shell.hasAttribute("data-escaped")).toBe(outcome === "shown");
     if (outcome === "rejected") expect(owner).toBeNull();
-    else expect(owner).toBe(mountedOwner);
+    else expect(owner === mountedOwner).toBe(true);
     expect(observe(outcome)).toEqual([]);
     expect(menu.isConnected).toBe(true);
   },
