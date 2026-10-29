@@ -1230,8 +1230,7 @@ pre.cv-math-source {
      paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
      Motion (0 with animations off). */
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
-  /* The fade out takes the scale's longest step, so the thumb is seen to fade (Leo 2026-10-29). */
-  --cmux-scroller-fade-out: var(--cmux-motion-large, 240ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
 }
 /* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
    composer's; the transcript never scrolls sideways. */

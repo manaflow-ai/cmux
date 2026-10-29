@@ -82,4 +82,33 @@ await requireBrowserLane("transcript-scroller-fade-out.test.ts", async () => {
     expect(samples.filter((sample) => sample.ink > 3 && sample.ink < 35).length).toBeGreaterThanOrEqual(4);
     expect(samples.at(-1)!.ink).toBe(0);
   });
+
+  // The host's motion settings set the duration (ui.animationSpeed, Reduce Motion, animations off):
+  // with no motion the thumb hides in the frame its scroll mark clears.
+  test("with animations off the thumb hides at once", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+    await page.waitForFunction(() => "__debug" in window);
+    await page.evaluate(`window.__debug.seedRows(300)`);
+    const inks = (await page.evaluate(async () => {
+      document.documentElement.setAttribute("data-cmux-scroller-fade", "");
+      document.documentElement.style.setProperty("--agent-motion-move", "0ms");
+      document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scroller.setAttribute("data-cmux-scrolling", "");
+      for (let frame = 0; frame < 5; frame += 1) await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame(() => scroller.removeAttribute("data-cmux-scrolling"));
+      const out: string[] = [];
+      for (let frame = 0; frame < 3; frame += 1) {
+        await window.cmuxPaintFrame();
+        out.push(scroller.style.getPropertyValue("--cmux-shown-scroller-ink"));
+      }
+      return out;
+    })) as string[];
+    await page.close();
+    // No inline ink: the stylesheet's resting value (none) applies from the first frame.
+    expect(inks).toEqual(["", "", ""]);
+  });
 });
