@@ -144,6 +144,9 @@ def adopt(client, args) -> None:
             # A failed check after the draft went public leaves nothing to adopt.
             hint = "; it is already published, so finish it with `publish`"
         raise RuntimeError(f"Release {args.release_id} is not a staged draft for tag {args.tag}{hint}")
+    prerelease = staged.get("prerelease") if args.prerelease is None else args.prerelease == "true"
+    if prerelease and args.make_latest == "true":
+        raise RuntimeError("Cannot make a prerelease latest; use --prerelease false or --make-latest false")
     staged_assets = check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
     others = [entry for entry in client.releases()
               if entry.get("tag_name") == args.tag and int(entry["id"]) != args.release_id]
@@ -188,6 +191,12 @@ def adopt(client, args) -> None:
           f"{'; carrying their notes' if carried else ''}", flush=True)
     if args.dry_run:
         return
+    # Generate and persist notes before deleting even a partially served release.
+    if args.generate_notes:
+        notes = client.request("POST", f"{client.api_url}/repos/{client.repo}/releases/generate-notes",
+                               body=json.dumps({"tag_name": args.tag}).encode())
+        carried["body"] = notes["body"]
+        args = argparse.Namespace(**{**vars(args), "generate_notes": False})
     # Notes go onto the draft before anything is deleted, so a failure cannot lose them.
     if carried:
         patch(client, args.release_id, carried)
