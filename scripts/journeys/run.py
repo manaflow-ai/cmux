@@ -280,7 +280,7 @@ def run_lease(specs, build, out, frame_interval):
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
         # capture-host launches only the build of the commit it is told (hq 6e1b413, 2026-10-29): the build's exact ref.
-        commit = str(build.get("ref") or build.get("source_digest") or "")
+        commit = str(build.get("commit") or build.get("ref") or "")
         launched = run([ch, "launch", "--commit", commit, lease, app, build.get("tag") or "journeys", "--"],
                        timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
