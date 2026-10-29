@@ -598,9 +598,6 @@ export function QuickModelPanelMenu({
       // Starts at its row (Lucas 2026-10-29: never above "Model"), never slid along the window to
       // fit: it grows away from the row and takes the room there.
       pinned
-      // Opens on a click, Enter or the arrow only: a pointer passing over it on its way to Fast mode
-      // opens nothing, so Base UI's hover safe area never blocks the rows next to it.
-      openOnHover={false}
       // The rail's first tile is one space step in from the panel's top: it lines up with this row.
       firstRowInset={4}
       onOpenChange={(next) => {
