@@ -13,6 +13,7 @@ public final class DisplayBackdropBinding {
     private let center: NotificationCenter
     private let displayID: () -> String?
     private let now: () -> Date
+    private let listFolder: @Sendable (String) -> [BackdropSelection]
     private let calendar: () -> Calendar
     private let timer = DemandTimer(owner: "display-backdrop")
     private var observers: [NSObjectProtocol] = []
@@ -21,7 +22,11 @@ public final class DisplayBackdropBinding {
 
     public init(window: NSWindow, scope: ThemeScope, center: NotificationCenter = .default,
                 displayID: @escaping () -> String?, now: @escaping () -> Date = Date.init,
-                calendar: @escaping () -> Calendar = { .current }) {
+                calendar: @escaping () -> Calendar = { .current },
+                listFolder: @escaping @Sendable (String) -> [BackdropSelection] = { path in
+                    BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list().sorted { $0.id < $1.id }
+                }) {
+        self.listFolder = listFolder
         self.window = window; self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
         inheritedScope = scope.parent ?? .app
         displayScope = ThemeScope(level: .room, parent: inheritedScope)
@@ -67,6 +72,12 @@ public final class DisplayBackdropBinding {
             shuffle = BackdropSelectionSetting.folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: rotation) }
         } else { shuffle = nil }
         if let shuffle {
+            if case .folder(let path) = shuffle.source {
+                let pictures = listFolder(path)
+                let date = now(), calendar = calendar()
+                let picture = rotation.index(count: pictures.count, on: date, calendar: calendar).map { pictures[$0] }
+                return (picture.map(BackdropPin.selection) ?? .none, max(1, rotation.nextTurn(after: date, calendar: calendar).timeIntervalSince(date) + 1))
+            }
             let turn = shuffle.turn(at: now(), calendar: calendar())
             return (turn.picture.map(BackdropPin.selection) ?? .none, turn.wait)
         }

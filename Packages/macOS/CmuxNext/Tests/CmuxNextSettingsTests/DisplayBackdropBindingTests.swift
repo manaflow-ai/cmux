@@ -57,6 +57,17 @@ import Testing
         #expect(left.backdropSelection == app.backdropSelection)
     }
 
+    @Test func folderListingRunsOffMainActor() async {
+        let scope = ThemeScope(level: .room)
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, listFolder: { _ in
+            #expect(!Thread.isMainThread, "Folder resolution and enumeration must not run on the UI thread")
+            return [.art(.munchScream)]
+        })
+        defer { binding.stop() }
+        binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/wallpapers"])]])
+        #expect(scope.backdropSelection == .art(.munchScream))
+    }
+
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
         let app = ThemeScope(level: .room)
         app.setBackdropSelection(.art(.munchScream))
