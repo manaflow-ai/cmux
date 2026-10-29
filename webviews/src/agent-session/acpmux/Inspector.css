@@ -47,7 +47,7 @@
 }
 
 .acpmux-inspector-wide dd {
-  color: var(--acpmux-del, #d0607e);
+  color: var(--agent-status-failure);
   white-space: normal;
 }
 
@@ -81,7 +81,7 @@
 }
 
 .acpmux-inspector-tools button:hover {
-  background: var(--agent-control-hover, rgba(255, 255, 255, 0.1));
+  background: var(--agent-control-hover);
 }
 
 .acpmux-inspector-count {
@@ -117,7 +117,7 @@
 }
 
 .acpmux-inspector-row > button:hover {
-  background: var(--agent-control-hover, rgba(255, 255, 255, 0.05));
+  background: var(--agent-control-hover);
 }
 
 .acpmux-inspector-row time,
@@ -150,7 +150,7 @@
 
 .acpmux-inspector-error .acpmux-inspector-kind,
 .acpmux-inspector-invalid .acpmux-inspector-kind {
-  color: var(--acpmux-del, #d0607e);
+  color: var(--agent-status-failure);
 }
 
 .acpmux-inspector-lifecycle .acpmux-inspector-name {
