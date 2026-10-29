@@ -287,7 +287,8 @@ pub(crate) fn update_tab_state(
                 transaction.execute(
                     "UPDATE tab_state SET attention_json = NULL
                      WHERE tab_id = ?1
-                       AND CAST(json_extract(attention_json, '$.at_ms') AS INTEGER) = ?2",
+                       AND json_type(attention_json, '$.at_ms') = 'integer'
+                       AND json_extract(attention_json, '$.at_ms') = ?2",
                     params![tab_id, at_ms as i64],
                 )?;
             } else {
@@ -778,6 +779,32 @@ mod attention_tests {
             connection.query_row("SELECT json_extract(attention_json, '$.reason') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get::<_, String>(0)).unwrap(),
             "Approve the scopes"
         );
+    }
+
+    #[test]
+    fn a_guarded_clear_rejects_non_integer_timestamp_shapes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+                   marked_unread INTEGER, attention_json TEXT);
+                 INSERT INTO tab_state(tab_id, attention_json) VALUES
+                   ('tab_fraction', '{\"reason\":\"fraction\",\"at_ms\":1.5}'),
+                   ('tab_string', '{\"reason\":\"string\",\"at_ms\":\"1\"}');",
+            )
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        let clear = TabStateUpdate {
+            attention: Some(None),
+            attention_clear_at_ms: Some(1),
+            ..Default::default()
+        };
+        update_tab_state(&transaction, "tab_fraction", &clear).unwrap();
+        update_tab_state(&transaction, "tab_string", &clear).unwrap();
+        transaction.commit().unwrap();
+        assert!(tab_has_attention(&connection, "tab_fraction").unwrap());
+        assert!(tab_has_attention(&connection, "tab_string").unwrap());
     }
 
     #[test]
