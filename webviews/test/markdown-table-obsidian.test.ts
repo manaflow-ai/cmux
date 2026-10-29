@@ -143,6 +143,48 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
         await page.context().close();
       });
 
+      // User 2026-10-28 ("highlighting full table cells is still weird"): the app sets
+      // --cmux-text-selection to the theme's terminal selection color, which is opaque. The cell
+      // highlight was an ::after layer above the cell, so it painted that opaque color over the
+      // words: flat gray blocks with the text gone. Native text selection keeps text readable and
+      // lets the page show through; selected cells must too.
+      test("with an opaque theme selection color, selected cells stay translucent and their text stays visible", async () => {
+        const page = await open(engine);
+        const opaque = [85, 87, 76];
+        await page.evaluate((rgb) => {
+          document.documentElement.style.setProperty("--cmux-text-selection", `rgb(${rgb.join(", ")})`);
+        }, opaque);
+        const from = await cell(page, "Ada");
+        const to = await cell(page, "Navy");
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
+        await page.mouse.move(to.x, to.y, { steps: 4 });
+        await page.mouse.up();
+        expect((await selectedTexts(page)).length).toBe(6);
+
+        const shot = PNG.sync.read(await page.screenshot());
+        const ada = (await cell(page, "Ada")).box;
+        const linus = (await cell(page, "Linus")).box;
+        const fill = pixel(shot, Math.round(ada.x + 3), Math.round(ada.y + 3));
+        const unselected = pixel(shot, Math.round(linus.x + 3), Math.round(linus.y + 3));
+        // Selected, but not a flat block of the opaque color: the page shows through it.
+        expect(fill).not.toEqual(unselected);
+        expect(fill.slice(0, 3)).not.toEqual(opaque);
+        // The words are drawn over the highlight: inside the cell some pixels differ clearly from the fill.
+        let strongest = 0;
+        for (let y = Math.round(ada.y + 2); y < Math.round(ada.y + ada.height - 2); y++)
+          for (let x = Math.round(ada.x + 2); x < Math.round(ada.x + ada.width - 2); x++) {
+            const p = pixel(shot, x, y);
+            strongest = Math.max(
+              strongest,
+              Math.abs(p[0] - fill[0]) + Math.abs(p[1] - fill[1]) + Math.abs(p[2] - fill[2]),
+            );
+          }
+        expect(strongest).toBeGreaterThan(120);
+        await page.context().close();
+      });
+
       test("Shift-click extends the cell selection", async () => {
         const page = await open(engine);
         const from = await cell(page, "Ada");

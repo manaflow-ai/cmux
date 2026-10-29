@@ -130,6 +130,16 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      # Build scripts add a Rust target only when it is missing (rustup target add
+      # reaches static.rust-lang.org even for an installed target).
+      - name: Validate scripts add only missing Rust targets
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_targets_installed_first.py
+
+      - name: Test the Rust targets helper
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_rust_targets_helper.sh
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
@@ -169,6 +179,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
+      - name: Validate the PR perf section check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_perf_section_check.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -180,6 +194,10 @@ jobs:
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_merge_freeze.py
+
+      - name: Validate bounded GitHub list reads (no gh api paginate flag under scripts/)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_pages.py
 
       - name: Validate main compile attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -683,6 +701,10 @@ jobs:
       - name: Validate the package test lane's single-suite phase
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_suite.py
+
+      - name: Validate the Linux-capable Swift package list
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_packages.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1308,6 +1330,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_fetch_ghostty_zig_packages.sh
 
+      - name: Validate curl-seeded Ghostty Zig package archives
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_seed_zig_package_archives.sh
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         shell: bash
@@ -1532,6 +1558,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
 
+      - name: Validate the nightly-next fresh-home launch smoke harness
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_fresh_home_launch_smoke.py
+
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
@@ -1596,6 +1626,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_source_archive.py
 
+      - name: Validate the retried Zig package fetch of the source archive
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_zig_fetch_all.py
+
       - name: Validate the cmux-next guards' notices pair check
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_notices_pair.py
@@ -1633,6 +1667,10 @@ jobs:
       - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
+
+      - name: Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_signing_owned_mac.py
 
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

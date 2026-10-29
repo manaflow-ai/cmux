@@ -60,6 +60,11 @@ while [ -L "$script_path" ]; do
 done
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 
+# A GitHub list, one bounded page per `gh api` call (scripts/ci/gh_pages.py). The gh quota
+# wrapper refuses gh's own unbounded paginating call, and a list past the page cap fails here
+# (each caller then tries its GraphQL or git fallback, or refuses), never reads as complete.
+gh_list() { python3 "$script_dir/ci/gh_pages.py" "$@"; }
+
 warn_checkout() {
   printf 'warning: %s\n%s\n' "$1" "$repair_note" >&2
 }
@@ -403,7 +408,7 @@ if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
-  if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+  if ! files=$(gh_list "repos/$repo/pulls/$num/files" --field filename 2>/dev/null); then
     if ! files=$(graphql_changed_files); then
       refuse "not green: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry the exact-head check'
     fi
@@ -413,7 +418,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
     needs_app_compile=1
   fi
 fi
-if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
+if ! check_runs_json=$(gh_list "repos/$repo/commits/$sha/check-runs" --slurp 2>/dev/null); then
   if ! check_runs_json=$(graphql_check_runs_response); then
     refuse \
       "not green: cannot read checks for $sha" \
@@ -587,7 +592,7 @@ if [ "$base" = feat-cmux-next ]; then
   if [ -z "$next_verdicts" ]; then
     if ! next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
         -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$next_workflow" ] \
-      || ! next_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+      || ! next_files=$(gh_list "repos/$repo/pulls/$num/files" --field filename 2>/dev/null); then
       refuse \
         "not green: no cmux-next run on $sha, and its paths filter or changed files cannot be read" \
         'restore GitHub API access, then retry the exact-head check'
@@ -697,7 +702,7 @@ is_vercel_context() {
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
-  if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
+  if ! statuses_json=$(gh_list "repos/$repo/commits/$sha/statuses" --slurp 2>/dev/null); then
     owner="${repo%/*}"; name="${repo#*/}"
     if ! statuses_json=$(gh api graphql \
       -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{status{contexts{context state description targetUrl}}}}}}' \
@@ -729,7 +734,7 @@ if [ "$has_ci" -eq 0 ]; then
     fi
   done <<<"$runs"
   if [ "$vercel_reported" -eq 1 ] && [ "$vercel_gate" = required ]; then
-    if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    if ! changed_files=$(gh_list "repos/$repo/pulls/$num/files" --field filename 2>/dev/null); then
       refuse \
         "not green: cannot list changed files for $ref" \
         'restore GitHub API access, then retry the exact-head check'
@@ -821,7 +826,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
 if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
-if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
+if ! patches=$(gh_list "repos/$repo/pulls/$num/files" --field patch 2>/dev/null); then
   if ! patches=$(git_patches); then
     refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
   fi
@@ -837,7 +842,7 @@ fi
 # it through (docs/ci/merge-freeze.md). --override never lifts a freeze, and a
 # freeze state that cannot be read refuses. merge_freeze.py lists the changed
 # files itself, with both ends of a rename, and refuses a list GitHub cut short.
-if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+if ! changed=$(gh_list "repos/$repo/pulls/$num/files" --field filename 2>/dev/null); then
   if ! changed=$(graphql_changed_files); then
     refuse "not merged: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry'
   fi

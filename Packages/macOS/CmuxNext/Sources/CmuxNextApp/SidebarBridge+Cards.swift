@@ -61,7 +61,7 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The titlebar's quiet Update Available button (``UpdaterService/availableButton``) on `view`
+    /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``) on `view`
     /// until the task is cancelled (the window's sidebar bridge owns it).
     static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService) -> Task<Void, Never> {
         // task-owner: the sidebar bridge (cancelled with the cards); event-driven (Observation).
