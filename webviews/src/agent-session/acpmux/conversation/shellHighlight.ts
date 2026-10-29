@@ -188,7 +188,9 @@ function lex(src: string, out: ShellToken[]) {
       }
       continue;
     }
-    if (c === " " || c === "\t" || (c === "\\" && src[i + 1] === "\n")) {
+    // Any whitespace BREAK ends a word on (`\r` of a CRLF, `\f`, a no-break space) is stepped over
+    // here, or `word` would return where it started and the loop would never end.
+    if (/\s/.test(c) || (c === "\\" && src[i + 1] === "\n")) {
       const n = c === "\\" ? 2 : 1;
       push(out, src.slice(i, i + n));
       i += n;

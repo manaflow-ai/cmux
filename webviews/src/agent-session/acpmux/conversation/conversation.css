@@ -2104,9 +2104,6 @@ pre.cv-math-source {
   overflow: auto;
   overscroll-behavior: contain;
 }
-.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
-  --cv-fade-bottom: 0px;
-}
 /* The command, in a block of its own over its output (ShellBlock.tsx ShellCommand): its words in
    their code colors (shellHighlight.ts), always wrapped, each line hanging under its start; a
    hairline divides it from the output. The "$ " prompt is not the command's text: a selection's
@@ -2695,6 +2692,11 @@ a.cv-sha:focus-visible {
 }
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
+}
+/* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
+   fade above: the two selectors weigh the same, so the later one wins. */
+.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+  --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
   --cv-fade-right: 32px;
