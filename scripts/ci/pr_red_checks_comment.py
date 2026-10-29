@@ -26,6 +26,11 @@ in TRACKED. The comment this used to keep on its own (LEGACY_MARKER) is deleted 
 OWN_CHECKS_GREEN=true (the caller's tracked jobs all passed or were skipped) reads only the status
 comment and stops when its line names no red: then this call has nothing to change.
 
+A call for a commit that is no longer the pull request's head writes nothing: a red at a superseded
+commit is not the pull request's red, and a late call for an old head (queued behind a newer one in
+the per-PR group) must not overwrite the line the current head's call wrote. The head is read just
+before the write, so only a call that has something to change pays for that read.
+
 Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com),
 BASE_SHA, OWN_CHECKS_GREEN.
 """
@@ -192,6 +197,10 @@ def main():
     line = decide(runs, current, lines)
     action = None
     if line is not None:
+        head = ((gh.call("GET", f"/repos/{gh.repo}/pulls/{pr}") or {}).get("head") or {}).get("sha")
+        if head != sha:
+            print(f"pr-red-checks: #{pr} {sha[:12]}: superseded by head {str(head)[:12]}; action=none")
+            return 0
         action = pr_status.upsert(gh.repo, int(pr), "checks", line, legacy=LEGACY_MARKER, api=gh.call)
     print(f"pr-red-checks: #{pr} {sha[:12]}: red={red_checks(runs)} action={action or 'none'}")
     return 0

@@ -797,7 +797,8 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
-    private func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+    /// Sets a participant's activity for demos without starting a timed reply.
+    public func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
         publish(.typing(conversation, who, on: on))
     }
 

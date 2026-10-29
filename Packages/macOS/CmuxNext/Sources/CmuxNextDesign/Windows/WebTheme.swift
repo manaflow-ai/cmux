@@ -51,6 +51,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         public let background: String
         public let foreground: String
         public let palette: [String: String]
+        /// The app's one highlight (`ThemeTokens.textSelection`: the terminal's selection color,
+        /// `appearance.highlightColor` over it): code pages (diffs, Markdown code, the editor)
+        /// select in it, as text fields and the rest of the page do.
+        public let selectionBackground: String
         /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
         /// neither cmux.json nor the Ghostty config names one.
         public let fontFamily: String?
@@ -60,12 +64,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+            selectionBackground = WebTheme.hex(tokens.textSelection)
             self.fontFamily = fontFamily
         }
 
         var json: [String: Any] {
             ["type": type, "background": background, "foreground": foreground, "palette": palette,
-             "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
         }
     }
 
@@ -120,9 +125,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
-            // `cursor-color`); without a selection color, the accent tint pages always used.
-            "--cmux-text-selection": tokens.terminalSelection.map(Self.css)
-                ?? "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+            // with `appearance.highlightColor` over it, and `cursor-color`). Without a readable
+            // selection color, the same derived one as native text fields and the omnibar
+            // (`Palette.textSelection`): one highlight app-wide (user 2026-10-28).
+            "--cmux-text-selection": Self.css(tokens.textSelection),
             "--cmux-caret": Self.css(tokens.caret),
             // The accent and the glyphs on it (`ThemeTokens.accent`: the text color, or the
             // theme's own hue with appearance.accent).
