@@ -541,16 +541,18 @@ class Journey:
             tty_file.unlink()
         self.app.cmux("terminal", term, "write", "--text", TTY_PROBE.format(tty_file=shlex.quote(str(tty_file))))
         tty = self.read_tty(tty_file, float(step.get("tty_timeout", 3)))
-        if tty_file.exists():
-            tty_file.unlink()
-        if tty:
-            self.ttys[term] = tty
-        else:
-            self.ttys.pop(term, None)
         self.app.cmux("terminal", term, "write", "--text", NEUTRAL_PROMPT)
         end = now() + float(step.get("timeout", 15))
         while now() < end:
             if last_line(self.app.screen(self.term)["text"]) == PROMPT.rstrip():
+                # A slow shell ran the probe late: it is ahead of the neutral prompt line, so it ran by now.
+                tty = tty or self.read_tty(tty_file, 0)
+                if tty_file.exists():
+                    tty_file.unlink()
+                if tty:
+                    self.ttys[term] = tty
+                else:
+                    self.ttys.pop(term, None)
                 return {"prompt": PROMPT, "tty": tty}
             time.sleep(0.1)
         raise StepError(f"the neutral prompt never showed; screen ends {last_line(self.app.screen(self.term)['text'])!r}")

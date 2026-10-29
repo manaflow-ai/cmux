@@ -31,8 +31,9 @@ def row(pid, tty, command, ppid=HOST, stat="Ss+"):
 class Host:
     """One terminal host with a shell per terminal; `term_b` is the journey's second tab."""
 
-    def __init__(self, write_tty=True):
-        self.write_tty = write_tty
+    def __init__(self, write_tty=True, late_probe=False):
+        # late_probe: the shell runs the probe only when the next line arrives (a slow host).
+        self.write_tty, self.late_probe, self.pending = write_tty, late_probe, None
         self.ttys = {"term_old": "ttys001", "term_a": "ttys004", "term_b": "ttys005"}
         self.table = {HOST: row(HOST, "??", "/Applications/cmux NEXT.app/Contents/MacOS/cmux-host", ppid=1, stat="S")}
         self.table[101] = row(101, "ttys001", "/bin/zsh")  # an older terminal of the app (its default tab)
@@ -46,6 +47,11 @@ class Host:
         self.writes.append((term, text))
         # The shell runs the line: a `tty >| FILE` in it writes this terminal's device.
         match = re.search(r"tty >\| ('[^']*'|[^\s;]+)", text)
+        if match and self.late_probe:
+            self.pending = (term, match)
+            return {}
+        if self.pending:
+            term, match, self.pending = *self.pending, None
         if match and self.write_tty:
             Path(shlex.split(match.group(1))[0]).write_text(f"/dev/{self.ttys[term]}\n")
         return {}
@@ -104,6 +110,14 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         holds, detail = j.evaluate("process_present", SHELL, {})
         self.assertTrue(holds, detail)
         self.assertEqual(j.binds["shell"]["pid"], 190, detail)
+
+    def test_a_probe_that_runs_late_is_still_read_after_the_prompt(self):
+        host = Host(late_probe=True)
+        j = journey(host, self.out.name)
+        j.term = "term_b"
+        self.assertEqual(j.step_neutral_prompt({"tty_timeout": 0.1})["tty"], "ttys005")
+        self.assertEqual(j.ttys, {"term_b": "ttys005"})
+        self.assertEqual(list(Path("/tmp").glob(f"jr-tty-{j.nonce}-*")), [])
 
     def test_a_terminal_with_an_unknown_tty_never_binds_a_guess(self):
         host = Host(write_tty=False)
