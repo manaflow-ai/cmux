@@ -33,6 +33,7 @@ struct BackgroundAccessoryPolicyTests {
         let settings: SettingsController
         let configURL: URL
         let root: URL
+        let owner: AppTestDaemonOwner
         let presented = Presented()
 
         init() async throws {
@@ -40,8 +41,9 @@ struct BackgroundAccessoryPolicyTests {
             root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-bg-\(UUID().uuidString.prefix(8))")
             let session = "cn-bg-\(UUID().uuidString.prefix(8).lowercased())"
             let launcher = DaemonLauncher(
-                configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+                configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
                 environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            owner = AppTestDaemonOwner(launcher)
             // Finish throwing filesystem setup before adopting services into the process.
             configURL = root.appendingPathComponent("cmux.json")
             do {
@@ -65,17 +67,13 @@ struct BackgroundAccessoryPolicyTests {
             // The policy each window is presented under (the hook runs after it is ordered in).
             let presented = presented
             services.windows.onPresent = { _ in presented.policies.append(NSApp.activationPolicy()) }
-            services.daemon.start {
-                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            services.daemon.start { [owner] in
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: owner.endpointProvider)
             }
         }
 
         func shutDown() async {
-            if let connection = services.daemon.connection, let identity = services.daemon.identity {
-                _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                                  timeout: .seconds(10))
-            }
-            services.daemon.shutdownConnection()
+            await owner.stop(services)
             for controller in services.windows.controllers { controller.window?.close() }
             for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
             let panels = NSApp.windows.filter { services.palette.owns($0) }

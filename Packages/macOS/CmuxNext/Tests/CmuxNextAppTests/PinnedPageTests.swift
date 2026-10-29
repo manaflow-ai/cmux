@@ -1,9 +1,74 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
+
+/// Owns each daemon a test launch ensured, including one whose first handshake never completed.
+actor AppTestDaemonOwner {
+    private let launcher: DaemonLauncher
+    private var endpoints: Set<DaemonEndpoint> = []
+    private var ensureFailed = false
+
+    init(_ launcher: DaemonLauncher) { self.launcher = launcher }
+
+    nonisolated var endpointProvider: DaemonConnection.EndpointProvider {
+        { try await self.endpoint() }
+    }
+
+    private func endpoint() async throws -> DaemonEndpoint {
+        // A cancelled ensure can have detached its owner before stdout reports it. Let this
+        // bounded attempt finish and record ownership; stop() joins its caller before reaping.
+        let launcher = launcher
+        do {
+            // task-owner: one bounded ensure, joined before this endpoint request returns
+            let endpoint = try await Task { try await launcher.ensure().endpoint }.value
+            endpoints.insert(endpoint)
+            return endpoint
+        } catch {
+            ensureFailed = true
+            throw error
+        }
+    }
+
+    @MainActor func stop(_ services: AppServices) async {
+        // task-owner: joined teardown; runs even when the test's task is already cancelled
+        await Task { @MainActor in
+            await services.daemon.shutdownConnectionAndWait()
+            await services.windows.prepareForTermination()
+            await self.reap()
+        }.value
+    }
+
+    func reap() async {
+        if let running = await launcher.runningOwner() {
+            endpoints.insert(running.endpoint)
+        } else if ensureFailed {
+            Issue.record("daemon ensure failed and its final owner could not be established; cleanup is incomplete")
+        }
+        for endpoint in endpoints {
+            let connection = DaemonConnection(endpoint: endpoint)
+            do {
+                _ = try await connection.start()
+                await connection.closeAndWait()
+                let reply = try await connection.shutdownDaemon(endTerminals: true)
+                #expect(reply.accepted == true)
+            } catch {
+                await connection.closeAndWait()
+                // A prior reconnect may have replaced an already-exited owner. Only an owner
+                // still alive after the exit wait is a teardown failure.
+            }
+            if let pid = endpoint.pid {
+                let exited = await ProcessExit.exitEvent(pid: pid, within: .seconds(60), clock: ContinuousClock())
+                #expect(exited, "test daemon outlived teardown: \(pid)")
+            } else {
+                Issue.record("test daemon endpoint has no owned pid to verify teardown")
+            }
+        }
+        endpoints.removeAll()
+    }
+}
 
 /// cx-lle.6, Chrome's pinned tabs: a pinned browser tab keeps the page it was pinned on. The
 /// app's Pin Tab records it on the daemon, the tab reports it after it browses away, and Back to
@@ -68,14 +133,15 @@ struct PinnedPageTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-pinned-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: root.appendingPathComponent("state")),
+                                 stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: owner.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         // Registered before restore can suspend or fail, including before the test body starts.
@@ -93,13 +159,7 @@ struct PinnedPageTests {
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
-        // Stop the app's connection first: on the daemon's EOF it would start a
-        // fresh daemon that outlives the test. The shutdown uses its own socket.
-        if let connection = services.daemon.connection {
-            services.daemon.shutdownConnection()
-            await connection.close()
-            _ = try? await connection.shutdownDaemon(endTerminals: true)
-        }
+        await owner.stop(services)
         try result.get()
     }
 }

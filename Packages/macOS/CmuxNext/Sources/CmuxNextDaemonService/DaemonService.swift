@@ -467,7 +467,20 @@ public final class DaemonService {
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
 
+    /// Teardown that must finish before the caller removes a test session's state or reaps its owner.
+    public func shutdownConnectionAndWait() async {
+        let startup = runTask
+        let connected = detachConnection()
+        await connected?.closeAndWait()
+        await startup?.value
+    }
+
     public func shutdownConnection() {
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
+        if let connection = detachConnection() { Task { await connection.close() } }
+    }
+
+    private func detachConnection() -> DaemonConnection? {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()
@@ -480,8 +493,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
-        // task-owner: teardown hop; close() is idempotent and finishes the store pump
-        if let connection { Task { await connection.close() } }
+        let connected = connection
         connection = nil
+        return connected
     }
 }
