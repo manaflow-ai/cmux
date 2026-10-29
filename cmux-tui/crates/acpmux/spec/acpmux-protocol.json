@@ -552,6 +552,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/watch_take_over",
       "params": true,
       "result": true
@@ -931,6 +937,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_rules",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/set_turn_cap",
       "params": true,
       "result": true
     },
