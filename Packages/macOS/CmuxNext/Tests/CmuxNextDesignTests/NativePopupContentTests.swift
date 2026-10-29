@@ -132,6 +132,39 @@ import Testing
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
+    @Test func menuSelectionOwnsActionRowKeyboardActivation() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows.append(NativePopupRow(id: "next", kind: .action, label: "Next"))
+        var picked: String?
+        content.emit = { type, id, _ in if type == .pick { picked = id } }
+        content.update(model)
+        let row = try #require(content.rowView(id: "pick"))
+        #expect(!row.acceptsFirstResponder && !row.canBecomeKeyView,
+                "a row wrapper must not retain Return/Space while the menu highlight moves")
+        for code: UInt16 in [125, 36] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     characters: "", charactersIgnoringModifiers: "",
+                                                     isARepeat: false, keyCode: code))
+            content.keyDown(with: event)
+        }
+        #expect(picked == "next")
+    }
+
+    @Test func ordinaryTextFieldReturnDoesNotActivateTheHighlightedAction() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows.append(NativePopupRow(id: "name", kind: .textField, label: "Name", value: "Edited"))
+        var picked: String?
+        content.emit = { type, id, _ in if type == .pick { picked = id } }
+        content.update(model)
+        let field = try #require(content.rowView(id: "name") as? NSTextField)
+        let consumed = content.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(!consumed)
+        #expect(picked == nil)
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "content", revision: 1,
                          anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
