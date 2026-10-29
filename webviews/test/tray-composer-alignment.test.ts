@@ -62,7 +62,9 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               window.cmuxAcpmuxComposer?.({ plainFooter });
             }, plainFooter);
             const expectedLook = variant.includes("codex") ? "codex" : "claude";
-            const expectedQuiet = plainFooter && expectedLook === "claude";
+            // Claude's compact grid remains the stable in-box host even when its chips
+            // render in the quiet footer row; Codex uses its separate bar layout.
+            const expectedQuiet = expectedLook === "claude";
             await page.waitForFunction(
               ({ expectedLook, expectedQuiet }) => {
                 const form = document.querySelector<HTMLElement>(".acpmux-composer");
