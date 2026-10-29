@@ -16,6 +16,7 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
 
   beforeAll(async () => {
     server = await createServer({
+      root,
       configFile: path.join(root, "vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false, watch: null },
       logLevel: "error",
@@ -47,12 +48,14 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
             });
             try {
               const page = await context.newPage();
-              await page.goto(base + galleryFrame("pages.markdown", {
-                variant: "readme",
-                colorScheme: theme,
-                width,
-                reducedMotion: reducedMotion === "reduce" ? "1" : "0",
-              }));
+              await page.goto(
+                base + galleryFrame("pages.markdown", {
+                  variant: "readme",
+                  colorScheme: theme,
+                  width,
+                  reducedMotion: reducedMotion === "reduce" ? "1" : "0",
+                }),
+              );
               const trigger = page.locator(".md-reading-button");
               await trigger.waitFor({ state: "visible" });
               await page.mouse.move(0, 700);
@@ -62,7 +65,12 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
               await page.locator(".md-reading").hover();
               expect(await trigger.getAttribute("aria-pressed")).toBe("true");
               const open = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
-              if (process.env.MENU_CAPTURE_DIR && engine === "chromium" && width === 1000 && reducedMotion === "no-preference") {
+              if (
+                process.env.MENU_CAPTURE_DIR &&
+                engine === "chromium" &&
+                width === 1000 &&
+                reducedMotion === "no-preference"
+              ) {
                 await mkdir(process.env.MENU_CAPTURE_DIR, { recursive: true });
                 await page.screenshot({ path: path.join(process.env.MENU_CAPTURE_DIR, `reading-open-${theme}.png`) });
               }
