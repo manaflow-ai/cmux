@@ -14,7 +14,7 @@ public final class BookmarkManagerHostView: NSView, VisibilityGatedContent {
 
     public init(model: BookmarkManagerModel) {
         self.model = model
-        gate = VisibilityGatedHostingView(owner: "BookmarkManagerHostView", hosting: NSHostingView(rootView: BookmarkManagerView(model: model)))
+        gate = VisibilityGatedHostingView(owner: "BookmarkManagerHostView") { BookmarkManagerView(model: model) }
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
