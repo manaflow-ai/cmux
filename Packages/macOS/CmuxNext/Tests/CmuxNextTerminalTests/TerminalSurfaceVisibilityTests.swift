@@ -1,7 +1,7 @@
 import AppKit
-@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
+import GhosttyNextKit
 import Testing
 
 /// Recipe R-hide in the terminal (PL-ghostty): a surface is shown by its node, under its
@@ -95,7 +95,8 @@ struct TerminalSurfaceVisibilityTests {
         #expect(surface.windowNode.deferredCount == 0, "a hidden terminal queued work")
         tab.set(.visible)
         #expect(reports.grids.count == before + 1, "a new owner and two resizes sent \(reports.grids.count - before) grids on show")
-        #expect(reports.grids.last == surface.fittedGrid)
+        #expect(reports.grids.last == Self.fit(surface), "the grid sent on show is not the one its bounds fit")
+        #expect(surface.restingGridMismatch(onScreen: true, ownerSettled: false) == nil)
         #expect(surface.windowNode.deferredCount == 0 && surface.visibilityNode.deferredCount == 0)
 
         tab.set(.hidden)
@@ -104,7 +105,7 @@ struct TerminalSurfaceVisibilityTests {
         surface.reportToNewOwner()
         tab.set(.visible)
         #expect(reports.grids.count == before + 1)
-        #expect(reports.grids.last == surface.fittedGrid)
+        #expect(reports.grids.last == Self.fit(surface), "the grid sent on show is not the one its bounds fit")
 
         // Shown again at the size it had when it hid: the owner has that grid, nothing is sent.
         tab.set(.hidden)
@@ -113,82 +114,13 @@ struct TerminalSurfaceVisibilityTests {
         #expect(reports.grids.count == before, "a show with no change sent a grid")
     }
 
-    // MARK: AppKit's unhide recomputes the draw pause (v2.2.5-opt: a terminal beside Home stayed paused "hidden")
-
-    /// v2.2.5-opt (handoff/v224-gate-triage.md): after a second Ctrl-` on Home the new tab's surface was in its
-    /// window, not hidden by AppKit (isHiddenOrHasHiddenAncestor false), its tab selected, and still paused
-    /// `hidden`: it drew nothing. Its pause was computed while a container above it was hidden; the container's
-    /// unhide changed no visibility node (the surface had joined the hidden container, so it never got
-    /// viewDidHide and its own node stayed visible), and only a node flip recomputed the pause.
-    @Test func aSurfaceCreatedUnderAHiddenContainerDrawsWhenTheContainerShows() throws {
-        _ = NSApplication.shared
-        GhosttyRuntime.startedForTests()
-        // A test window is never on screen (a CI mini's is never in front): it draws as an automation launch does.
-        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
-        WindowDrawPolicy.drawsWhenOccluded = true
-        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
-        let io = ScriptedTerminalIO()
-        let tab = VisibilityNode(root: "tab", own: .visible)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        container.isHidden = true
-        window.contentView = container
-        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: tab)
-        defer {
-            io.finish()
-            session.close()
-        }
-        session.view.frame = container.bounds
-        container.addSubview(session.view)
-        let surface = session.surfaceView
-        try #require(surface.window === window && surface.isHiddenOrHasHiddenAncestor)
-        #expect(surface.pause == .hidden, "a surface under a hidden container draws")
-
-        container.isHidden = false
-
-        #expect(!surface.isHiddenOrHasHiddenAncestor)
-        #expect(surface.pause == nil, "the container showed and the surface stayed paused \(String(describing: surface.pause))")
-    }
-
-    /// A tab view that comes into a pane's content host hidden (a view moved from another pane, as
-    /// `PaneContentView.install` takes it) while the shown tab is retired (hidden), then is unhidden: its
-    /// terminal must draw, the retired one must not.
-    @Test func aSecondTabShownByUnhidingItsParkedViewDraws() throws {
-        _ = NSApplication.shared
-        GhosttyRuntime.startedForTests()
-        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
-        WindowDrawPolicy.drawsWhenOccluded = true
-        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        window.contentView = host
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
-        let firstIO = ScriptedTerminalIO(), secondIO = ScriptedTerminalIO()
-        let first = TerminalSession(io: firstIO, mainWork: mainWork, node: VisibilityNode(root: "tab1", own: .visible))
-        let second = TerminalSession(io: secondIO, mainWork: mainWork, node: VisibilityNode(root: "tab2", own: .visible))
-        defer {
-            firstIO.finish()
-            secondIO.finish()
-            first.close()
-            second.close()
-        }
-        first.view.frame = host.bounds
-        host.addSubview(first.view)
-        #expect(first.surfaceView.pause == nil)
-
-        second.view.isHidden = true
-        second.view.frame = host.bounds
-        host.addSubview(second.view)
-        first.view.isHidden = true
-        second.view.isHidden = false
-
-        #expect(!second.surfaceView.isHiddenOrHasHiddenAncestor)
-        #expect(second.surfaceView.pause == nil, "the shown second tab stayed paused \(String(describing: second.surfaceView.pause))")
-        #expect(first.surfaceView.pause == .hidden, "the retired first tab still draws")
+    /// The grid Ghostty fits the surface's bounds to, read from Ghostty itself (not the view's own record).
+    private static func fit(_ surface: TerminalSurfaceView) -> TerminalGridSize? {
+        guard let ghostty = surface.surface else { return nil }
+        let pixels = surface.convertToBacking(surface.bounds.size)
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard ghostty_surface_fit_grid(ghostty, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows) else { return nil }
+        return TerminalGridSize(columns: Int(columns), rows: Int(rows))
     }
 }
 

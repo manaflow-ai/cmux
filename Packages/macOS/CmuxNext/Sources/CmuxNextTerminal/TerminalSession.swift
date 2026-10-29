@@ -239,8 +239,8 @@ public final class TerminalSession {
                 guard let self else { return nil }
                 return await self.replace(event)
             }))
-        // The first grid report fired inside the surface init, before
-        // `session` was set; report it now.
+        // The owner has no grid from this session yet: the view reports its grid now when it is shown, else
+        // when it shows (`reconcileShown`, from its bounds then).
         surfaceView.reportToNewOwner()
         traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
     }
