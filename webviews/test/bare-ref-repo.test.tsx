@@ -84,11 +84,12 @@ async function render(
   // The host's answers are promises (no timers): a few turns of the event loop settle every
   // link.inspect and pr.inspect and the renders after them.
   for (let pass = 0; pass < 10; pass++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // The replies' chips: a prompt's explicit `owner/repo#N` draws as its own chip too (sent prompts
+  // render Markdown, user-prompt-markdown.test.ts), which these rules about replies do not read.
   const chips = () =>
-    [...element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-ref")].map((chip) => [
-      chip.textContent,
-      chip.getAttribute("href"),
-    ]);
+    [...element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-ref")]
+      .filter((chip) => !chip.closest(".cv-user"))
+      .map((chip) => [chip.textContent, chip.getAttribute("href")]);
   return { element, calls, chips };
 }
 
@@ -139,7 +140,7 @@ test("rules a and b: a turn keeps its own mention; a later turn takes the last o
     ],
     [],
   );
-  // Prompts draw their text as written. The first reply keeps o/a (a later turn never rewrites
+  // The first reply keeps o/a (a later turn never rewrites
   // it); the last takes o/b, the one named last before its turn (rule b).
   expect(view.chips()).toEqual([
     // Named only by later turns: rule c finds it in no candidate, so rule d stands.
