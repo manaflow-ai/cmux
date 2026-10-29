@@ -45,7 +45,9 @@ const GAIN: f64 = 2.0;
 /// The flight a connection is assumed to have at least, so a nearly idle
 /// connection is never slowed while the userspace stack is waking in millisecond
 /// quanta. Keep enough data in flight to fill the measured loopback window.
-const MIN_FLIGHT: u32 = 128 * 1200;
+const INTERACTIVE_MIN_FLIGHT: u32 = 10 * 1200;
+/// Larger floor for sustained bulk streams.
+const BULK_MIN_FLIGHT: u32 = 128 * 1200;
 /// Departure credit a late connection may catch up on. Timers wake at
 /// about 1 ms resolution; without credit a connection would send one packet
 /// per wake, and the pace would be the timer's, not the network's.
@@ -221,13 +223,14 @@ impl Connection {
 
     /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
     fn interactive(&self) -> bool {
-        self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
+        self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < INTERACTIVE_MIN_FLIGHT
     }
 
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
+        let floor = if self.interactive() { INTERACTIVE_MIN_FLIGHT } else { BULK_MIN_FLIGHT };
+        Some(GAIN * f64::from(self.flight().max(floor)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -572,7 +575,7 @@ impl Pacer {
         }
         let packet = self.bulk.pop_front()?;
         if let Some(srtt) = self.srtt() {
-            let rate = GAIN * f64::from(MIN_FLIGHT) / srtt.as_secs_f64().max(1e-6);
+            let rate = GAIN * f64::from(BULK_MIN_FLIGHT) / srtt.as_secs_f64().max(1e-6);
             let start =
                 bulk_free.map_or(now, |free| free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now)));
             self.bulk_next_free = Some(start + Duration::from_secs_f64(packet.len() as f64 / rate));
