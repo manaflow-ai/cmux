@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{Mutex, Semaphore, mpsc};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -21,8 +21,8 @@ pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
 /// The largest number of tool calls whose daemon reply and output may be retained at once.
 /// Keeping this small matters because `ls` returns every session summary.
 const MAX_IN_FLIGHT_CALLS: usize = 8;
-/// The output writer's bounded backlog. Calls hold a permit until their serialized reply is
-/// accepted here, so this queue and the in-flight calls are one memory bound.
+/// The output writer's bounded backlog. Calls hold their permit until the writer consumes the
+/// serialized reply, so this queue and the in-flight calls share one memory bound.
 const OUTPUT_QUEUE_CAPACITY: usize = 8;
 
 fn tools() -> Value {
@@ -107,19 +107,21 @@ where
     E: Fn(Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    let (tx, mut rx) = mpsc::channel::<String>(OUTPUT_QUEUE_CAPACITY);
+    let (tx, mut rx) =
+        mpsc::channel::<(String, Option<OwnedSemaphorePermit>)>(OUTPUT_QUEUE_CAPACITY);
     let permits = Arc::new(Semaphore::new(MAX_IN_FLIGHT_CALLS));
     let stop = CancellationToken::new();
     let cancelled =
         Arc::new(Mutex::new(std::collections::HashMap::<String, CancellationToken>::new()));
     let writer_stop = stop.clone();
     let writer = tokio::spawn(async move {
-        while let Some(mut line) = rx.recv().await {
+        while let Some((mut line, permit)) = rx.recv().await {
             line.push('\n');
             if writer.write_all(line.as_bytes()).await.is_err() || writer.flush().await.is_err() {
                 writer_stop.cancel();
                 break;
             }
+            drop(permit);
         }
     });
     let mut calls = JoinSet::new();
@@ -127,7 +129,7 @@ where
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         if message.get("id").is_none() {
-            if message["method"].as_str() == Some("notifications/cancelled")
+            if message["method"].as_str() == Some(crate::rpc::method::CANCEL_REQUEST)
                 && !message["params"]["requestId"].is_null()
                 && let Some(token) =
                     cancelled.lock().await.remove(&message["params"]["requestId"].to_string())
@@ -163,7 +165,6 @@ where
                     (tx.clone(), message["params"].clone(), execute.clone(), cancelled.clone());
                 let call_stop = stop.clone();
                 calls.spawn(async move {
-                    let _permit = permit;
                     let result = tokio::select! {
                         result = execute(params) => Some(result),
                         _ = request_stop.cancelled() => None,
@@ -171,19 +172,20 @@ where
                     };
                     cancelled.lock().await.remove(&request_key);
                     let Some(result) = result else { return };
-                    let _ = tx.send(response(&id, result).to_string()).await;
+                    let _ = tx.send((response(&id, result).to_string(), Some(permit))).await;
                 });
                 continue;
             }
             other => {
                 let error =
                     json!({"code": -32601, "message": format!("method not found: {other}")});
-                let _ =
-                    tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string()).await;
+                let _ = tx
+                    .send((json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string(), None))
+                    .await;
                 continue;
             }
         };
-        let _ = tx.send(response(&id, reply).to_string()).await;
+        let _ = tx.send((response(&id, reply).to_string(), None)).await;
     }
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connections with it.
