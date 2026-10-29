@@ -46,6 +46,8 @@ export interface StackServer {
    * 2026-10-08), "team_gone" for TEAM_NOT_FOUND. A member who holds no permission has an empty list.
    */
   getTeamMember(teamId: string, userId: string): Promise<StackMember | null | "team_gone">
+  /** The Stack team ids the user is a member of now (GET /teams?user_id); empty for USER_NOT_FOUND. user.teams.list repairs a team its webhook never synced from it. */
+  listUserTeams(userId: string): Promise<ReadonlyArray<string>>
   /** Removes the membership in Stack (DELETE /team-memberships/{team}/{user}); "absent" when it was not there. */
   removeTeamMember(teamId: string, userId: string): Promise<"removed" | "absent" | "team_gone">
 }
@@ -230,6 +232,11 @@ export const stackServer = (
       if (perms === "team_gone") return "team_gone"
       // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
       return { display_name: name, permissions: perms.get(normal(userId)) ?? [], anonymous: r.user?.is_anonymous === true }
+    },
+    listUserTeams: async (userId) => {
+      const r = await lookup<{ items?: Array<{ id?: unknown }> }>(`/teams?user_id=${encodeURIComponent(userId)}`, "user teams", ["USER_NOT_FOUND"])
+      if (isGone(r)) return []
+      return (r.items ?? []).flatMap((t) => (typeof t.id === "string" && t.id ? [normal(t.id)] : []))
     },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))

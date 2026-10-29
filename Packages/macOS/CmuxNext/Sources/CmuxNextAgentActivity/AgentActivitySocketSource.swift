@@ -158,9 +158,23 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     public func image(for frame: AgentActivityFrameRef) async -> NSImage? {
-        guard let reply = try? await request("activity_frame", ["blob": frame.blob, "size": "thumb"]),
-              let base64 = reply["data_base64"] as? String, let data = Data(base64Encoded: base64) else { return nil }
-        return NSImage(data: data)
+        guard let data = await self.frame(frame, size: .thumb, session: nil),
+              let bytes = Data(base64Encoded: data.base64) else { return nil }
+        return NSImage(data: bytes)
+    }
+
+    /// The host's bytes for `frame`. A `full` request the host cannot answer
+    /// (retention dropped it, or an older host) falls back to the thumbnail.
+    public func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize,
+                      session: String?) async -> AgentActivityFrameData? {
+        if size == .full,
+           let reply = try? await request("activity_frame", AgentActivityWire.frameArgs(blob: frame.blob, size: .full, session: session)),
+           let data = AgentActivityWire.frameData(reply) {
+            return data
+        }
+        guard let reply = try? await request("activity_frame", AgentActivityWire.frameArgs(blob: frame.blob, size: .thumb, session: session))
+        else { return nil }
+        return AgentActivityWire.frameData(reply)
     }
 
     public func perform(_ op: AgentActivityUserOp) async throws {

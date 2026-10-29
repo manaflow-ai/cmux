@@ -31,7 +31,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Cancel { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             if json_out {
@@ -43,7 +43,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Kill { session, purge } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let v =
                 client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
             if json_out {
@@ -78,7 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
             let held = info["queue"]
@@ -361,6 +361,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("pid").and_then(Value::as_u64).unwrap_or(0),
                         age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
                     );
+                    for stuck in v["stuckSessions"].as_array().into_iter().flatten() {
+                        println!(
+                            "stuck: {} ({}) since {}: {}",
+                            stuck["name"].as_str().unwrap_or(""),
+                            stuck["stuckReason"].as_str().unwrap_or(""),
+                            stuck["stuckSince"],
+                            stuck["stuckError"].as_str().unwrap_or("")
+                        );
+                    }
                     println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
                     println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
                     println!(
@@ -490,6 +499,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
+        // The ticket is read (stdin, or argv with a warning) and checked
+        // before a daemon is reached or started.
+        Command::Host(PeerCmd::Join { ticket, name, peer_name, advertise }) => {
+            let ticket = crate::cli::pairing::join_ticket(ticket)?;
+            let client = connect(true).await?;
+            let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+            crate::cli::pairing::join(client, args, json_out).await
         }
         Command::Host(cmd) => {
             let client = connect(true).await?;
@@ -677,9 +694,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { ticket, name, peer_name, advertise } => {
-                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-                    return crate::cli::pairing::join(client, args, json_out).await;
+                PeerCmd::Join { .. } => {
+                    return Err(anyhow!("host join reads its ticket before connecting"));
                 }
             };
             if json_out {
