@@ -32,6 +32,9 @@ Chief's first count (137 files) missed `public import SwiftUI` and
    the base commit did not have fails. It runs as a blocking step ("No new
    SwiftUI") in `.github/workflows/cmux-next.yml`, not as a warn-only style
    check; its self-test is `scripts/cmux-next/tests/check-no-swiftui.test.sh`.
+   A finding the base commit already had (a SwiftUI import a push landed past
+   the gate, or an entry already stale there) is a base red: the step warns
+   and fails only on what the change itself adds.
 3. A port deletes the file's allowlist line in the same commit.
 4. Each port lands test-first: a red commit with a behaviour test (the host
    builds no `NSHostingView`, its rows react to clicks and model changes),

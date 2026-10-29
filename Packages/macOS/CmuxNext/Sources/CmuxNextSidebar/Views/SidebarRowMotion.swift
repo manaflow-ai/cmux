@@ -60,16 +60,19 @@ struct RowMotion {
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
+        let generations = leaving.map(\.0.reuseGeneration)
         list.rowMoves &+= 1
         let move = list.rowMoves
-        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, targets, leavingLines = lines.leaving] in
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, targets, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             // Every line of this move, those that only moved too: an earlier move's tuck they kept ends here at the latest.
             Self.untuck(targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0), move: move)
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
-            for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
+            for ((view, _), generation) in zip(leaving, generations) {
+                list.finishLeaving(view, generation: generation)
+            }
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }

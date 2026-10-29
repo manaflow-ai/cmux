@@ -161,6 +161,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.clearTheme": [p(.workspaceRow, .identity, 109, folder: .appearance)],
         "splitRight": [p(.pane, .create, 0), p(.terminalSelection, .create, 100, folder: .split)],
         "newColumn": [p(.pane, .create, 0, folder: .new)],
+        "newColumnLeft": [p(.pane, .create, 0, folder: .new)],
         "newRow": [p(.pane, .create, 1, folder: .new)],
         "splitDown": [p(.pane, .create, 1), p(.terminalSelection, .create, 101, folder: .split)],
         "toggleSplitZoom": [p(.pane, .layout, 100), p(.terminalSelection, .layout, 104, folder: .layout)],
