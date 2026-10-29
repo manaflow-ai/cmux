@@ -55,13 +55,16 @@ import {
 } from "./slashCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
+  cachePersistedDraft,
+  draftWasRead,
   flushPendingDraftWrites,
   forgetQueuedDraft,
   hasPendingDraftWrite,
+  hydratedDraft,
   lastQueuedDraftText,
-  readDurableDraft,
+  mergedDraft,
+  readDurableDraftState,
   readPersistedDraft,
-  seededText,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -686,8 +689,14 @@ export function Composer({
       }),
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
-        const typed = field.current?.value() ?? textRef.current;
+        let typed = field.current?.value() ?? textRef.current;
         const session = persistedSession.current;
+        // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
+        // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
+        if (session && hydratedSession.current !== session && editedBeforeHydration.current && !draftWasRead(session)) {
+          const saved = await readDurableDraftState(session);
+          if (saved) typed = mergedDraft(typed, saved.draft);
+        }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
@@ -720,13 +729,19 @@ export function Composer({
     [setAttachments],
   );
   useEffect(() => {
-    // The prompt's DOM value is the typed text; a draft never replaces it.
-    if (!draft || field.current?.value()) return;
+    if (!draft) return;
+    // The prompt's DOM value is the typed text; a draft never replaces it. A draft that arrives
+    // after the person started typing (the handshake slower than their keys) goes before what
+    // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
+    // then replaced the tab's kept draft on disk.
+    const typed = field.current?.value() ?? textRef.current;
+    const next = mergedDraft(typed, draft);
+    if (next === typed) return;
     notTyped();
-    field.current?.reset(draft);
-    setText((current) => seededText(current, draft));
-    setCaret(draft.length);
-    pendingCaret.current = draft.length;
+    field.current?.reset(next);
+    setText(next);
+    setCaret(next.length);
+    pendingCaret.current = next.length;
   }, [draft]);
   useEffect(() => {
     if (switching) carryPrompt.current = true;
@@ -736,6 +751,11 @@ export function Composer({
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
+    // The composer had no chat yet (the page still loading or reconnecting, a new chat whose
+    // session just started): what it holds was typed for this chat. It stays, merged with the
+    // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
+    // typed before the chat loaded was cleared.
+    const typedBefore = previous === undefined && !carryPrompt.current ? (field.current?.value() ?? text) : "";
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
@@ -751,7 +771,12 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = restored || carried || draft || "";
+    const initial = typedBefore.trim() ? mergedDraft(typedBefore, restored || draft) : restored || carried || draft || "";
+    // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
+    if (typedBefore.trim()) {
+      editedBeforeHydration.current = true;
+      if (sessionId) cachePersistedDraft(sessionId, initial);
+    }
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
@@ -787,26 +812,36 @@ export function Composer({
   }, [switching]);
   useEffect(() => {
     let current = true;
-    void readDurableDraft(sessionId).then((restored) => {
+    const firstRead = !draftWasRead(sessionId);
+    void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
-      const hasPendingWrite = hasPendingDraftWrite(sessionId);
+      // acpmux did not answer (its action map not installed yet, a connection that failed or
+      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+      // merged it (the action map's next version runs this again). Before, an unanswered read
+      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+      if (sessionId && !state) return;
       const currentText = field.current?.value() ?? textRef.current;
       const edited = editedBeforeHydration.current;
       editedBeforeHydration.current = false;
-      if (!hasPendingWrite && restored && !currentText && !edited) {
-        restoringSession.current = true;
+      const next = hydratedDraft({
+        current: currentText,
+        restored: state?.draft,
+        edited,
+        pendingWrite: hasPendingDraftWrite(sessionId),
+        firstRead,
+      });
+      if (next.shown) {
+        // Its own write (below) or none: the text effect does not write it again.
+        restoringSession.current = next.text !== textRef.current;
         notTyped();
-        setText(restored);
-        setCaret(restored.length);
-        pendingCaret.current = restored.length;
-        hydratedText.current = restored;
-      } else {
-        hydratedText.current = currentText;
-        if (!hasPendingWrite && (currentText.trim() || edited)) {
-          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-          writePersistedDraft(sessionId, currentText);
-        }
+        setText(next.text);
+        setCaret(next.text.length);
+        pendingCaret.current = next.text.length;
       }
+      hydratedText.current = next.text;
+      // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
+      if (next.write) writePersistedDraft(sessionId, next.text);
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
@@ -826,7 +861,12 @@ export function Composer({
       restoringSession.current = false;
       return;
     }
-    if (hydratedSession.current !== sessionId) return;
+    if (hydratedSession.current !== sessionId) {
+      // Typed before the chat's draft was read: kept for a remount (the composer swapped out while
+      // the chat loads or reconnects), and merged by the read before it goes to acpmux.
+      if (editedBeforeHydration.current) cachePersistedDraft(sessionId, text);
+      return;
+    }
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
   // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is

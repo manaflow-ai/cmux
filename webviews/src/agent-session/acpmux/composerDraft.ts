@@ -21,6 +21,50 @@ export function seededText(current: string, draft: string | undefined): string {
   return draft && !current ? draft : current;
 }
 
+/**
+ * The prompt once a saved draft (acpmux's, the tab's kept unsent text, the page's remount cache)
+ * meets text the composer already holds, typed before the chat finished loading. Nothing is lost
+ * and nothing is doubled: an empty side gives way to the other, text that already holds the saved
+ * draft stays as it is, and two different texts are both kept, the saved draft first and the typed
+ * text after it. That is the order `ComposerHandle.restore` uses (what comes back goes first): the
+ * caret stays at the end of what the person is typing, so their next key lands where they expect.
+ */
+export function mergedDraft(typed: string, saved: string | undefined): string {
+  if (!saved?.trim()) return typed;
+  if (!typed.trim()) return saved;
+  if (typed.includes(saved)) return typed;
+  // Already merged once (a second load, the host's own merge): the same text again.
+  if (saved.endsWith(`\n\n${typed}`)) return saved;
+  return `${saved}\n\n${typed}`;
+}
+
+/**
+ * What the composer does when acpmux's draft read answers (`readDurableDraftState`).
+ * - `firstRead`: this page never read the chat's draft before, so nothing it holds was built on it
+ *   (a relaunch, a reload, text typed while the chat loaded). Saved and held text are merged
+ *   (`mergedDraft`): an empty or load-time editor never replaces acpmux's non-empty draft, and
+ *   typed text is never dropped for it.
+ * - Otherwise the page already read it: what the page holds or still has queued is newer (the
+ *   person's own edit, a clear included), as before.
+ * `text` is the prompt to show, `shown` whether it differs from the editor, and `write` whether it
+ * goes to acpmux.
+ */
+export function hydratedDraft(input: {
+  current: string;
+  restored: string | undefined;
+  edited: boolean;
+  pendingWrite: boolean;
+  firstRead: boolean;
+}): { text: string; shown: boolean; write: boolean } {
+  const { current, restored, edited, pendingWrite, firstRead } = input;
+  if (firstRead && restored) {
+    const text = mergedDraft(current, restored);
+    return { text, shown: text !== current, write: text !== restored };
+  }
+  if (!pendingWrite && restored && !current && !edited) return { text: restored, shown: true, write: false };
+  return { text: current, shown: false, write: !pendingWrite && (Boolean(current.trim()) || edited) };
+}
+
 const PERSISTED_DRAFT_PREFIX = "cmux.acpmux.composer-draft.";
 
 type DraftAction = (params: Record<string, unknown>) => Promise<unknown>;
@@ -218,16 +262,24 @@ export function readPersistedDraft(sessionId: string | undefined): string | unde
   }
 }
 
-/// Stores or clears an unsent prompt in the remount cache and daemon session state.
-export function writePersistedDraft(sessionId: string | undefined, text: string): void {
+/// Stores text typed before the chat's acpmux draft was read in the remount cache only: a remount
+/// (the composer swapped out while the chat loads or reconnects) brings it back, and the read
+/// merges it with acpmux's draft before anything goes to acpmux.
+export function cachePersistedDraft(sessionId: string | undefined, text: string): void {
   const key = persistedDraftKey(sessionId);
-  if (!key || !sessionId?.trim()) return;
+  if (!key) return;
   try {
     if (text.trim()) globalThis.localStorage?.setItem(key, text);
     else globalThis.localStorage?.removeItem(key);
   } catch {
     // A storage failure must never interrupt typing or sending.
   }
+}
+
+/// Stores or clears an unsent prompt in the remount cache and daemon session state.
+export function writePersistedDraft(sessionId: string | undefined, text: string): void {
+  if (!sessionId?.trim()) return;
+  cachePersistedDraft(sessionId, text);
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
   pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
@@ -239,10 +291,32 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
 
 /// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.
 export async function readDurableDraft(sessionId: string | undefined): Promise<string | undefined> {
+  return (await readDurableDraftState(sessionId))?.draft;
+}
+
+// The chats whose acpmux draft this page has read: from then on what the page holds for one is
+// built on it (`hydratedDraft`'s `firstRead`). Never trimmed: one id per chat the page opened.
+const readDrafts = new Set<string>();
+
+/** Whether this page has read `sessionId`'s acpmux draft before. */
+export function draftWasRead(sessionId: string | undefined): boolean {
+  return Boolean(sessionId && readDrafts.has(sessionId));
+}
+
+/// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),
+/// or undefined when nothing could be read (no session, no page action yet, a failed or dropped
+/// connection). "Unread" is never "no draft": a composer that took it for one would let what the
+/// person typed while the chat loaded replace acpmux's saved draft.
+export async function readDurableDraftState(
+  sessionId: string | undefined,
+): Promise<{ draft: string | undefined } | undefined> {
   if (!sessionId?.trim()) return undefined;
   try {
     const action = pageDraftAction("chat.readDraft");
-    return action ? daemonDraft(await action({ sessionId })) : undefined;
+    if (!action) return undefined;
+    const draft = daemonDraft(await action({ sessionId }));
+    readDrafts.add(sessionId);
+    return { draft };
   } catch {
     return undefined;
   }
