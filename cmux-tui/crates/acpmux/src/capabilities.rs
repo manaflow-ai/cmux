@@ -24,6 +24,7 @@ pub struct Capability {
 }
 
 pub const CAPABILITIES: &[Capability] = &[
+    Capability { id: "machine.join.stdin.v1", wire: &[] },
     // The base the pane needs to show and drive a chat: ACP sessions, the
     // session list and its events, attach and view, harnesses and models,
     // drafts, bookmarks, prompts, permissions and the other per-chat actions.

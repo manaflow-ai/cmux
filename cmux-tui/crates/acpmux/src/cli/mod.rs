@@ -7,6 +7,7 @@
 pub mod beads;
 pub mod chats;
 pub mod cli_agent;
+pub mod cloud_join;
 #[cfg(unix)]
 pub mod codex_auth_broker;
 pub mod command;

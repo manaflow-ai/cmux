@@ -496,17 +496,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
+        Command::Host(PeerCmd::Join { ticket: None, name, hub, replace, status, .. }) => {
+            if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
+        }
+        Command::Host(PeerCmd::Join { ticket: Some(ticket), name, hub, replace, status, peer_name, advertise }) if ticket.starts_with("cmj_") || hub.is_some() || status => {
+            if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
+        }
+        Command::Host(PeerCmd::Consent { cmd }) => {
+            let surface = match cmd {
+                crate::cli::command_host::ConsentCmd::Grant { screen, control } => if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); },
+                crate::cli::command_host::ConsentCmd::Revoke { .. } => return Err(anyhow!("consent revoke is not implemented")),
+            };
+            crate::cli::cloud_join::grant_consent(surface)?;
+            if json_out { print_json(&json!({"granted": surface})); } else { println!("consent granted: {surface}"); }
+            Ok(())
+        }
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
-        }
-        // The ticket is read (stdin, or argv with a warning) and checked
-        // before a daemon is reached or started.
-        Command::Host(PeerCmd::Join { ticket, name, peer_name, advertise }) => {
-            let ticket = crate::cli::pairing::join_ticket(ticket)?;
-            let client = connect(true).await?;
-            let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-            crate::cli::pairing::join(client, args, json_out).await
         }
         Command::Host(cmd) => {
             let client = connect(true).await?;
@@ -694,8 +701,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { .. } => {
-                    return Err(anyhow!("host join reads its ticket before connecting"));
+                PeerCmd::Join { ticket: Some(ticket), name, peer_name, advertise, .. } => {
+                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                    return crate::cli::pairing::join(client, args, json_out).await;
                 }
             };
             if json_out {
