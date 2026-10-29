@@ -225,6 +225,11 @@ public extension PageDescriptor {
     static let files = PageDescriptor(
         id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
+    /// The read-only Artifacts pane (piece 4): tree, isolated preview and history. Its owner is
+    /// registered only while Labs preview features are enabled.
+    static let artifacts = PageDescriptor(
+        id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts."])
+
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],

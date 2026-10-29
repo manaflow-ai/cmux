@@ -366,6 +366,12 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], targets: [.pane], cliName: "pane open-cloud-as", mainMenu: .window,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            ActionDescriptor(
+                id: "artifacts.show",
+                title: String(localized: "action.artifacts.show", defaultValue: "Open Artifacts as Pane", bundle: .module),
+                keywords: ["artifacts", "memory", "notes", "history", "pane"], category: .pane, symbol: "shippingbox",
+                surfaces: [.palette], targets: [.pane], cliName: "pane open-artifacts-as"
+            ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
             // files (#16723), the palette and the File menu (no path: the cmux
             // picker at the pane's folder, R89), and `cmux file open`.
