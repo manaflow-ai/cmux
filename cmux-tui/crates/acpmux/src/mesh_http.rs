@@ -389,6 +389,12 @@ mod tests {
             config("https://hub.example.com/s3cret", &["mint"]).shown(),
             "https://hub.example.com"
         );
+        let joined = MeshRelayConfig {
+            url: hub.into(),
+            token_command: Vec::new(),
+            credential: Some("join".into()),
+        };
+        assert!(joined.origin().is_ok(), "joined credential config needs no token command");
     }
 
     #[tokio::test]

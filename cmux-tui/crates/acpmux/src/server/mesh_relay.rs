@@ -250,9 +250,13 @@ async fn heartbeats(
                     heartbeat_wait(&options, reply.ttl_seconds)
                 }
                 Err(e) if e.ends_relay() => {
-                    tracing::error!(
-                        "mesh relay: the hub refused this daemon's heartbeat ({e}); the relay is off until the daemon restarts"
-                    );
+                    if e.code.as_deref() == Some("mesh.unauthorized") {
+                        tracing::error!("revoked: run machine add again");
+                    } else {
+                        tracing::error!(
+                            "mesh relay: the hub refused this daemon's heartbeat ({e}); the relay is off until the daemon restarts"
+                        );
+                    }
                     halt.all();
                     return;
                 }
@@ -351,9 +355,13 @@ async fn inbox(
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
             Err(e) if e.ends_relay() => {
-                tracing::error!(
-                    "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
-                );
+                if e.code.as_deref() == Some("mesh.unauthorized") {
+                    tracing::error!("revoked: run machine add again");
+                } else {
+                    tracing::error!(
+                        "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
+                    );
+                }
                 halt.all();
                 break;
             }
