@@ -17,6 +17,13 @@ so on an owned Mac it must have the mini to itself:
   OWNED_LABELS, so ci-owned-pool-rescue.yml watches the job, and the runner
   label pins it to that idle runner. Empty otherwise: a busy fleet is never
   waited on.
+- With no drained mini (under steady PR load there never is one: run 40859232446), a nightly-next signing job is
+  sent to drain one: an idle runner of glaeda's nightly slot (NIGHTLY_SLOT_LABEL, offered only when OWNED_LABELS
+  names it, which nightly.yml's does and the DEV daily's does not) on the mini with the fewest busy runners. The
+  slot listens however full its mini is, and the waiting signing job, a nightly job, stops every other admission
+  and holds every other runner's gate there (glaeda FEED_FIRST): the running jobs finish, nothing new starts, and it
+  takes the whole mini within glaeda's SIGNING_DRAIN_WAIT_S (600 s), or is refused and the run's Blacksmith twin
+  signs. The hold is the waiting job's own marker, so it ends with the job and never strands the mini.
 - On the mini, glaeda's job-started hook gives every signing job the exclusive
   class (glaeda SIGNING_JOBS): every capacity unit and both fast tokens, so no
   other job starts beside it, and it waits at most 300 s for the mini to drain
@@ -40,6 +47,7 @@ prints the Blacksmith pair).
 
 from __future__ import annotations
 
+import collections
 import datetime as dt
 import json
 import os
@@ -50,7 +58,7 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nightly_sign_runner as blacksmith_picker  # noqa: E402
 import pr_runner_pool as pool  # noqa: E402
-from nightly_build_runner import owned_label  # noqa: E402
+from nightly_build_runner import NIGHTLY_SLOT_LABEL, owned_label  # noqa: E402
 
 ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
@@ -75,20 +83,22 @@ def member(name: str) -> str:
 
 
 def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], seed: str = "") -> tuple[str, str]:
-    """(the JSON runs-on array for an idle runner on a mini with no busy runner, or "", why).
+    """(the JSON runs-on array for an idle runner on a mini with no busy runner, else one to drain, or "", why).
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
-    `glaeda-runner-<name>` label. Its mini qualifies only when no runner of that mini, whatever its
+    `glaeda-runner-<name>` label. Its mini is drained when no runner of that mini, whatever its
     labels or status, is busy now (an offline runner GitHub calls idle is a parked slot and runs nothing).
-    `seed` picks among the qualifying minis; owned_pick passes none, so two pickers at once name the same
-    mini and glaeda admits only one of them.
+    `seed` picks among the drained minis; owned_pick passes none, so two pickers at once name the same
+    mini and glaeda admits only one of them. With no drained mini, a candidate carrying a nightly slot label
+    (NIGHTLY_SLOT_LABEL) is offered on the mini with the fewest busy runners, which glaeda drains for the
+    signing job (the module docstring); the first by name on a tie, so two pickers name the same one.
     """
     # The owned labels nightly_build_runner offers: a persistent pool or glaeda's nightly slot, which
     # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name (its hook still admits a signing job only as the exclusive class).
     wanted = [label for label in labels if label and owned_label(label)]
     if not wanted:
         return "", f"no owned pool label among {list(labels) or 'none'}"
-    busy: set[str] = set()
+    busy: collections.Counter[str] = collections.Counter()
     idle: dict[str, list[tuple[str, str]]] = {}
     for runner in runners:
         name = str(runner.get("name") or "")
@@ -98,7 +108,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         if runner.get("busy"):
             # A busy runner of any status keeps its mini: an offline one GitHub still calls busy may be running a
             # job whose end it has not seen.
-            busy.add(mini)
+            busy[mini] += 1
             continue
         if runner.get("status") != "online":
             # An offline runner GitHub calls idle runs nothing: glaeda parks most of a mini's registered runners
@@ -112,6 +122,13 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
             idle.setdefault(mini, []).append((label, name))
     drained = sorted(mini for mini in idle if mini not in busy)
     if not drained:
+        slots = sorted((busy[mini], mini, label, name) for mini, found in idle.items()
+                       for label, name in found if NIGHTLY_SLOT_LABEL.fullmatch(label))
+        if slots:
+            count, mini, label, name = slots[0]
+            return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
+                    f"`{name}` on {mini}, to drain: no mini is drained now, and glaeda holds every new job off "
+                    f"{mini} while this one waits for its {count} busy runner(s) to finish")
         return "", f"no mini with an idle {' or '.join(f'`{label}`' for label in wanted)} runner is drained now"
     mini = drained[sum(map(ord, seed)) % len(drained)] if seed else drained[0]
     label, name = sorted(idle[mini])[0]
