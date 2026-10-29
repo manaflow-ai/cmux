@@ -58,6 +58,28 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
   );
 }
 
+function FooterRow({ height }: { height: number }) {
+  const icon = (label: string) => (
+    <svg aria-label={label} viewBox="0 0 16 16" width="16" height="16" role="img">
+      <circle cx="8" cy="8" r="5" fill="currentColor" />
+    </svg>
+  );
+  return (
+    <div className="cv-message-footer-row" data-footer-row="true" style={{ height: `${height}px` }}>
+      <time className="cv-user__time" data-footer-time="true">12s</time>
+      <button type="button" className="cv-iconbtn" data-footer-glyph="copy" aria-label="Copy">
+        {icon("Copy")}
+      </button>
+      <button type="button" className="cv-iconbtn" data-footer-glyph="retry" aria-label="Retry">
+        {icon("Retry")}
+      </button>
+      <button type="button" className="cv-iconbtn cv-turn-retry-menu" data-footer-glyph="chevron" aria-label="More models">
+        {icon("Chevron")}
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const params = new URLSearchParams(location.search);
   const theme = params.get("theme") === "light" ? "light" : "dark";
@@ -78,6 +100,11 @@ function App() {
           "--text-control--letter-spacing": "0",
           "--text-detail": "11px",
           "--text-detail--letter-spacing": "0",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          gap: "4px",
+          padding: "16px",
         } as CSSProperties
       }
     >
@@ -85,6 +112,7 @@ function App() {
       <FixtureRow kind="worked" height={height} />
       <FixtureRow kind="received" height={height} />
       <FixtureRow kind="session-info" height={height} />
+      <FooterRow height={height} />
     </main>
   );
 }

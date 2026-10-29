@@ -65,6 +65,9 @@
   --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
   --cv-glyph-line: var(--acpmux-glyph-line, 20px);
   --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  --cv-footer-control-slot: var(--cv-meta-row, 24px);
+  --cv-footer-chevron-slot: 14px;
+  --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
@@ -631,6 +634,34 @@
   margin-top: var(--cv-meta-gap);
   padding-right: 2px;
   opacity: 0;
+}
+/* One footer rail for sent, received and answer rows. The timestamp and every control share the
+   same center line; retry's model chevron keeps a narrow slot without changing the rail rhythm. */
+.cv-message-footer-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-footer-gap);
+  min-height: var(--cv-meta-row);
+  white-space: nowrap;
+}
+.cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--cv-footer-control-slot);
+  padding-block: 0;
+  line-height: normal;
+}
+.cv-message-footer-row .cv-iconbtn {
+  width: var(--cv-footer-control-slot);
+  height: var(--cv-footer-control-slot);
+}
+.cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu {
+  width: var(--cv-footer-chevron-slot);
+}
+.cv-message-footer-row .cv-message-retry {
+  display: inline-flex;
+  align-items: center;
 }
 /* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {

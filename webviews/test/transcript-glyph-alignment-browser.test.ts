@@ -46,6 +46,17 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
       }),
     );
 
+  const measureFooter = async (page: Page) =>
+    page.evaluate(() => {
+      const time = document.querySelector<HTMLElement>("[data-footer-time]")!;
+      const timeBox = time.getBoundingClientRect();
+      const center = (box: DOMRect) => (box.top + box.bottom) / 2;
+      return [...document.querySelectorAll<SVGElement>("[data-footer-glyph] svg")].map((glyph) => ({
+        kind: glyph.parentElement?.getAttribute("data-footer-glyph"),
+        delta: Math.abs(center(glyph.getBoundingClientRect()) - center(timeBox)),
+      }));
+    });
+
   for (const theme of ["dark", "light"] as const) {
     for (const height of [28, 40] as const) {
       test(`${theme} ${height}px rows keep every glyph on the center line`, async () => {
@@ -56,6 +67,9 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
         const rows = await measure(page);
         expect(rows).toHaveLength(4);
         for (const row of rows) expect(row.delta, `${theme}/${height}/${row.kind}`).toBeLessThanOrEqual(0.5);
+        const footer = await measureFooter(page);
+        expect(footer).toHaveLength(3);
+        for (const glyph of footer) expect(glyph.delta, `${theme}/${height}/footer/${glyph.kind}`).toBeLessThanOrEqual(0.5);
         await page.close();
       });
     }
