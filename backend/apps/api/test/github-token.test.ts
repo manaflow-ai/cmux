@@ -251,6 +251,10 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(result.status).toBeGreaterThanOrEqual(400)
       expect(JSON.stringify(result.body)).not.toContain(reply.token)
     }
+    // Invalid grants are refused and their provider tokens are revoked.
+    expect(gh.deletes().map((c) => c.auth).sort()).toEqual(
+      ["Bearer synthetic_elevated", "Bearer synthetic_extra", "Bearer synthetic_missing_expiry"].sort(),
+    )
     // The invalid grants never enter a caller's live reusable token cache.
     gh.routes[endpoint] = () => ok({
       token: "synthetic_valid",
