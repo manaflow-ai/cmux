@@ -1631,6 +1631,7 @@
               "labs.classicHome",
               "labs.voiceRoom",
               "labs.voiceRoomURL",
+              "labs.machineJoin",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -37529,6 +37530,58 @@
       "title" : {
         "key" : "settings.labs.voiceRoomURL",
         "text" : "Voice Room Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.machineJoin.help",
+        "text" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.machineJoin",
+      "keywords" : [
+        "labs",
+        "machine",
+        "join",
+        "add",
+        "device",
+        "line",
+        "curl",
+        "remote",
+        "mesh"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "machineJoin"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.machineJoin",
+        "text" : "Join Any Machine with One Line"
       },
       "validation" : "portable"
     },

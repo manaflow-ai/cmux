@@ -516,6 +516,8 @@ export type AcpmuxCatalogModel = {
   shortName?: string;
   family?: string;
   efforts?: string[];
+  /** Present when the catalog/profile explicitly supplied the effort capability, including []. */
+  effortsDeclared?: boolean;
   defaultEffort?: string;
   fast?: boolean;
   inlineFast?: boolean;

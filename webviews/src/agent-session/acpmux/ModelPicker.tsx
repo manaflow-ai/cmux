@@ -17,7 +17,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
-import { currentLanguage, useT } from "./i18n";
+import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -47,6 +47,7 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
+  family?: string;
   models: {
     id: string;
     name?: string;
@@ -54,6 +55,7 @@ type HarnessChoice = {
     family?: string;
     unavailable?: string;
     efforts?: string[];
+    effortsDeclared?: boolean;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -75,6 +77,7 @@ type ModelChoice = {
   family?: string;
   unavailable?: string;
   efforts?: string[];
+  effortsDeclared?: boolean;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -84,6 +87,8 @@ type ModelChoice = {
   provider?: string;
   /** A bracketed note the model's name carried ("New"). */
   tag?: string;
+  /** Prime Agent has no ACP model API; its default entry is informational, not selectable. */
+  defaultChoice?: boolean;
 };
 
 /// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
@@ -109,8 +114,9 @@ function quickSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
   usable: (choice: ModelChoice) => boolean = () => true,
+  lang?: string,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
-  const { latest, older } = sectionsFor(entry);
+  const { latest, older } = sectionsFor(entry, lang);
   const all = groupChoices([...latest, ...older], model).filter(usable);
   return relevantModelSections(all, entry?.top);
 }
@@ -120,33 +126,44 @@ function quickSections(
 /// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
-const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): {
-  latest: ModelChoice[];
-  older: ModelChoice[];
-} {
+/// The cache also keeps the pane language its Default row was named in, so a language change renames it.
+const choiceCache = new WeakMap<
+  HarnessChoice,
+  { lang: string; sections: { latest: ModelChoice[]; older: ModelChoice[] } }
+>();
+function sectionsFor(
+  entry: HarnessChoice | undefined,
+  lang: string = currentLanguage(),
+): { latest: ModelChoice[]; older: ModelChoice[] } {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
-  if (cached) return cached;
+  if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
   const choices = entry.models.flatMap((model): ModelChoice[] => {
-    if (isDefaultChoice(model)) return [];
+    const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
+    if (isDefaultChoice(model) && !defaultChoice) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: model.shortName || model.name || model.id,
+        name: defaultChoice ? translate("picker.default", {}, lang) : model.shortName || model.name || model.id,
+        ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
-        unavailable: model.unavailable,
-        efforts: model.efforts,
-        fast: model.fast,
+        ...(model.unavailable ? { unavailable: model.unavailable } : {}),
+        // Catalog normalization materializes omitted capabilities as [] and marks them false;
+        // direct catalog entries without provenance retain their explicit empty declaration.
+        ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+          ? { efforts: model.efforts }
+          : {}),
+        ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
+        ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
     ];
   });
   const sections = curatedSections(modelSections(choices, entry.name), entry.top);
-  choiceCache.set(entry, sections);
+  choiceCache.set(entry, { lang, sections });
   return sections;
 }
 
@@ -155,8 +172,9 @@ function sectionsFor(entry: HarnessChoice | undefined): {
 function shownSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
+  lang?: string,
 ): { latest: ModelChoice[]; older: ModelChoice[] } {
-  const sections = sectionsFor(entry);
+  const sections = sectionsFor(entry, lang);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
   return {
@@ -166,8 +184,8 @@ function shownSections(
 }
 
 /// Every model of a harness, newest first, older versions included.
-function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
-  const { latest, older } = sectionsFor(entry);
+function choicesFor(entry: HarnessChoice | undefined, lang?: string): ModelChoice[] {
+  const { latest, older } = sectionsFor(entry, lang);
   return [...latest, ...older];
 }
 
@@ -183,9 +201,10 @@ export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string 
 function searchModels(
   entries: readonly HarnessChoice[],
   query: ParsedQuery,
+  lang?: string,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
   return entries.flatMap((entry) =>
-    choicesFor(entry)
+    choicesFor(entry, lang)
       .filter((model) => fitsQuery(model, entry.name, query))
       .map((model) => ({ model, entry })),
   );
@@ -198,6 +217,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
+      ...(entry.family ? { family: entry.family } : {}),
       models: entry.models,
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
@@ -212,6 +232,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
+      ...(entry.family ? { family: entry.family } : {}),
       models: entry.models,
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
@@ -228,6 +249,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         id: entry.id,
         ids: [entry.id],
         name,
+        ...(entry.family ? { family: entry.family } : {}),
         models: [...entry.models],
         unavailable: entry.unavailable,
         acpmuxHarness: entry.acpmuxHarness,
@@ -239,6 +261,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       continue;
     }
     existing.ids.push(entry.id);
+    existing.family ??= entry.family;
     if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
     existing.pickable ||= entry.pickable;
     const known = new Set(existing.models.map((model) => model.id));
@@ -255,7 +278,10 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
-    ...(model.unavailable ? { disabled: true } : {}),
+    ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+      ? { efforts: model.efforts }
+      : {}),
+    ...(model.unavailable || model.defaultChoice ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
@@ -438,6 +464,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
+  const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
@@ -484,6 +512,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
   // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
   const quickPicked = useRef(false);
+  // Inline effort picks use the compact menu's close path, so the prompt receives focus after
+  // the harness option update just like a model pick.
+  const quickEffort = quick?.effort;
   const menuId = useId();
   const allHarnesses = useMemo(
     () => uniqueHarnesses(catalog.filter((entry) => entry.id !== "unii" || harness === "unii")),
@@ -527,24 +558,30 @@ export function ModelPicker(props: ModelPickerProps) {
       const searchable = harnesses.filter(
         (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
       );
-      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
+      for (const { model, entry } of searchModels(searchable, parsed, lang)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+          for (const model of choicesFor(entry, lang)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
-      const { latest, older } = shownSections(selected, runsHere);
-      for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
+      const { latest, older } = shownSections(selected, runsHere, lang);
+      const shown = olderOpen ? [...latest, ...older] : latest;
+      // Another folder profile with only the informational Default row keeps its New chat row.
+      const launchOnly =
+        Boolean(selected.folder) &&
+        !selected.ids.includes(harness ?? "") &&
+        shown.every((model) => model.defaultChoice);
+      if (!launchOnly) for (const model of shown) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor, harness, lang]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   const rowCount = visible.length;
   const olderCount =
     searching || starredView || (selected && loginFor(selected) !== undefined)
       ? 0
-      : shownSections(selected, runsHere).older.length;
+      : shownSections(selected, runsHere, lang).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -671,7 +708,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive(
       Math.max(
         0,
-        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined).latest.findIndex(
+        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined, lang).latest.findIndex(
           (model) => model.id === props.model,
         ),
       ),
@@ -679,7 +716,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current, harness, open, props.model, railHarnesses]);
+  }, [current, harness, lang, open, props.model, railHarnesses]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -765,7 +802,7 @@ export function ModelPicker(props: ModelPickerProps) {
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    if (model.unavailable || model.defaultChoice || !owner?.pickable || loginFor(owner) !== undefined) return;
     toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
@@ -797,7 +834,7 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.folder?.state !== "needs-enable" &&
         loginFor(entry) === undefined,
     );
-    const found = searchModels(searchable, typed);
+    const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
     const groupOf = new Map<ModelChoice, ModelChoice>();
     for (const entry of new Set(found.map((match) => match.entry))) {
@@ -847,7 +884,7 @@ export function ModelPicker(props: ModelPickerProps) {
       .filter((entry) => loginFor(entry) === undefined)
       .flatMap((entry) =>
         groupChoices(
-          choicesFor(entry).filter((model) => favorites.has(model.id)),
+          choicesFor(entry, lang).filter((model) => favorites.has(model.id)),
           entry.ids.includes(harness ?? "") ? props.model : undefined,
         ).map((model) => row(entry, model)),
       );
@@ -856,7 +893,7 @@ export function ModelPicker(props: ModelPickerProps) {
       const signedOutHere = loginFor(entry) !== undefined;
       const { shown, more } = signedOutHere
         ? { shown: [], more: [] }
-        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
       list.push({
         id: entry.id,
         name: entry.name,
@@ -898,6 +935,7 @@ export function ModelPicker(props: ModelPickerProps) {
     favorites,
     starredText,
     harness,
+    lang,
     props.model,
     t,
     onLogIn,
@@ -1186,6 +1224,17 @@ export function ModelPicker(props: ModelPickerProps) {
             }}
             menu={{
               ...quick,
+              ...(quickEffort
+                ? {
+                    effort: {
+                      ...quickEffort,
+                      onPick: (value: string) => {
+                        quickPicked.current = true;
+                        quickEffort.onPick(value);
+                      },
+                    },
+                  }
+                : {}),
               ...(props.sessionAuth
                 ? {
                     auth: {
@@ -1199,7 +1248,7 @@ export function ModelPicker(props: ModelPickerProps) {
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
                 current && loginFor(current) === undefined
-                  ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
+                  ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
                       quickRow("", model),
                     )
                   : [],
@@ -1207,6 +1256,10 @@ export function ModelPicker(props: ModelPickerProps) {
               onModel: (id) => {
                 quickPicked.current = true;
                 onLand(id);
+              },
+              inlineEffort: onCombo !== undefined,
+              onModelEffort: (id, effort) => {
+                if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
               },
               search: { find: quickSearch, pick: pickQuickToPrompt },
               ...(quickFamilies
@@ -1541,7 +1594,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         aria-checked={model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")}
                         className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${model.id === props.model ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
                         onPointerEnter={() => setActive(index)}
-                        disabled={Boolean(model.unavailable)}
+                        disabled={Boolean(model.unavailable || model.defaultChoice)}
                         onClick={() => selectModel(model)}
                         active={index === active}
                       >

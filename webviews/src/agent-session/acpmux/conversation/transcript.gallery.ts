@@ -8,6 +8,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -751,11 +752,25 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    const shimmer = doc
-      .querySelector(".cv-worked.is-below .cv-thinking")!
-      .getAnimations()
-      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (!shimmer) throw new Error("the live line's words do not shimmer");
+    const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
+    const loops = line
+      .getAnimations({ subtree: true })
+      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
+      .map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      });
+    const check = checkRunningLineLoops(loops);
+    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
+      throw new Error("the live line's words do not shimmer as one loop per text layer");
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
@@ -813,12 +828,28 @@ const runningLineStill =
     const loops = line
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const shimmer = loops.filter((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (loops.length > shimmer.length)
-      throw new Error(`${loops.length - shimmer.length} animations loop on the running line`);
+    const check = checkRunningLineLoops(
+      loops.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      }),
+    );
+    if (check.unapproved.length || check.duplicateTargets.length)
+      throw new Error(
+        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
+      );
     // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && shimmer.length !== 1) throw new Error(`Thinking shimmers ${shimmer.length} times, not once`);
-    if (!shimmers && shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers && !hasCompleteRunningLineShimmer(check))
+      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
+    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
