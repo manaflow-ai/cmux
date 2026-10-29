@@ -118,7 +118,11 @@ export function ToolGroupRow({
             <WriteLabel tool={tools[0]!} write={write} t={t} />
           ) : (
             <>
+              {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
+                  verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
+                  and two?"). */}
               <ToolLabel
+                whole
                 text={toolGroupLabel(
                   t,
                   kind,

@@ -1,8 +1,10 @@
-// Open chat on another agent's message line (conversation/IncomingMessageCard.tsx, the shared
-// DisclosureRow's `.cv-disclosure__open`) goes to the sender's chat (Leo, ask-7325396234: "I THINK I
-// WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"): a click opens the sender by its acpmux
-// id, a lane on a peer found by its bare name too. The sender's name is plain text on the line's
-// toggle, never a button of its own; a sender no list names has no Open chat.
+// Another agent's message line (conversation/IncomingMessageCard.tsx, the shared DisclosureRow's
+// `.cv-disclosure__open`) goes to the sender's chat (Leo, ask-7325396234: "I THINK I WANNA BE ABLE TO
+// CLICK ON THESE TO ACTUALLY GO TO THEM"): a click on the line opens the sender by its acpmux id, a
+// lane on a peer found by its bare name too, and its chevron alone opens the message. No "Open chat"
+// word sits beside it (Leo, 2026-10-29: "Nobody asked for open chat. We can just click."). The
+// sender's name is plain text on the line, never a button of its own; a sender no list names has a
+// line that only opens the message.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -93,15 +95,16 @@ async function line(message: { name: string; sessionId?: string }) {
   };
 }
 
-test("a peer lane, found by its bare name, opens from Open chat; its name is plain text on the toggle", async () => {
+test("a peer lane, found by its bare name, opens from a click on its line; its name is plain text on it", async () => {
   const { open, from, toggle, opened } = await line({ name: "chief-ui" });
-  expect(open?.textContent).toBe(t("subsession.openChat"));
+  expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
-  expect(from?.closest("button")).toBe(toggle);
+  expect(from?.closest("button")).toBe(open);
+  expect(toggle.classList.contains("is-chevron")).toBe(true);
   expect(host.querySelector(".cv-received__name")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
-  // Open chat leaves the message closed.
+  // Opening the chat leaves the message closed.
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
 
@@ -111,7 +114,7 @@ test("a chat on this Mac opens by the id its message gives", async () => {
   expect(opened).toEqual(["mux-deputy"]);
 });
 
-test("a sender no list names has no Open chat: its line only opens the message", async () => {
+test("a sender no list names opens no chat: its line only opens the message", async () => {
   const { open, from, toggle, opened } = await line({ name: "gone-lane" });
   expect(open).toBeNull();
   expect(from?.textContent).toBe("gone-lane");

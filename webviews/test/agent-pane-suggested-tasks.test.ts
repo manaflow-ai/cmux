@@ -586,8 +586,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.innerText()).not.toContain("Message id:");
       await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("[cmux agent message] from Grid fix").waitFor({ timeout: 5_000 });
-      // The sender is a chat here: Open chat opens it by its session id, not its address.
-      await card.getByRole("button", { name: "Open chat" }).click();
+      // The sender is a chat here: a click on its line opens it by its session id, not its address.
+      await card.locator(".cv-disclosure__open").click();
       await waitUntil(() => calls.some((c) => c.params.sessionId === "child-3"));
       expect(calls.some((c) => c.params.sessionId === "acp:child-3")).toBe(false);
       await page.close();
