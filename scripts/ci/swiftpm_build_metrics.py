@@ -34,6 +34,7 @@ UNDEFINED_END = "ld: symbol(s) not found"
 UNDEFINED_SYMBOL = re.compile(r'^"(.+)", referenced from:$')
 REFERENCING_OBJECT = re.compile(r" in (?:[^\s()]+\()?([^\s()]+\.o)\)?$")
 SYMBOL_MODULE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\.")
+EXTENSION_MODULE = re.compile(r"\(extension in ([A-Za-z_]\w*)\):")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # A compiler or linker that crashed: its failure is never a stale object's, and a retry could hide it.
 CRASH = re.compile(r"Stack dump:|PLEASE submit a bug report|failed due to signal|Fatal error:|"
@@ -201,7 +202,7 @@ def stale_link_modules(build: Path, lines: list[str]) -> list[Path]:
         text = line.strip()
         symbol = UNDEFINED_SYMBOL.match(text)
         if symbol:
-            owner = SYMBOL_MODULE.search(symbol[1])
+            owner = EXTENSION_MODULE.search(symbol[1]) or SYMBOL_MODULE.search(symbol[1])
             if owner:
                 modules.add(owner[1])
             continue
