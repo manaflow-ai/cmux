@@ -1,7 +1,6 @@
 {
   "agent-pane.changes-options-menu#keyboard": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.chief-dock#toggle-stack": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.composer#popup-surface": "composer. Its play throws on base since health began counting thrown plays (2026-10-28): composer controls lost the flexible gap between left and right groups.",
   "agent-pane.composer#queued-long": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.composer#slash-menu-skills-and-input": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.diff-panel#review-file": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",

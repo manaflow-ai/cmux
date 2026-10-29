@@ -139,7 +139,11 @@ def git(repo: str, *args: str, timeout: float = 20) -> subprocess.CompletedProce
 def fetch_commits(repo: str, remote: str, sha: str) -> None:
     """Commits only (no trees or blobs) of sha's last 300, bounded by FETCH_SECONDS."""
     if repo and remote and SHA.match(sha):
-        git(repo, "fetch", "-q", "--no-tags", "--filter=tree:0", "--depth=300", remote, sha, timeout=FETCH_SECONDS)
+        # A depth flag only in an already-shallow checkout: in a full clone it would make every
+        # worktree sharing the git directory shallow.
+        is_shallow = git(repo, "rev-parse", "--is-shallow-repository")
+        depth = ["--depth=300"] if is_shallow and is_shallow.stdout.strip() == "true" else []
+        git(repo, "fetch", "-q", "--no-tags", "--filter=tree:0", *depth, remote, sha, timeout=FETCH_SECONDS)
 
 
 def has_commit(repo: str, sha: str) -> bool:
