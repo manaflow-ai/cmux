@@ -35,7 +35,17 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    // Two received messages in a row fold into one card (6d51fdc46f0d, #26980) whose rows show once
+    // it opens: open it, so each message's own preview is what the test reads.
+    // The fold's own line carries `.cv-received__toggle` too: the tests read the messages' toggles
+    // (`toggle` below), never it.
+    const fold = page.locator(
+      '.cv-waiting[data-delivery="chat"]:not([data-open]) > .cv-waiting__line .cv-waiting__toggle',
+    );
+    while ((await fold.count()) > 0) await fold.first().click();
   };
+  /// A received message's own disclosure toggle, never a message fold's.
+  const toggle = () => page.locator(".cv-received__toggle:not(.cv-waiting__toggle)");
   // Check actual rendered glyph and chip boxes, not an assumed line-height grid.
   const intact = (selector: string) =>
     page.locator(selector).evaluate((box) => {
@@ -87,7 +97,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await page.locator(".cv-received").nth(1).locator(".cv-received__show").count()).toBe(0);
     await page.locator(".cv-received__show").focus();
     await page.keyboard.press("Enter");
-    expect(await page.locator(".cv-received__toggle").first().getAttribute("aria-expanded")).toBe("true");
+    expect(await toggle().first().getAttribute("aria-expanded")).toBe("true");
     // The reader's open plays the text box's resize (fold.ts playResize, 1f4d014186f2); all of it
     // shows once that ends.
     expect(
@@ -99,7 +109,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
           return box.clientHeight >= box.scrollHeight;
         }),
     ).toBe(true);
-    await page.locator(".cv-received__toggle").first().click();
+    await toggle().first().click();
     await page.locator(".cv-received__show").waitFor();
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
@@ -126,7 +136,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         .first()
         .evaluate((box) => getComputedStyle(box).textOverflow),
     ).toBe("ellipsis");
-    await page.locator(".cv-received__toggle").first().click();
+    await toggle().first().click();
     await page.locator(".cv-received__body").waitFor();
     expect(await intact(".cv-received__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
