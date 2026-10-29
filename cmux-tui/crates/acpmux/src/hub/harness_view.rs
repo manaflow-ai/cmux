@@ -36,6 +36,9 @@ impl Hub {
                     Err(reason) => json!({"startable": false, "reason": reason}),
                 };
                 o.insert("remote".into(), remote);
+                if super::models_view::picker_hidden(&cfg, name) {
+                    o.insert("pickerHidden".into(), json!(true));
+                }
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
                 }
