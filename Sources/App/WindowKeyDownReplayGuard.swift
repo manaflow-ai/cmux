@@ -4,6 +4,15 @@ import CmuxTerminal
 
 extension NSEvent {
     var cmuxIsUndoRedoCommandEquivalent: Bool {
+        cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: KeyboardLayout.character(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Matches the Undo menu equivalent using the active keyboard layout.
+    func cmuxIsUndoRedoCommandEquivalent(
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+    ) -> Bool {
         let normalizedFlags = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])

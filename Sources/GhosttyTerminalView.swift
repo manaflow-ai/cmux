@@ -6684,6 +6684,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("esc:\(chord.letter)")
     }
 
+    /// Reads the screen mode for a text-editing key press.
+    func alternateScreenActiveAtKeyPress(_ event: NSEvent, read: () -> Bool) -> Bool {
+        read()
+    }
+
     /// Replays Cmd+Z at a shell prompt as the line editor's undo key.
     ///
     /// - Returns: `true` when the keystroke became line-editor undo and must
@@ -6702,7 +6707,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeActive: keyboardCopyModeActive
         )
         guard keystroke.shouldReplay(
-            isAlternateScreenActive: { terminalSurface?.isAlternateScreenActive() == true }
+            isAlternateScreenActive: {
+                alternateScreenActiveAtKeyPress(event) {
+                    terminalSurface?.isAlternateScreenActive() == true
+                }
+            }
         ) else { return false }
         return performBindingAction(TerminalLineEditorUndo.bindingAction)
     }

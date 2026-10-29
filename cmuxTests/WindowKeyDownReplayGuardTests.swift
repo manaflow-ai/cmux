@@ -520,6 +520,44 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    @Test(arguments: [
+        (UInt16(kVK_ANSI_Z), ";", "z", true),
+        (UInt16(kVK_ANSI_Slash), "z", "/", false),
+    ])
+    func undoUsesTheCommandTable(
+        keyCode: UInt16, unmodified: String, command: String, expected: Bool
+    ) throws {
+        let event = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: unmodified,
+            keyCode: keyCode
+        ))
+        #expect(event.cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: { _, modifiers in
+                modifiers.contains(.command) ? command : unmodified
+            }
+        ) == expected)
+    }
+
+    @Test
+    func heldUndoReadsTheViewportOnlyOnce() throws {
+        let view = GhosttyNSView(frame: .zero)
+        var reads = 0
+        var alternateScreen = false
+        let read = { reads += 1; return alternateScreen }
+        let press = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z)
+        ))
+        let repeatEvent = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z), isARepeat: true
+        ))
+        #expect(!view.alternateScreenActiveAtKeyPress(press, read: read))
+        alternateScreen = true
+        #expect(!view.alternateScreenActiveAtKeyPress(repeatEvent, read: read))
+        #expect(reads == 1)
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read))
+        #expect(reads == 2)
+    }
+
     /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/10872.
     ///
     /// "Dvorak - QWERTY ⌘" swaps to the QWERTY table while Command is held, so
@@ -667,7 +705,8 @@ struct WindowKeyDownReplayGuardTests {
     private func makeCommandKeyDownEvent(
         charactersIgnoringModifiers: String,
         keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = [.command]
+        modifierFlags: NSEvent.ModifierFlags = [.command],
+        isARepeat: Bool = false
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -678,7 +717,7 @@ struct WindowKeyDownReplayGuardTests {
             context: nil,
             characters: charactersIgnoringModifiers,
             charactersIgnoringModifiers: charactersIgnoringModifiers,
-            isARepeat: false,
+            isARepeat: isARepeat,
             keyCode: keyCode
         )
     }
