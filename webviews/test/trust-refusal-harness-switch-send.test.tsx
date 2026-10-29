@@ -160,4 +160,5 @@ test("a prompt held by a harness switch and refused for the folder's trust is se
   await act(async () => trustButton()!.click());
   await until(() => prompts.includes("hello"), "the held prompt went after Trust");
   expect(prompts.filter((text) => text === "hello")).toEqual(["hello"]);
+  await until(() => trustButton() === undefined, "the Trust card clears after the retried session starts");
 }, 60_000);
