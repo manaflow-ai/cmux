@@ -6,32 +6,169 @@
   "source": "felt queue 1f; dfo-evidence gate227 restart-focus-after-settings step 12",
   "budget_seconds": 120,
   "steps": [
-    {"do": "new_terminal", "via": "key", "as": "left"},
-    {"do": "neutral_prompt"},
-    {"do": "type", "text": "echo fb-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
-    {"do": "focus_probe", "expect": "terminal"},
-    {"do": "focus_press", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser1"},
-    {"do": "rpc", "method": "debug.focus"},
-    {"do": "focus_probe", "expect": "addressBar", "fail": false},
-    {"do": "rpc", "method": "debug.omnibar"},
-    {"do": "focus_press", "key": "d", "modifiers": ["cmd"], "mark": "split"},
-    {"do": "focus_probe", "expect": "terminal", "fail": false},
-    {"do": "focus_press", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser2"},
-    {"do": "focus_probe", "expect": "addressBar", "fail": false},
-    {"do": "focus_press", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
-    {"do": "wait", "seconds": 1.1},
-    {"do": "focus_press", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser3"},
-    {"do": "rpc", "method": "debug.focus"},
-    {"do": "focus_probe", "expect": "addressBar", "fail": false},
-    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split3"},
-    {"do": "wait", "seconds": 1.1},
-    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser4"},
-    {"do": "rpc", "method": "debug.focus"},
-    {"do": "wait", "seconds": 3},
-    {"do": "rpc", "method": "debug.focus"},
-    {"do": "rpc", "method": "debug.desync", "params": {"check": true}},
-    {"do": "use", "name": "left"},
-    {"do": "expect", "title": "evidence the run was in this app: the first terminal's echo; the invariant holds at the end", "since": "typed", "timeout": 10,
-     "all": [{"daemon_line": "fb-${nonce}-42"}, {"app_text_line": "fb-${nonce}-42"}, {"focus_ok": {}}, {"frame_text": "fb-${nonce}-42"}]}
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "left"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo fb-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "the first terminal works (evidence the run is in this app)",
+      "since": "typed",
+      "timeout": 10,
+      "all": [
+        {
+          "daemon_line": "fb-${nonce}-42"
+        },
+        {
+          "app_text_line": "fb-${nonce}-42"
+        },
+        {
+          "frame_text": "fb-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "focus_probe",
+      "expect": "terminal"
+    },
+    {
+      "do": "focus_press",
+      "key": "l",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "browser1"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus"
+    },
+    {
+      "do": "focus_probe",
+      "expect": "addressBar",
+      "fail": false
+    },
+    {
+      "do": "rpc",
+      "method": "debug.omnibar"
+    },
+    {
+      "do": "focus_press",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "split"
+    },
+    {
+      "do": "focus_probe",
+      "expect": "terminal",
+      "fail": false
+    },
+    {
+      "do": "focus_press",
+      "key": "l",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "browser2"
+    },
+    {
+      "do": "focus_probe",
+      "expect": "addressBar",
+      "fail": false
+    },
+    {
+      "do": "focus_press",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "split2"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.1
+    },
+    {
+      "do": "focus_press",
+      "key": "l",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "browser3"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus"
+    },
+    {
+      "do": "focus_probe",
+      "expect": "addressBar",
+      "fail": false
+    },
+    {
+      "do": "key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "split3"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.1
+    },
+    {
+      "do": "key",
+      "key": "l",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "browser4"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus"
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.desync",
+      "params": {
+        "check": true
+      }
+    },
+    {
+      "do": "expect",
+      "title": "the invariant holds at the end",
+      "timeout": 10,
+      "all": [
+        {
+          "focus_ok": {}
+        }
+      ]
+    }
   ]
 }
