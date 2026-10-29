@@ -253,7 +253,10 @@ def run_lease(specs, build, out, frame_interval):
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot"], timeout=330).stdout.decode().split()
+        # CAPTURE_HOST_EXCLUSIVE=1: perf evidence (fleet rule, hq #5102): the lease owns the whole mini, no fleet
+        # step runs on it until the release.
+        flags = ["--slot", "--exclusive"] if os.environ.get("CAPTURE_HOST_EXCLUSIVE") == "1" else ["--slot"]
+        acquired = run([ch, "acquire", *flags], timeout=330).stdout.decode().split()
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
