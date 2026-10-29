@@ -1062,7 +1062,8 @@ the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
 variables, so no variable (not `CI_CONTROL_RUNNER`) may move it to a reused
 machine, where the key could outlive the job, and it may not write its own
 runner. GitHub-hosted runners are refused, so when all of Blacksmith stops the
-watch waits and the values it names are set by hand. On
+watch waits, and an operator points the variables at their failovers by hand,
+as on 2026-09-29. On
 2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
 failover and held the workflow's concurrency group, so every later run was
 evicted with nothing decided.
