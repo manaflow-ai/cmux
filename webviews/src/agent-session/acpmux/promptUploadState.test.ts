@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { translate } from "./i18n";
 import { finishedPromptUpload, receivePromptUploadState, type PromptUploadState } from "./promptUploadState";
 
 const finished = (token: string): PromptUploadState => ({ token, uploadId: "daemon-id", state: "finished", size: 3 });
@@ -60,7 +61,11 @@ test("terminal failures retain native details and never fabricate an upload id",
       async () => ({ token: state, state, size: 3, ...(state === "failed" ? { error } : {}) }),
     );
     await expect(result).rejects.toMatchObject(
-      state === "finished" ? { code: "upload.noId" } : state === "failed" ? error : { message: "Upload cancelled" },
+      state === "finished"
+        ? { code: "upload.noId" }
+        : state === "failed"
+          ? error
+          : { message: translate("upload.cancelled") },
     );
   }
 });

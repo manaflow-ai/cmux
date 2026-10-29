@@ -1,3 +1,5 @@
+import { translate } from "./i18n";
+
 export type PromptUploadState = {
   token: string;
   uploadId?: string;
@@ -41,22 +43,22 @@ export function finishedPromptUpload(
       if (settled || state.token !== token || state.state === "uploading") return;
       if (state.state !== "finished") {
         if (state.state !== "failed" && state.state !== "cancelled") return;
-        fail(Object.assign(new Error(state.error?.message ?? "Upload cancelled"), state.error));
+        fail(Object.assign(new Error(state.error?.message ?? translate("upload.cancelled")), state.error));
         return;
       }
       if (typeof state.uploadId !== "string" || !state.uploadId.trim()) {
-        fail(Object.assign(new Error("The host returned no upload id"), { code: "upload.noId" }));
+        fail(Object.assign(new Error(translate("upload.notCompleted")), { code: "upload.noId" }));
         return;
       }
       if (state.size !== size) {
-        fail(Object.assign(new Error("The host returned an incomplete upload"), { code: "upload.incomplete" }));
+        fail(Object.assign(new Error(translate("upload.notCompleted")), { code: "upload.incomplete" }));
         return;
       }
       settled = true;
       cleanup();
       resolve({ uploadId: state.uploadId, size, offset: size });
     };
-    const aborted = () => fail(Object.assign(new Error("Upload cancelled"), { code: "upload.cancelled" }));
+    const aborted = () => fail(Object.assign(new Error(translate("upload.cancelled")), { code: "upload.cancelled" }));
     const listeners = waiting.get(token) ?? new Set();
     listeners.add(receive);
     waiting.set(token, listeners);

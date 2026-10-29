@@ -1,3 +1,4 @@
+import { translate } from "./i18n";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { finishedPromptUpload, type PromptUploadState } from "./promptUploadState";
 
@@ -22,7 +23,7 @@ type NativePost = <T>(op: string, params: Record<string, unknown>) => Promise<T>
 export function createNativePromptUploadTransport(
   post: NativePost = (op, params) => {
     const page = pageHostClient();
-    if (!page) return Promise.reject(new Error("Native prompt uploads are unavailable"));
+    if (!page) return Promise.reject(new Error(translate("error.nativeUnavailable")));
     return page.call(op.startsWith("cmux.agent.") ? op : `cmux.agent.${op}`, params);
   },
   ready: () => Promise<void> = async () => {
@@ -37,7 +38,7 @@ export function createNativePromptUploadTransport(
       return typeof reply?.ticket === "string" ? reply.ticket : undefined;
     },
     async beginBlob(params) {
-      if (!params.promptId || !params.ticket) throw new Error("An upload requires its Send ticket");
+      if (!params.promptId || !params.ticket) throw new Error(translate("upload.notStarted"));
       const controller = new AbortController();
       pulls.set(params.token, controller);
       try {
@@ -46,7 +47,7 @@ export function createNativePromptUploadTransport(
           params.size,
           async () => {
             await ready();
-            if (controller.signal.aborted) throw new Error("Upload cancelled");
+            if (controller.signal.aborted) throw new Error(translate("upload.cancelled"));
             return post("cmux.agent.uploads.begin", {
               token: params.token,
               name: params.fileName,

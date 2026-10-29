@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { translate } from "./i18n";
 import { createNativePromptUploadTransport } from "./nativePromptUpload";
 
 test("native upload control waits for event readiness and terminal status, without binding bytes", async () => {
@@ -73,7 +74,7 @@ test("legacy hosts never receive a raw uploads binding call", async () => {
       method: "session/prompt",
       params: { promptId: "prompt", sessionId: "session" },
     }),
-  ).rejects.toThrow("Native prompt uploads are unavailable");
+  ).rejects.toThrow(translate("error.nativeUnavailable"));
 });
 
 test("the shared PageClient uses call envelopes and preserves typed native errors", async () => {
