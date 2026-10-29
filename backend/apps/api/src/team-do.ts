@@ -38,6 +38,9 @@ export type { SignInRules } from "./team-sign-in-rules.ts"
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
 
+/** How long a Stack delivery waits for its team index items to reach the members' UserDOs (Svix waits about 15 s in all). */
+const INDEX_WAIT_MS = 2_000
+
 /** How long one confirmed solo-membership read of a personal VM tenant is reused. */
 const PERSONAL_SOLO_CACHE_MS = 30_000
 
@@ -642,11 +645,22 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
   async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
-    return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
+    const reply = await this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
+    // A join is answered once the members' team indexes name the team (bounded; the alarm retries the rest),
+    // so the reach rule and user.teams.list see it at once (prod 2026-10-29: not_reachable for 6.5 s).
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([this.promptDrained(), new Promise<void>((r) => (timer = setTimeout(r, INDEX_WAIT_MS)))]).finally(() => clearTimeout(timer))
+    return reply
+  }
+
+  /** A member's team index item (UserDO) is a prompt channel: a person waits on it to reach a new teammate. */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || channel.startsWith("UserDO:")
   }
 
   private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env) }))

@@ -269,7 +269,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudApplyMachineConfig",
                 title: String(localized: "action.cloudApplyMachineConfig", defaultValue: "Apply Machine Config", bundle: .module),
                 keywords: ["vm", "cloud", "env", "environment", "setup", "secrets", "config", "toml"], category: .cloud,
-                symbol: "gearshape.2", surfaces: [.palette], requires: [.cloudWorkspace],
+                symbol: "gearshape.2", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
                 arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
             ),
             // `cmux cloud deliver-secrets --target machine:<id>`: values of the declared secret names, over the
@@ -278,7 +278,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 id: "cloudDeliverSecrets",
                 title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
                 keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
-                symbol: "lock.rectangle.stack", surfaces: [.palette], requires: [.cloudWorkspace],
+                symbol: "lock.rectangle.stack", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
                 arguments: [CatalogArgument.secretRepoString], targets: [.machine], cliName: "cloud deliver-secrets"
             ),
             ActionDescriptor(

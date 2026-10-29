@@ -13,21 +13,35 @@ extension SidebarListViewComponents {
     /// scrolling its row into view first.
     @discardableResult
     func showHoverCard(for id: WorkspaceID) -> Bool {
-        guard let window, workspaces[id] != nil, let row = displayed.row(for: .workspace(id)) else { return false }
-        scrollToVisible(frame(for: row))
+        guard let window else { return false }
+        if workspaces[id] != nil, let row = displayed.row(for: .workspace(id)) {
+            scrollToVisible(frame(for: row))
+        } else if let pinned = blockItemView(for: id) {
+            // A pinned workspace's row (a block item) shows the same card.
+            scrollToVisible(convert(pinned.bounds, from: pinned))
+        } else {
+            return false
+        }
         let target = HoverTarget(id: WorkspaceHoverCardController.targetID(id), window: window.windowNumber, delay: hoverCard.delay)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
     /// The workspace row `point` (this view's coordinates) hovers, by the
     /// list's own hover rule, that may have a card now: none during a drag or rename, or off the visible rows.
+    /// A pinned workspace's row (an item of a block, `blockWorkspace(at:)`) has the same card.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
-        guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
-              // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
-              case .workspace(let id)? = hoverHit(at: point)?.key, let row = workspaces[id],
-              !row.rowState.isPending else { return nil }
-        return id
+        guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor else { return nil }
+        // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
+        // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
+        switch hoverHit(at: point)?.key {
+        case .workspace(let id)?:
+            guard let row = workspaces[id], !row.rowState.isPending else { return nil }
+            return id
+        case .block?:
+            return blockWorkspace(at: point)
+        default:
+            return nil
+        }
     }
     /// The group header under `point` that may have a summary card now
     /// (`sidebar.hoverCards.groups.workspaceGroups`): none during a drag, a rename or an open group
@@ -52,9 +66,12 @@ extension SidebarListViewComponents {
         return window.convertToScreen(convert(frame(for: row), to: nil))
     }
     /// The row's frame on screen, nil when it is not laid out.
+    /// A pinned workspace's row anchors its card as a list row does: its frame across the list.
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {
-        guard let window, let row = displayed.row(for: .workspace(id)) else { return nil }
-        return window.convertToScreen(convert(frame(for: row), to: nil))
+        guard let window else { return nil }
+        if let row = displayed.row(for: .workspace(id)) { return window.convertToScreen(convert(frame(for: row), to: nil)) }
+        guard let pinned = blockItemView(for: id) else { return nil }
+        return window.convertToScreen(convert(convert(pinned.bounds, from: pinned), to: nil))
     }
     /// Where a workspace row's hover card goes: the row's band across the sidebar column
     /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge

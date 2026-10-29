@@ -265,6 +265,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertNotRegex(steps[0]["run"], r"bun run \S+ \|\| status=1")
         module = load(WEBVIEWS_CHECKS)
         self.assertIn("check:fixed-waits", module.CHECKS)
+        self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
 
     def test_no_web_check_waits_on_an_earlier_red(self):

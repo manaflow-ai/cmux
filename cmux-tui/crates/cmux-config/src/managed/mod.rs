@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 #[cfg(target_os = "macos")]
 pub use cf::CfManagedReader;
-pub use policy::{POLICY_KEYS, Policy, PolicyKey, PolicyType};
+pub use policy::{POLICY_KEYS, Policy, PolicyKey, PolicyType, SECRET_POLICY_KEYS};
 pub use reader::{
     FixedManagedReader, JsonFileManagedReader, ManagedReader, PlistFileManagedReader,
     default_reader, json_from_plist,
