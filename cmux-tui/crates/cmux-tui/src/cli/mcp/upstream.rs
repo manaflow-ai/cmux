@@ -77,12 +77,53 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
         .collect()
 }
 
+/// What a proxied tool's description puts between its own text and its
+/// server's rules: `\n\n<server> rules: <rules>`.
+const RULES_BREAK: &str = "\n\n";
+const RULES_LABEL: &str = " rules: ";
+
+/// A proxied tool's own description, without the server rules added to it:
+/// docs search matches what a tool does, not the rules every tool of its
+/// server shares (they name terminals, messages, files and passwords).
+pub(super) fn without_rules(description: &str) -> &str {
+    let mut from = 0;
+    while let Some(at) = description[from..].find(RULES_BREAK) {
+        let start = from + at;
+        let rest = &description[start + RULES_BREAK.len()..];
+        if let Some(end) = rest.find(RULES_LABEL)
+            && end > 0
+            && !rest[..end].contains(char::is_whitespace)
+        {
+            return &description[..start];
+        }
+        from = start + RULES_BREAK.len();
+    }
+    description
+}
+
 /// The tool name prefix of server `name`: `cmux-cua` is `cua`.
 fn prefix(name: &str) -> String {
     let name = name.strip_prefix("cmux-").unwrap_or(name);
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect()
+}
+
+/// The rules the model gets for server `spec`: cmux's own rules for its
+/// computer use server ([`acpmux::agent_tools::CUA_RULES`]) first, then the
+/// server's `initialize` instructions. The helper v2 bridge has the same name
+/// (its spec names the endpoint folder), but no target guard yet: its chats
+/// get no cmux rules, which promise one.
+pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
+    let own = own.filter(|text| !text.trim().is_empty());
+    let v2 = spec.env.iter().any(|(key, _)| key == acpmux::cua_v2::ENDPOINT_DIR_ENV);
+    let cmux =
+        (spec.name == acpmux::cua_v2::SERVER_NAME && !v2).then_some(acpmux::agent_tools::CUA_RULES);
+    match (cmux, own) {
+        (Some(cmux), Some(own)) => Some(format!("{cmux}\n\n{own}")),
+        (Some(cmux), None) => Some(cmux.to_owned()),
+        (None, own) => own.map(str::to_owned),
+    }
 }
 
 /// One server: started on first use, again after it dies or times out.
@@ -173,7 +214,7 @@ impl Upstream {
                     .instructions
                     .as_deref()
                     .filter(|r| !r.trim().is_empty())
-                    .map(|r| format!("\n\n{server} rules: {r}"))
+                    .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
                 tool["description"] = json!(format!("[{server}] {description}{rules}"));
                 tool["name"] = json!(name);
@@ -261,7 +302,7 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        self.instructions = rules(&self.spec, init["instructions"].as_str());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;

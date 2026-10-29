@@ -17,42 +17,140 @@ use super::*;
 const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Hub {
+    /// Publish one forced answer for a turn. Multiple Stop presses can race
+    /// their timers, but a turn has one and only one forced settlement.
+    fn force_cancel(session: &Session, turn: &TurnInfo) {
+        // The cancel may have waited for the child writer. If that turn ended
+        // while the request was in flight, never publish a stale answer into
+        // the next turn.
+        if session.turn().is_none_or(|current| current.turn_id != turn.turn_id) {
+            return;
+        }
+        let already_forced = {
+            let mut forced = session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner());
+            if forced.as_deref() == Some(turn.turn_id.as_str()) {
+                true
+            } else {
+                *forced = Some(turn.turn_id.clone());
+                false
+            }
+        };
+        if already_forced {
+            return;
+        }
+        tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent did not answer the cancel: ending its turn");
+        let answer =
+            json!({"stopReason": "cancelled", "_meta": {"acpmux": {"cancelForced": true}}});
+        session.steer_end.send_replace(Some((turn.turn_id.clone(), answer)));
+    }
+
     pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        self.cancel_preserving_queued(session, None).await
+    }
+
+    /// During compaction an interrupt keeps only the explicitly selected replacement. A
+    /// plain Stop withdraws every queued prompt, including one promoted with Send now.
+    pub(super) async fn cancel_preserving_queued(
+        &self,
+        session: &Arc<Session>,
+        replacement: Option<&str>,
+    ) -> Result<(), RpcError> {
         // First: a prompt about to be written sees it (`turns.rs`).
         session.cancels.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Stop also stops an automatic continuation that has not fired yet, and the running
         // turn gets none (`auto_resume.rs`).
         self.stop_auto_resume(session);
         self.stop_subagent_retries(session, false);
+        // Capture the turn before waiting for the child writer. A second Stop
+        // arriving while Claude is compacting must not retarget a queued or
+        // auto-resumed next turn after the first one settles.
+        let turn = session.turn();
         let child = session
             .child
             .lock()
             .await
             .clone()
             .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
+        let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
+            || child.translator.as_ref().is_some_and(|t| t.is_compacting());
         let sid = session
             .meta()
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
+        // Reserve our FIFO place before ending the logical turn, without waiting for a
+        // backpressured prompt writer. Tokio mutexes queue only when polled; constructing the
+        // future alone would let the next prompt overtake the session-wide cancellation.
+        // Disable cooperative yielding for this first poll so Pending means a registered
+        // mutex waiter, rather than an exhausted task budget before queue registration.
+        let input_handoff = tokio::task::unconstrained(session.input_handoff.clone().lock_owned());
+        tokio::pin!(input_handoff);
+        let acquired = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(input_handoff.as_mut(), cx))
+        })
+        .await;
+        // Another Stop or a natural result may have ended the captured turn while this
+        // caller prepared. Never settle or send its session-wide interrupt into a different turn.
+        if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
+            return Ok(());
+        }
+        // End the logical turn before waiting on a hosted writer. A compacting
+        // Claude process can ignore the interrupt, and the first Stop must
+        // still settle the UI immediately.
+        if compacting && let Some(turn) = turn.as_ref() {
+            let queued: Vec<String> = session
+                .queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .filter(|q| replacement != Some(q.prompt_id.as_str()))
+                .map(|q| q.prompt_id.clone())
+                .collect();
+            for prompt_id in queued {
+                self.remove_queued_because(session, &prompt_id, Some("cancel_forced"));
+            }
+            Self::force_cancel(session, turn);
+        }
+        // The reservation precedes any next turn's transport handoff, even if that turn
+        // starts logically while this Stop waits. Do not reject our own forced settlement:
+        // its interrupt must still reach the harness before the replacement prompt.
+        let input_handoff = match acquired {
+            std::task::Poll::Ready(guard) => guard,
+            std::task::Poll::Pending => input_handoff.await,
+        };
+        #[cfg(test)]
+        {
+            let seam = self.cancel_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         let sent = child
             .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
             .await
             .map_err(|e| RpcError::internal(e.to_string()));
+        drop(input_handoff);
         // Stop always ends the turn: an agent that does not answer the cancel
         // (Claude Code idle after a local slash command, while acpmux still
         // waits on the prompt) gets its turn ended here, as cancelled and
         // marked forced. The prompt's answer, if it ever comes, finds no turn.
-        if let Some(turn) = session.turn() {
-            let session = session.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(CANCEL_GRACE).await;
-                if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {
-                    tracing::warn!(session = %session.id, "the agent did not answer the cancel: ending its turn");
-                    let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"cancelForced": true}}});
-                    session.steer_end.send_replace(Some((turn.turn_id, answer)));
-                }
-            });
+        if let Some(turn) = turn {
+            // Claude Code can report a compaction while it is running, but its
+            // interrupt is not guaranteed to end that internal operation. End
+            // the acpmux turn now; a later Claude result is stale and cannot
+            // reopen it. Other harnesses retain the normal grace period.
+            if compacting {
+                Self::force_cancel(session, &turn);
+            } else {
+                let session = session.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(CANCEL_GRACE).await;
+                    if let Some(current) = session.turn().filter(|t| t.turn_id == turn.turn_id) {
+                        Self::force_cancel(&session, &current);
+                    }
+                });
+            }
         }
         sent
     }
