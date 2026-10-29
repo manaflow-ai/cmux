@@ -12,8 +12,6 @@ pub const DEFAULT_HUB: &str = "https://cmux-platform-development.debussy.workers
 pub const CONSENT_REQUIRED: &str = "consent_required";
 const MAX_TOKEN_BYTES: usize = 512;
 const CREDENTIAL_FILE: &str = "machine-credential.json";
-const CONSENT_FILE: &str = "consent.json";
-const CONSENT_EVENTS_FILE: &str = "consent-refusal.json";
 static CONSENT_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// A hand later switches config::home to its private agent daemon. Consent
@@ -60,9 +58,6 @@ fn state_dir() -> PathBuf {
 }
 fn credential_path() -> PathBuf {
     state_dir().join(CREDENTIAL_FILE)
-}
-fn consent_path() -> PathBuf {
-    consent_home().join(CONSENT_FILE)
 }
 
 pub fn parse_token_text(text: &str) -> Result<String> {
@@ -132,7 +127,7 @@ fn load() -> Result<Option<MachineCredential>> {
     load_at(&state_dir())
 }
 
-fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
+pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
     let path = home.join(CREDENTIAL_FILE);
     match std::fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -156,12 +151,16 @@ pub(crate) fn read_join_credential(hub_origin: &str) -> Result<String> {
     Ok(record.credential)
 }
 
+fn authority() -> Result<super::machine_consent::Authority> {
+    super::machine_consent::Authority::current(consent_home())
+}
+
+pub(crate) fn migrate_machine_consent() -> Result<()> {
+    authority()?.migrate()
+}
+
 fn load_consent() -> Consent {
-    let path = consent_path();
-    crate::config::private_state_file(&path)
-        .ok()
-        .and_then(|f| serde_json::from_reader(f).ok())
-        .unwrap_or_default()
+    serde_json::from_value(consent_status()["consent"].clone()).unwrap_or_default()
 }
 
 /// Held until redeem and both local writes complete. A competing installer exits
@@ -262,6 +261,7 @@ pub async fn join_with_token(
         })?
         .public_key_b64();
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
     let response = http_client().map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?.post(format!("{hub}/v1/machines/join-tokens/redeem"))
         .json(&json!({"token": token, "platform": platform, "hostname": hostname, "name": name, "wgPublicKey": wg_public_key}))
         .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
@@ -384,6 +384,9 @@ pub async fn join_with_token(
         )
         .with_exit(5)
     })?;
+    eprintln!(
+        "Existing Computer Use helpers may remain ungated until they exit; close them normally and use updated builds before enabling remote access."
+    );
     if json_out {
         crate::cli::output::print_json(
             &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":hub}),
@@ -432,6 +435,9 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
     let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::BUILD, "channel":null});
+    out["helperConsent"] =
+        json!({"state":"unknown","reason":"running helper consent support has not been verified"});
+    out["lastRefusal"] = consent_status()["lastRefusal"].clone();
     if !record.credential.is_empty() {
         // GET is read-only: doctor must never replace the daemon's live sessions.
         if let Ok(res) = http_client()?
@@ -465,52 +471,18 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
 /// Only the person-proven local daemon RPC calls this writer. The ordinary
 /// CLI deliberately has no person key and cannot grant consent from a PTY.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
-    let mut consent = load_consent();
-    let state = if granted { ConsentState::Granted } else { ConsentState::None };
-    match surface {
-        "screen" => consent.screen = state,
-        "control" => consent.control = state,
-        _ => anyhow::bail!("unknown consent surface"),
-    }
-    if granted {
-        consent.granted_at = Some(crate::store::now_ms().to_string());
-    }
-    crate::config::private_state_dir(&consent_home())?;
-    crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)?;
-    Ok(consent)
+    authority()?.set(surface, granted)
 }
 
-/// Required for an enrolled machine or any explicit local consent policy.
-/// Only definite absence of both records preserves pre-enrollment behavior.
-fn consent_required() -> Result<bool> {
-    let joined = load_at(&consent_home())?.is_some();
-    let consent_record = match std::fs::symlink_metadata(consent_path()) {
-        Ok(_) => true,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error.into()),
-    };
-    Ok(joined || consent_record)
-}
-
-/// External tools query this before every action. Errors require consent and
-/// suppress grants, so unreadable enrollment state never opens an access path.
 pub(crate) fn consent_status() -> Value {
-    let refusal = crate::config::private_state_file(&consent_home().join(CONSENT_EVENTS_FILE))
-        .ok()
-        .and_then(|file| serde_json::from_reader::<_, Value>(file).ok());
-    let required = consent_required();
-    let consent = if required.is_err() { Consent::default() } else { load_consent() };
-    json!({"consentRequired": required.unwrap_or(true), "consent": consent, "lastRefusal": refusal})
+    authority().map(|authority| authority.status()).unwrap_or_else(
+        |_| json!({"consentRequired":true,"consent":Consent::default(),"lastRefusal":null}),
+    )
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
-    let consent = load_consent();
-    let granted = match surface {
-        "screen" => matches!(consent.screen, ConsentState::Granted),
-        "control" => matches!(consent.control, ConsentState::Granted),
-        _ => false,
-    };
-    if granted {
+    let status = consent_status();
+    if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
         Ok(())
     } else {
         let _ = record_consent_refusal(surface);
@@ -518,32 +490,12 @@ pub fn require_consent(surface: &str) -> Result<()> {
     }
 }
 
-/// Computer Use and other host-control surfaces call this before serving a
-/// joined machine or one with a local consent record. Only unjoined local
-/// daemons without a consent record retain their existing app behavior.
 pub fn require_joined_consent(surface: &str) -> Result<()> {
-    match consent_required() {
-        Ok(false) => Ok(()),
-        Ok(true) => require_consent(surface),
-        Err(_) => {
-            let _ = record_consent_refusal(surface);
-            Err(anyhow!(CONSENT_REQUIRED))
-        }
-    }
+    if consent_status()["consentRequired"] == false { Ok(()) } else { require_consent(surface) }
 }
 
-/// Record a local refusal for the app's one-time consent sheet. The file is
-/// owner-only and is intentionally separate from the grant record so a mesh
-/// caller cannot turn a refusal into a grant by editing one JSON object.
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
-    anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
-    crate::config::private_state_dir(&consent_home())?;
-    crate::config::write_atomic(
-        &consent_home().join(CONSENT_EVENTS_FILE),
-        &serde_json::to_vec(
-            &json!({"event":"consent_refused", "code":"consent_required", "surface":surface, "at":crate::store::now_ms()}),
-        )?,
-    )
+    authority()?.refused(surface)
 }
 
 fn http_client() -> Result<reqwest::Client> {

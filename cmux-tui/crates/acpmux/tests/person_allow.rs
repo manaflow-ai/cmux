@@ -1512,7 +1512,9 @@ async fn a_relayed_answers_annotations_count_only_under_the_persons_proof_over_t
 /// A mesh-started shell can create a PTY and omit all agent env vars. Only
 /// the app's connection-bound person proof may change machine consent.
 #[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
+    let consent_home = machine_consent_home::ConsentHome::isolated();
     use std::os::unix::fs::MetadataExt;
     let daemon = Daemon::start("machine-consent", Some(KEY));
     let mut shell = Rpc::connect(&daemon.socket).await;
@@ -1524,7 +1526,12 @@ async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
         )
         .await;
     assert_eq!(reason(&refused), REASON, "{refused}");
-    assert!(!daemon.dir.join("consent.json").exists());
+    assert!(!consent_home.root.join("consent.json").exists());
+    let recorded = shell.ok("_acpmux/machine_consent_refused", json!({"surface":"screen"})).await;
+    assert_eq!(recorded["recorded"], true);
+    let denied = shell.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(denied["lastRefusal"]["surface"], "screen");
+    assert_eq!(denied["consent"]["screen"], "none");
     let mut app = Rpc::person(&daemon.socket, KEY).await;
     let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
     assert_eq!(view["consentRequired"], false);
@@ -1532,7 +1539,10 @@ async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
         app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":true})).await;
     assert_eq!(granted["consent"]["control"], "granted");
     assert_eq!(granted["consent"]["screen"], "none");
-    assert_eq!(std::fs::metadata(daemon.dir.join("consent.json")).unwrap().mode() & 0o777, 0o600);
+    assert_eq!(
+        std::fs::metadata(consent_home.root.join("consent.json")).unwrap().mode() & 0o777,
+        0o600
+    );
     let revoked =
         app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":false})).await;
     assert_eq!(revoked["consent"]["control"], "none");
@@ -1542,7 +1552,9 @@ async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
 }
 
 #[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
+    let _consent_home = machine_consent_home::ConsentHome::isolated();
     use std::os::unix::fs::PermissionsExt;
     let daemon = Daemon::start("machine-consent-presence", Some(KEY));
     let mut app = Rpc::person(&daemon.socket, KEY).await;
@@ -1552,12 +1564,25 @@ async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
     let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
     assert_eq!(view["consentRequired"], true);
     assert_eq!(view["consent"]["screen"], "none");
+    let other = Daemon::start("machine-consent-other-tag", Some(KEY));
+    let mut other_app = Rpc::person(&other.socket, KEY).await;
+    let shared = other_app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consentRequired"], true, "an empty other tag still requires consent");
     app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":true})).await;
     let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
     assert_eq!(view["consentRequired"], true);
     assert_eq!(view["consent"]["screen"], "granted");
+    let shared = other_app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consent"]["screen"], "granted");
+    other_app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":false})).await;
+    let shared = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(shared["consent"]["screen"], "none");
+    app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":true})).await;
     std::fs::write(&path, b"invalid").unwrap();
     let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
     assert_eq!(view["consentRequired"], true);
     assert_eq!(view["consent"]["screen"], "none", "unreadable state fails closed");
 }
+
+#[path = "support/machine_consent_home.rs"]
+mod machine_consent_home;

@@ -1,5 +1,9 @@
 //! The installer's process contract: the secret is stdin-only, retries do not
-//! redeem twice, and doctor never replaces the relay's session announcements.
+//! Tests that mutate OS-account consent are ignored in ordinary runs. Compile
+//! as usual, then run this binary with --include-ignored under a disposable
+//! Unix user, ACPMUX_TEST_ACCOUNT_HOME set to that user's passwd home.
+//! Production never reads this test-only variable.
+//! Retries never redeem twice, and doctor never replaces the relay's session announcements.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -10,6 +14,9 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+
+#[path = "support/machine_consent_home.rs"]
+mod machine_consent_home;
 
 const TOKEN: &str = "cmj_test_secret_never_print";
 const CREDENTIAL: &str = "cmm_test_secret_never_print";
@@ -63,10 +70,17 @@ fn response_server(
 }
 
 #[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn join_redeems_once_and_rerun_repairs_config_without_reading_stdin() {
+    let _consent_home = machine_consent_home::ConsentHome::isolated();
     let home = tempfile::tempdir().unwrap();
     std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let (origin, server) = response_server(200, |request, body| {
+    let canonical = _consent_home.root.clone();
+    let (origin, server) = response_server(200, move |request, body| {
+        assert!(
+            canonical.join("enrolled.json").is_file(),
+            "sticky requirement must precede redeem"
+        );
         assert!(request.starts_with("POST /v1/machines/join-tokens/redeem "));
         assert_eq!(body["token"], TOKEN);
         json!({"credential": CREDENTIAL, "machineId":"machine_test", "teamId":"team_test", "wgPublicKey":body["wgPublicKey"]})
@@ -110,7 +124,9 @@ async fn join_redeems_once_and_rerun_repairs_config_without_reading_stdin() {
 }
 
 #[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn status_is_read_only_and_persists_revocation() {
+    let _consent_home = machine_consent_home::ConsentHome::isolated();
     let home = tempfile::tempdir().unwrap();
     let (origin, server) = response_server(401, |request, body| {
         assert!(request.starts_with("GET /v1/mesh/sessions "));
@@ -130,6 +146,8 @@ async fn status_is_read_only_and_persists_revocation() {
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
     let body: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(body["revoked"], true);
+    assert!(body.get("lastRefusal").is_some());
+    assert_eq!(body["helperConsent"]["state"], "unknown");
     assert_eq!(body["lastHeartbeat"], "1234");
     assert_eq!(body["daemonRunning"], false);
     let stored: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -191,7 +209,9 @@ async fn unfinished_pipe_cannot_hold_the_join_lock_forever() {
 }
 
 #[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn credential_write_failure_after_redeem_requires_a_fresh_token_without_secrets() {
+    let _consent_home = machine_consent_home::ConsentHome::isolated();
     let home = tempfile::tempdir().unwrap();
     let target = home.path().join("machine-credential.json");
     let (origin, server) = response_server(200, move |_, body| {

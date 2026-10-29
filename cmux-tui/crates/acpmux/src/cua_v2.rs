@@ -211,7 +211,33 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
             .ok()
             .and_then(Result::ok)
             .ok_or_else(|| anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED))?;
-            require_tool_consent(name.unwrap_or_default(), &status)?;
+            // Only the admitted driver's inventory can classify an operation.
+            // Refresh when a screen-only grant needs that distinction: tool names
+            // and model-supplied annotations are never an authority.
+            let read_only = if status["consentRequired"] == true
+                && status["consent"]["screen"] == "granted"
+                && status["consent"]["control"] == "none"
+            {
+                let inventory = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    self.exchange("tools/list", None, Value::Null),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok);
+                inventory.as_ref().is_some_and(|inventory| {
+                    let tools = inventory.as_array().or_else(|| inventory["tools"].as_array());
+                    let mut matching =
+                        tools.into_iter().flatten().filter(|tool| tool["name"].as_str() == name);
+                    let declared = matching
+                        .next()
+                        .is_some_and(|tool| tool["annotations"]["readOnlyHint"] == true);
+                    declared && matching.next().is_none()
+                })
+            } else {
+                false
+            };
+            require_tool_consent(read_only, &status)?;
         }
         self.exchange(method, name, arguments).await
     }
@@ -336,11 +362,9 @@ where
     Ok(())
 }
 
-/// The observation-only operations of the pinned upstream driver need screen
-/// consent. Every other operation (including future tools) may both act and
-/// return a post-action screenshot, so it needs both independent grants. An
-/// include_screenshot flag is not a consent bypass: errors may attach captures.
-fn require_tool_consent(name: &str, status: &Value) -> Result<()> {
+/// A trusted inventory readOnlyHint requires screen consent; unknown and action
+/// tools require both independent grants, including their post-action captures.
+fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
     let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
     let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
     let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
@@ -354,16 +378,7 @@ fn require_tool_consent(name: &str, status: &Value) -> Result<()> {
     if screen != "granted" {
         return Err(denied());
     }
-    if !matches!(
-        name,
-        "screenshot"
-            | "get_desktop_state"
-            | "get_window_state"
-            | "get_app_state"
-            | "list_apps"
-            | "list_windows"
-    ) && control != "granted"
-    {
+    if !read_only && control != "granted" {
         return Err(denied());
     }
     Ok(())
