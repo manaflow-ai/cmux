@@ -169,6 +169,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `/btw <question>` asks acpmux for one bounded inline side answer.
+    case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
