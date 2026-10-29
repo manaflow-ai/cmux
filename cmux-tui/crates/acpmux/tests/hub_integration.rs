@@ -33,6 +33,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/full_access_guards.rs"]
 mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -45,6 +47,8 @@ mod permission_groups;
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
 mod prompt_approval;
+#[path = "hub_integration/prompt_class.rs"]
+mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -83,6 +87,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
@@ -1580,6 +1586,8 @@ mod preset_args;
 mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/failover_unstartable.rs"]
+mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]

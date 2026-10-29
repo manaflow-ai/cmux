@@ -30,6 +30,7 @@
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 pub const TRANSFER_SCHEMA: &str = "acpmux.transfer.v1";
 pub const DURABLE_TRANSFER_SCHEMA: &str = "acpmux.transfer.v2";
@@ -218,7 +219,7 @@ impl Hub {
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         {
-            answer["harness"] = manifest.get("harness").cloned().unwrap_or(Value::Null);
+            answer.set("harness", manifest.get("harness").cloned().unwrap_or(Value::Null));
         }
         Ok(answer)
     }
@@ -348,7 +349,7 @@ impl Hub {
         }
         let mut record = json!({"transferId": transfer_id});
         if let Some(reason) = reason {
-            record["reason"] = json!(reason);
+            record.set("reason", json!(reason));
         }
         self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);

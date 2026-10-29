@@ -554,6 +554,9 @@ export type ProcessBackgroundResult = {
   backgrounded: boolean;
 } & Record<string, unknown>;
 
+/** What another agent's message asks of the session it goes to. */
+export type PromptClass = ("block" | "question" | "result" | "fyi");
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
@@ -596,6 +599,12 @@ export type QueuedPromptSummary = {
    * declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
    */
   awaitingOwner: boolean;
+  /**
+   * What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+   * `result` when it named none; null for the person's own prompt and from a peer on an older
+   * acpmux.
+   */
+  class: (PromptClass | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
@@ -779,6 +788,11 @@ export type SessionDetail = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -879,6 +893,8 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -887,6 +903,11 @@ export type SessionDetail = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -896,10 +917,10 @@ export type SessionDetail = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -973,6 +994,11 @@ export type SessionSummary = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -1066,6 +1092,8 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -1074,6 +1102,11 @@ export type SessionSummary = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -1083,10 +1116,10 @@ export type SessionSummary = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1112,8 +1145,14 @@ export type SessionSummary = {
 export interface SessionsParams {
   /** A previous reply's `nextCursor`: the page starts after that session. */
   cursor?: (string | null);
+  /** `_acpmux/sessions` only: exclude these statuses before pagination. */
+  excludeStatus?: (string[] | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
+  localOnly?: (boolean | null);
+  /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
+  orderBy?: (string | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
    * (its name, e.g. `huge-blue`). Empty is no filter.
@@ -1124,6 +1163,8 @@ export interface SessionsParams {
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
    */
   status?: (string | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
 
 export type SessionsResult = {
@@ -1135,6 +1176,8 @@ export type SessionsResult = {
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
+
+export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
 
 /** One row of a chat's tool list (`store::ToolRow`). */
 export type ToolSummary = {
@@ -1202,4 +1245,6 @@ export interface WatchParams {
    */
   enabled?: (boolean | null);
   limit?: (number | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
