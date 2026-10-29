@@ -212,6 +212,34 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
     Ok(())
 }
 
+fn new_pending(
+    hub: String,
+    name: String,
+    prior: Option<MachineCredential>,
+    overwrite: bool,
+) -> Result<Pending> {
+    let mut random = Zeroizing::new([0u8; 32]);
+    getrandom::fill(&mut *random).map_err(|_| store_error())?;
+    let p = Pending {
+        version: 1,
+        credential: format!(
+            "cmm_{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(*random)
+        ),
+        hub,
+        name,
+        hostname: crate::pairing::machine_name(),
+        platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
+        wg_public_key: crate::cli::mesh_node_key::load_or_create()
+            .map_err(|_| store_error())?
+            .public_key_b64(),
+        prior,
+    };
+    let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
+    write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
+    Ok(p)
+}
+
 pub(super) async fn join(
     hub: Option<String>,
     name: Option<String>,
@@ -237,9 +265,13 @@ pub(super) async fn join(
         }
         match probe(&p).await? {
             Probe::Live(record) => return complete(&p, &record, json_out),
-            Probe::Revoked => {
-                return Err(error(3, "revoked: run machine add again"));
+            Probe::Revoked if replace && token.is_some() => {
+                // Definitive revocation makes the proposal unusable. Only an
+                // explicit replacement with fresh stdin may replace this proof.
+                // If this was a replacement, its old final is already retired.
+                new_pending(p.hub, p.name, None, true)?
             }
+            Probe::Revoked => return Err(error(3, "revoked: run machine add again")),
             Probe::Unknown => p,
         }
     } else {
@@ -255,29 +287,10 @@ pub(super) async fn join(
             return Err(error(2, "machine name is malformed"));
         }
         let prior = if replace { load().map_err(|_| store_error())? } else { None };
-        if prior.as_ref().is_some_and(|old| old.hub_origin != hub || old.revoked) {
+        if prior.as_ref().is_some_and(|old| old.hub_origin != hub) {
             return Err(error(3, "existing enrollment cannot authorize replacement"));
         }
-        let mut random = Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut *random).map_err(|_| store_error())?;
-        let p = Pending {
-            version: 1,
-            credential: format!(
-                "cmm_{}",
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(*random)
-            ),
-            hub,
-            name,
-            hostname: crate::pairing::machine_name(),
-            platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
-            wg_public_key: crate::cli::mesh_node_key::load_or_create()
-                .map_err(|_| store_error())?
-                .public_key_b64(),
-            prior,
-        };
-        let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
-        write_durable(&state_dir().join(FILE), &bytes, false).map_err(|_| store_error())?;
-        p
+        new_pending(hub, name, prior.filter(|old| !old.revoked), false)?
     };
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
@@ -311,7 +324,6 @@ pub(super) async fn join(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use base64::Engine as _;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     #[test]
