@@ -58,6 +58,9 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let sidebarSecondMarkPitchComfortable: CGFloat = 24
     public static let transcriptIconBox: CGFloat = 16
     public static let transcriptTextGap: CGFloat = 24
+    public static let gapBlock: CGFloat = 24
+    public static let gapInner: CGFloat = 12
+    public static let gapComposer: CGFloat = 16
     public static let transcriptActionControl: CGFloat = 28
     public static let transcriptActionTrailCenter: CGFloat = 14
     public static let cardsPadding: CGFloat = 12

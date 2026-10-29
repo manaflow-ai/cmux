@@ -12,7 +12,15 @@ export type GridMetric =
   | "optical"
   | "radius"
   | "padding";
-export type GridPoint = { selector: string; metric: GridMetric; glyph?: string };
+export type GridPoint = {
+  selector: string;
+  metric: GridMetric;
+  /** Prefer the surface's ink role; selector remains the migration fallback. */
+  role?: string;
+  /** Cross-surface references (composer edges / transcript column) use document scope. */
+  scope?: "surface" | "document";
+  glyph?: string;
+};
 export type GridLine = {
   name: string;
   all?: boolean;
@@ -26,6 +34,7 @@ export type GridScene = {
   entry: string;
   variant: string;
   root: string;
+  rootRole?: string;
   params?: Record<string, string | number>;
   /** Source-audited absences; unknown missing selectors are fixture coverage failures. */
   absent?: Record<string, string>;
@@ -48,19 +57,33 @@ export function measureGridLines(scene: GridScene): GridResult[] {
     const rect = el.getBoundingClientRect();
     return style.visibility === "visible" && style.display !== "none" && rect.width > 0 && rect.height > 0;
   };
-  const roots = [...document.querySelectorAll(scene.root)].filter(visible);
+  const roleSelector = (role: string) => `[data-grid-role="${CSS.escape(role)}"]`;
+  const roleRoots = scene.rootRole ? [...document.querySelectorAll(roleSelector(scene.rootRole))].filter(visible) : [];
+  const roots = roleRoots.length ? roleRoots : [...document.querySelectorAll(scene.root)].filter(visible);
   if (!roots.length) throw new Error(`missing mounted surface ${scene.root}`);
   return roots.flatMap((root, index) => {
-    const select = (selector: string) => {
-      const el = selector === ":scope" ? root : [...root.querySelectorAll(selector)].find(visible);
+    const matches = ({ selector, role, scope }: Pick<GridPoint, "selector" | "role" | "scope">): Element[] => {
+      const within = scope === "document" ? document : root;
+      if (role) {
+        const query = roleSelector(role);
+        const marked = [
+          ...(within instanceof Element && within.matches(query) ? [within] : []),
+          ...within.querySelectorAll(query),
+        ].filter(visible);
+        if (marked.length) return marked;
+      }
+      return (selector === ":scope" ? [root] : [...within.querySelectorAll(selector)]).filter(visible);
+    };
+    const select = (selector: string, role?: string, scope?: GridPoint["scope"]) => {
+      const el = matches({ selector, role, scope })[0];
       if (!el || !visible(el)) {
         const reason = scene.absent?.[selector];
         throw new Error(reason ? `design absence: ${selector}: ${reason}` : `missing visible selector ${selector}`);
       }
       return el;
     };
-    const metric = ({ selector, metric: kind, glyph }: GridPoint, selected?: Element): number => {
-      const el = selected ?? select(selector);
+    const metric = ({ selector, metric: kind, glyph, role, scope }: GridPoint, selected?: Element): number => {
+      const el = selected ?? select(selector, role, scope);
       const offset = (axis: "x" | "y") => {
         if (!glyph) return 0;
         if (!/^[a-z0-9-]+$/.test(glyph)) throw new Error(`invalid optical glyph name ${glyph}`);
@@ -150,8 +173,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
       }
     };
     const results = scene.lines.flatMap((line): GridResult[] => {
-      const matches = line.all ? [...root.querySelectorAll(line.actual.selector)].filter(visible) : [];
-      return (matches.length ? matches : [undefined]).map((selected, matchIndex): GridResult => {
+      const selectedElements = line.all ? matches(line.actual) : [];
+      return (selectedElements.length ? selectedElements : [undefined]).map((selected, matchIndex): GridResult => {
         let expected: number | null = null;
         try {
           expected = typeof line.expected === "string" ? length(line.expected) : metric(line.expected);

@@ -72,7 +72,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
   for (const scene of gridScenes)
     for (const width of [720, 420])
       for (const scheme of ["light", "dark"])
-        test(`${scene.surface}: ${scheme}, ${width}px [${scene.level}]`, async () => {
+        test(`${scene.surface}/${scene.variant}: ${scheme}, ${width}px [${scene.level}]`, async () => {
           const page = await browser!.newPage({
             viewport: { width, height: 900 },
             colorScheme: scheme as "light" | "dark",
