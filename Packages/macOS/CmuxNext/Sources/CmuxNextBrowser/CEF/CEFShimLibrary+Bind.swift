@@ -70,6 +70,7 @@ nonisolated extension CEFShimLibrary {
         let cSetEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_set_energy_saver")
         setEnergySaver = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cSetEnergySaver(a0, s1) } }
         memoryPressureVote = try r("cmux_shim_memory_pressure_vote")
+        tabFlushBackForwardCache = try r("cmux_shim_tab_flush_back_forward_cache")
         let cCreateWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 =
             try unsafe r("cmux_shim_create_window")
         createWindow = { a0, parent, a2, a3, a4, a5 in

@@ -113,6 +113,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setEnergySaver: (Int32, String?) -> Int32
     /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
     let memoryPressureVote: @convention(c) (Int32) -> Int32
+    /// `cmux_shim_tab_flush_back_forward_cache(browser)`: the tab's `BackForwardCache::Flush` (p07-memory-101); 0 on a
+    /// fork without the call. A post to the Chromium Host, so callers discard the result (``CEFTab/flushBackForwardCache()``).
+    let tabFlushBackForwardCache: @convention(c) (Int32) -> Int32
 
     let createWindow: (Int32, CEFParentView?, Int32, Int32, String?, String?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
