@@ -43,6 +43,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-rustls",
@@ -56,6 +57,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -1595,6 +1597,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-build-identity",
+ "cmux-chat-index",
  "cmux-config",
  "cmux-holder",
  "cmux-host",
