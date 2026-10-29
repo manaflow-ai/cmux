@@ -1224,6 +1224,21 @@ export default agentPaneEntry({
         // The create actions stay one click away, as the strip under the rows.
         const strip = ctx.document.querySelectorAll(".nt-popover .nt-create-strip-item").length;
         if (strip !== 3) throw new Error(`the create strip shows ${strip} actions, not 3`);
+        // A narrow pane must keep every quick action inside the anchored popover. The fixture
+        // runs under every shipped locale, including the long French/Spanish labels and pseudo
+        // locales, so this catches the non-wrapping overflow at its source boundary.
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const rows = ctx.document.querySelector<HTMLElement>(".nt-rows");
+        if (!popover || !rows) throw new Error("the suggestions popover did not render");
+        popover.style.width = "260px";
+        const viewport = rows.getBoundingClientRect();
+        if (rows.scrollWidth > rows.clientWidth + 1)
+          throw new Error(`the create strip scrolls sideways (${rows.scrollWidth} > ${rows.clientWidth})`);
+        for (const item of rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
+          const rect = item.getBoundingClientRect();
+          if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
+            throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
+        }
       },
     },
     "suggestions-url": {
