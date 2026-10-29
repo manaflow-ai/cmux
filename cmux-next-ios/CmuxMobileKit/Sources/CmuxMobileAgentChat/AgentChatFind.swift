@@ -164,13 +164,18 @@ public final class AgentChatFind {
             return
         }
         busy = true
-        let keep = currentMatch.flatMap { match in
-            current.map { index in (block: match.block, nth: matches[..<index].filter { $0.block == match.block }.count) }
-        }
         run(turns) { [weak self] found in
             guard let self else { return }
-            if found != self.matches { self.apply(found, keeping: keep, reveal: false) }
+            // The current match as it is now: Next and Previous taps made while this ran stay.
+            if found != self.matches { self.apply(found, keeping: self.currentOccurrence, reveal: false) }
             self.finished()
+        }
+    }
+
+    /// The current match as its block and which occurrence in that block it is.
+    private var currentOccurrence: (block: String, nth: Int)? {
+        currentMatch.flatMap { match in
+            current.map { index in (block: match.block, nth: matches[..<index].filter { $0.block == match.block }.count) }
         }
     }
 

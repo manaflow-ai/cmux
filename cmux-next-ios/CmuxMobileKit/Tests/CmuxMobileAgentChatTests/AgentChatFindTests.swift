@@ -120,11 +120,28 @@ import Testing
         find.refresh(turns)
         let first = find.pending
         await first?.value
-        // The query's search landed and moved to its match; the output is searched after it.
+        // The query's search landed and moved to its match (the newest); the output is searched
+        // after it (it may have landed already) and keeps that match.
         #expect(find.step != step)
-        #expect(find.countText == "4 of 4")
+        #expect(find.currentBlock == "m-a|0")
         await find.pending?.value
         #expect(find.matches.count == 5)
+        #expect(find.countText == "4 of 5")
+    }
+
+    @Test func aStepTakenWhileARefreshRunsStays() async {
+        let find = AgentChatFind()
+        find.query = "build"
+        find.search(Self.turns())
+        await find.pending?.value
+        var turns = Self.turns()
+        turns[1].items[1] = .message(id: "b", markdown: "build")
+        find.refresh(turns)
+        // Next, before the refresh lands: to the first match (the prompt).
+        find.next()
+        await find.pending?.value
+        #expect(find.countText == "1 of 5")
+        #expect(find.currentBlock == "t1|prompt")
     }
 
     @Test func aMatchNamesTheRenderedBlockThatHoldsIt() {

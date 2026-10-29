@@ -30,6 +30,9 @@ public final class AgentChatsModel {
     public var failure: String?
 
     @ObservationIgnored private let macID: String
+    /// Moves on each first-page load: a page asked for before it is dropped (a pull to refresh
+    /// while Show Older Chats loads must never append a page after the new first page's cursor).
+    @ObservationIgnored private var listGeneration = 0
     @ObservationIgnored private weak var backend: (any AgentChatsBackend)?
 
     public init(macID: String, backend: (any AgentChatsBackend)?) {
@@ -47,12 +50,16 @@ public final class AgentChatsModel {
             return
         }
         if chats.isEmpty { phase = .loading }
+        listGeneration &+= 1
+        let generation = listGeneration
         do {
             let page = try await backend.agentChats(on: macID, cursor: nil)
+            guard generation == listGeneration else { return }
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
         } catch {
+            guard generation == listGeneration else { return }
             let message = Self.message(error)
             if chats.isEmpty { phase = .failed(message) } else { failure = message }
         }
@@ -63,8 +70,10 @@ public final class AgentChatsModel {
         guard let backend, let cursor = nextCursor, !loadingMore else { return }
         loadingMore = true
         defer { loadingMore = false }
+        let generation = listGeneration
         do {
             let page = try await backend.agentChats(on: macID, cursor: cursor)
+            guard generation == listGeneration else { return }
             let known = Set(chats.map(\.id))
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
