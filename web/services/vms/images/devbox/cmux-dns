@@ -79,7 +79,7 @@ def question_end(message):
 def question_key(message):
     """The question as wire bytes (length-prefixed labels, lowercased), type and class."""
     end = question_end(message)
-    return None if end is None else message[12:end].lower()
+    return None if end is None else message[12:end - 4].lower() + message[end - 4:end]
 
 
 def udp_limit(query):
@@ -126,7 +126,8 @@ def found(message):
 def answers(message, query):
     """`message` replies to `query`'s question (resolvers echo it; anything else is discarded)."""
     end = question_end(query)
-    return message is not None and len(message) >= end and message[12:end].lower() == query[12:end].lower()
+    return (end is not None and message is not None and len(message) >= end
+            and message[12:end - 4].lower() + message[end - 4:end] == question_key(query))
 
 
 def read_resolv_conf(path=RESOLV_CONF):
