@@ -480,6 +480,15 @@ final class CreationInputCoordinator {
            controller?.focus.currentState().resolved.tab != current.target.id {
             hold.current = nil
         }
+        // The creation landed but its focus did not go there (no expectation of its intent is pending and the model names
+        // another target): the keys typed from now on are for where the focus is; those already held still go to the
+        // surface they were typed for. A new workspace lands when the window shows it, so it keeps its target.
+        if let current = hold.current, let controller,
+           let creation = hold.creations.all.first(where: { $0.creation.target == current.target })?.creation,
+           creation.landed, !creation.newWorkspace, case let state = controller.focus.currentState(),
+           state.expectation?.generation != creation.generation, state.resolved.tab != current.target.id {
+            hold.current = nil
+        }
         guard let current = holds[shell.windowNumber]?.current else {
             // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
             droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
