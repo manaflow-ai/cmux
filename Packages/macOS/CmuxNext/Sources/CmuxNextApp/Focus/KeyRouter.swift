@@ -444,7 +444,17 @@ final class KeyRouter: BrowserKeyRouting {
         // A settle can swap what a pane shows under an equal focus state (a page's web view, a terminal's surface).
         keyFactsCache.invalidate(.focusTransition)
         typeAheadFocusDidSettle(focus.resolved)
-        newTabInputCoordinator.flush(in: window)
+        // Held keys never run inside another action's run (review finding 7: a failed creation's task settles the focus
+        // in its turn): inside one, the New Tab hold drains in a fresh main-actor turn, as the creation hold always does.
+        if ActionRunScope.current == nil || services == nil {
+            newTabInputCoordinator.flush(in: window)
+        } else {
+            // A main-work job runs in its own turn, outside the running action's task and its task-locals; the person
+            // waits on these keys. It reads the current state, so nothing cancels it.
+            services?.mainWork.post(.userBlocking, owner: "KeyRouter.newTabFlush") { [weak self, weak window] in
+                self?.newTabInputCoordinator.flush(in: window)
+            }
+        }
         creationInputCoordinator.focusDidSettle(in: window)
         if modes.contains(.launchPicture) { launchPictureKeys.retry() }
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
