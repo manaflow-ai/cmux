@@ -19,7 +19,6 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { groupAgentMessages, groupWaitingSteps, type WaitingSteps } from "./waitingMessages";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
@@ -136,10 +135,8 @@ export type TurnView = {
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
-  /// The steers that wait (snapshot `waitingSteers`), and where they were in the running turn, with
-  /// the cards other sessions' messages among them draw as (waitingMessages.ts `groupWaitingSteps`).
+  /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
-  waiting?: WaitingSteps;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -252,9 +249,6 @@ export function turnViewFrom(
   }
   const first = starts.length;
   const fromStart = lead === 0;
-  // Other sessions' messages among the steers that wait, two or more in a run, as one card: they are
-  // all in the running turn, which every snapshot draws again (`reuse` keeps no last turn).
-  let waiting: WaitingSteps | undefined;
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -294,16 +288,9 @@ export function turnViewFrom(
       sessionStatus,
       lineBelow,
     );
-    if (last && waitingSteers && waitingSteers.length > 1)
-      waiting = groupWaitingSteps(shaped, waitingSteers, previous?.waiting);
-    // Each run's card in its rows' place, as they are drawn.
-    const runs = waiting?.runs ?? [];
-    for (let index = 0, run = 0; index < shaped.length; index += 1) {
-      if (run < runs.length && index === runs[run]![0]) {
-        groupAgentMessages([runs[run]![2]], out, undefined, messageBreaks);
-        index = runs[run++]![1] - 1;
-      } else groupAgentMessages([shaped[index]!], out, undefined, messageBreaks);
-    }
+    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
+    // never folded into one card (Leo, 2026-10-29).
+    for (const row of shaped) out.push(row);
     ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
@@ -316,7 +303,6 @@ export function turnViewFrom(
     sessionStatus,
     messageBreaks,
     ...(waitingSteers ? { waitingSteers } : {}),
-    ...(waiting ? { waiting } : {}),
     lead,
     starts,
     times,

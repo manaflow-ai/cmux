@@ -2269,127 +2269,65 @@ pre.cv-math-source {
   min-width: 0;
 }
 .cv-received {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin: 2px 0;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-.cv-received__line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+/* Another agent's message (IncomingMessageCard.tsx): the shared DisclosureRow's line, 26px in 2px
+   margins (model.ts estimates that), quiet as Claude Code's "Received a message" line: the
+   sender's name in the theme's text, the first line of the message muted after it, then the
+   chevron. Never cut without a way to open it: the line opens the whole message under it. */
+.cv-disclosure.cv-received {
+  margin: 2px 0;
+}
+.cv-received > .cv-disclosure__line {
   height: 26px;
-  color: var(--cv-text-dim);
+  min-height: 0;
   white-space: nowrap;
   user-select: none;
 }
-.cv-received__icon {
+.cv-received .cv-disclosure__toggle {
+  height: 26px;
+  box-sizing: border-box;
+  padding-block: 0;
+}
+.cv-received .cv-disclosure__label {
   display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  margin-right: -1.5px;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 400;
 }
-.cv-received__name,
-.cv-received__toggle {
-  all: unset;
-  cursor: pointer;
-}
-/* The sender as a chip: the theme's text at a low strength over glass, the accent's ring on
-   hover and focus (Leo 2026-10-20: glass, never a solid fill). */
-.cv-received__name {
+.cv-received__from {
   flex: none;
-  max-width: 40%;
+  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-sizing: border-box;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 6px;
-  line-height: 20px;
-  font-size: var(--text-control);
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 10%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
-  letter-spacing: var(--text-control--letter-spacing);
 }
-.cv-received__name.is-plain {
-  cursor: pointer;
-}
-button.cv-received__name:hover,
-button.cv-received__name:focus-visible {
-  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
-}
-/* The rest of the line, which opens the message: its chevron, when opening shows more. */
-.cv-received__toggle {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  height: 26px;
-}
-.cv-received__toggle > .cv-rotor {
-  flex: none;
-}
-/* Minimal Mode's closed message (IncomingMessageCard.tsx): the message's first line after the
-   chip, cut with an ellipsis, the chevron after it. model.ts estimates the line alone. */
 .cv-received__preview {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 26px;
+  color: var(--cv-text-dim);
 }
-.cv-received__toggle:hover,
-.cv-received__toggle:focus-visible {
-  color: var(--cv-text);
+/* Opened: who it is from, then the whole message, wrapped, never cut. */
+.cv-received__from-line {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-received__toggle:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
-  border-radius: 4px;
-}
-/* The line's gap spaces Reply and the hover row already. */
-.cv-received__line > .cv-received__reply,
-.cv-received__line > .cv-received-actions {
-  margin-inline-start: 0;
-}
-/* The message: a compact glass card under the line, in from the icon column, its text as
-   Markdown. Glass, never a solid fill: the theme's text at a low strength, a hairline edge with
-   a trace of the theme's accent, and a lighter top edge, as the composer's glass has. */
-.cv-received__body {
-  box-sizing: border-box;
-  margin: 4px 0 6px 22px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px)
-      color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+.cv-received__text {
+  margin-top: 4px;
   color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
 }
-/* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
-   opens it. model.ts estimates the text plus the control's 24px. */
-.cv-received__body[data-cut] {
-  cursor: pointer;
-}
-.cv-received__body[data-cut] > .cv-received__text {
-  overflow: hidden;
-}
-/* The card's text sits flush with its padding: no paragraph margin above the first line or below
+/* The text sits flush with the panel's padding: no paragraph margin above the first line or below
    the last. */
 .cv-received__text > .cv-md > :first-child {
   margin-top: 0;
@@ -2411,16 +2349,16 @@ a.cv-sha:focus-visible {
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 3px;
 }
-/* Details under an opened message: the prompt as the agent got it, closed until asked for. */
+/* Details in an opened message's panel: the prompt as the agent got it, closed until asked for. */
 .cv-received__details {
-  margin: 0 0 6px 22px;
+  margin-top: 4px;
 }
 .cv-received__more {
   all: unset;
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: 22px;
+  height: 20px;
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   cursor: pointer;
@@ -2430,11 +2368,11 @@ a.cv-sha:focus-visible {
 .cv-received__more:focus-visible {
   color: var(--cv-text);
 }
-/* Another agent's images, under its line. */
-.cv-received > .cv-message__images {
+/* Another agent's images, in its panel. */
+.cv-received .cv-message__images {
   justify-content: flex-start;
   max-width: none;
-  margin: 2px 0 6px 22px;
+  margin: 6px 0 0;
 }
 .cv-received__details .cv-tool-output {
   margin: 2px 0 0;
@@ -3999,15 +3937,15 @@ article.acpmux-row:empty {
   gap: 4px;
   margin: 0 0 8px 13px;
 }
-.cv-received > .cv-message__reply {
-  margin-left: 22px;
+.cv-received .cv-message__reply {
+  margin: 6px 0 0;
 }
 .cv-message__reply > .cv-user__edit {
   width: 100%;
 }
 .cv-received__replied {
   display: block;
-  margin: 0 0 6px 22px;
+  margin-top: 4px;
 }
 /* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
    line reads as before. */
@@ -4032,13 +3970,19 @@ article.acpmux-row:empty {
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
 }
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
-   the line's end, always shown, still. No spinner, no dot, no motion. */
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one small quiet tag at
+   the line's end ("Read after this turn"), always shown, still. No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
   color: var(--cv-text-dim);
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 10%, transparent);
   font-size: var(--text-caption);
-  line-height: var(--cv-meta-row);
+  line-height: 18px;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
