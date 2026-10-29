@@ -86,3 +86,20 @@ fn download_verbs_reach_the_app() {
     assert!(page(&["download", "wait", "--limit", "2"]).is_err());
     assert!(page(&["download", "later"]).is_err());
 }
+
+/// User, 2026-10-25: watch an agent's browser live from Home. `mirror` shows the tab in a
+/// second pane too (default right of the Home chat); `--pane` names one, `--off` takes it out.
+#[test]
+fn mirror_shows_the_tab_in_a_second_pane() {
+    let (method, params) = page(&["mirror"]).unwrap();
+    assert_eq!(method, "browser.page.mirror");
+    assert_eq!(params, json!({"tab": "tab_01ab"}));
+    let (_, params) = page(&["mirror", "--pane", "pane_9"]).unwrap();
+    assert_eq!(params["pane"], json!("pane_9"));
+    let (_, params) = page(&["mirror", "--off"]).unwrap();
+    assert_eq!(params["off"], json!(true));
+    // Showing a tab drives nothing: no agent name rides along.
+    let (_, params) = page(&["mirror", "--agent", "Claude"]).unwrap();
+    assert!(params.get("agent").is_none());
+    assert!(page(&["mirror", "extra"]).is_err());
+}

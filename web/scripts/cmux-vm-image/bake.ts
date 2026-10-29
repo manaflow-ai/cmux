@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -24,6 +24,9 @@
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
  *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
+ *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
+ *   memory and task limits, and the user's systemd manager outlives a runaway session.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
  *   snapshot.
@@ -41,7 +44,9 @@
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
  *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
- * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
+ * (unused for now) or --prod-copy (cmuxnp-prod-vmimg-<tag>: the production
+ * copy of a recorded dev image, baked on the production account with the dev
+ * image's flags; prod-copy.ts plans it) and is recorded in <out-dir>/resources.tsv the moment it
  * exists. The builder is deleted whatever happens.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -64,9 +69,11 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -115,7 +122,8 @@ const DAEMON_UNIT = HOST_UNIT;
 const DISABLED_TIMERS = ["apt-daily.timer", "apt-daily-upgrade.timer", "man-db.timer", "motd-news.timer"];
 /** Temp files left in the image; the provider's exec agent keeps its own per-exec scratch (.freestyle-exec-*). */
 export const TMP_LEFTOVERS = "find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name '.freestyle-exec-*'";
-const STORE_PATH = `${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+// The gh shim (github-auth.ts) comes first so plain `gh` gets a repo-scoped token.
+const STORE_PATH = `${GITHUB_SHIM_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 
 export type BakeOptions = {
   tag: string;
@@ -130,6 +138,12 @@ export type BakeOptions = {
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
   devTree?: boolean;
+  /**
+   * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
+   * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
+   * the prefix the production Worker boots.
+   */
+  prodCopy?: boolean;
 };
 
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
@@ -201,8 +215,9 @@ function npmGlobals(json: string): Map<string, string> {
   return new Map(Object.entries(parsed.dependencies ?? {}).map(([name, dep]) => [name, dep.version ?? ""]));
 }
 
-function storeProfileScript(): string {
-  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\nexport PATH\n`;
+/** The login profile's PATH: the gh shim (github-auth.ts), then the store, ahead of the rest. */
+export function storeProfileScript(): string {
+  return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
 function coderouterProfileScript(): string {
@@ -398,6 +413,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
+  // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
+  for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -543,6 +561,14 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
+/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
+async function installMachineHealth(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  const out = await L.step(vm, "machine-health", machineHealthBakeCommand(), 120_000);
+  ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
@@ -629,6 +655,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
 /** Bakes one snapshot. Never throws: failures land in result.error; the builder is always deleted. */
@@ -637,7 +664,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const lockText = readFileSync(options.lockPath, "utf8");
   const lock = parseInputsLock(lockText);
   const sha = (process.env.GITHUB_SHA ?? "0000000000").toLowerCase();
-  const name = imageResourceName({ promotion: options.promotion, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
+  const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
   const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
@@ -645,7 +672,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
-    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion });
+    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     await firstExec(builder.vm, builder.t0);
     const ctx: Ctx = { vm: builder.vm, L, lock, lockText, options, result, name };
@@ -665,6 +692,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
     if (options.devTree) await installDevTree(ctx);
+    await installMachineHealth(ctx);
     await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
@@ -691,7 +719,10 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
   return {
@@ -704,6 +735,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     agentTools: hasFlag("--agent-tools", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
+    prodCopy: hasFlag("--prod-copy", argv),
   };
 }
 

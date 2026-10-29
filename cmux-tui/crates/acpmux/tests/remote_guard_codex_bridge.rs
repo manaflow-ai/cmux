@@ -596,3 +596,58 @@ async fn a_remote_device_starts_the_codex_bridge_in_its_asking_mode() {
     assert_ne!(own["result"]["modes"]["currentModeId"], "ask", "{own}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// claude-sr2, 2026-10-25 (item L): a session an enrolled peer started on the bridge with policy
+/// deny-all (a reviewer that only reads) was settled in `ask`, where deny-all refuses every
+/// command Codex asks about, so it could not even read. Deny-all's own mode is the bridge's
+/// `read-only` (`hub/policy_mode.rs`): its sandbox refuses every write and the network, and
+/// deny-all refuses every escalation out of it. Only a peer's start settles there; the Web, a
+/// peer forwarding for a Web client and a paired device stay in `ask`, as before. A peer's start
+/// with no policy still settles in `ask`.
+#[tokio::test]
+async fn a_peer_deny_all_bridge_start_settles_in_read_only_and_the_web_in_ask() {
+    let d = dir("deny-all");
+    let hub = hub(&d);
+    let deny_all = json!({"cwd": d.join("work"), "mcpServers": [], "policy": "deny-all",
+        "_meta": {"acpmux": {"harness": "bridge"}}});
+    let mut peer = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+    let created = peer.call("session/new", deny_all.clone()).await;
+    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let s = s.to_owned();
+    assert_eq!(created["result"]["modes"]["currentModeId"], "read-only", "{created}");
+    assert_eq!(mode_now(&hub, &s), "read-only");
+    let r = peer.call("session/prompt", prompt(&s)).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let s = bridge_chat(&mut peer, &d).await;
+    assert_eq!(mode_now(&hub, &s), "ask", "peer, no policy");
+    let web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let mut for_web = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+    for_web.3 = Some("web");
+    let (_, device) = Client::paired(&hub, "laptop", false);
+    for (who, mut c) in [("web", web), ("peer via web", for_web), ("device", device)] {
+        let created = c.call("session/new", deny_all.clone()).await;
+        let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+        assert_eq!(mode_now(&hub, s), "ask", "{who}: {created}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// What a remote connection could already do before a peer's deny-all start settled in
+/// `read-only` (the reviewer of cmux#25311, 2026-10-26, on a peer that sets policy `ask` on such
+/// a chat): the Web, with the shared token, moves its own bridge chat from `ask` to `read-only`
+/// under the `ask` policy and prompts it there. A peer's chat in `read-only` with policy `ask` is
+/// that same state.
+#[tokio::test]
+async fn the_web_already_moves_its_bridge_chat_to_read_only_under_ask() {
+    let d = dir("web-read-only");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let s = bridge_chat(&mut web, &d).await;
+    assert_eq!(mode_now(&hub, &s), "ask");
+    let r = web.call("session/set_mode", json!({"sessionId": s, "modeId": "read-only"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(mode_now(&hub, &s), "read-only");
+    let r = web.call("session/prompt", prompt(&s)).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}

@@ -41,7 +41,10 @@ export type PopupKind = "menu" | "list" | "tooltip";
 /** What a menu opened from: an element or a virtual anchor. */
 export type AnchorBox = { getBoundingClientRect(): { left: number; top: number; right: number; bottom: number } };
 
-export type PopupEvent = { type: "pick"; id: string } | { type: "highlight"; id: string } | { type: "dismiss" };
+export type PopupEvent =
+  | { type: "pick"; id: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }
+  | { type: "highlight"; id: string }
+  | { type: "dismiss" };
 
 /**
  * One panel per page: the surface that showed it (`owner`) updates and hides it; another surface
@@ -67,10 +70,11 @@ export function createPopupHost(
 ): PopupHost {
   const quiet = (call: "show" | "update" | "hide", params: Record<string, unknown> = {}) =>
     post(call, params).catch(() => undefined);
-  // A page with no entry animations (a New Tab: `data-new-tab`, newtab/noEntry.css) asks the host
-  // to show the panel in one frame (`instant`); its close still fades.
+  // Menus and lists open in one frame, including the rows shown past a chat pane's edge.
+  // New Tab also suppresses tooltip entrances; other tooltips keep their own motion.
   const request = (model: PopupModel): Record<string, unknown> =>
-    typeof document !== "undefined" && document.documentElement.hasAttribute("data-new-tab")
+    model.kind !== "tooltip" ||
+    (typeof document !== "undefined" && document.documentElement.hasAttribute("data-new-tab"))
       ? { ...model, instant: true }
       : { ...model };
   let current: object | null = null;
@@ -305,6 +309,7 @@ export function useEscapingPopup(
       shell?.removeAttribute("data-escaped");
       shell?.style.removeProperty("opacity");
       shell?.style.removeProperty("pointer-events");
+      shell?.style.removeProperty("transition");
       host.hide(me);
     };
     // Measure every row against the room, after the page placed the surface (one frame) and
@@ -326,8 +331,10 @@ export function useEscapingPopup(
       if (!first) return;
       escaped = true;
       observer?.disconnect();
-      // Invisible, not hidden: the page's surface keeps focus and its rows for the keyboard.
+      // Invisible, not hidden: the page's surface keeps focus and its rows for the keyboard. At
+      // once: a popup's close fade (popupSurface.css .ui-popup) would draw it beside the host's panel.
       shell?.setAttribute("data-escaped", "");
+      shell?.style.setProperty("transition", "none");
       shell?.style.setProperty("opacity", "0");
       shell?.style.setProperty("pointer-events", "none");
       // The host could not show it (no screen, a hidden window): the surface stays in the page.
@@ -358,9 +365,17 @@ export function useEscapingPopup(
       stopListening = host.listen((event) => {
         if (event.type === "pick") {
           const target = row(event.id);
-          if (kind === "list" && pick === "mousedown")
-            target?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
-          else target?.click();
+          target?.dispatchEvent(
+            new MouseEvent(kind === "list" && pick === "mousedown" ? "mousedown" : "click", {
+              bubbles: true,
+              cancelable: true,
+              button: 0,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+            }),
+          );
         } else if (event.type === "highlight") {
           // A hover there moves the page's highlight, so Return picks the row under the pointer.
           const target = row(event.id);

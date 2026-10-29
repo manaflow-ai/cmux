@@ -30,6 +30,10 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: .seconds(2)))
+    }
+
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
     /// (nil when the answer is not a plan this build reads).
     @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
@@ -46,6 +50,17 @@ nonisolated enum AcpmuxStatusClient {
                                            deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
         let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
         return AgentPanePastTurn.turns(result: result)
+    }
+
+    /// `_acpmux/chat_fork {harness, agentSessionId, cwd}`: the fork's session id. The daemon starts
+    /// the harness's ACP agent for it, so the deadline covers an agent's start.
+    @concurrent static func chatFork(socketPath: String, harness: String, agentSessionId: String, cwd: String?,
+                                     deadline: Duration = .seconds(45)) async throws -> String {
+        var params: [String: any Sendable] = ["harness": harness, "agentSessionId": agentSessionId]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_fork", params: params, deadline: deadline)
+        guard let forked = result["agentSessionId"] as? String, !forked.isEmpty else { throw Failure.rpc("_acpmux/chat_fork returned no agentSessionId") }
+        return forked
     }
 
     /// `_acpmux/shutdown` to the daemon of `home`: it stops; agents under agent hosts keep
@@ -250,18 +265,23 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// The daemon keeps its chats on disk (`store.mode` `local`, the default of every build): a
+    /// daemon without agent hosts that restarts resumes them from there. False for a memory store,
+    /// and for a status that does not say.
+    var chatsOnDisk: Bool
     /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
     /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
     var chiefMuxHome: String?
     /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
     var home: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false, chatsOnDisk: Bool = false,
          chiefMuxHome: String? = nil, home: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chatsOnDisk = chatsOnDisk
         self.chiefMuxHome = chiefMuxHome
         self.home = home
     }
@@ -271,6 +291,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chatsOnDisk = ((result["store"] as? [String: Any])?["mode"] as? String) == "local"
         chiefMuxHome = result["chiefMuxHome"] as? String
         home = result["home"] as? String
     }
