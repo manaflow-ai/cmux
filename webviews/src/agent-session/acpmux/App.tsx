@@ -10517,6 +10517,7 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
+              onPlusCommand={runPlusSearch}
               {...withSubmitAfterHandshake(
                 newTabScreenActions({
                   callNative,
@@ -10557,7 +10558,6 @@ function AcpmuxPane() {
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
-              onPlusCommand={runPlusSearch}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse")
                   .then((result) => result?.cwd)
