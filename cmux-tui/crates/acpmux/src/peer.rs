@@ -1507,7 +1507,7 @@ impl Peer {
                     check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
-                        self.on_wire.lock_or_recover().insert(key);
+                        self.on_wire.lock_or_recover().insert(key.clone());
                         // Once the prompt frame reaches the socket, the remote may have
                         // accepted it even if its acceptance notification is still queued
                         // behind the frame that caused this link to drop. Retain it for the
