@@ -3,6 +3,7 @@
 //! prompts it ran or queued. Scanning the waiting list per record and keeping every prompt that
 //! ever left the queue in the order list made a restore quadratic in the log.
 
+use super::super::digest::inbox_digest;
 use crate::store::EventRecord;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -169,4 +170,57 @@ impl Order {
 
 fn str_field<'a>(e: &'a EventRecord, key: &str) -> Option<&'a str> {
     e.msg.get(key).and_then(Value::as_str)
+}
+
+/// The inbox digests the log queued (`inbox_digest.rs`), and which of them started. A digest whose turn started (its `user_message`, a steer's too, or
+/// its `turn_started`) is its messages' turn: none runs on its own again, unless the digest
+/// failed and put it back (its `requeued` record, read later). A digest whose turn never started
+/// (still queued, refused, or cut before its steer was written) is dropped, and its messages come
+/// back in its place as they were: a restart loses none and runs none twice. Their `dequeued`
+/// records leave them waiting until then (`restore_queue`).
+#[derive(Default)]
+pub(super) struct Digests {
+    took: std::collections::HashMap<String, Vec<String>>,
+    started: std::collections::HashSet<String>,
+}
+
+impl Digests {
+    /// One record of the scan, in log order.
+    pub(super) fn read(&mut self, e: &EventRecord, waiting: &mut Waiting, order: &mut Order) {
+        let Some(id) = e.msg.get("promptId").and_then(Value::as_str) else { return };
+        match e.kind.as_str() {
+            "queued" if inbox_digest::is_digest_record(&e.msg) => {
+                self.took.insert(id.to_owned(), inbox_digest::took(&e.msg));
+            }
+            "user_message" | "turn_started" if !self.started.contains(id) => {
+                let Some(messages) = self.took.get(id) else { return };
+                for m in messages {
+                    waiting.remove_prompt(m);
+                    order.remove(&Value::String(m.clone()));
+                }
+                self.started.insert(id.to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    /// After the scan: each digest that never started leaves, and its messages take its place
+    /// (`key`), in the order they were queued, unless a later reorder placed them.
+    pub(super) fn dissolve(
+        &self,
+        waiting: &mut Waiting,
+        order: &mut Order,
+        key: impl Fn(&str, &Order) -> (i64, u64),
+    ) {
+        for (digest, messages) in &self.took {
+            if self.started.contains(digest) {
+                continue;
+            }
+            let place = key(digest, order);
+            waiting.remove_prompt(digest);
+            for m in messages {
+                order.place_if_unplaced(m, place);
+            }
+        }
+    }
 }

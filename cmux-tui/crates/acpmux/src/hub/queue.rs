@@ -858,7 +858,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
-        let mut digests = super::digest::inbox_digest::Restore::default();
+        let mut digests = queue_waiting::Digests::default();
         let mut branch = session.meta().git_branch;
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
@@ -923,7 +923,7 @@ impl Hub {
                         unstarted.lead(&mut order);
                     }
                     // Taken into an inbox digest: it waits until that digest's turn starts
-                    // (`inbox_digest::Restore`).
+                    // (`queue_waiting.rs` `Digests`).
                     "dequeued" if e.msg.get("digestPromptId").is_some() => {}
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.remove_turn(turn_id);

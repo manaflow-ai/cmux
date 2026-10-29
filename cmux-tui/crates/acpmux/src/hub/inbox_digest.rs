@@ -15,7 +15,7 @@
 //!   their `queued` records marked `requeued`), so none is lost: they wait again, held when a
 //!   failed turn held them or when the digest's own turn failed.
 //! - A restart before the digest's turn started gives the messages back in its place and drops
-//!   it ([`Restore`]); draining again makes a new one. After it started, its turn is theirs:
+//!   it (`queue_waiting.rs` `Digests`); draining again makes a new one. After it started, its turn is theirs:
 //!   none runs again on its own. The digest's own `queued` record is logged first and names
 //!   every original, so this holds whichever of the records after it a stop cut off.
 //! - When the chat's turn runs and its agent steers, the digest goes into that turn as ONE
@@ -80,65 +80,6 @@ pub(crate) fn took(record: &Value) -> Vec<String> {
     let parts = provenance.and_then(|p| p.get("parts")).and_then(Value::as_array);
     let ids = parts.into_iter().flatten().filter_map(|p| p.get("promptId")?.as_str());
     ids.map(str::to_owned).collect()
-}
-
-/// Part of the queue restore (`queue.rs` `restore_queue`): the inbox digests the log queued,
-/// and which of them started. A digest whose turn started (its `user_message`, a steer's too, or
-/// its `turn_started`) is its messages' turn: none runs on its own again, unless the digest
-/// failed and put it back (its `requeued` record, read later). A digest whose turn never started
-/// (still queued, refused, or cut before its steer was written) is dropped, and its messages come
-/// back in its place as they were: a restart loses none and runs none twice. Their `dequeued`
-/// records leave them waiting until then (`restore_queue`).
-#[derive(Default)]
-pub(crate) struct Restore {
-    took: std::collections::HashMap<String, Vec<String>>,
-    started: std::collections::HashSet<String>,
-}
-
-impl Restore {
-    /// One record of the scan, in log order.
-    pub(in crate::hub) fn read(
-        &mut self,
-        e: &crate::store::EventRecord,
-        waiting: &mut super::super::queue_waiting::Waiting,
-        order: &mut super::super::queue_waiting::Order,
-    ) {
-        let Some(id) = e.msg.get("promptId").and_then(Value::as_str) else { return };
-        match e.kind.as_str() {
-            "queued" if is_digest_record(&e.msg) => {
-                self.took.insert(id.to_owned(), took(&e.msg));
-            }
-            "user_message" | "turn_started" if !self.started.contains(id) => {
-                let Some(messages) = self.took.get(id) else { return };
-                for m in messages {
-                    waiting.remove_prompt(m);
-                    order.remove(&json!(m));
-                }
-                self.started.insert(id.to_owned());
-            }
-            _ => {}
-        }
-    }
-
-    /// After the scan: each digest that never started leaves, and its messages take its place
-    /// (`key`), in the order they were queued, unless a later reorder placed them.
-    pub(in crate::hub) fn dissolve(
-        &self,
-        waiting: &mut super::super::queue_waiting::Waiting,
-        order: &mut super::super::queue_waiting::Order,
-        key: impl Fn(&str, &super::super::queue_waiting::Order) -> (i64, u64),
-    ) {
-        for (digest, messages) in &self.took {
-            if self.started.contains(digest) {
-                continue;
-            }
-            let place = key(digest, order);
-            waiting.remove_prompt(digest);
-            for m in messages {
-                order.place_if_unplaced(m, place);
-            }
-        }
-    }
 }
 
 /// One message of a digest, as the renderer reads it.

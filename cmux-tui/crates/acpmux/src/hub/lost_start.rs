@@ -13,7 +13,7 @@
 //!
 //! A prompt an inbox digest took (`dequeued` with `digestPromptId`) is no such prompt: it waits
 //! until the digest's turn starts, and comes back in the digest's place if it never did
-//! (`inbox_digest.rs` `Restore`).
+//! (`queue_waiting.rs` `Digests`).
 //!
 //! The prompts are indexed by prompt, turn and starting turn, so each record costs the same
 //! however many of them a long log holds.
@@ -57,7 +57,7 @@ impl Unstarted {
         let turn_id = e.msg.get("turnId").and_then(Value::as_str);
         let prompt_id = e.msg.get("promptId").and_then(Value::as_str);
         match e.kind.as_str() {
-            // Taken into an inbox digest (`inbox_digest.rs` `Restore` decides).
+            // Taken into an inbox digest (`queue_waiting.rs` `Digests` decides).
             "dequeued" if e.msg.get("digestPromptId").is_some() => Vec::new(),
             "dequeued" if !self.open => {
                 if let (Some(p), Some(t)) = (prompt_id, turn_id)

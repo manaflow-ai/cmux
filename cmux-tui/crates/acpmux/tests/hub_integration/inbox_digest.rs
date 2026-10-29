@@ -567,7 +567,8 @@ async fn a_digest_refused_before_its_turn_puts_every_message_back_and_a_restart_
     // A stop between the digest's refusal and their `requeued` records loses none either.
     let saved = root.join("saved");
     copy_dir(&state, &saved);
-    assert_eq!(cut_lines(&saved, |l| l.contains("\"requeued\":true")), 2);
+    // Their two `queued` records and the hold that came with them.
+    assert_eq!(cut_lines(&saved, |l| l.contains("\"requeued\":true")), 3);
     let hub = durable_hub(&saved);
     let mut c = connect(&hub).await;
     let order = queue_order(&mut c, &id).await;
