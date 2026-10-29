@@ -16,7 +16,7 @@ struct AppServicesInitStartsTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.browserHost == nil, "the browser host is the BrowserHost.start post's")
-        #expect(services.input.monitor == nil, "input verification is the InputVerification.start post's")
+        #expect(!services.input.isStarted, "input verification is the InputVerification.start post's")
         #expect(!services.notifications.isStarted, "the banners are the Notifications.start post's")
         #expect(services.notifications.services === services, "the launch turn's Chief pet and a click's read find the app")
         #expect(services.registry.isBound(ActionID(rawValue: "palette.restartServer")),
@@ -40,9 +40,10 @@ struct AppServicesInitStartsTests {
         let run = { (name: String) in posts.first { $0.name.description == name }?.work() }
         run("BrowserHost.start")
         #expect(services.browserHost != nil, "the BrowserHost.start post builds the host")
-        #expect(services.input.monitor == nil && !services.notifications.isStarted, "one post starts one service")
+        #expect(!services.input.isStarted && !services.notifications.isStarted, "one post starts one service")
         run("InputVerification.start")
-        #expect(services.input.monitor != nil, "the InputVerification.start post makes the monitor")
+        #expect(services.input.isStarted, "the InputVerification.start post starts input verification")
+        #expect(services.input.invariants != nil, "the InputVerification.start post makes the invariant registry")
         run("Notifications.start")
         #expect(services.notifications.isStarted, "the Notifications.start post follows the store")
     }

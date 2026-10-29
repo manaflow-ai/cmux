@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay a cmux-next desync report's input into a tagged app and report the
+"""Replay a cmux-next invariant report's input (`~/Library/Logs/cmux-next/<tag>/invariants/`) into a tagged app and report the
 first divergence (plans/cmux-next/input-spec.md section 5).
 
 Reads the report's journal (or `--journal`, a `debug.journal` answer saved as

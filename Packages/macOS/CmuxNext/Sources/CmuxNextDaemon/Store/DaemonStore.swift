@@ -1,3 +1,4 @@
+public import CmuxNextInvariants
 public import CmuxNextWakeups
 import Foundation
 public import Observation
@@ -157,8 +158,11 @@ public final class DaemonStore: StateResourceQueries {
     }
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
-    /// Called on the main actor for each new mirror violation.
-    @ObservationIgnored public var onMirrorViolation: ((String) -> Void)?
+    /// Where a mirror violation is reported (M1, a call-site check: plans/cmux-next/invariants-DESIGN.md section
+    /// 3.6); an empty value in Release.
+    @ObservationIgnored public var invariants = InvariantProbe()
+    /// The machine whose mirror this is, as M1's subject names it (`DaemonService` sets it).
+    @ObservationIgnored public var machineID = "local"
     /// A create intent's tab arrived with its transaction echo: (provisional tab id, created tab).
     @ObservationIgnored public var onTabCreated: ((String, TabModel) -> Void)?
     /// Same, for a page tab's create intent (`page-tabs-v1`); agent tabs own `onTabCreated`.

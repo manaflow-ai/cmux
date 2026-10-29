@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInvariants
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -36,7 +37,7 @@ extension TabDragSession {
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
-                self?.services.input.monitor?.noteChange()
+                self?.services.input.probe.touch(.tabs, .app)
                 // The view change of a landed user drop, after the echo, unless the drop showed it.
                 if ok, !drag.revealedEarly { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
                 // A refused move the drop already showed: the window shows what it showed before.

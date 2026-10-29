@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
+public import CmuxNextInvariants
 public import CmuxNextInput
 public import CmuxNextAppearance
 
@@ -26,6 +27,8 @@ public import CmuxNextAppearance
 @MainActor
 public final class HoverCardCoordinator {
     public private(set) var machine = HoverCardMachine()
+    /// The invariant probe each machine step touches (H1, `declareInvariants(in:)`); an empty value in Release.
+    public var invariants = InvariantProbe()
     private(set) var sources: [ObjectIdentifier: WeakSource] = [:]
     /// The source of each target the machine knows (the last hit, the active one).
     private var owners: [HoverTargetID: WeakSource] = [:]
@@ -313,6 +316,7 @@ public final class HoverCardCoordinator {
         updateSubscriptions()
         pruneOwners()
         if machine.shownTarget != shown { changes?.signal() }
+        invariants.touch(.hover, .app)
     }
 
     private var queue: [HoverCardEvent] = []

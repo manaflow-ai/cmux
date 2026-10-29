@@ -370,6 +370,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFocusUI",
                 "CmuxNextInput",
                 "CmuxNextInputModel",
+                "CmuxNextInvariants",
                 "CmuxNextOracle",
                 "CmuxNextInputDiagnostics",
                 // The app-daemon wire (p05-ipc): the generated `cmux.protocol/2` requests History,
@@ -1932,6 +1933,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The app's one input tap: popups, overlays, tooltips and hover cards subscribe to it,
                 // no AppKit event monitor.
                 "CmuxNextInput",
+                // The hover card machine declares H1 (one card) and touches it through its probe.
+                "CmuxNextInvariants",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
                 "CCmuxAppFFI",
@@ -2009,8 +2012,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDaemon",
             // CmuxNextIPC: the generated `cmux.protocol/2` requests ResourceOperationClient sends.
             // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once.
+            // CmuxNextInvariants: the probe M1 (the mirror's single writer) reports through.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
-                           "CmuxNextIPC", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+                           "CmuxNextIPC", "CmuxNextInvariants", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2287,7 +2291,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextControl",
             // CmuxSafeConcurrency: OnceContinuation.
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextOracle", "CmuxNextFeatures", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextInvariants", "CmuxNextOracle", "CmuxNextFeatures", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -2372,6 +2376,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextInputCore",
                 "CmuxNextInputCoreTestSupport",
                 "CmuxNextInputModel",
+                "CmuxNextInvariants",
                 "CmuxNextKeepAwake",
                 "CmuxNextLaunch",
                 "CmuxNextLayout",

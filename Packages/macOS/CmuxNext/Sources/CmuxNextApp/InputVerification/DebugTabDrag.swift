@@ -2,6 +2,8 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextInputModel
+import CmuxNextInvariants
 import CmuxNextSettings
 
 /// `debug.tab_drag` (DEBUG builds): the live `TabDragSession` state, so a
@@ -11,6 +13,40 @@ import CmuxNextSettings
 /// distance from the pointer while the ghost floats), the hit window, the
 /// winning drop target and the outcome a release would commit.
 enum DebugTabDrag {
+    /// What DP1 reads of one tab strip in a window: the tabs it shows and the tabs its pane holds.
+    nonisolated struct Strip: Equatable, Encodable {
+        var window: String
+        var pane: String
+        var shown: [String]
+        var held: [String]
+    }
+
+    /// Declares DP1 (plans/cmux-next/layout-invariants.md, tab conservation) in `registry`: once no tab drag is in
+    /// flight, every strip shows exactly the tabs its pane holds, none hidden (a drag's presentation that never
+    /// ended) and none extra. A drag in flight is the level precondition: the rule does not apply then.
+    static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
+        registry.declare(InvariantRule(
+            id: "DP1", statement: InputInvariant.stripShowsPaneTabs.summary, owner: "TabDrag",
+            reads: [.tabs, .presentation], points: [.afterAction, .afterTurn], cost: .walk, parity: false,
+            read: { [weak services] (_: InvariantPass) -> [Strip]? in
+                guard let services, !services.dragSession.hasDragInFlight else { return nil }
+                return services.windows.controllers.flatMap { controller -> [Strip] in
+                    (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                        // A strip out of the window does not observe its model.
+                        guard pane.view.stripView.window != nil else { return nil }
+                        return Strip(window: controller.state.id, pane: pane.paneKey,
+                                     shown: pane.view.stripView.presentedTabIDs.map(\.rawValue),
+                                     held: pane.stripModel.orderedTabs.map(\.id.rawValue))
+                    }
+                }
+            },
+            check: { strips in
+                strips.filter { Set($0.shown) != Set($0.held) || $0.shown.count != $0.held.count }.map {
+                    InvariantFinding(subject: .window($0.window), detail: "pane \($0.pane) shows \($0.shown) but holds \($0.held)")
+                }
+            }))
+    }
+
     static func report(services: AppServices) -> JSONValue {
         let session = services.dragSession
         guard let drag = session.drag ?? session.landing else {

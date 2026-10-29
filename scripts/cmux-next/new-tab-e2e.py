@@ -260,8 +260,8 @@ def run_bench():
     print(f"recycle refusals on Cmd-W: {[c.get('recycle_refusal') for c in closes]}", flush=True)
     summarize("Cmd-W on the new tab page", closes)
     summarize("! on the new tab page", bangs)
-    desync = rpc("debug.desync") or {}
-    print(f"desync reports: {json.dumps(desync)[:2500]}", flush=True)
+    ledger = rpc("debug.invariants") or {}
+    print(f"invariant violations: {json.dumps(ledger)[:2500]}", flush=True)
     if recorder:
         recorder.wait(timeout=120)
         main_thread_profile(trace)

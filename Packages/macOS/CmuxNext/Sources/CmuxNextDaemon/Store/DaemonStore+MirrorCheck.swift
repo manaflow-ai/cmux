@@ -1,3 +1,4 @@
+import CmuxNextInvariants
 import Foundation
 
 /// Debug-build check of the mirror's single-writer rule (OWNERSHIP-PRINCIPLES.md:
@@ -12,7 +13,7 @@ import Foundation
 /// compares before it writes; a difference means something else wrote the
 /// records. It also checks that the overlay never changes the set of tabs
 /// (invariant 1). Violations are logged as faults and kept in
-/// `mirrorViolations`, which `debug.desync` reports. Release builds skip
+/// `mirrorViolations` and reported as M1 to the invariant ledger (`debug.invariants`). Release builds skip
 /// all of it.
 extension DaemonStore {
     static let mirrorViolationLimit = 32
@@ -77,7 +78,7 @@ extension DaemonStore {
         #else
         logger.error("mirror: \(detail, privacy: .public)")
         #endif
-        onMirrorViolation?(detail)
+        invariants.fail("M1", .machine(machineID), detail)
     }
 
     /// A hash of every field an intent writes: the workspace order, names

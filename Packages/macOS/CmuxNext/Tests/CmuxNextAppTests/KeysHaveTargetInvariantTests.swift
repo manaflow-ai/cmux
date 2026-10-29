@@ -56,7 +56,7 @@ struct KeysHaveTargetInvariantTests {
 
     @Test func anExpectationReKeyedFromItsSurfaceToItsTabKeepsItsClock() {
         let start = ContinuousClock.now
-        let limit = InputInvariantMonitor.expectationLimit
+        let limit = InputVerificationService.expectationLimit
         let bySurface = FocusState.Expectation(key: .surface("7"), target: .content, generation: 5)
         let byTab = FocusState.Expectation(key: .tab("tab_7"), target: .content, generation: 5)
         var ages = FocusExpectationAges()
@@ -67,7 +67,7 @@ struct KeysHaveTargetInvariantTests {
 
     @Test func aWindowWhoseKeysWaitForACreatesReplyStartsItsClockWhenTheHoldEnds() {
         let start = ContinuousClock.now
-        let limit = InputInvariantMonitor.expectationLimit
+        let limit = InputVerificationService.expectationLimit
         let pending = [window(.terminal(pane: "pane_a", tab: "tab_t"), isKey: true,
                               expectation: FocusState.Expectation(key: .tab("tab_new"), target: .addressBar, generation: 3))]
         var ages = FocusExpectationAges()
@@ -96,7 +96,7 @@ struct KeysHaveTargetInvariantTests {
 
     @Test func anExpectationPendingPastTheCreationHoldIsW11AndANewerOneStartsItsOwnClock() {
         let start = ContinuousClock.now
-        let limit = InputInvariantMonitor.expectationLimit
+        let limit = InputVerificationService.expectationLimit
         let first = FocusState.Expectation(key: .tab("tab_new"), target: .addressBar, generation: 3)
         let pending = [window(.terminal(pane: "pane_a", tab: "tab_t"), isKey: true, expectation: first)]
         var ages = FocusExpectationAges()

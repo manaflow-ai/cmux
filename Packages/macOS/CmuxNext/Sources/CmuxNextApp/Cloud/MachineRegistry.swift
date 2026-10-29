@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextInvariants
 import CmuxNextRemote
 import CmuxNextWorkspaceRepair
 import Foundation
@@ -43,6 +44,12 @@ final class MachineRegistry {
     /// (``DaemonService/connectionPresence``); nil: the heartbeats count the app as shown.
     @ObservationIgnored var connectionPresence: ConnectionPresence? {
         didSet { for daemon in daemons { daemon.connectionPresence = connectionPresence } }
+    }
+
+    /// Where every machine's mirror check reports M1 (`DaemonStore.invariants`), handed to every daemon here and to
+    /// each one added; an empty value in Release.
+    @ObservationIgnored var invariants = InvariantProbe() {
+        didSet { for daemon in daemons { daemon.store.invariants = invariants } }
     }
 
     init(local: DaemonService) {
@@ -194,6 +201,7 @@ final class MachineRegistry {
         cloud.append(session)
         tabIndex.track(session.daemon, as: .cloud)
         session.daemon.connectionPresence = connectionPresence
+        session.daemon.store.invariants = invariants
     }
 
     func remove(_ machineID: String) -> CloudMachineSession? {
@@ -210,6 +218,7 @@ final class MachineRegistry {
         ssh.append(session)
         tabIndex.track(session.daemon, as: .ssh)
         session.daemon.connectionPresence = connectionPresence
+        session.daemon.store.invariants = invariants
     }
 
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
@@ -226,6 +235,7 @@ final class MachineRegistry {
         servers.append(session)
         tabIndex.track(session.daemon, as: .server)
         session.daemon.connectionPresence = connectionPresence
+        session.daemon.store.invariants = invariants
     }
 
     func removeServer(_ machineID: String) -> ServerMachineSession? {

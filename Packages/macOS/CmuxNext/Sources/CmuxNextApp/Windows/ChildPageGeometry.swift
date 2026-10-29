@@ -1,5 +1,9 @@
 import AppKit
 import CmuxNextBrowser
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInputModel
+import CmuxNextInvariants
+#endif
 
 /// Invariant: every visible Chromium page window covers its pane's page
 /// area exactly, in screen coordinates, whatever moved or resized the
@@ -14,9 +18,16 @@ enum ChildPageGeometry {
     static func hasPageWindows(_ backend: BrowserBackend) -> Bool { backend == .inProcess }
 
     /// One pane showing a Chromium page, and where its page must be.
-    struct Host: Equatable {
+    nonisolated struct Host: Equatable, Encodable {
         var pane: String
         var screenRect: CGRect
+    }
+
+    /// What G1 reads of one window: its Chromium hosts and its page windows.
+    nonisolated struct WindowSample: Equatable, Encodable {
+        var window: String
+        var hosts: [Host]
+        var pages: [CGRect]
     }
 
     /// Pixel rounding: the fork places windows on whole points.
@@ -76,3 +87,32 @@ enum ChildPageGeometry {
         }
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension ChildPageGeometry {
+    /// Declares G1 (input-spec.md 2.6) in `registry`: every Chromium page window covers its pane in screen
+    /// coordinates. A window in a live resize does not apply (the fork follows each step). The fork places page
+    /// windows after a reply, and no in-flight ledger names that wait yet, so a mismatch is reported only when the
+    /// next check point finds it again (`interim`).
+    static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
+        registry.declare(InvariantRule(
+            id: "G1", statement: InputInvariant.chromiumGeometry.summary, owner: "Windows",
+            reads: [.paneFrame, .presentation], points: [.afterAction, .afterTurn], cost: .walk, parity: false,
+            interim: "confirms at the next check point until the Chromium geometry in-flight ledger exists",
+            confirmsAtNextCheck: true,
+            read: { [weak services] (_: InvariantPass) -> [WindowSample]? in
+                let samples = (services?.windows.controllers ?? []).compactMap { controller -> WindowSample? in
+                    guard controller.window?.inLiveResize != true else { return nil }
+                    let (hosts, pages) = sample(controller)
+                    return hosts.isEmpty && pages.isEmpty ? nil : WindowSample(window: controller.state.id, hosts: hosts, pages: pages)
+                }
+                return samples.isEmpty ? nil : samples
+            },
+            check: { samples in
+                samples.flatMap { window in
+                    mismatches(hosts: window.hosts, pages: window.pages).map { InvariantFinding(subject: .window(window.window), detail: $0) }
+                }
+            }))
+    }
+}
+#endif

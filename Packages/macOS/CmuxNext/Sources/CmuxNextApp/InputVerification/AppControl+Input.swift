@@ -1,27 +1,26 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextInputModel
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInvariants
+#endif
 import CmuxNextSettings
 import Foundation
 
 // Input verification over the control socket (plans/cmux-next/input-spec.md):
-// `debug.desync` (invariant check and captured reports), `debug.journal`
-// (the ring), `debug.replay` (journal against the pure reducers), and in
+// `debug.invariants` (the invariant ledger, plans/cmux-next/invariants-DESIGN.md) and its one-train alias
+// `debug.desync`, `debug.journal` (the ring), `debug.replay` (journal against the pure reducers), and in
 // DEBUG builds `debug.mouse` (synthesized mouse input).
 extension AppControl {
     func registerInputMethods(_ services: AppServices) {
         service?.router.register([
-            .mainActor("debug.desync") { [weak services] call in
-                guard let monitor = services?.input.monitor else { return .value(.null) }
-                return .value(Self.desync(call.params, monitor: monitor))
-            },
             .mainActor("debug.journal") { call in .value(Self.journal(call.params)) },
             .mainActor("debug.replay") { [weak services] call in
                 let source = call.params["source"]?.stringValue ?? "journal"
                 let entries: [InputJournalEntry]
                 if source == "report" {
-                    guard let report = services?.input.monitor?.reports.last else { return .value(["error": "no desync report"]) }
-                    entries = report.journal
+                    guard let journal = services?.input.lastReportJournal else { return .value(["error": "no invariant report"]) }
+                    entries = journal
                 } else {
                     entries = InputJournal.shared.entries()
                 }
@@ -30,6 +29,12 @@ extension AppControl {
         ])
         #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
+            // The registry starts with the `InputVerification.start` post, which may come after this registration.
+            InvariantsControl { [weak services] in services?.input.invariants }.method,
+            .mainActor("debug.desync") { [weak services] call in
+                guard let registry = services?.input.invariants else { return .value(.null) }
+                return .value(Self.desync(call.params, registry: registry))
+            },
             // This app's own light/dark override (never the system's).
             .mainActor("debug.appearance") { call in .value(DebugAppearance.handle(call.params)) },
             .mainActor("debug.mouse") { [weak services] call in
@@ -52,34 +57,39 @@ extension AppControl {
         ])
         // `debug.oracle.snapshot` over the app's one facet list (AppServices+OracleHost): the overlays facet.
         service?.router.register(services.oracleControlMethods())
+        #else
+        service?.router.register([InvariantsControl().method])
         #endif
     }
 
-    /// Params: `check` (run the world invariants now), `report` (capture a
-    /// report now when something is broken; `force` even when nothing is),
-    /// `clear`, `full` (the latest report in full).
-    private static func desync(_ params: [String: JSONValue], monitor: InputInvariantMonitor) -> JSONValue {
-        if params["clear"]?.boolValue == true { monitor.clear() }
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.desync`, the alias of `debug.invariants` for one train (invariants-DESIGN.md section 5.1): `check`
+    /// (every turn rule now; `check.violations` lists the current findings as the old monitor did), `clear`, `count`
+    /// (violations reported) and `reports` (the ledger's last 16, with their report files).
+    private static func desync(_ params: [String: JSONValue], registry: InvariantRegistry) -> JSONValue {
+        if params["clear"]?.boolValue == true { registry.clearReported() }
         var fields: [String: JSONValue] = [:]
-        if params["check"]?.boolValue == true || params["report"]?.boolValue == true, let result = monitor.check() {
-            fields["check"] = encode(result)
-            if params["report"]?.boolValue == true, !result.violations.isEmpty || params["force"]?.boolValue == true {
-                monitor.record(result.violations)
-            }
+        if params["check"]?.boolValue == true || params["report"]?.boolValue == true {
+            fields["check"] = .object([
+                "violations": .array(registry.checkNow().map { found in
+                    .object(["invariant": .string(found.id.rawValue), "window": found.finding.subject.windowID.map(JSONValue.string) ?? .null,
+                             "detail": .string(found.finding.detail)])
+                }),
+                "unsettled": .array([]),
+            ])
         }
-        fields["checks"] = .number(Double(monitor.checks))
-        fields["count"] = .number(Double(monitor.reportCount))
-        fields["directory"] = monitor.directory.map(JSONValue.string) ?? .null
-        fields["reports"] = .array(monitor.reports.map { report in
+        fields["checks"] = .number(Double(registry.turnsChecked))
+        fields["count"] = .number(Double(registry.ledger.lastSeq))
+        fields["reports"] = .array(registry.ledger.all.suffix(16).map { violation in
             .object([
-                "id": .string(report.id),
-                "path": monitor.url(of: report).map(JSONValue.string) ?? .null,
-                "violations": .array(report.summary.map(JSONValue.string)),
+                "id": .string("\(violation.seq)-\(violation.id.rawValue)"),
+                "path": violation.report.map(JSONValue.string) ?? .null,
+                "violations": .array([.string("\(violation.id.rawValue) \(violation.subject): \(violation.detail)")]),
             ])
         })
-        if params["full"]?.boolValue == true, let latest = monitor.reports.last { fields["latest"] = encode(latest) }
         return .object(fields)
     }
+    #endif
 
     /// Params: `last` (entries, default 200), `clear`, `marker` (appends a
     /// marker entry first).
@@ -95,7 +105,6 @@ extension AppControl {
     }
 
     static func encode(_ value: some Encodable) -> JSONValue {
-        guard let data = try? DesyncReport.encoder.encode(value) else { return .null }
-        return (try? JSONValue.parse(data)) ?? .null
+        InvariantReportStore.json(value)
     }
 }

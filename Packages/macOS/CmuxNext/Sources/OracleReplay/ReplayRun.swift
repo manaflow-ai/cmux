@@ -140,7 +140,7 @@ struct ReplayRun {
         self.host = host
     }
 
-    /// Sorted keys, as `debug.replay` encodes (DesyncReport.encoder): the same result gives the same bytes.
+    /// Sorted keys, as `debug.replay` encodes (InvariantReportStore.encoder): the same result gives the same bytes.
     static func jsonEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

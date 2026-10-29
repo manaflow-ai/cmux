@@ -125,6 +125,7 @@ public final class DaemonService {
         self.echoesPlacementShift = echoesPlacementShift
         // Its keyed waits' timeouts share the main thread's one deadline timer.
         store = DaemonStore(waitDeadlines: mainWork.wakeUps, deadlines: deadlines, causes: mainWork.causes, crashKeys: crashKeys)
+        store.machineID = machineID
         self.wireStats = wireStats
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)

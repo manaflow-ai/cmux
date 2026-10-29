@@ -2,7 +2,8 @@
 
 Status: binding (felt 1f, Lawrence 2026-10-29: "at any point in time (with some very minor exceptions?),
 something should always be focused, so that keyboard only operation is possible"). Owner: the focus agent of
-felt 1f. Checker: `InputInvariantMonitor` (W10, W11, with W1 and W5 of [input-spec.md](input-spec.md)). Fuzz: the
+felt 1f. Checker: the invariant registry ([invariants-DESIGN.md](invariants-DESIGN.md); W10, W11, with W1 and W5 of
+[input-spec.md](input-spec.md)). Fuzz: the
 journeys group `ext_focus.py` (`focus-fuzz`, `focus-new-browser-tab`) on branch `cp/journeys-focus-fuzz`, until it lands
 in `scripts/journeys/`.
 
@@ -69,8 +70,11 @@ Any other state where a key goes nowhere is a bug.
 | W10 | Keys have a target: cmux active with a visible window has a key window; the key cmux window's model targets something that takes keys (not `none`, not an empty pane while a pane has tabs) |
 | W11 | A focus expectation (a target that lands later) lands or is dropped within `holdLimit` plus one settle after its create's key hold ends (a slow reply is not stuck); one still pending after that is stuck: the keys go to the old target. A failed create leaves its expectation until a newer intent, and is reported |
 
-`InputInvariantMonitor` checks these after every action run (`ActionRegistry.willRunObservers`), every focus
-reduction (key-window, activation and responder changes included) and every key or mouse press, once input settles
-(200 ms), in Debug builds, and in bench builds launched with `CMUX_NEXT_FOCUS_CHECK=1` (a bench build otherwise times
-like Release); `debug.desync {check: true}` checks on demand in any build. A violation names the action that ran last, the window, the first responder and the expected target. The
-monitor only records: it never moves focus to repair a violation.
+The invariant registry ([invariants-DESIGN.md](invariants-DESIGN.md)) checks these at the end of every committed
+turn in which an action ran (`ActionRegistry.willRunObservers`) or a focus reduction (key-window, activation and
+responder changes included) or a key or mouse press touched the focus rules, with no settle, in Debug builds, and in
+bench builds launched with `CMUX_NEXT_INVARIANTS=1` (`CMUX_NEXT_FOCUS_CHECK=1` is its alias for one train; a bench
+build otherwise times like Release). W11 is a liveness rule: one deadline at the earliest limit reports an expectation
+that never lands with no input to run a check. `debug.invariants {check: true}` checks on demand in Debug and bench
+builds; journeys read its ledger after every step. A violation names the actions of its turn, the window, the first
+responder and the expected target. The registry only records: it never moves focus to repair a violation.

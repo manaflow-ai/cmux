@@ -136,28 +136,31 @@ records carry byte counts, never bytes, and omnibar text is not journaled. The o
 `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1` in a debug build: it records characters and key codes for
 that launch only, and nothing persists it. `InputPrivacyTests` checks the redaction.
 
-## 4. Invariant monitor and desync reports
+## 4. Invariant checks and reports
 
-`InputInvariantMonitor` runs after any focus reduction that changed the focus or had effects,
-key-down, mouse down/up, content presentation, or cmux window move, resize, screen change or
-deminiaturize, at one deadline 200 ms after the last of them (no display link, no per-frame
-step). It checks sections 2.5 and 2.6 (which include 2.1) on `InputObservationBuilder.observe`.
-A violation seen once is checked again one settle later; only a violation present in both
-checks is reported, once until it clears. The check walks every window and pane, so it runs by
-itself only in debug builds; in any build `debug.desync` (`check`, `report: true`) runs it on
-demand. Release builds keep the automatic check off (lead decision 2026-10-18, perf-focus cx-8w027.2):
-no scan of every window per input in a release build.
+The rules of sections 2.5 and 2.6 (which include 2.1) are declared once in the app's invariant registry
+(plans/cmux-next/invariants-DESIGN.md; `InputVerificationService.declareInvariants`): F1-F8, W1-W8 and W10
+on one `InputObservationBuilder.observe` per pass, W9 (presentation settles, 200 ms) and W11 (a focus
+expectation lands) as liveness rules, G1, DP1, H1, and M1 at its call site. Debug builds, and bench builds
+launched with `CMUX_NEXT_INVARIANTS=1`, check them at the end of each committed main turn in which an action
+ran or a focus reduction, key-down, mouse down/up, content presentation, or window move, resize, screen change
+or deminiaturize touched what they read: no settle, no confirming second check, no per-frame step of their
+own. W4 and G1 alone report only when the next check point finds the break again, until the Chromium
+in-flight ledger exists (`rules[].interim`). A violation goes once per signature (rule, host, subject) into the
+append-only ledger until a later check finds it clear. Release builds have no checker
+(`debug.invariants` answers `armed: false`).
 
-A report is written to `~/Library/Logs/cmux-next/<tag or release>/desync/desync-<UTC>-<n>.json`
-(newest 50 kept, written off the main thread): the violations, the observation, the last 512
-journal entries, journal stats, and `debug.focus` and `debug.surfaces` at capture time. Debug
-builds log a fault per violation, release builds (on demand only) an error.
+A report is written to `~/Library/Logs/cmux-next/<tag or release>/invariants/<seq>-<rule>.json` (newest 50
+kept), read after the violating frame and encoded and written on the files lane: the violation with its
+trigger (the actions of the turn), the rule's state, the observation, the last 512 journal entries, journal
+stats, and `debug.focus`, `debug.surfaces` and `debug.layers`. Each violation logs a fault.
 
 Control socket:
 
 | Method | Does |
 | --- | --- |
-| `debug.desync` | counts, report paths and summaries; `check: true` runs the world check now; `report: true` captures a report when something is broken (`force: true` always); `full: true` returns the latest report; `clear: true` |
+| `debug.invariants` | the ledger since `since`; `check: true` runs every rule now on every subject (`ipc: true` also the harness rules); `rules: true` the rule table with counts and run times; `state: true` the parity state; `clear: true` (invariants-DESIGN.md section 5.1) |
+| `debug.desync` | the alias of `debug.invariants` for one train: `check: true` lists the current findings as `check.violations`, `count`, `reports` |
 | `debug.journal` | stats and the last `last` entries (default 200); `marker: "<text>"` appends a marker; `clear: true` |
 | `debug.replay` | replays the in-memory journal (`source: "report"`: the latest report's) against the reducers (section 5) |
 | `debug.mouse` (DEBUG) | synthesized mouse input (below) |

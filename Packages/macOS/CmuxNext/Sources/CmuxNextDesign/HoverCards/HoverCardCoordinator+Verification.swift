@@ -1,19 +1,27 @@
 import AppKit
 import CmuxNextCompat
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextInvariants
+#endif
 
-// The live checks of `HoverCardCoordinator` (`debug.desync`).
+// The live checks of `HoverCardCoordinator`: H1, declared once in the invariant registry
+// (plans/cmux-next/invariants-DESIGN.md).
 extension HoverCardCoordinator {
-    /// The single-card invariant, checked live in debug builds
-    /// (`debug.desync`): at most one card window exists and shows, and it
-    /// shows what the machine says.
-    public func singleCardViolations() -> [String] {
-        var bad: [String] = []
-        let windows = HoverCardPanel.liveInstances.load(ordering: .relaxed)
-        if windows > 1 { bad.append("\(windows) hover card windows exist") }
-        let showing = panel?.isShowingCard == true
-        if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
-        if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
-        if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
-        return bad
+    /// What H1 reads now: the live card windows and what the machine shows.
+    public var cardFacts: HoverCardFacts {
+        HoverCardFacts(windows: HoverCardPanel.liveInstances.load(ordering: .relaxed), showing: panel?.isShowingCard == true,
+                       panelVisible: panel?.isVisible == true, machineTarget: machine.shownTarget?.id.rawValue,
+                       owned: owned?.id.rawValue)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Declares H1 in `registry`: at most one hover card exists and shows, and it shows the coordinator's target.
+    public func declareInvariants(in registry: InvariantRegistry) {
+        registry.declare(InvariantRule(
+            id: "H1", statement: "at most one hover card exists and shows, and it shows the coordinator's target",
+            owner: "HoverCards", reads: [.hover, .focus], points: [.afterAction, .afterTurn], cost: .cheap,
+            read: { [weak self] _ in self?.cardFacts },
+            check: { facts in facts.violations.map { InvariantFinding(subject: .app, detail: $0) } }))
+    }
+    #endif
 }
