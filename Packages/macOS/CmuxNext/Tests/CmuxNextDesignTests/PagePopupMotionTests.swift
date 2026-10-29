@@ -117,7 +117,9 @@ import Testing
                                      anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
                                      side: .bottom, align: .start, width: 240,
                                      rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
-                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
+                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick"),
+                                                                      NativePopupRow(id: "second", kind: .action, label: "Second", keepOpen: true)])],
+                                     highlighted: "more")
         #expect(host.show(model)["shown"] as? Bool == true)
         let parentPanel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow })
@@ -130,7 +132,35 @@ import Testing
         let childPanel = try #require(parentPanel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         #expect(await GUIAnimationTestSupport.settle { childPanel.isKeyWindow }, "the submenu did not take keyboard focus")
         #expect(host.activeID == model.id && host.shownFrame != nil, "opening the submenu dismissed its parent")
+        let parentCard = try #require(host.shownFrame)
+        let childCard = PopupStyle.standard.cardFrame(inWindow: childPanel.frame)
+        #expect(childCard.minX >= parentCard.maxX, "root alignment pulled the submenu over its parent")
         let childContent = try #require(childPanel.firstResponder as? NativePopupContent)
+        let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                               windowNumber: childPanel.windowNumber, context: nil, characters: "",
+                                               charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
+        childContent.keyDown(with: down)
+        events.removeAll()
+        model.revision += 1
+        model.width += 40
+        model.rows.append(NativePopupRow(id: "extra", kind: .action, label: "Extra"))
+        host.update(model)
+        // Drain the main-actor notification work queued by resizing the ancestor panel.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(host.activeID == model.id && host.shownFrame != nil)
+        #expect(childPanel.isVisible && childPanel.isKeyWindow, "ancestor layout dismissed its submenu")
+        let resizedParentCard = try #require(host.shownFrame)
+        #expect(PopupStyle.standard.cardFrame(inWindow: childPanel.frame).minX >= resizedParentCard.maxX,
+                "resizing the leading-aligned parent left the child at its old anchor")
+        #expect(events.isEmpty)
+        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                windowNumber: childPanel.windowNumber, context: nil, characters: "",
+                                                charactersIgnoringModifiers: "", isARepeat: false, keyCode: 36))
+        childContent.keyDown(with: enter)
+        #expect(events.count == 1 && events.first?["id"] as? String == "second", "root highlight replaced the child's selection")
+        events.removeAll()
         childContent.dismiss()
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
         #expect(parentPanel.firstResponder === parentContent)
@@ -148,9 +178,81 @@ import Testing
         parentContent.openSubmenu(oldRow, parentContent)
         #expect(events.isEmpty, "a disabled ancestor or stale row must not authorize a child action")
         #expect(host.activeID == model.id)
-        #expect(parentPanel.childWindows?.contains { $0.isVisible } != true)
+        #expect(await GUIAnimationTestSupport.settle { parentPanel.childWindows?.contains { $0.isVisible } != true })
         host.hide()
         #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
+    }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func numberedActionsRespectKeepOpenAndDisabledRows() throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "numbered", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .start, width: 240, rows: [])
+        model.rows = (1...9).map { number in
+            NativePopupRow(id: "pick-\(number)", kind: .action, label: "Pick \(number)", shortcut: "\(number)", keepOpen: true)
+        }
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let content = try #require(panel.firstResponder as? NativePopupContent)
+        func key(_ number: Int) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: panel.windowNumber, context: nil, characters: "\(number)",
+                                                     charactersIgnoringModifiers: "\(number)", isARepeat: false, keyCode: 18))
+            content.keyDown(with: event)
+        }
+        for number in 1...9 {
+            try key(number)
+            #expect(events.count == number)
+            #expect(events.last?["id"] as? String == "pick-\(number)")
+            #expect(host.activeID == model.id)
+        }
+        model.revision += 1
+        model.rows[0].disabled = true
+        host.update(model)
+        try key(1)
+        #expect(events.count == 9)
+        model.revision += 1
+        model.rows[1].keepOpen = false
+        host.update(model)
+        try key(2)
+        #expect(events.count == 10)
+        #expect(host.activeID == nil)
+    }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func aTrailingRootSubmenuFlipsAtTheScreenEdgeOnUpdate() throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let screen = try #require(window.screen).visibleFrame
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { _ in }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "submenu-geometry", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .end, width: 240,
+                                     rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
+                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let content = try #require(panel.firstResponder as? NativePopupContent)
+        let row = try #require(content.rowView(id: "more"))
+        content.openSubmenu(model.rows[0], row)
+        let child = try #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let initial = try #require(host.shownFrame)
+        #expect(PopupStyle.standard.cardFrame(inWindow: child.frame).minX >= initial.maxX)
+        let point = page.convert(window.convertPoint(fromScreen: CGPoint(x: screen.maxX - 8, y: screen.midY)), from: nil)
+        model.revision += 1
+        model.anchor = NativePopupAnchor(left: point.x - 100, top: page.bounds.height - point.y,
+                                         right: point.x, bottom: page.bounds.height - point.y + 30)
+        host.update(model)
+        let moved = try #require(host.shownFrame)
+        let childFrame = PopupStyle.standard.cardFrame(inWindow: child.frame)
+        #expect(childFrame.maxX <= moved.minX, "the child must flip left beside the updated parent")
+        #expect(screen.contains(childFrame))
     }
 
     /// A window on screen with a page view, and the page menu panel of `host` once shown.

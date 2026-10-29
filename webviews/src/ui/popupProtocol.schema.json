@@ -7,7 +7,10 @@
       "type": "string",
       "enum": ["action", "toggle", "choice", "section", "separator", "text", "slider", "submenu", "textField"]
     },
-    "NativePopupEventType": { "type": "string", "enum": ["pick", "change", "search", "highlight", "dismiss"] },
+    "NativePopupEventType": {
+      "type": "string",
+      "enum": ["pick", "change", "search", "highlight", "submit", "dismiss"]
+    },
     "NativePopupSide": { "type": "string", "enum": ["top", "bottom"] },
     "NativePopupAlign": { "type": "string", "enum": ["start", "end"] },
     "NativePopupAnchor": {
@@ -36,6 +39,7 @@
         "keepOpen": { "type": "boolean" }
       }
     },
+    "NativePopupAutoHighlight": { "type": "string", "enum": ["none", "first", "always"] },
     "NativePopupField": {
       "type": "object",
       "required": ["id", "value", "placeholder"],
@@ -43,7 +47,35 @@
         "id": { "type": "string" },
         "value": { "type": "string" },
         "placeholder": { "type": "string" },
-        "disabled": { "type": "boolean" }
+        "disabled": { "type": "boolean" },
+        "submitOnReturn": { "type": "boolean" },
+        "autoHighlight": { "$ref": "#/$defs/NativePopupAutoHighlight" }
+      }
+    },
+    "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },
+    "NativePopupSliderStop": {
+      "type": "object",
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "accessibilityLabel": { "type": "string" }
+      }
+    },
+    "NativePopupSlider": {
+      "type": "object",
+      "required": ["stops"],
+      "properties": {
+        "stops": { "type": "array", "items": { "$ref": "#/$defs/NativePopupSliderStop" } },
+        "selectedValue": { "type": "string" },
+        "defaultValue": { "type": "string" },
+        "recommendedValue": { "type": "string" },
+        "recommendedLabel": { "type": "string" },
+        "minimumLabel": { "type": "string" },
+        "maximumLabel": { "type": "string" },
+        "accessibilityLabel": { "type": "string" },
+        "style": { "$ref": "#/$defs/NativePopupSliderStyle" }
       }
     },
     "NativePopupRow": {
@@ -67,7 +99,8 @@
         "children": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
         "minimum": { "type": "number" },
         "maximum": { "type": "number" },
-        "step": { "type": "number" }
+        "step": { "type": "number" },
+        "slider": { "$ref": "#/$defs/NativePopupSlider" }
       }
     },
     "NativePopupModel": {

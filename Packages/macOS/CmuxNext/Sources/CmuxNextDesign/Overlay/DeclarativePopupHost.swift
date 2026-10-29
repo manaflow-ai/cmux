@@ -19,6 +19,7 @@ final class DeclarativePopupHost {
     private weak var parent: DeclarativePopupHost?
     private weak var returnResponder: NSResponder?
     private weak var returnWindow: NSWindow?
+    private var sideBySide = false
     private var retired: [String: Int] = [:]
 
     init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
@@ -49,9 +50,10 @@ final class DeclarativePopupHost {
         popup.keepsOpen = { [weak self] event in self?.root.contains(event.window) == true }
         // NativePopupHost installs key-loss handling and the click/escape monitors. Keep that
         // callback intact: replacing it here would skip the host's focus restoration path.
-        content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value) }
+        content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value, reason: self?.content.selectionReason) }
         content.openSubmenu = { [weak self] row, view in self?.open(row, from: view) }
         content.dismiss = { [weak self] in self?.dismiss(reason: "escape") }
+        content.commit = { [weak self] in self?.root.dismiss(reason: "commit") }
     }
 
     var shownFrame: CGRect? { popup.isShown && model != nil ? popup.cardFrame : nil }
@@ -64,8 +66,10 @@ final class DeclarativePopupHost {
         return window === panel || child?.contains(window) == true
     }
 
-    func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil) -> [String: Any] {
+    func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil,
+              sideBySide: Bool = false, preserveKey: Bool = false) -> [String: Any] {
         guard next.isValid, let webView, let window = parentWindow ?? webView.window, window.isVisible else { return ["shown": false] }
+        self.sideBySide = sideBySide
         guard next.revision > (retired[next.id] ?? -1) else { return ["shown": false] }
         if let current = model, current.id == next.id, next.revision < current.revision { return ["shown": false] }
         let opening = !popup.isShown || model?.id != next.id
@@ -93,24 +97,30 @@ final class DeclarativePopupHost {
         shownParent = window
         panel.adoptThemeScope(of: webView)
         surface.applyTheme()
+        popup.dismissalWindow = webView.window
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
-                                      trailing: next.align == .end, makeKey: opening, entrance: false) else { model = nil; return ["shown": false] }
+                                      trailing: sideBySide ? false : next.align == .end, makeKey: opening,
+                                      entrance: false, sideBySide: sideBySide) else { model = nil; return ["shown": false] }
         content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
         if opening { content.focusInitial() }
+        else if preserveKey { panel.makeKey() }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
     }
 
-    func update(_ next: NativePopupModel) {
+    func update(_ next: NativePopupModel, screenAnchor: CGRect? = nil, preserveKey: Bool = false) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
-        _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent)
+        let childWasKey = child?.panel.isKeyWindow == true
+        _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent,
+                 sideBySide: sideBySide, preserveKey: preserveKey)
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
-           let rows = row.children, !rows.isEmpty {
+           let rows = row.children, !rows.isEmpty,
+           let view = content.rowView(id: childRowID) {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
@@ -118,7 +128,9 @@ final class DeclarativePopupHost {
             submenu.search = nil
             submenu.title = row.label
             submenu.parentId = next.id
-            child.update(submenu)
+            submenu.align = .start
+            submenu.highlighted = nil
+            child.update(submenu, screenAnchor: submenuAnchor(for: view), preserveKey: childWasKey)
         } else {
             child?.hide()
             child = nil
@@ -159,8 +171,8 @@ final class DeclarativePopupHost {
         hide()
     }
 
-    private func event(_ type: NativePopupEventType, id: String?, value: String?) {
-        guard let model, popup.isShown, let id,
+    private func event(_ type: NativePopupEventType, id: String?, value: String?, reason: String? = nil) {
+        guard let model, popup.isShown,
               let current = root.model, current.id == model.id, current.revision == model.revision else { return }
         let rows = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
         let row = rows.first { $0.id == id }
@@ -168,7 +180,10 @@ final class DeclarativePopupHost {
         let action = actionParent?.actions?.first { $0.id == id }
         switch type {
         case .search:
-            guard model.search?.id == id, model.search?.disabled != true else { return }
+            guard let id, model.search?.id == id, model.search?.disabled != true else { return }
+        case .submit:
+            guard let search = model.search, search.submitOnReturn == true, search.disabled != true,
+                  value != nil, id == nil || row != nil else { return }
         case .pick:
             guard (row?.kind == .action && row?.disabled != true) ||
                   (action != nil && action?.disabled != true && actionParent?.disabled != true) else { return }
@@ -179,7 +194,7 @@ final class DeclarativePopupHost {
             guard let row, row.disabled != true else { return }
         case .dismiss: return
         }
-        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value))
+        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value, reason: type == .submit || type == .highlight ? reason : nil))
         if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true { root.hide() }
     }
 
@@ -208,9 +223,16 @@ final class DeclarativePopupHost {
         next.search = nil
         next.highlighted = nil
         next.parentId = model.id
+        // A child is a side-by-side menu. Its placement owns the horizontal side, so the
+        // root's trailing alignment cannot pull it back over its parent row.
+        next.align = .start
+        _ = submenu.show(next, screenAnchor: submenuAnchor(for: view), in: panel, sideBySide: true)
+    }
+
+    private func submenuAnchor(for view: NSView) -> CGRect {
         let rowFrame = panel.convertToScreen(view.convert(view.bounds, to: nil))
-        let anchor = CGRect(x: rowFrame.maxX, y: rowFrame.maxY, width: 0, height: 0)
-        _ = submenu.show(next, screenAnchor: anchor, in: panel)
+        let card = popup.cardFrame
+        return CGRect(x: card.minX, y: rowFrame.minY, width: card.width, height: rowFrame.height)
     }
 
     private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {
