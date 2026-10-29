@@ -1,3 +1,4 @@
+#if CMUX_UI_LAYER_PREVIEW
 import Testing
 @testable import CmuxNextUiLayerPreview
 
@@ -16,3 +17,4 @@ import Testing
         #expect(data.composerPlaceholder == "Captured at 12:00")
     }
 }
+#endif
