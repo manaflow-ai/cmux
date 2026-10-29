@@ -21,6 +21,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
   const MAIN = "btw-main";
   const SIDE = "btw-side-1";
+  /// A chat with no turn yet: it shows its empty state until something is in it.
+  const EMPTY = "btw-empty";
   const QUESTION = "why did the retry test flake?";
   const turn = {
     turnId: "turn-1",
@@ -47,6 +49,17 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     harness: "claude",
     status: "idle",
     tags: { side: MAIN },
+    updatedAt: Date.now(),
+  };
+  const empty = {
+    sessionId: EMPTY,
+    cwd: "/home/dev/api",
+    title: "New chat",
+    harness: "claude",
+    status: "idle",
+    steering: false,
+    queued: 0,
+    queue: [],
     updatedAt: Date.now(),
   };
   const opening = [
@@ -124,15 +137,21 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           },
         };
       case "_acpmux/watch":
-        return { result: { sessions: [main, side] } };
+        return { result: { sessions: [main, side, empty] } };
       case "_acpmux/attach":
         return params.sessionId === SIDE
           ? { result: { session: side, lastSeq: 0, events: [] } }
-          : { result: { session: main, lastSeq: opening.length, events: opening } };
+          : params.sessionId === EMPTY
+            ? { result: { session: empty, lastSeq: 0, events: [] } }
+            : { result: { session: main, lastSeq: opening.length, events: opening } };
       case "_acpmux/events":
         eventReads += 1;
         return {
-          result: { events: [], hasMore: false, lastSeq: params.sessionId === SIDE ? 0 : seq },
+          result: {
+            events: [],
+            hasMore: false,
+            lastSeq: params.sessionId === SIDE || params.sessionId === EMPTY ? 0 : seq,
+          },
         };
       case "acp.trust.get":
         return trustMode
@@ -432,6 +451,18 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         await page.close();
       });
     }
+
+    test("/btw in a chat with no turn yet leaves the empty state and shows its aside", async () => {
+      const page = await openChat(EMPTY);
+      // A chat with no turn shows its empty state until something is in it.
+      await page.locator("[data-new-chat]").waitFor();
+      await type(page, `/btw ${QUESTION}`);
+      const aside = page.locator(".acpmux-btw-note");
+      await aside.getByText("The retry timer raced the mocked clock.").waitFor({ timeout: 15_000 });
+      expect(btws).toEqual([{ sessionId: EMPTY, question: QUESTION, inline: true }]);
+      expect(prompts).toEqual([]);
+      await page.close();
+    });
 
     test("a refused /btw keeps the question in its aside and never sends a main prompt", async () => {
       const page = await openChat(MAIN, true);

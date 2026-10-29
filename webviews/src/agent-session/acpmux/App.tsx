@@ -5072,8 +5072,13 @@ function AcpmuxPane() {
     if (next.length === previous.length && next.every((at, index) => at === previous[index])) return previous;
     return (lastMessageBreaks.current = next);
   }, [chatShellRuns]);
-  /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
-  const freshView = freshChat && chatShellRuns.length === 0;
+  // Inline `/btw` asides (aside/btwNotes.ts): rows of their chat's transcript, not of acpmux's.
+  const [btwNotes] = useState(() => new BtwNotes());
+  const btwSnapshot = useSyncExternalStore(btwNotes.subscribe, btwNotes.snapshot, btwNotes.snapshot);
+  const hasBtwNotes = btwSnapshot.some((note) => note.sessionId === snapshot.sessionId);
+  /// A fresh chat shows its empty state until something is in it: a prompt, a command it ran, or
+  /// a side question asked in it (its aside is a transcript row).
+  const freshView = freshChat && chatShellRuns.length === 0 && !hasBtwNotes;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
@@ -5223,8 +5228,6 @@ function AcpmuxPane() {
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
-  const [btwNotes] = useState(() => new BtwNotes());
-  const btwSnapshot = useSyncExternalStore(btwNotes.subscribe, btwNotes.snapshot, btwNotes.snapshot);
   const turnRowsShown = useMemo(() => {
     if (childRows) {
       return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
