@@ -113,11 +113,22 @@ final class StagedUpdateRefresh {
         }
         let why = pulled ? "staged build \(staged) was pulled" : "build \(newer ?? "") is newer than staged build \(staged)"
         guard updater.cancelStaged() else {
+            guard !pulled else {
+                // A pulled build is never installed: the update sheet says what failed, so the click never ends in silence.
+                updater.log.append("install click: \(why), but no installer was held to cancel; not installing it")
+                updater.presentUpdateUI?()
+                return
+            }
             updater.log.append("install click: \(why), but no installer was held to cancel; installing staged build \(staged)")
             return install()
         }
+        if pulled, !updater.droppedPulled.insert(staged).inserted {
+            // The newest-build check staged the pulled build again (a cached appcast): dropped, and nothing
+            // fetches it again until Sparkle's next scheduled check.
+            updater.log.append("install click: \(why) and was staged again: dropped, not installed")
+            return
+        }
         updater.log.append("install click: \(why): getting the newest build instead")
-        if pulled { updater.droppedPulled.insert(staged) }
         updater.installAfterSwap = true
         updater.startNewestCheck(.click)
     }
