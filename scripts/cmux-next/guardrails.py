@@ -1841,7 +1841,8 @@ R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or p
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
-         "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
+         "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state (a new `Mutex` says why on its "
+         "line or directly above: `// concurrency-allow: <why>`, the carve-out rule); when it is truly safe, "
          "say why on the declaration line or the line directly above: `// crash-allow: <the safety argument>` "
          "(crash_ratchet.py's class and escape: CI's ratchet reads the same two lines; it counts the line as a "
          "waived hit: record it with crash_ratchet.py --record-waivers)",
@@ -5150,9 +5151,11 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # it was measured on (`guardrails.py --quality-baseline --write`). A hit the base does not have is still no new
 # debt when the baseline lists its text for that file and the base has fewer of it: so a push to
 # origin/feat-cmux-next that brings perf/chrome-parity's old lines (a slice) passes, and a removed old line can come
-# back only as the same line, never as another one. The json comes from the push's base, or from its head when the
-# base has none (the first push of the file, a slice onto a base without it); `quality-baseline` refuses a push that
-# adds a hash to a base's json, so the baseline only goes down. Local only, like every guardrail.
+# back only as the same line, never as another one. The json comes from the push's base, or, when the base has
+# none (the first push of the file, a slice onto a base without it), from the push's first commit that adds it, never
+# from the head (quality_reference): a json rewritten after new debt lists that debt, and `quality-baseline` refuses
+# a head json with a site its reference lacks, so the baseline only goes down. A reference that does not parse
+# allows nothing. Local only, like every guardrail.
 # The block owns its lines from here to `RULES += QUALITY_RULES`.
 QUALITY_BASELINE = "plans/cmux-next/quality-ratchet.json"
 QUALITY_MEMO = "quality-baseline"
@@ -5296,15 +5299,32 @@ def quality_baseline_sites(text: str | None) -> dict[str, dict[str, collections.
         return None
 
 
+def quality_reference(memo: tuple[str | None, str | None]) -> str | None:
+    """The baseline text a push is judged against: the base's json, or, when the base has none, the json as the
+    push's first commit that adds it wrote it (quality_origin). Never the head's: a push onto a base without the
+    file that reruns `--write` after adding debt would otherwise list its own new debt as old."""
+    base_text, origin_text = memo
+    return base_text if base_text is not None else origin_text
+
+
 def quality_allowance(changes: list[FileChange], rule: str) -> dict[str, collections.Counter]:
-    """{path: site keys the baseline lists for RULE}: the base's json, or the head's when the base has none."""
+    """{path: site keys the baseline lists for RULE} (quality_reference). A reference that does not parse allows
+    nothing."""
     for change in changes:
-        base_text, head_text = change.memo.get(QUALITY_MEMO, (None, None))
-        sites = quality_baseline_sites(base_text)
-        if sites is None:
-            sites = quality_baseline_sites(head_text)
+        sites = quality_baseline_sites(quality_reference(change.memo.get(QUALITY_MEMO, (None, None))))
         return (sites or {}).get(rule, {})
     return {}
+
+
+def quality_origin(repo: Path, base: str, head: str, head_text: str | None) -> str | None:
+    """The baseline json as the first commit of BASE..HEAD that adds it wrote it (None when HEAD has none)."""
+    if head_text is None:
+        return None
+    added = git(repo, "log", "--diff-filter=A", "--format=%H", "--reverse", f"{base}..{head}", "--",
+                QUALITY_BASELINE, check=False).split()
+    if not added:
+        return head_text
+    return blobs(repo, [(added[0], QUALITY_BASELINE)]).get((added[0], QUALITY_BASELINE), head_text)
 
 
 def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
@@ -5342,13 +5362,18 @@ def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.C
 
 
 def quality_baseline_raise(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """quality-ratchet.json gains a site over the base's json (a base without the file allows any)."""
+    """quality-ratchet.json gains a site over its reference (quality_reference: the base's json, else the one the
+    push's first commit that adds it wrote), or the reference does not parse."""
     hits = []
     for change in changes:
         if change.path != QUALITY_BASELINE or change.is_deleted:
             continue
-        base = quality_baseline_sites("\n".join(change.base_lines)) if change.base_lines != [""] else None
+        reference = quality_reference(change.memo.get(QUALITY_MEMO, (None, None)))
+        if reference is None:
+            continue
+        base = quality_baseline_sites(reference)
         if base is None:
+            hits.append(Added(change.path, 1, "the base's quality baseline does not parse; fix it in its own push"))
             continue
         head = quality_baseline_sites("\n".join(change.head_lines))
         if head is None:
@@ -5430,7 +5455,7 @@ QUALITY_RULES = (
     Rule("quality-baseline", f"{QUALITY_BASELINE} gains a site",
          "the baseline lists old debt that a push may bring back as it was; a new site would let new debt in",
          "never add a site by hand: fix the code, and rerun `scripts/cmux-next/guardrails.py --quality-baseline "
-         "--write` only to drop sites",
+         "--write` only after a push that removes debt, to drop its sites; a json written after new debt is refused",
          None, quality_baseline_raise, scope=(QUALITY_BASELINE,), local_only=True),
 )
 RULES += QUALITY_RULES
@@ -5840,7 +5865,13 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
-    quality_baseline = (texts.get((base, QUALITY_BASELINE)), texts.get((head, QUALITY_BASELINE)))
+    try:
+        quality_baseline = (texts.get((base, QUALITY_BASELINE)),
+                            None if (base, QUALITY_BASELINE) in texts
+                            else quality_origin(repo, base, head, texts.get((head, QUALITY_BASELINE))))
+    except Exception as error:  # fail closed for the quality rules only: no baseline, so old lines count as new
+        quality_baseline = (None, None)
+        warnings.append(("guardrails", check_failure("quality baseline", error)))
     for change in files:
         change.memo["wakeup"] = wakeup
         change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow

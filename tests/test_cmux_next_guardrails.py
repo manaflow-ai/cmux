@@ -3269,6 +3269,32 @@ class QualityRatchetTests(Fixture):
         self.commit("lowers the baseline")
         self.assertNotIn("quality-baseline", self.ids())
 
+    def test_a_json_rewritten_after_new_debt_on_a_base_without_it_is_refused(self):
+        # The slice onto origin/feat-cmux-next before the json lands there: the first commit that adds the json is
+        # the reference, so new debt that a later `--write` lists is still new.
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.write(path, bad)
+        self.commit("old singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline")
+        self.write(f"{SHARED}/Other.swift", "public final class Other {\n    public static let shared = Other()\n}\n")
+        self.commit("a new singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new singleton")
+        ids = self.ids()
+        self.assertIn("static-shared", ids)
+        self.assertIn("quality-baseline", ids)
+
+    def test_a_base_json_that_does_not_parse_allows_nothing(self):
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.rebase_on({guardrails.QUALITY_BASELINE: "{not json"}, "a broken baseline")
+        self.write(path, bad)
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("old-looking singleton and a fresh json")
+        ids = self.ids()
+        self.assertIn("static-shared", ids)
+        self.assertIn("quality-baseline", ids)
+
     def test_the_counts_name_each_rule_and_the_rules_are_listed(self):
         for rule, (path, bad, _) in QUALITY_CASES.items():
             self.write(path, bad)
