@@ -211,6 +211,7 @@ fn sensitive_key(key: &str) -> bool {
         "credential",
         "privatekey",
         "accesskey",
+        "key",
         "authorization",
         "auth",
         "cookie",
@@ -781,6 +782,9 @@ mod tests {
         }))
         .unwrap();
         assert!(!masked.contains("12345678") && !masked.contains("let me in"), "{masked}");
+        let long_key = format!("{}password", "x".repeat(MAX_TOOL_FIELD_CHARS));
+        let masked = input_prefix(&json!({"rawInput": {long_key: "open_sesame42"}})).unwrap();
+        assert!(!masked.contains("open_sesame42"), "long sensitive key leaked: {masked}");
     }
 
     #[test]
