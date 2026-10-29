@@ -1310,7 +1310,10 @@ def test_g5_an_unreadable_nightly_yml_refuses() -> None:
 
 
 def test_g5_a_marker_read_failure_never_takes_the_tree_at_install_exception() -> None:
-    for marker in ({"status": 503}, "throw", {"status": 200, "body": {"commit": SHA}}):
+    # A malformed marker whose fields carry the 404 reason's words is still a read failure.
+    for marker in ({"status": 503}, "throw", {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": "has no cmux-tui tree-commit marker"}},
+                   {"status": 200, "error": f"{SHA} has no cmux-tui tree-commit marker"}):
         case = scenario(treeMarkers={SHA: marker}, workflows={SHA: TREE_AT_INSTALL})
         del case["requireApproval"]
         out = run(case)

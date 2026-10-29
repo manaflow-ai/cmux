@@ -188,6 +188,12 @@ export async function waitsForTreeAtInstall(readWorkflow, sha) {
 
 // null when the marker says the tree of `sha` is ready, else the refusal reason.
 export async function treeMarkerGate(readTreeMarker, sha) {
+  return (await treeMarkerCheck(readTreeMarker, sha)).reason;
+}
+
+// { reason: null } when ready; else { reason, missing }, where missing is true
+// only for a clean 404 (never a read failure or a malformed marker).
+export async function treeMarkerCheck(readTreeMarker, sha) {
   let marker;
   try {
     marker = await readTreeMarker(sha);
@@ -196,18 +202,18 @@ export async function treeMarkerGate(readTreeMarker, sha) {
   }
   const url = marker?.url || `${TREE_MARKER_BASE}/${sha}.json`;
   if (marker?.status === 404 && !marker.error) {
-    return `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}`;
+    return { missing: true, reason: `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}` };
   }
   if (marker?.status !== 200 || marker.error) {
-    return `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})`;
+    return { missing: false, reason: `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})` };
   }
   const body = marker.body;
   const hex40 = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
   if (body?.commit !== sha || !hex40(body?.key) || !hex40(body?.publishedBy)
       || typeof body?.markedBy !== 'string' || !body.markedBy.trim()) {
-    return `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted`;
+    return { missing: false, reason: `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted` };
   }
-  return null;
+  return { reason: null };
 }
 
 async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
@@ -621,11 +627,12 @@ export async function decide({
   // G5: the tree is published and daemon-tested. A train commit carries its
   // second parent's tree minus its listed reverts; the parent's marker stands
   // for it (the train is off unless vars.NIGHTLY_NEXT_TRAIN is on).
-  const treeRefusal = await treeMarkerGate(readTreeMarker, train ? train.tip : sha);
+  const { reason: treeRefusal, missing: treeMissing } = await treeMarkerCheck(readTreeMarker, train ? train.tip : sha);
   if (treeRefusal) {
-    // Only "no marker yet" (never a read failure) of a feat-cmux-next commit
-    // whose own nightly waits for its tree at install (TREE_AT_INSTALL_LINE).
-    if (train || !treeRefusal.includes('has no cmux-tui tree-commit marker')) return refuse(treeRefusal);
+    // Only "no marker yet" (a clean 404, never a read failure or a malformed
+    // marker) of a feat-cmux-next commit whose own nightly waits for its tree
+    // at install (TREE_AT_INSTALL_LINE).
+    if (train || treeMissing !== true) return refuse(treeRefusal);
     const waits = await waitsForTreeAtInstall(readWorkflow || workflowReader(github, owner, repo), sha);
     if (waits !== true) {
       return refuse(waits?.error ? `${treeRefusal} (and ${waits.error}, so whether its nightly waits for its tree is unknown)` : treeRefusal);
