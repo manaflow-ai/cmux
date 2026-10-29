@@ -34,7 +34,7 @@ use crate::mesh::{
 use std::collections::HashSet;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 /// The loops' timings.
 #[derive(Debug, Clone)]
@@ -182,7 +182,7 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
-    let control = Arc::new(crate::mesh::RefuseControl);
+    let control = Arc::new(MeshControlHook);
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }
 
@@ -382,6 +382,102 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     let (out_tx, out_rx) = mpsc::channel(1024);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Peer));
     (in_tx, out_rx)
+}
+
+/// Runs a hub control message through the same authenticated peer-origin request path as a
+/// connected daemon. The relay hub only selected this daemon; it does not grant ownership, and
+/// the request handlers below still apply their normal peer-origin and owner checks.
+pub struct MeshControlHook;
+
+impl ControlHook for MeshControlHook {
+    fn control<'a>(
+        &'a self,
+        hub: &'a Arc<Hub>,
+        message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+        Box::pin(async move { run_control(hub, message).await })
+    }
+}
+
+async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+    let Some(op) = message.op.as_deref() else {
+        return Some(Ack::refused("control message has no operation"));
+    };
+    let body: serde_json::Value = match serde_json::from_str(&message.body) {
+        Ok(body) => body,
+        Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
+    };
+    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+        return Some(Ack::refused("unsupported control body version"));
+    }
+    let mut params = match op {
+        "start" => {
+            let Some(params) = body.get("params").filter(serde_json::Value::is_object) else {
+                return Some(Ack::refused("start control body has no params object"));
+            };
+            params.clone()
+        }
+        "resume" | "stop" => serde_json::json!({}),
+        _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
+    };
+    if matches!(op, "resume" | "stop") {
+        let Some(id) = message.to.session_id.as_deref().filter(|id| !id.is_empty()) else {
+            return Some(Ack::refused("resume and stop require a session id target"));
+        };
+        params["sessionId"] = serde_json::Value::String(id.to_owned());
+    }
+    let method = match op {
+        "start" => crate::rpc::method::SESSION_NEW,
+        "resume" => crate::rpc::method::SESSION_RESUME,
+        "stop" => crate::rpc::method::SESSION_CANCEL,
+        _ => unreachable!(),
+    };
+    let (tx, mut rx) = relay_connection(hub);
+    let initialized = rpc_call(&tx, &mut rx, 1, crate::rpc::method::INITIALIZE, serde_json::json!({
+        "protocolVersion": 1,
+        "clientCapabilities": {},
+        "clientInfo": {"name": "acpmux-mesh-control", "version": crate::hub::VERSION},
+    }))
+    .await;
+    if let Err(e) = initialized {
+        return Some(Ack::refused(format!("control initialize failed: {e}")));
+    }
+    match rpc_call(&tx, &mut rx, 2, method, params).await {
+        Ok(_) => Some(Ack::delivered(&message.message_id, None)),
+        Err(e) => Some(Ack {
+            state: AckState::Refused,
+            prompt_id: Some(message.message_id.clone()),
+            detail: Some(e),
+        }),
+    }
+}
+
+async fn rpc_call(
+    tx: &mpsc::Sender<String>,
+    rx: &mut mpsc::Receiver<String>,
+    id: i64,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    tx.send(crate::rpc::Message::request(id, method, params).to_line())
+        .await
+        .map_err(|_| "control connection closed".to_owned())?;
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
+            .await
+            .map_err(|_| "control request timed out".to_owned())?
+            .ok_or_else(|| "control connection closed".to_owned())?;
+        let response = crate::rpc::Message::parse(&line).map_err(|e| e.to_string())?;
+        if let crate::rpc::Message::Response { id: got, result, error } = response
+            && got == serde_json::json!(id)
+        {
+            return match (result, error) {
+                (Some(result), None) => Ok(result),
+                (_, Some(error)) => Err(error.to_string()),
+                _ => Err("control response had no result".to_owned()),
+            };
+        }
+    }
 }
 
 /// The longest ack detail the hub takes, in characters.

@@ -11,6 +11,7 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::future::Future;
+use std::sync::Arc;
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
 
@@ -138,6 +139,56 @@ pub async fn submit<R: ControlRelay>(
     request: &ControlRequest,
 ) -> Result<R::Receipt, R::Error> {
     relay.enqueue_control(request).await
+}
+
+/// Adapter over the landed relay client. It deliberately takes the sender context from the
+/// daemon, never from a control command or the hub's `from.user` field.
+pub struct MeshControlRelay {
+    hub: Arc<dyn crate::mesh::MeshHub>,
+    sender: crate::mesh::Sender,
+}
+
+impl MeshControlRelay {
+    pub fn new(hub: Arc<dyn crate::mesh::MeshHub>, sender: crate::mesh::Sender) -> Self {
+        Self { hub, sender }
+    }
+}
+
+impl ControlRelay for MeshControlRelay {
+    type Receipt = crate::mesh::Receipt;
+    type Error = crate::mesh::HubError;
+
+    fn enqueue_control(
+        &self,
+        request: &ControlRequest,
+    ) -> impl Future<Output = Result<Self::Receipt, Self::Error>> + Send {
+        let message = crate::mesh::OutMessage {
+            to: request.to.clone().into(),
+            from: self.sender.clone(),
+            kind: crate::mesh::Kind::Control,
+            body: request.body.clone(),
+            mode: crate::mesh::Mode::Now,
+            idempotency_key: request.idempotency_key.clone(),
+        };
+        async move { self.hub.send(&message).await }
+    }
+}
+
+impl From<Recipient> for crate::mesh::Target {
+    fn from(recipient: Recipient) -> Self {
+        match recipient {
+            Recipient::Session { session_id } => Self {
+                session_id: Some(session_id),
+                ..Self::default()
+            },
+            Recipient::Name { name, host } => Self { name: Some(name), host, ..Self::default() },
+            Recipient::Daemon { daemon_id } => Self {
+                daemon_id: Some(daemon_id),
+                ..Self::default()
+            },
+            Recipient::Host { host } => Self { host: Some(host), ..Self::default() },
+        }
+    }
 }
 
 #[cfg(test)]
