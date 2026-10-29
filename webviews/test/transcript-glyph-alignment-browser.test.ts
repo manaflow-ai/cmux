@@ -62,7 +62,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
       test(`${theme} ${height}px rows keep every glyph on the center line`, async () => {
         const port = (vite!.httpServer!.address() as { port: number }).port;
         const page = await browser!.newPage({ viewport: { width: 680, height: 320 } });
-        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&height=${height}`);
+        // Add `capture=before` when collecting the synthetic baseline alongside this after-state capture.
+        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&height=${height}&capture=after`);
         await page.locator("[data-glyph-row]").first().waitFor();
         const rows = await measure(page);
         expect(rows).toHaveLength(4);

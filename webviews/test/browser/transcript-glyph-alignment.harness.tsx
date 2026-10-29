@@ -84,11 +84,13 @@ function App() {
   const params = new URLSearchParams(location.search);
   const theme = params.get("theme") === "light" ? "light" : "dark";
   const height = params.get("height") === "40" ? 40 : 28;
+  const capture = params.get("capture") === "before" ? "before" : "after";
   const colors = themes[theme];
   return (
     <main
       className="acpmux-shell glyph-alignment-fixture"
       data-theme={theme}
+      data-capture={capture}
       style={
         {
           "--agent-page-bg": colors.page,
@@ -108,6 +110,15 @@ function App() {
         } as CSSProperties
       }
     >
+      <style>{`
+        /* Capture-only baseline: the pre-slot geometry remains available for a synthetic before/after pair. */
+        [data-capture="before"] .cv-tool { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+        [data-capture="before"] .cv-tool__icon { width: auto; height: auto; }
+        [data-capture="before"] .cv-worked { align-items: flex-start; padding-top: 2.5px; }
+        [data-capture="before"] .cv-worked__glyph { width: auto; height: 20px; }
+        [data-capture="before"] .cv-received__icon { width: 16px; height: auto; }
+        [data-capture="before"] .acpmux-row-glyph { width: auto; height: auto; }
+      `}</style>
       <FixtureRow kind="tool" height={height} />
       <FixtureRow kind="worked" height={height} />
       <FixtureRow kind="received" height={height} />
