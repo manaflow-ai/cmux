@@ -320,6 +320,46 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     }
 }
 
+/// Scopes that print their own help (`cmux agents --help`) but route before
+/// the parser whose `help <scope>` knows only its own scopes, so `cmux help
+/// agents` answered "unknown resource scope".
+pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
+    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
+    "device",
+];
+
+/// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
+/// --help`; `cmux device help`, the one spelling `device` answers) for a
+/// scope in [`OWN_HELP_SCOPES`] the parser's help does not take. Global
+/// options change no help text and are dropped wherever they stood, so the
+/// scope is the first word every early dispatch reads (`raw_args.first()`
+/// for `chats` and `harness`). No-op elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
+    rewrite_help_word_on(args, Surface::current());
+}
+
+fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
+    let Ok((_, command_args)) = parse_globals(args) else {
+        return;
+    };
+    let [help, scope] = command_args.as_slice() else {
+        return;
+    };
+    if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
+        return;
+    }
+    let own_help = if scope == "device" { "help" } else { "--help" };
+    *args = vec![scope.clone(), own_help.to_string()];
+}
+
+/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// `harness`/`chats` aliases (the whole command line, alias first).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
+    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
 /// typed protocol path (`cmux raw operation chief.profile.update`, a
 /// `cmux raw command` frame naming one): the same refusal as
@@ -1138,6 +1178,8 @@ CLI actions (the live action catalog is authoritative):
   open-browser              port-list
   port-forward              port-close
   machine-link              enroll-machine
+  open-desktop              apply-machine-config
+  deliver-secrets           start-session
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
@@ -1173,6 +1215,8 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   open-browser              port-list
   port-forward              port-close
   machine-link              enroll-machine
+  open-desktop              apply-machine-config
+  deliver-secrets           start-session
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。
