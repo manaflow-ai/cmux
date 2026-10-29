@@ -46,7 +46,7 @@
 #     tick's promotion request, a later step of the same job, asks again.
 #
 #   nightly_next_stuck_run.sh REPO
-# Needs gh (GH_TOKEN with actions: write), jq, and git with an `origin` for REPO.
+# Needs gh (GH_TOKEN with actions: write) and jq.
 set -euo pipefail
 
 repo="${1:?usage: nightly_next_stuck_run.sh OWNER/REPO}"
@@ -57,13 +57,14 @@ force_after="${FORCE_AFTER:-6}"
 
 warn() { echo "::warning title=nightly-next tick::$*"; }
 
-if ! line="$(git ls-remote origin refs/heads/nightly-next)"; then
+# nightly-next's head, through the refs API with the job's token: the tick's checkout keeps no
+# credentials, so `git ls-remote` fails there (#27179). Prints the sha, or fails.
+next_head() {
+  gh api "repos/$repo/git/ref/heads/nightly-next" \
+    --jq 'if (.object.sha | type) == "string" and (.object.sha | test("^[0-9a-f]{40}$")) then .object.sha else error("not a commit") end'
+}
+if ! tip="$(next_head)" || [[ ! "$tip" =~ ^[0-9a-f]{40}$ ]]; then
   warn "nightly-next's tip could not be read; no run is cancelled this tick"
-  exit 0
-fi
-tip="${line%%[[:space:]]*}"
-if [[ ! "$tip" =~ ^[0-9a-f]{40}$ ]]; then
-  warn "nightly-next's tip is unreadable ('${line:0:60}'); no run is cancelled this tick"
   exit 0
 fi
 

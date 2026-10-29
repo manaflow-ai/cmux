@@ -27,15 +27,22 @@
 # next tick decides again.
 #
 #   nightly_next_cancelled_tip.sh REPO
-# Needs gh (GH_TOKEN with actions: write) and git with an `origin` for REPO.
+# Needs gh (GH_TOKEN with actions: write) and jq.
 set -euo pipefail
 
 repo="${1:?usage: nightly_next_cancelled_tip.sh OWNER/REPO}"
 max_attempts="${MAX_ATTEMPTS:-3}"
 
-line="$(git ls-remote origin refs/heads/nightly-next)"
-tip="${line%%[[:space:]]*}"
-[[ "$tip" =~ ^[0-9a-f]{40}$ ]] || { echo "nightly-next tip: unreadable; nothing to check"; exit 0; }
+# nightly-next's head, through the refs API with the job's token: the tick's checkout keeps no
+# credentials, so `git ls-remote` fails there (#27179). Prints the sha, or fails.
+next_head() {
+  gh api "repos/$repo/git/ref/heads/nightly-next" \
+    --jq 'if (.object.sha | type) == "string" and (.object.sha | test("^[0-9a-f]{40}$")) then .object.sha else error("not a commit") end'
+}
+if ! tip="$(next_head)" || [[ ! "$tip" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "nightly-next tip: unreadable; nothing to check"
+  exit 0
+fi
 
 # The tip's nightly.yml runs on nightly-next (push or dispatch), newest first: id, status,
 # conclusion, attempt.
@@ -79,7 +86,7 @@ if (( attempt >= max_attempts )); then
   fi
   # The dispatch builds whatever nightly-next points at then: send it only while that is still the
   # tip whose runs were read, so the decision is about the commit that builds.
-  if ! line="$(git ls-remote origin refs/heads/nightly-next)" || [[ "${line%%[[:space:]]*}" != "$tip" ]]; then
+  if ! now_tip="$(next_head)" || [[ "$now_tip" != "$tip" ]]; then
     echo "nightly-next tip ${tip:0:12}: nightly-next moved (or could not be read) since it was read; not dispatched, the next tick decides for the new tip"
     exit 0
   fi

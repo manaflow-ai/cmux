@@ -23,16 +23,24 @@ TIP = "e22f93846f54d679fb95dea965" + "0" * 14
 # read fail. RUNS_LATER answers the runs list from its second read on; RUNS_FAIL fails it. Re-runs (gh
 # run rerun, POST .../jobs/N/rerun) and dispatches (gh workflow run) are logged with the wrapper's retry
 # setting; DISPATCH_FAIL refuses a dispatch.
-# GIT_TIP_LATER answers ls-remote from its second call on (nightly-next moved); "fail" makes it fail.
-FAKE_GIT = f"""#!/bin/bash
-[ "$1" = ls-remote ] || exit 0
-n=$(cat "$LOG.git" 2>/dev/null || echo 0); echo $((n + 1)) > "$LOG.git"
-tip="{TIP}"
-[ "$n" -ge 1 ] && [ -n "${{GIT_TIP_LATER:-}}" ] && tip="$GIT_TIP_LATER"
-[ "$tip" = fail ] && exit 128
-printf '%s\\trefs/heads/nightly-next\\n' "$tip"
+# nightly-next's head comes from the refs API (gh api .../git/ref/heads/nightly-next), read here
+# without a log line so call indices stay those of the runs and writes; GIT_TIP_LATER answers it
+# from its second read on (nightly-next moved), "fail" makes it fail. git itself is never used.
+FAKE_GIT = """#!/bin/bash
+echo "git is not used by the tick's scripts" >&2
+exit 128
 """
 FAKE_GH = """#!/bin/bash
+if [[ "$*" == *git/ref/heads/nightly-next* ]]; then
+  n=$(cat "$LOG.ref" 2>/dev/null || echo 0); echo $((n + 1)) > "$LOG.ref"
+  tip="@TIP@"
+  [ "$n" -ge 1 ] && [ -n "${GIT_TIP_LATER:-}" ] && tip="$GIT_TIP_LATER"
+  [ "$tip" = fail ] && exit 1
+  jq_arg=""; args=("$@")
+  for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[i]}" = --jq ] && jq_arg="${args[i+1]}"; done
+  printf '{"object": {"sha": "%s"}}' "$tip" | jq -r "$jq_arg"
+  exit
+fi
 echo "$*" >> "$LOG"
 jq_arg=""
 args=("$@")
@@ -91,7 +99,7 @@ class CancelledTip(unittest.TestCase):
         bin_dir = Path(tmp.name) / "bin"
         bin_dir.mkdir()
         # The script's python3 is this test's, which has PyYAML.
-        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH), ("python3", f'#!/bin/bash\nexec "{sys.executable}" "$@"\n')):
+        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH.replace("@TIP@", TIP)), ("python3", f'#!/bin/bash\nexec "{sys.executable}" "$@"\n')):
             path = bin_dir / name
             path.write_text(body)
             path.chmod(path.stat().st_mode | stat.S_IEXEC)

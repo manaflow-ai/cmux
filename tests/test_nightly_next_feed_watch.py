@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import http.client
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import urllib.error
@@ -690,15 +691,38 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertEqual(inspect.signature(watch.starvation_dispatch).parameters["minutes"].default, 25.0)
 
 
-class StuckRunTests(unittest.TestCase):
-    """A nightly run whose job never got a runner carries nothing (run 40771197361: decide waited
-    34 min on a Blacksmith Linux label that had stopped starting jobs)."""
+LIVE = json.loads((Path(__file__).resolve().parent / "fixtures/nightly_next_live_run_jobs.json").read_text(encoding="utf-8"))
+
+
+def live_run(**changes) -> dict:
+    """The recorded nightly-next run payload (a real runs API shape), with `changes` applied."""
+    return {**LIVE["run"], **changes}
+
+
+def live_job(kind: str, drop: tuple[str, ...] = (), **changes) -> dict:
+    """A recorded job payload (queued_deltas, publish_done or mac_build_done), with fields dropped or changed."""
+    job = {**LIVE["jobs"][kind], **changes}
+    for field in drop:
+        job.pop(field, None)
+    return job
+
+
+class UnstartedRunTests(unittest.TestCase):
+    """A queued run that has not started holds nothing back (cmuxterm-hq#4946 item 2).
+
+    nightly-next run 40738012059 sat 73 minutes with `decide` queued on a Linux label that
+    started nothing, and 40771197361 34 minutes; each counted as active, so the starvation
+    guard dispatched nothing while the feed fell 95 minutes behind. The payloads are recorded
+    from a live run (tests/fixtures/nightly_next_live_run_jobs.json); a queued job's age comes
+    from the first timestamp the API gave, and a job without any is treated as old.
+    """
 
     TIP = "f" * 40
+    LANDED = NOW - dt.timedelta(minutes=40)
 
     class Gh(StarvationGuardTests.Gh):
         def __init__(self, outer, runs, jobs):
-            super().__init__(outer, runs, landed=NOW - dt.timedelta(minutes=50))
+            super().__init__(outer, runs)
             self._jobs = jobs
 
         def jobs(self, run):
@@ -706,97 +730,166 @@ class StuckRunTests(unittest.TestCase):
                 raise self._jobs
             return self._jobs
 
-        def pending_deployments(self, run):
-            if isinstance(self._pending, Exception):
-                raise self._pending
-            return self._pending
+    def guard(self, runs, jobs):
+        gh = self.Gh(self, runs, jobs)
+        return gh, watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES)
 
-    def guard(self, jobs, workflow="nightly.yml", status="in_progress", pending=()):  # () is []
-        run = {"id": 9, "status": status, "created_at": at(0.5), "head_sha": self.TIP,
-               "html_url": "https://github.com/o/r/actions/runs/9"}
-        gh = self.Gh(self, [run], jobs)
-        gh._pending = list(pending) if isinstance(pending, tuple) else pending
-        result = watch.starvation_dispatch(
-            gh, NOW, feed=NOW - dt.timedelta(minutes=90), published_sha="", branch="feat-cmux-next",
-            workflow="nightly-next-tick.yml", ref="main", active_workflows=[(workflow, "nightly-next")])
-        return result, gh.dispatched
+    def queued(self, minutes, drop=()):
+        stamp = at(minutes / 60)
+        return live_job("queued_deltas", drop=drop, name="decide", created_at=stamp, started_at=stamp)
 
-    def test_a_run_stuck_without_a_runner_does_not_hold_the_dispatch(self):
-        decide = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        done = dict(queued_job("probe", 34, []), status="completed", conclusion="skipped")
-        result, dispatched = self.guard([decide, done])
-        self.assertEqual(result, f"dispatched nightly-next-tick.yml for {self.TIP}")
-        self.assertEqual(len(dispatched), 1)
+    def live(self, run_minutes_ago=0.25 * 60, **changes):
+        stamp = at(run_minutes_ago / 60)
+        return live_run(head_sha=self.TIP, created_at=stamp, run_started_at=stamp,
+                        html_url=f"https://github.com/o/r/actions/runs/{LIVE['run']['id']}", **changes)
 
-    def test_a_run_that_is_running_waiting_or_only_briefly_queued_still_holds(self):
-        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        cases = {
-            "briefly queued": [queued_job("decide", 19, ["blacksmith-4vcpu-ubuntu-2404"])],
-            "another job running": [stuck, dict(queued_job("build", 5, ["x"], status="in_progress"), runner_name="r")],
-            "a gate waits": [stuck, queued_job("sign", 40, ["x"], status="waiting")],
-            "an owned label": [queued_job("build-nightly-app", 40, ["glaeda-trusted-next-nightly"])],
-            "the jobs cannot be read": OSError("boom"),
-        }
-        for case, jobs in cases.items():
-            with self.subTest(case):
-                result, dispatched = self.guard(jobs)
-                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
-                self.assertEqual(dispatched, [])
+    def test_the_fixture_is_a_queued_job_with_no_runner(self):
+        job = LIVE["jobs"]["queued_deltas"]
+        self.assertEqual((job["status"], job["runner_name"], job["runner_id"]), ("queued", "", 0))
+        self.assertIn("run_started_at", LIVE["run"])
 
-    def test_a_gated_run_holds_whatever_its_jobs_show(self):
-        # A run waiting on an environment or a concurrency group shows queued jobs with no runner;
-        # the run's own state says it is gated, not stuck, so no second build is dispatched.
-        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        for status in ("waiting", "pending", "requested"):
+    def test_a_queued_run_that_never_started_does_not_block(self):
+        gh, answer = self.guard([self.live(status="queued")], [self.queued(15)])
+        self.assertEqual(answer, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(gh.dispatched), 1)
+
+    def test_a_run_queued_less_than_the_grace_still_blocks(self):
+        gh, answer = self.guard([self.live(run_minutes_ago=6, status="queued")], [self.queued(5)])
+        self.assertTrue(answer.startswith("running "), answer)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_job_without_its_own_times_is_aged_from_the_run(self):
+        """The jobs API does not always give a queued job its times; the runs API gives the run's."""
+        bare = self.queued(5, drop=("created_at", "started_at"))
+        old = self.live(run_minutes_ago=73, status="queued")
+        self.assertFalse(watch.run_is_building(old, [bare], NOW))
+        gh, answer = self.guard([old], [bare])
+        self.assertEqual(answer, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        young = self.live(run_minutes_ago=4, status="queued")
+        self.assertTrue(watch.run_is_building(young, [bare], NOW))
+
+    def test_no_timestamp_anywhere_is_old_never_zero(self):
+        """A missing time must never read as zero age: that kept a 73-minute queue 'building'."""
+        bare = self.queued(5, drop=("created_at", "started_at"))
+        run = live_run(status="queued")
+        for field in ("created_at", "run_started_at"):
+            run.pop(field)
+        self.assertEqual(watch.queued_minutes(bare, run, NOW), float("inf"))
+        self.assertFalse(watch.run_is_building(run, [bare], NOW))
+        self.assertFalse(watch.run_is_building(run, [], NOW), "a run with no job and no time is not building")
+
+    def test_a_running_job_or_an_environment_gate_still_blocks(self):
+        for status in ("in_progress", "waiting"):
             with self.subTest(status=status):
-                self.assertFalse(watch.stuck_without_runner(NOW, [stuck], run={"status": status}))
-        self.assertTrue(watch.stuck_without_runner(NOW, [stuck], run={"status": "queued"}))
+                running = live_job("mac_build_done", status=status, conclusion=None, completed_at=None)
+                gh, answer = self.guard([self.live(run_minutes_ago=30, status="in_progress")],
+                                        [self.queued(25), running])
+                self.assertTrue(answer.startswith("running "), answer)
 
-    def test_a_run_with_a_deployment_waiting_for_approval_still_holds(self):
-        # An in_progress run whose next job waits on an environment's approval shows its queued
-        # jobs with no runner; its pending deployment says it is gated, so no second build.
-        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        for pending in ([{"environment": {"name": "release"}}], OSError("boom")):
-            with self.subTest(pending=pending):
-                result, dispatched = self.guard([stuck], pending=pending)
-                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
-                self.assertEqual(dispatched, [])
+    def test_an_unreadable_job_list_keeps_the_run(self):
+        """Fail closed on a failed read: a doubled build is the worse mistake there."""
+        gh, answer = self.guard([self.live(status="queued")], OSError("boom"))
+        self.assertTrue(answer.startswith("running "), answer)
 
-    def test_a_finished_job_with_no_labels_is_a_normal_shape(self):
-        # GitHub reports a skipped job with labels []: that is not unread, and the run is judged.
-        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        skipped = dict(queued_job("probe", 34, []), status="completed", conclusion="skipped")
-        self.assertTrue(watch.stuck_without_runner(NOW, [stuck, skipped], run={"status": "queued"}))
-        self.assertFalse(watch.stuck_without_runner(NOW, [stuck, dict(skipped, labels=None)], run={"status": "queued"}))
+    def test_a_published_run_is_not_building_while_its_deltas_wait(self):
+        """The recorded run: publish-nightly done at 02:12:54Z, its deltas job queued after it."""
+        jobs = [live_job("publish_done"), live_job("queued_deltas")]
+        self.assertFalse(watch.run_is_building(live_run(), jobs, NOW))
 
-    def test_a_response_of_an_unexpected_shape_still_holds(self):
-        # Valid JSON of the wrong shape is unread, never "nothing there": the run keeps carrying the
-        # tip and no second build is dispatched.
-        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
-        cases = {
-            "deployments null": ([stuck], None),
-            "deployments an object": ([stuck], {}),
-            "null labels": ([dict(stuck, labels=None)], ()),
-            "no labels": ([{k: v for k, v in stuck.items() if k != "labels"}], ()),
-            "empty labels": ([dict(stuck, labels=[])], ()),
-            "a non-string label": ([dict(stuck, labels=[3])], ()),
-            "no status": ([{k: v for k, v in stuck.items() if k != "status"}], ()),
-            "no created_at": ([{k: v for k, v in stuck.items() if k != "created_at"}], ()),
-            "a bad created_at": ([dict(stuck, created_at="yesterday")], ()),
-            "no jobs": ([], ()),
-            "jobs not a list": ({"jobs": []}, ()),
-        }
-        for case, (jobs, pending) in cases.items():
-            with self.subTest(case):
-                result, dispatched = self.guard(jobs, pending=pending)
-                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9", case)
-                self.assertEqual(dispatched, [])
+    def test_a_tip_older_than_twenty_minutes_is_built_however_fresh_the_feed(self):
+        """A feed published a minute ago may carry a commit from long before the tip."""
+        gh = self.Gh(self, [], [])
+        answer = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=1), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=20.0, by_tip_age=True)
+        self.assertEqual(answer, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        young = self.Gh(self, [], [])
+        young._landed = NOW - dt.timedelta(minutes=5)
+        self.assertEqual(watch.starvation_dispatch(
+            young, NOW, feed=NOW - dt.timedelta(minutes=1), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=20.0, by_tip_age=True), "fresh")
+        self.assertEqual(young.dispatched, [])
 
-    def test_only_nightly_runs_are_judged(self):
-        # The tick's own run is never read: a tick waiting on a dead label is replaced by the next one.
-        result, _ = self.guard([queued_job("request", 40, ["blacksmith-2vcpu-ubuntu-2404"])],
-                               workflow="nightly-next-tick.yml")
-        self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
+    class Flows(Gh):
+        """Runs per (workflow, branch), and compare answers per head sha."""
+
+        def __init__(self, outer, by_flow, jobs, compare=None):
+            super().__init__(outer, [], jobs)
+            self.by_flow, self.compare, self.compared = by_flow, compare or {}, []
+
+        def recent_runs(self, workflow, branch=None, now=None):
+            return list(self.by_flow.get((workflow, branch), []))
+
+        def call(self, method, path, body=None):
+            if "/compare/" in path:
+                self.compared.append(path)
+                answer = self.compare.get(path.rsplit("...", 1)[1])
+                if isinstance(answer, Exception):
+                    raise answer
+                return {"status": answer}
+            raise AssertionError(f"unexpected call {method} {path}")
+
+    def next_guard(self, gh):
+        return watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES,
+            active_workflows=watch.next_delivery_workflows(""),
+            carries=lambda run, tip, landed: watch.next_carries_tip(gh, run, tip, landed))
+
+    def test_a_main_nightly_alongside_a_stale_next_feed_never_holds_the_dispatch(self):
+        """Review of 47a10b07: a classic main build created after the tip landed counted as carrying it."""
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        main_runs = [dict(self.live(run_minutes_ago=5, status="in_progress"), head_branch="main", head_sha="e" * 40,
+                          event=event, display_title=title)
+                     for event, title in (("schedule", "Nightly macOS build · 47 8 * * *"),
+                                          ("workflow_dispatch", "Promote nightly-next to " + "e" * 40),
+                                          ("workflow_dispatch", "Resume nightly-next run 1 attempt 1"))]
+        gh = self.Flows(self, {("nightly.yml", "main"): main_runs,
+                               ("nightly-next-tick.yml", "main"): main_runs[:1]}, running)
+        self.assertEqual(self.next_guard(gh), f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(gh.dispatched), 1)
+        self.assertNotIn(("nightly.yml", "main"), watch.next_delivery_workflows(""))
+
+    def test_a_nightly_next_run_carries_the_tip_only_by_its_head(self):
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        other = "d" * 40
+        for head, compare, blocks in ((self.TIP, None, True),            # the tip itself
+                                      (other, "ahead", True),            # a commit containing it
+                                      (other, "identical", True),
+                                      (other, "behind", False),          # an older commit, however new the run
+                                      (other, "diverged", False),
+                                      (other, OSError("502"), False),    # an unreadable compare
+                                      ("", None, False)):                # no head at all
+            with self.subTest(head=head[:4], compare=repr(compare)):
+                run = dict(self.live(run_minutes_ago=2, status="in_progress"), head_sha=head)
+                gh = self.Flows(self, {("nightly.yml", "nightly-next"): [run]}, running,
+                                compare={other: compare} if compare is not None else {})
+                answer = self.next_guard(gh)
+                self.assertEqual(answer.startswith("running "), blocks, answer)
+                if head == other:
+                    self.assertEqual(gh.compared, [f"/compare/{self.TIP}...{other}"])
+
+    def test_cmux_next_is_dispatched_after_twenty_minutes(self):
+        """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""
+        self.assertEqual(watch.NEXT_STARVATION_MINUTES, 20.0)
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feeds", lambda urls: (None, [])), \
+                unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
+                unittest.mock.patch.object(watch, "starvation_dispatch",
+                                           lambda *a, **k: seen.append((k.get("branch"), k.get("minutes"), k.get("by_tip_age"), k.get("carries") is not None)) or "stubbed"), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            watch.main(["--repo", "o/r", "--dry-run", "--legacy-identity", "off"])
+        self.assertIn(("feat-cmux-next", 20.0, True, True), seen)
+        self.assertIn(("main", None, None, False), seen, "the classic guard keeps its own rule")
+
+    def test_the_watch_runs_every_ten_minutes(self):
+        """At :07/:37 with a 25-minute trigger the 30-minute bound could not hold."""
+        workflow = (SCRIPT.parents[2] / ".github/workflows/nightly-next-feed-watch.yml").read_text(encoding="utf-8")
+        self.assertIn('- cron: "2-59/10 * * * *"', workflow)
 
 
 class ActiveRunReadTests(unittest.TestCase):
@@ -1032,8 +1125,7 @@ class TrainModeTests(unittest.TestCase):
         for mode in ("", "dry-run", "off", "plan"):
             flows = watch.next_delivery_workflows(mode)
             self.assertNotIn(train, flows, mode)
-            self.assertIn(("nightly.yml", "nightly-next"), flows)
-            self.assertIn(("nightly-next-tick.yml", "main"), flows)
+            self.assertEqual(flows, [("nightly.yml", "nightly-next")], "main's runs never hold NEXT back")
 
     def test_the_watch_passes_the_train_switch(self):
         workflow = (self.WORKFLOWS / "nightly-next-feed-watch.yml").read_text(encoding="utf-8")

@@ -18,10 +18,11 @@ SCRIPT = ROOT / "scripts" / "ci" / "nightly_next_stuck_run.sh"
 TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
 TIP = "1f0f687b2f32a9f506e19e7f683e8362fd3da6b2"
 
-# git ls-remote prints the tip (GIT_FAIL: it fails; GIT_TIP: another line).
-FAKE_GIT = f"""#!/bin/bash
-[ -n "${{GIT_FAIL:-}}" ] && exit 128
-[ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "${{GIT_TIP:-{TIP}}}"
+# git is not used: nightly-next's head comes from the refs API (the fake gh below; GIT_FAIL fails that
+# read, GIT_TIP answers another value). A git here fails, so a script that still reads git fails its test.
+FAKE_GIT = """#!/bin/bash
+echo "git is not used by the tick's scripts" >&2
+exit 128
 """
 
 # A stateful GitHub. Every call is logged. State (env, JSON):
@@ -36,6 +37,7 @@ FAKE_GIT = f"""#!/bin/bash
 #   UNREADABLE_AFTER_CANCEL  a run's read fails once it has been cancelled.
 FAKE_GH = r'''#!PYTHON
 import json, os, subprocess, sys, urllib.parse
+TIP_SHA = "@TIP@"
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -67,6 +69,10 @@ if "-X" in args:  # POST: cancel, force-cancel, a job re-run
     sys.exit(0)
 if os.environ.get("FAIL") and os.environ["FAIL"] in path:
     sys.exit(1)
+if path.endswith("/git/ref/heads/nightly-next"):  # the refs API answers nightly-next's head
+    if os.environ.get("GIT_FAIL"):
+        sys.exit(1)
+    out({"object": {"sha": os.environ.get("GIT_TIP") or TIP_SHA, "type": "commit"}})
 runs = env("NEXT_RUNS", "[]") + env("MAIN_RUNS", "[]")
 if "/workflows/nightly.yml/runs?" in path:
     query = dict(urllib.parse.parse_qsl(path.split("?", 1)[1]))
@@ -150,7 +156,7 @@ class StuckRun(unittest.TestCase):
         bin_dir.mkdir()
         state = Path(tmp.name) / "state"
         state.mkdir()
-        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH.replace("#!PYTHON", f"#!{sys.executable}")),
+        for name, body in (("git", FAKE_GIT), ("gh", FAKE_GH.replace("#!PYTHON", f"#!{sys.executable}").replace("@TIP@", TIP)),
                            ("python3", f'#!/bin/bash\nexec "{sys.executable}" "$@"\n')):
             path = bin_dir / name
             path.write_text(body)

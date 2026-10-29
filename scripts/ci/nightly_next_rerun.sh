@@ -64,9 +64,11 @@ if [[ "$now" != "completed cancelled $attempt" ]]; then
   exit 0
 fi
 # Only the tip is built again: nightly-next may have moved during the reads above (or a rate-limit
-# wait), and a re-run of the old commit would waste a whole nightly. Read the branch right before the
-# write; an unreadable branch sends nothing.
-if ! line="$(git ls-remote origin refs/heads/nightly-next)" || [[ "${line%%[[:space:]]*}" != "$head_sha" ]]; then
+# wait), and a re-run of the old commit would waste a whole nightly. Read the branch (refs API; the
+# tick's checkout has no credentials for git) right before the write; an unreadable branch sends
+# nothing.
+if ! now_tip="$(gh api "repos/$repo/git/ref/heads/nightly-next" --jq 'if (.object.sha | type) == "string" then .object.sha else error("not a commit") end')" \
+   || [[ "$now_tip" != "$head_sha" ]]; then
   echo "$what: nightly-next is no longer at ${head_sha:0:12} (or could not be read); not re-run, the tip builds"
   exit 0
 fi
