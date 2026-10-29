@@ -9,3 +9,4 @@
 41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef glaeda #1739, the claim names its hook (GLAEDA_HOOK_SHA256)
 c545d58594c87be15a1d881790a4d6ee6a3f13d0068ce55141038a8cb779fc5c glaeda #1740, the simulator-step hook (minis run it since 2026-10-29)
 f3e62a201f4c12b13424463044a973780d0347cd9387b8c9cd5d4b316ed4b1eb glaeda #1743, a nightly signing job on the nightly slot drains a busy mini (SIGNING_DRAIN_WAIT_S)
+945eed37edb1666b505d9ab2520892650b58a3447386d4ccc51ee49d8fee3667 glaeda #1745, session runners listen through CPU saturation (drain hook pin regenerated)

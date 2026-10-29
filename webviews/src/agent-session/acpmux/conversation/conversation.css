@@ -728,8 +728,13 @@
 }
 .cv-received:hover .cv-received-actions,
 .cv-received-actions:focus-within,
-.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]) {
+.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
+.cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
   opacity: 1;
+}
+.cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
    agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */

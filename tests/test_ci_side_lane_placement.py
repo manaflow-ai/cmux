@@ -246,6 +246,36 @@ class Decide(unittest.TestCase):
                 lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual((lines["gui_runner"], lines["gui_overflow"]), expected)
 
+    def test_no_online_role_runner_names_overflow_even_without_a_side_route(self):
+        offline = runner("mini-a-glaeda-4", status="offline", labels=(STD, GUI, SESSION))
+        fleets = (([], ""), ([runner("mini-a-glaeda-3")], ""), ([offline], ""),
+                  ([runner("mini-a-glaeda-5", labels=(STD, SESSION))], SESSION))
+        for fleet, session in fleets:
+            with self.subTest(fleet=fleet), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                summary = Path(tmp) / "summary"
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = fleet
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual((values["gui_runner"], values["session_runner"], values["gui_overflow"]),
+                                 ("", session, FALLBACK))
+                self.assertIn("no online GUI runner", summary.read_text())
+                # Feed the placement's actual output into each workflow expression, without inventing a
+                # side route. No fixed gui/session label may override the empty-role decision.
+                wiring = CmuxNextWiring()
+                context = wiring.context()
+                context["vars"]["CI_SESSION_LABEL"] = "1"
+                context["needs"][wiring.PLACEMENT]["outputs"].update(values, placed_attempt="1")
+                for name in GUI_JOBS:
+                    job = wiring.workflow()["jobs"][name]
+                    expected = SESSION if session and name in SESSION_JOBS else FALLBACK
+                    self.assertEqual(evaluate(job["runs-on"], context), expected, name)
+                    self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), expected, name)
+
     def test_a_declined_gui_route_keeps_the_cascade_placement(self):
         """Review of #27201: the declined-route summary reused `owned`, the jobs the idle minis took, for the
         snapshot's queue counts, so cascade.place() read every queued pool label as a placed job and the fast
@@ -912,11 +942,12 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context(runner=STD)), on(name, STD))
                 # Skipped or unreadable placement keeps today's configured route.
                 self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context("2")), FALLBACK if name in GUI_JOBS else on(name, SIDE))
                 # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
                 self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")),
                                  overflow(name, placed=False))
-                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")),
+                                 FALLBACK if name in GUI_JOBS else on(name, SIDE))
                 # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")),
                                  overflow(name, placed=False))
@@ -950,18 +981,39 @@ class CmuxNextWiring(unittest.TestCase):
                 rerun = self.context("2", triggering_actor=bot)
                 rerun["needs"][self.PLACEMENT]["outputs"].update(runner="", gui_overflow=FALLBACK)
                 self.assertEqual(evaluate(runs_on, rerun), FALLBACK)
-                # A carried overflow from an earlier attempt is stale: a person's attempt 3 ignores it.
+                # All carried role readings are stale: a person's attempt 3 takes the safe overflow.
                 carried = self.context("3", runner=STD)
                 carried["needs"][self.PLACEMENT]["outputs"]["gui_overflow"] = FALLBACK
-                self.assertEqual(evaluate(runs_on, carried), on(name, STD))
-                # Review of #27201: nor does a carried overflow keep a person's re-run off the session lane.
+                self.assertEqual(evaluate(runs_on, carried), FALLBACK)
+                # A carried session-lane variable cannot send that rerun back to an unverified owned label.
                 if name == "generated-files":
                     rerun_lane = self.context("2", runner=STD)
                     rerun_lane["vars"]["CI_SESSION_LANE_RUNNER"] = SESSION
                     rerun_lane["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
                                                                           gui_overflow=FALLBACK, placed_attempt="1")
-                    self.assertEqual(evaluate(runs_on, rerun_lane), SESSION)
+                    self.assertEqual(evaluate(runs_on, rerun_lane), FALLBACK)
                 self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
+
+    def test_a_human_rerun_never_takes_a_role_from_an_earlier_placement_attempt(self):
+        jobs = self.workflow()["jobs"]
+        for attempt in ("2", "3", "9"):
+            for missing in (False, True):
+                with self.subTest(attempt=attempt, missing=missing):
+                    context = self.context(attempt, runner=STD)
+                    context["vars"].update(CI_SESSION_LABEL="1", CI_SESSION_LANE_RUNNER=SESSION)
+                    outputs = context["needs"][self.PLACEMENT]["outputs"]
+                    outputs.update(placed_attempt="1", gui_runner=GUI, session_runner=SESSION,
+                                   free_gui_runner=GUI, free_session_runner=SESSION, session_lane_runner=SESSION)
+                    if missing:
+                        outputs.clear()
+                    for name in GUI_JOBS:
+                        self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+                        self.assertEqual(evaluate(jobs[name]["env"]["CMUX_NEXT_RUNNER"], context), FALLBACK, name)
+        # A rerun with a placement that actually ran in this attempt can still take an owned role.
+        fresh = self.context("2", runner=STD)
+        fresh["needs"][self.PLACEMENT]["outputs"].update(placed_attempt="2", session_runner=SESSION)
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], fresh), SESSION if name in SESSION_JOBS else GUI)
 
     def test_a_carried_free_role_label_is_not_read_on_a_later_attempt(self):
         # Review of #27201 at 175560bc: attempt 1's "free" reading may be busy or offline by a person's re-run.
@@ -970,7 +1022,7 @@ class CmuxNextWiring(unittest.TestCase):
             rerun = self.context("2", runner=STD)
             rerun["needs"][self.PLACEMENT]["outputs"].update(free_session_runner=SESSION, free_gui_runner=GUI,
                                                             placed_attempt="1")
-            self.assertEqual(evaluate(jobs[name]["runs-on"], rerun), on(name, STD))
+            self.assertEqual(evaluate(jobs[name]["runs-on"], rerun), FALLBACK)
             fresh = self.context(runner=STD)
             fresh["needs"][self.PLACEMENT]["outputs"]["free_session_runner"] = SESSION
             self.assertEqual(evaluate(jobs[name]["runs-on"], fresh), SESSION)
@@ -987,11 +1039,11 @@ class CmuxNextWiring(unittest.TestCase):
         roomy["vars"]["CI_SESSION_LANE_RUNNER"] = lane
         roomy["needs"][self.PLACEMENT]["outputs"]["session_lane_runner"] = lane
         self.assertEqual(evaluate(runs_on, roomy), lane)
-        # A person's re-run, placed in attempt 1: no fresh reading, so the variable route as before.
+        # A person's re-run, placed in attempt 1: no fresh reading can vouch for the variable route.
         rerun = self.context("2", runner=STD)
         rerun["vars"]["CI_SESSION_LANE_RUNNER"] = lane
         rerun["needs"][self.PLACEMENT]["outputs"].update(session_lane_runner="", placed_attempt="1")
-        self.assertEqual(evaluate(runs_on, rerun), lane)
+        self.assertEqual(evaluate(runs_on, rerun), FALLBACK)
 
     def test_bot_retry_uses_a_newly_free_owned_session_runner(self):
         job_spec = self.workflow()["jobs"]["generated-files"]
@@ -1018,12 +1070,12 @@ class CmuxNextWiring(unittest.TestCase):
                 # The rescue's attempt 3 still drops the placement's label.
                 live["github"].update(run_attempt="3", triggering_actor=bot)
                 self.assertEqual(evaluate(runs_on, live), overflow(name))
-                # No placement (a person's re-run): the session label only once CI_SESSION_LABEL is 1.
+                # No fresh placement on a person's rerun: static role labels cannot vouch for live room.
                 rerun = self.context("2")
                 rerun["needs"][self.PLACEMENT] = {"outputs": {}}
-                self.assertEqual(evaluate(runs_on, rerun), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, rerun), FALLBACK if name in GUI_JOBS else on(name, SIDE))
                 rerun["vars"]["CI_SESSION_LABEL"] = "1"
-                self.assertEqual(evaluate(runs_on, rerun), SESSION if name in SESSION_JOBS else on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, rerun), FALLBACK if name in GUI_JOBS else on(name, SIDE))
                 if name != "release-compile":
                     self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
 
@@ -1050,8 +1102,9 @@ class CmuxNextWiring(unittest.TestCase):
                 stale = self.context("3", runner=STD, triggering_actor=bot)
                 stale["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
                 self.assertEqual(evaluate(runs_on, stale), overflow(name))
-                # A person's re-run stays minis-first at any attempt.
-                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
+                # A person's rerun needs a fresh role placement, just like a bot's rerun.
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)),
+                                 FALLBACK if name in GUI_JOBS else on(name, STD))
 
     def test_a_cmux_bot_rerun_routes_like_the_github_actions_bot(self):
         """The rescue re-runs with the cmux-bot App's token, so its re-runs' triggering actor is
@@ -1076,10 +1129,13 @@ class CmuxNextWiring(unittest.TestCase):
                             self.assertEqual(routed[1], routed[0], (github_actions, cmux_bot))
                 if key != "runs-on" or name not in JOBS:
                     continue
-                # A bot attempt 4 leaves the minis for Blacksmith; a person's stays on them.
+                # Without a fresh role placement a person's rerun also leaves the GUI/session queue.
                 self.assertEqual(evaluate(expression, self.context("4", runner=STD, triggering_actor=cmux_bot)),
                                  FALLBACK, (name, key))
-                self.assertNotEqual(evaluate(expression, self.context("4", runner=STD)), FALLBACK, (name, key))
+                if name in GUI_JOBS:
+                    self.assertEqual(evaluate(expression, self.context("4", runner=STD)), FALLBACK, (name, key))
+                else:
+                    self.assertNotEqual(evaluate(expression, self.context("4", runner=STD)), FALLBACK, (name, key))
 
     def test_the_rescues_first_rerun_overflows_to_blacksmith(self):
         """claude-sr2, 2026-10-21: the bot's first re-run (attempt 2) may go to Blacksmith macOS as
@@ -1094,9 +1150,10 @@ class CmuxNextWiring(unittest.TestCase):
                 labels["CMUX_NEXT_RUNNER"] = job["env"]["CMUX_NEXT_RUNNER"]
             for key, expression in labels.items():
                 with self.subTest(job=name, key=key):
-                    # Minis first: attempt 1 and a person's re-run at any attempt.
+                    # Minis first when placement is current; human reruns cannot reuse a stale role reading.
                     self.assertEqual(evaluate(expression, self.context(runner=STD)), on(name, STD))
-                    self.assertEqual(evaluate(expression, self.context("2", runner=STD)), on(name, STD))
+                    self.assertEqual(evaluate(expression, self.context("2", runner=STD)),
+                                     FALLBACK if name in GUI_JOBS else on(name, STD))
                     # The rescue's attempt 2 takes the free Blacksmith slot the placement found.
                     free = self.context("2", runner=STD, triggering_actor=bot)
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
