@@ -211,15 +211,24 @@ import WebKit
         titlePixels.wantsLayer = true
         titlePixels.layer?.backgroundColor = Self.red
         pane.stripView.addSubview(titlePixels)
+        let launch = NSView(frame: pane.contentHost.bounds)
+        launch.wantsLayer = true
+        launch.layer?.backgroundColor = Self.red
+        pane.contentHost.addSubview(launch)
+        pane.launchImageView = launch
         pane.layoutSubtreeIfNeeded()
         CATransaction.flush()
 
         let stripRect = pane.stripView.convert(pane.stripView.bounds, to: nil)
+        let launchRect = launch.convert(launch.bounds, to: nil)
         #expect(stripRect.width > 0 && stripRect.height > 0)
+        #expect(launchRect.width > 0 && launchRect.height > 0)
         await ScreenshotMask.waitToSettle()
         let raw = try await window.screenshotImage(includeChild: { _ in false })
         #expect(Self.isRed(Pixels(raw).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size)),
                 "the unmasked strip actually renders the sentinel over its secret title")
+        #expect(Self.isRed(Pixels(raw).at(CGPoint(x: launchRect.midX, y: launchRect.midY), size: window.frame.size)),
+                "the saved launch frame actually renders sensitive pixels")
         let services = AppServices(environment: AppEnvironment.current([:]))
         var invocation = ActionInvocation(origin: .user)
         invocation.viaControlSocket = true
@@ -228,6 +237,8 @@ import WebKit
         #expect(full.masked ?? 0 >= 1)
         #expect(fullPixels.all(in: stripRect, size: window.frame.size).allSatisfy(Self.isMask),
                 "tab titles and badges in the window strip are masked")
+        #expect(fullPixels.all(in: launchRect, size: window.frame.size).allSatisfy(Self.isMask),
+                "the saved launch frame stays masked alongside the strip")
 
         let crop = try await ScreenshotHandlers.shown(window, crop: pane, for: invocation, services: services)
         #expect(crop.masked ?? 0 >= 1)
@@ -237,6 +248,10 @@ import WebKit
         let stripPixels = Pixels(crop.image).all(in: croppedStrip, size: pane.bounds.size)
         #expect(!stripPixels.isEmpty)
         #expect(stripPixels.allSatisfy(Self.isMask), "tab titles and badges in the pane crop are masked")
+        let croppedLaunch = launchRect.offsetBy(dx: -paneRect.minX, dy: -paneRect.minY)
+        let launchPixels = Pixels(crop.image).all(in: croppedLaunch, size: pane.bounds.size)
+        #expect(!launchPixels.isEmpty)
+        #expect(launchPixels.allSatisfy(Self.isMask), "the saved launch frame stays masked in a pane crop")
     }
 
     @Test func maskingTheStripPreservesTheLaunchImageMask() {
