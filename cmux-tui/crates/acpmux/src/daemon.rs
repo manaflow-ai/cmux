@@ -29,6 +29,7 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+mod handover;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -175,10 +176,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
-            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+            let lock_held = e.downcast_ref::<LockHeld>().is_some()
+                || e.to_string().starts_with("another acpmux daemon holds ");
+            if let Some(fd) = opts.ready_fd.filter(|_| lock_held) {
+                // The app launches `daemon run` directly, without `start_and_connect`.
+                // Its losing launch must report the winner's endpoint once it answers.
+                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                match handover::wait(&home(), &socket_path()).await {
+                    Some(handover::Started::Acquired(lock)) => lock,
+                    Some(handover::Started::Ready(ready)) => {
+                        write_ready(fd, &ready);
+                        return Ok(());
+                    }
+                    None => {
+                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                        return Err(e);
+                    }
+                }
+            } else {
+                return Err(e);
             }
-            return Err(e);
         }
     };
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
@@ -1196,7 +1213,13 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
             });
         }
     }
-    cmd.spawn().context("spawn acpmux daemon")?;
+    let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
+    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
+    // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
+    // This async wait never holds runtime teardown open or kills the winner.
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
