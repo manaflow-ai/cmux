@@ -667,6 +667,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         harnesses,
                         remote_binary,
                         reverse,
+                        lends_github: false,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
