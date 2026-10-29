@@ -71,6 +71,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowNotificationMessage"
     )
 
+    /// Whether the notification message clears once the workspace is read.
+    /// Off keeps the latest message until it is cleared explicitly.
+    public let clearReadNotificationMessage = DefaultsKey<Bool>(
+        id: "sidebar.clearReadNotificationMessage",
+        defaultValue: true,
+        userDefaultsKey: "sidebarClearReadNotificationMessage"
+    )
+
     /// Maximum notification-preview lines shown per workspace, defaulting to 12.
     public let notificationMessageLineLimit = DefaultsKey<Int>(
         id: "sidebar.notificationMessageLineLimit",

@@ -6,6 +6,10 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public var unreadCount: Int
     /// The trimmed body or title of the latest notification, when present.
     public var latestNotificationText: String?
+    /// The trimmed body or title of the latest unread notification, when present.
+    public var latestUnreadNotificationText: String?
+    /// Whether an unread notification exists, even when its preview text is empty.
+    public var hasUnreadNotification: Bool
     /// The stable identity of the latest notification, when present.
     public var latestNotificationId: UUID?
     /// The creation time of the latest notification, when present.
@@ -17,16 +21,46 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public init(
         unreadCount: Int,
         latestNotificationText: String?,
+        latestUnreadNotificationText: String? = nil,
+        hasUnreadNotification: Bool = false,
         latestNotificationId: UUID? = nil,
         latestNotificationCreatedAt: Date? = nil,
         hasLatestNotification: Bool = false
     ) {
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
+        self.latestUnreadNotificationText = latestUnreadNotificationText
+        self.hasUnreadNotification = hasUnreadNotification
         self.latestNotificationId = latestNotificationId
         self.latestNotificationCreatedAt = latestNotificationCreatedAt
         self.hasLatestNotification = hasLatestNotification
     }
+
+    /// The notification message a sidebar row shows under the workspace title.
+    public func previewText(_ mode: SidebarNotificationPreviewMode) -> String? {
+        switch mode {
+        case .hidden:
+            return nil
+        case .latest:
+            return latestNotificationText
+        case .unread:
+            // A workspace marked unread by hand has no unread notification, so
+            // it previews its latest one for as long as it stays unread.
+            return latestUnreadNotificationText ?? (
+                !hasUnreadNotification && unreadCount > 0 ? latestNotificationText : nil
+            )
+        }
+    }
+}
+
+/// Which notification message, if any, a sidebar workspace row previews.
+public enum SidebarNotificationPreviewMode: Equatable, Sendable {
+    /// No notification message is shown.
+    case hidden
+    /// The latest notification's message stays until it is cleared.
+    case latest
+    /// The message shows while the workspace is unread and clears once read.
+    case unread
 }
 
 /// A workspace and optional surface pair in the unread set.

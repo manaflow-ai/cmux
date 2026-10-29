@@ -391,10 +391,8 @@ enum SidebarSettingsFileMapping {
             jsonKey: "pathLastSegmentOnly",
             defaultsKey: sidebar.pathLastSegmentOnly.userDefaultsKey
         ),
-        .init(
-            jsonKey: "showNotificationMessage",
-            defaultsKey: sidebar.showNotificationMessage.userDefaultsKey
-        ),
+        .init(jsonKey: "showNotificationMessage", defaultsKey: sidebar.showNotificationMessage.userDefaultsKey),
+        .init(jsonKey: "clearReadNotificationMessage", defaultsKey: sidebar.clearReadNotificationMessage.userDefaultsKey),
         .init(
             jsonKey: "showBranchDirectory",
             defaultsKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey

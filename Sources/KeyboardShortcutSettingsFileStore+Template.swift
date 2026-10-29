@@ -168,6 +168,7 @@ extension CmuxSettingsFileStore {
                     "stackBranchDirectory": SettingCatalog().sidebar.stackBranchDirectory.defaultValue,
                     "pathLastSegmentOnly": SettingCatalog().sidebar.pathLastSegmentOnly.defaultValue,
                     "showNotificationMessage": SettingCatalog().sidebar.showNotificationMessage.defaultValue,
+                    "clearReadNotificationMessage": SettingCatalog().sidebar.clearReadNotificationMessage.defaultValue,
                     "notificationMessageLineLimit": SettingCatalog().sidebar.notificationMessageLineLimit.defaultValue,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showCloudDeviceIcons": SidebarWorkspaceDetailDefaults.showCloudDeviceIcons,

@@ -12993,13 +12993,11 @@ struct VerticalTabsSidebar: View, Equatable {
             environment: environment,
             unreadRebuild: {
                 [model, workspaceId = tab.id,
-                 showsNotificationMessage = input.settings.showsNotificationMessage] snapshot in
+                 notificationPreviewMode = input.settings.notificationPreviewMode] snapshot in
                 let summary = snapshot.summary(forWorkspaceId: workspaceId)
                 var fresh = model
                 fresh.unreadCount = summary.unreadCount
-                fresh.latestNotificationText = showsNotificationMessage
-                    ? summary.latestNotificationText
-                    : nil
+                fresh.latestNotificationText = summary.previewText(notificationPreviewMode)
                 return fresh
             }
         )
@@ -15335,9 +15333,9 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let unreadSummary = unreadSummariesByWorkspaceId[tab.id]
             ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
-        let liveLatestNotificationText: String? = renderContext.tabItemSettings.showsNotificationMessage
-            ? unreadSummary.latestNotificationText
-            : nil
+        let liveLatestNotificationText = unreadSummary.previewText(
+            renderContext.tabItemSettings.notificationPreviewMode
+        )
         let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
             live: liveShowsModifierShortcutHints,

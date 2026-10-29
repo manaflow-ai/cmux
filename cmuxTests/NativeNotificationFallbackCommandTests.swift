@@ -12,7 +12,7 @@ import UserNotifications
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 struct NativeNotificationFallbackCommandTests {
     private struct CommandInvocation: Equatable, Sendable {
         let title: String

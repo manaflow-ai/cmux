@@ -19,6 +19,7 @@ public struct SidebarSection: View {
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
     @State var showNotification: DefaultsValueModel<Bool>
+    @State var clearReadNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showCloudDeviceIcons: DefaultsValueModel<Bool>
@@ -53,6 +54,7 @@ public struct SidebarSection: View {
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _clearReadNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.clearReadNotificationMessage))
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showCloudDeviceIcons = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudDeviceIcons))
@@ -91,14 +93,11 @@ public struct SidebarSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            matchTerminal,
-            hideAll,
-            wrapTitles,
-            showDesc,
+            matchTerminal, hideAll, wrapTitles, showDesc,
             workspaceDescriptionHex,
             branchVerticalLayout,
             stackBranchDir,
-            pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
+            pathLastOnly, showNotification, clearReadNotification, notificationMessageLineLimit, showBranchDir,
             showCloudDeviceIcons,
             showPR,
             watchGit,
@@ -379,7 +378,7 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            notificationMessageLineLimitRow
+            notificationPreviewRows
             SettingsCardDivider()
 
             SettingsCardRow(

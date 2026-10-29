@@ -652,15 +652,12 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> SidebarWorkspaceUnreadSummary? {
         let count = unreadCount(forTabId: tabId)
         let latestNotification = indexes.latestByTabId[tabId]
-        let latestText: String? = latestNotification.flatMap { notification in
-            let text = notification.body.isEmpty ? notification.title : notification.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
         guard count > 0 || latestNotification != nil else { return nil }
         return SidebarWorkspaceUnreadSummary(
             unreadCount: count,
-            latestNotificationText: latestText,
+            latestNotificationText: latestNotification?.sidebarPreviewText,
+            latestUnreadNotificationText: indexes.latestUnreadByTabId[tabId]?.sidebarPreviewText,
+            hasUnreadNotification: indexes.latestUnreadByTabId[tabId] != nil,
             latestNotificationId: latestNotification?.id,
             latestNotificationCreatedAt: latestNotification?.createdAt,
             hasLatestNotification: latestNotification != nil

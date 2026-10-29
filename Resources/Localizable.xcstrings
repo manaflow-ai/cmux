@@ -305153,6 +305153,124 @@
         }
       }
     },
+    "settings.app.clearReadNotificationMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Notification Message Once Read"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungstext nach dem Lesen ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer le message de notification une fois lu"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح رسالة الإشعار بعد قراءتها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar el mensaje de notificación una vez leído"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已讀後清除通知訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已读后清除通知消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽은 후 알림 메시지 지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既読になったら通知メッセージを消去"
+          }
+        }
+      }
+    },
+    "settings.app.clearReadNotificationMessage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the notification message after you view the workspace or the request is resolved. When off, the latest message stays until you clear it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Benachrichtigungstext ausblenden, nachdem du den Arbeitsbereich angesehen hast oder die Anfrage erledigt ist. Wenn deaktiviert, bleibt die neueste Nachricht, bis du sie löschst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le message de notification après avoir consulté l’espace de travail ou une fois la demande traitée. Si désactivé, le dernier message reste affiché jusqu’à ce que vous l’effaciez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء رسالة الإشعار بعد عرض مساحة العمل أو حل الطلب. عند الإيقاف، تبقى أحدث رسالة حتى تمسحها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta el mensaje de notificación después de ver el espacio de trabajo o cuando se resuelve la solicitud. Si está desactivado, el mensaje más reciente se mantiene hasta que lo borres."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看工作區或請求處理完成後隱藏通知訊息。關閉時，最新訊息會保留到你清除為止。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看工作区或请求处理完成后隐藏通知消息。关闭时，最新消息会保留到你清除为止。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 확인하거나 요청이 처리되면 알림 메시지를 숨깁니다. 끄면 최신 메시지가 지울 때까지 유지됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示するか、リクエストが解決されると通知メッセージを非表示にします。オフの場合、最新のメッセージはクリアするまで残ります。"
+          }
+        }
+      }
+    },
     "settings.app.showPorts": {
       "extractionState": "manual",
       "localizations": {
@@ -352992,6 +353110,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.showNotificationMessage latest message unread notification text sidebar 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 導覽 左側 詳細資訊 隱藏 版面 通知 未讀 訊息 徽章 圓環 閃爍 聲音 桌面 提醒 App 1 則未讀通知"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.clear-read-notification-message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage notification message preview read unread clear dismiss keep latest sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage Benachrichtigung Nachricht Vorschau gelesen ungelesen löschen ausblenden behalten neueste Seitenleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage notification message aperçu lu non lu effacer masquer garder dernier barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage إشعار رسالة معاينة مقروء غير مقروء مسح إخفاء الاحتفاظ أحدث الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage notificación mensaje vista previa leído no leído borrar ocultar mantener último barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage 通知 訊息 預覽 已讀 未讀 清除 隱藏 保留 最新 側邊欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage 通知 消息 预览 已读 未读 清除 隐藏 保留 最新 侧边栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage 알림 메시지 미리보기 읽음 읽지 않음 지우기 숨기기 유지 최신 사이드바"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.clearReadNotificationMessage 通知 メッセージ プレビュー 既読 未読 消去 非表示 保持 最新 サイドバー"
           }
         }
       }

@@ -1707,6 +1707,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show the latest notification text in the sidebar."
         },
+        "clearReadNotificationMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clear the sidebar notification text once the workspace is read. When false, the latest notification text stays until it is cleared.",
+          "descriptionKey": "schemaDescriptions.sidebar.clearReadNotificationMessage"
+        },
         "notificationMessageLineLimit": {
           "type": "integer",
           "minimum": 1,

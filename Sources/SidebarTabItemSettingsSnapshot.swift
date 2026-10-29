@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxSidebar
 import CoreGraphics
@@ -27,6 +28,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
+    /// Which notification message rows preview, folding in `showsNotificationMessage`.
+    let notificationPreviewMode: SidebarNotificationPreviewMode
     let notificationMessageLineLimit: Int
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
@@ -84,6 +87,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
         workspaceDescriptionColorHex = settings.value(for: sidebar.workspaceDescriptionColorHex).nilIfEmpty
         showsNotificationMessage = detailVisibility.showsNotificationMessage
+        notificationPreviewMode = !showsNotificationMessage
+            ? .hidden
+            : settings.value(for: sidebar.clearReadNotificationMessage) ? .unread : .latest
         notificationMessageLineLimit = min(
             max(
                 settings.value(for: sidebar.notificationMessageLineLimit),
