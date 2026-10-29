@@ -19,33 +19,60 @@ import Testing
         var sets: [String] = []
     }
 
-    /// The Touch ID or password confirm: answers `answer`, or waits for ``resume(_:)`` when `hold`.
+    /// The Touch ID or password confirm: answers `answer`, or, when `hold`, waits for ``resume(_:)`` (a
+    /// cancel answers false). Every wait here ends: a second held ask while one is up answers false at
+    /// once and is counted in `overlaps`, and ``held(_:)`` also returns when the request ends first.
     @MainActor final class FakeOwner: DeviceOwnerAuthenticating {
         var answer = false
         var hold = false
         var reasons: [String] = []
+        var overlaps = 0
         private var pending: CheckedContinuation<Bool, Never>?
-        private var asked: CheckedContinuation<Void, Never>?
+        private var asked: (wait: Int, continuation: CheckedContinuation<Void, Never>)?
+        private var waits = 0
 
         func authenticate(reason: String) async -> Bool {
             reasons.append(reason)
             guard hold else { return answer }
-            return await withCheckedContinuation {
-                pending = $0
-                asked?.resume()
-                asked = nil
+            guard pending == nil else {
+                overlaps += 1
+                return false
+            }
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation {
+                    pending = $0
+                    wake()
+                }
+            } onCancel: {
+                Task { @MainActor in self.resume(false) }
             }
         }
 
-        /// Returns once a held confirm is up (set before the call that asks starts).
-        func held() async {
-            guard pending == nil else { return }
-            await withCheckedContinuation { asked = $0 }
+        /// Whether `request`'s confirm is up: returns once it is, or once `request` ended without one.
+        func held(_ request: Task<JSONValue, any Error>) async -> Bool {
+            if pending == nil {
+                waits += 1
+                let wait = waits
+                // task-owner: wakes this wait (only this one) when the request ends first; ends with the request.
+                Task { @MainActor in
+                    _ = try? await request.value
+                    self.wake(wait)
+                }
+                await withCheckedContinuation { asked = (wait, $0) }
+            }
+            return pending != nil
         }
 
         func resume(_ answer: Bool) {
             pending?.resume(returning: answer)
             pending = nil
+        }
+
+        /// Wakes the waiting ``held(_:)``: any (a confirm came up), or only wait `wait` (its request ended).
+        private func wake(_ wait: Int? = nil) {
+            guard let asked, wait == nil || wait == asked.wait else { return }
+            asked.continuation.resume()
+            self.asked = nil
         }
     }
 
@@ -229,10 +256,10 @@ import Testing
             h.cleanUp()
         }
         let asking = try h.heldOn(.fullAccess)
-        await owner.held()
+        #expect(await owner.held(asking))
         #expect(owner.reasons.count == 1)
         #expect(try await h.refused(.vmHost, on: true, h.posted()))
-        #expect(owner.reasons.count == 1, "no second prompt")
+        #expect(owner.reasons.count == 1 && owner.overlaps == 0, "no second prompt")
         owner.resume(true)
         _ = try await asking.value
         #expect(h.recorder.sets == ["device true"])
@@ -250,7 +277,7 @@ import Testing
         }
         for op in Switch.allCases {
             let asking = try h.heldOn(op)
-            await owner.held()
+            #expect(await owner.held(asking))
             #expect(try await !h.refused(op, on: false, h.posted()))
             owner.resume(true)
             do {
@@ -262,7 +289,7 @@ import Testing
         }
         #expect(h.recorder.sets == ["device false", "vm false"])
         let asking = try h.heldOn(.vmHost)
-        await owner.held()
+        #expect(await owner.held(asking))
         #expect(try await !h.refused(.fullAccess, on: false, h.posted()))
         owner.resume(true)
         _ = try await asking.value
