@@ -25,6 +25,24 @@ use super::codec::*;
 use super::host_state::*;
 use super::records::*;
 
+/// What ends one client's PTY writes when the client ends
+/// ([`HostShared::write_pty`]).
+#[cfg(unix)]
+pub(crate) type ClientCancel = crate::pty_write::WriteCancel;
+
+/// Windows has no descriptor to wait on ([`HostShared::write_pty`]).
+#[cfg(not(unix))]
+pub(crate) struct ClientCancel;
+
+#[cfg(not(unix))]
+impl ClientCancel {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    pub(crate) fn cancel(&self) {}
+}
+
 #[cfg(test)]
 mod hang_watch_tests;
 mod lifecycle;
@@ -478,12 +496,16 @@ impl HostShared {
     /// Write `payload` to the PTY; `flow` (0: none) is the key press it
     /// carries, which the reader's next PTY read takes (`last_input_flow`)
     /// when the bytes reached the PTY.
+    ///
+    /// `cancel` is the writing client's ([`Self::write_pty`]): its end ends
+    /// a write that waits for the program to read.
     pub(crate) fn write_input(
         &self,
         payload: &[u8],
         request_id: u64,
         flow: u64,
         target: &HostTap,
+        cancel: Option<&ClientCancel>,
     ) -> bool {
         // Marked before the writer lock, so the mark never runs under it.
         cmux_flow_trace::hop_id("host.pty.write", flow, self.terminal_id.as_bytes());
@@ -508,7 +530,7 @@ impl HostShared {
                 // Armed before the write: the echo can be read before the write returns.
                 self.last_input_flow.arm(flow);
                 self.input_stages.received(flow, crate::input_stages::now_ns());
-                if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                if self.write_pty(&mut **writer, payload, cancel).is_ok() {
                     if flow != 0 {
                         self.input_stages.written(flow, crate::input_stages::now_ns());
                     }
@@ -534,6 +556,32 @@ impl HostShared {
         response.request_id = request_id;
         let _broadcast = self.broadcast_lock.lock().recover_poison();
         target.try_send(response)
+    }
+
+    /// One client's write of `bytes` to the PTY, with the terminal's writer
+    /// held. A master with a descriptor (every real host on Unix) is written
+    /// without blocking: the write waits for room in one `poll` beside the
+    /// client's `cancel`, so the client's end ends a write to a program that
+    /// does not read its input, and the client's threads can be joined. A
+    /// master with none (Windows; test masters) has nothing to wait on and is
+    /// written through `writer`.
+    pub(crate) fn write_pty(
+        &self,
+        writer: &mut dyn Write,
+        bytes: &[u8],
+        cancel: Option<&ClientCancel>,
+    ) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(cancel) = cancel {
+            let fd = self.master.lock().recover_poison().as_raw_fd();
+            if let Some(fd) = fd {
+                return crate::pty_write::write_cancellable(fd, bytes, cancel)
+                    .map_err(|failure| failure.error);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = cancel;
+        writer.write_all(bytes).and_then(|()| writer.flush())
     }
 
     pub(crate) fn fence_client_detach(

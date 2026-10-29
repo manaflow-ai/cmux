@@ -218,14 +218,14 @@ fn host_spans_one_input_write_slice_per_client_write() {
     let (target_tx, _target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
-    assert!(host.write_input(b"typed", 0, 0, &target));
+    assert!(host.write_input(b"typed", 0, 0, &target, None));
     let mut typed = [0u8; 5];
     pty_reader.read_exact(&mut typed).unwrap();
     assert_eq!(&typed, b"typed");
 
     // A write that fails reports no bytes written, so it never looks delivered.
     *host.writer.lock().unwrap() = Box::new(FailingWrite);
-    assert!(!host.write_input(b"lost", 7, 0, &target), "a receipted write that failed");
+    assert!(!host.write_input(b"lost", 7, 0, &target, None), "a receipted write that failed");
 
     let slices = records("task.host_input_write", hash_of(&host));
     let phases: Vec<u8> = slices.iter().map(|record| record.phase).collect();
@@ -294,7 +294,7 @@ fn host_spans_dropped_wheel_input_ends_with_no_bytes_written() {
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
     let wheel = b"\x1b[<65;27;20M";
-    assert!(host.write_input(wheel, 0, 0, &target), "interactive input is best-effort");
+    assert!(host.write_input(wheel, 0, 0, &target, None), "interactive input is best-effort");
 
     let slices = records("task.host_input_write", hash_of(&host));
     let phases: Vec<u8> = slices.iter().map(|record| record.phase).collect();

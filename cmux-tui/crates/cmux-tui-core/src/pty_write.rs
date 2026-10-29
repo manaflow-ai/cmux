@@ -113,6 +113,104 @@ pub(crate) fn write_bounded(
     result.map_err(|error| BoundedWriteFailure { error, delivered })
 }
 
+/// What ends a client's PTY writes when the client ends
+/// ([`write_cancellable`]): its owner cancels it once, and every write of
+/// the client that waits for room returns at once. A pipe, so a write
+/// waits for room and for the cancel in one `poll`: nothing polls on a
+/// timer.
+pub(crate) struct WriteCancel {
+    read: std::io::PipeReader,
+    write: std::io::PipeWriter,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+impl WriteCancel {
+    pub(crate) fn new() -> io::Result<Self> {
+        let (read, write) = std::io::pipe()?;
+        Ok(Self { read, write, cancelled: std::sync::atomic::AtomicBool::new(false) })
+    }
+
+    /// Ends the writes that wait now and every later one that would wait.
+    pub(crate) fn cancel(&self) {
+        if !self.cancelled.swap(true, Ordering::AcqRel) {
+            // One byte in an empty pipe: never blocks.
+            let _ = io::Write::write(&mut &self.write, &[1]);
+        }
+    }
+
+    fn fd(&self) -> RawFd {
+        self.read.as_raw_fd()
+    }
+}
+
+/// Writes all of `bytes` to PTY master `fd`, waiting for room as a blocking
+/// write does, until `cancel` ends it: then `Interrupted`, with what was
+/// delivered. The owner of the write ends it by cancelling, never a timer.
+/// The bytes are cut as the `pty-writer`'s are ([`fit`], #22265), so the
+/// program never reads a lone ESC. The caller holds the terminal's writer,
+/// so no other input enters while this write waits.
+pub(crate) fn write_cancellable(
+    fd: RawFd,
+    bytes: &[u8],
+    cancel: &WriteCancel,
+) -> Result<(), BoundedWriteFailure> {
+    let mut delivered = 0;
+    let result = (|| {
+        let mut nonblocking = NonblockingFdGuard::install(fd)?;
+        let mut room_wait = None;
+        while let Some(remaining) = bytes.get(delivered..).filter(|rest| !rest.is_empty()) {
+            if let Some(length) = fit(fd, &mut room_wait, remaining, &platform_room) {
+                match write_some(fd, remaining.get(..length).unwrap_or(remaining)) {
+                    Ok(written) => {
+                        delivered += written;
+                        room_wait = None;
+                        continue;
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            if cancel.cancelled.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            // Waiting for a whole escape sequence's room is checked again
+            // after ROOM_POLL (the kernel signals any room as writable).
+            let timeout = if room_wait.is_some() {
+                input_queue::ROOM_POLL.as_millis().clamp(1, i32::MAX as u128) as i32
+            } else {
+                -1
+            };
+            let mut fds = [
+                libc::pollfd { fd, events: libc::POLLOUT, revents: 0 },
+                libc::pollfd { fd: cancel.fd(), events: libc::POLLIN, revents: 0 },
+            ];
+            // SAFETY: `fds` is two valid, exclusively borrowed pollfds and the
+            // count is 2, so poll writes only their `revents`.
+            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) };
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+                continue;
+            }
+            let [pty, cancelled_fd] = fds;
+            if cancelled_fd.revents != 0 {
+                return Err(cancelled());
+            }
+            if pty.revents & libc::POLLNVAL != 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "PTY fd is invalid"));
+            }
+        }
+        nonblocking.restore()
+    })();
+    result.map_err(|error| BoundedWriteFailure { error, delivered })
+}
+
+fn cancelled() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "the PTY write's owner ended it")
+}
+
 struct NonblockingFdGuard {
     fd: RawFd,
     original_flags: libc::c_int,

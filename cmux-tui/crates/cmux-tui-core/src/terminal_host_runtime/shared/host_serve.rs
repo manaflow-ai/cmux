@@ -18,7 +18,7 @@ use super::super::sys::{self, HostStream};
 use super::super::*;
 use super::clipboard_read::*;
 use super::codec::*;
-use super::host_shared::{HostLoop, HostShared};
+use super::host_shared::{ClientCancel, HostLoop, HostShared};
 use super::host_state::*;
 
 mod stdio;
@@ -476,6 +476,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         viewer_size_acks,
         input_flow,
         ended: AtomicBool::new(false),
+        cancel: ClientCancel::new()?,
     });
     // The client's frames run on its control sequence, which this loop
     // owns: it starts before client-input and is joined before this loop
@@ -486,7 +487,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         // However client-input ends (the client's end of stream, a frame
         // it refuses, a panic), the control sequence runs what it holds
         // and then ends the client.
-        let _finish = FinishInput(lane.clone());
+        let _finish = FinishInput { lane: lane.clone(), frames: frames.clone() };
         let hang_watch = HostLoop::ClientInput.register();
         while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
             // One hang-watch scope per frame, after its read.
@@ -563,6 +564,12 @@ struct ClientFrames {
     input_flow: bool,
     /// The client ended ([`ClientEnd`]): no frame runs after it.
     ended: AtomicBool,
+    /// Ends this client's PTY writes when the client ends
+    /// ([`HostShared::write_pty`]): a write to a program that does not read
+    /// its input returns then, so the control thread returns and its owner's
+    /// join completes. Cancelled by the client's end of input
+    /// ([`FinishInput`]) and by [`ClientEnd`].
+    cancel: ClientCancel,
 }
 
 impl ClientFrames {
@@ -597,7 +604,13 @@ impl ClientFrames {
                 };
                 if !ctx.granted_rights.contains(CapabilityRights::INPUT)
                     || !input_request_is_supported(ctx.selected_version, frame.request_id)
-                    || !ctx.host.write_input(input, frame.request_id, flow, &ctx.sender)
+                    || !ctx.host.write_input(
+                        input,
+                        frame.request_id,
+                        flow,
+                        &ctx.sender,
+                        Some(&ctx.cancel),
+                    )
                 {
                     return FrameStep::Close;
                 }
@@ -608,14 +621,15 @@ impl ClientFrames {
                 }
                 let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
                 let mut writer = ctx.host.pty_writer();
+                let mut pasted = Vec::with_capacity(frame.payload.len() + 12);
                 if bracketed {
-                    let _ = writer.write_all(b"\x1b[200~");
+                    pasted.extend_from_slice(b"\x1b[200~");
                 }
-                let _ = writer.write_all(&frame.payload);
+                pasted.extend_from_slice(&frame.payload);
                 if bracketed {
-                    let _ = writer.write_all(b"\x1b[201~");
+                    pasted.extend_from_slice(b"\x1b[201~");
                 }
-                let _ = writer.flush();
+                let _ = ctx.host.write_pty(&mut **writer, &pasted, Some(&ctx.cancel));
             }
             MessageKind::ViewerSize if frame.payload.len() == 4 => {
                 if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
@@ -860,6 +874,7 @@ impl Drop for ClientEnd {
         if self.frames.ended.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.frames.cancel.cancel();
         // Wake a writer that is waiting on an otherwise-empty live-frame
         // channel. The socket is shut down first, so this private wakeup
         // frame can never be mistaken for a sequenced host transition.
@@ -916,11 +931,18 @@ impl ControlLane {
 
 /// Finishes the control sequence however client-input ends, a panic
 /// included: a sequence left waiting would keep its client forever.
-struct FinishInput(Arc<ControlLane>);
+/// Also ends a PTY write of this client that waits for the program to read
+/// (`ClientFrames::cancel`): the client is gone, so nothing it sent is still
+/// owed, and the control thread returns for its owner's join.
+struct FinishInput {
+    lane: Arc<ControlLane>,
+    frames: Arc<ClientFrames>,
+}
 
 impl Drop for FinishInput {
     fn drop(&mut self) {
-        self.0.finish();
+        self.frames.cancel.cancel();
+        self.lane.finish();
     }
 }
 

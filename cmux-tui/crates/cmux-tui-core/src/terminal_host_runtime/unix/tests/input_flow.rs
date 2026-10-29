@@ -166,7 +166,7 @@ fn echo_flow_a_failed_host_write_arms_nothing() {
     let (tap_sender, _tap_receiver) = mpsc_channel();
     let (socket, _peer) = UnixStream::pair().unwrap();
     let tap = HostTap::new(tap_sender, Arc::new(socket), usize::MAX);
-    assert!(host.write_input(b"a", 0, 42, &tap), "interactive input stays best effort");
+    assert!(host.write_input(b"a", 0, 42, &tap, None), "interactive input stays best effort");
     assert_eq!(host.last_input_flow.take(), 0, "a failed write armed its flow");
 }
 
