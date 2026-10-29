@@ -18,7 +18,8 @@ import UniformTypeIdentifiers
 /// (base64, the PNG itself when it is within ``previewMaxBytes``), `original` where the capture as
 /// taken was saved, for the agent to read. The page attaches both as one chip and never sends the
 /// bytes back, which would need a second gesture. A chat whose host saves nothing (no stager) gets
-/// the preview alone; `{cancelled: true}` when the person presses Esc.
+/// the preview alone; `{cancelled: true}` when the person presses Esc. A failed original stage
+/// reports the retained local file's path instead of silently substituting its preview.
 enum AgentPaneCapture {
     nonisolated static let tool = "/usr/sbin/screencapture"
     /// The preview's budget and longest side, as the page fits an attached image
@@ -45,8 +46,11 @@ enum AgentPaneCapture {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         var result = AgentPaneReply.success(["cancelled": true])
         if await pick(mode == "window", file) { result = await Self.answer(file, taken: taken ?? Date(), stager: stager, session: session) }
-        // task-owner: one delete of the capture's temporary file once it is answered; nothing waits for it
-        Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }
+        // A failed attachment leaves its only original at the recovery path in the error.
+        // Successful/cancelled captures finish their one off-main cleanup before replying.
+        if result["ok"] as? Bool == true {
+            await Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }.value
+        }
         return result
     }
 
@@ -62,8 +66,12 @@ enum AgentPaneCapture {
         // Esc: `screencapture` wrote nothing.
         guard size > 0 else { return AgentPaneReply.success(["cancelled": true]) }
         let original = await stage(file, name: name, size: size, stager: stager, session: session)
-        guard preview != nil || original != nil else {
-            return AgentPaneReply.failure(code: "capture_failed", message: "The capture could not be attached.")
+        guard (stager == nil || original != nil), preview != nil || original != nil else {
+            return AgentPaneReply.failure(
+                code: "capture_failed",
+                message: "The screenshot could not be attached. Its original was kept at \(file.path).",
+                details: ["originalPath": file.path], retryable: false, origin: "native"
+            )
         }
         var answer: [String: Any] = ["name": name]
         if let preview {
@@ -87,7 +95,7 @@ enum AgentPaneCapture {
     /// gesture of its own: the capture's click already paid for it. A fresh chat has no session
     /// until its first prompt: the stager is asked for none, and the one for a chat on this Mac
     /// (AgentChatUploads) saves a new chat's upload under Chat Uploads itself; one that needs a
-    /// session refuses, and the capture keeps its preview alone. The saved path, nil when the
+    /// session refuses, and the capture reports failure while retaining its local original. The saved path, nil when the
     /// chat's host saves nothing or the save failed (what it staged is cancelled).
     @MainActor private static func stage(_ file: URL, name: String, size: Int, stager: AgentPaneUploadStager?, session: String?) async -> String? {
         guard let stager else { return nil }
