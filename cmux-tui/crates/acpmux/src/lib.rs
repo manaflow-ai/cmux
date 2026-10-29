@@ -46,6 +46,7 @@ pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
 pub mod deliver;
+mod flights;
 pub mod forum;
 pub mod forum_mcp;
 pub mod git_state;
