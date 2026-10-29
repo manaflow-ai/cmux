@@ -59,7 +59,8 @@ import Testing
         #expect(closes == 0)
     }
 
-    @Test func verticalArrowsTravelToFollowingActionsAndBackWithoutChangingEffort() throws {
+    @Test(arguments: ["absent", "enabled", "disabled"])
+    func verticalArrowsTravelToFollowingActionsAndBackWithoutChangingEffort(searchState: String) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 260),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
@@ -75,9 +76,13 @@ import Testing
                                             NativePopupRow(id: "disabled", kind: .action, label: "Disabled", disabled: true),
                                             NativePopupRow(id: "off", kind: .action, label: "Off"),
                                             NativePopupRow(id: "on", kind: .action, label: "On")])
+        if searchState != "absent" {
+            model.search = NativePopupField(id: "query", value: "", placeholder: "Search", disabled: searchState == "disabled")
+        }
         content.update(model)
         content.focusInitial()
         let view = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        if searchState == "enabled" { #expect(window.makeFirstResponder(view.slider)) }
         #expect(window.firstResponder === view.slider)
         var changes: [String?] = []
         var highlights: [String?] = []

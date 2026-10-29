@@ -18,6 +18,35 @@ import Testing
         #expect(!field.isEnabled)
     }
 
+    @Test(arguments: [true, false])
+    func descriptorRebuildPreservesAndClampsTheTextSelection(isSearch: Bool) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var model = Self.model()
+        if isSearch { model.search = NativePopupField(id: "query", value: "A😀BCDE", placeholder: "Search") }
+        else { model.rows = [NativePopupRow(id: "query", kind: .textField, label: "Value", value: "A😀BCDE")] }
+        content.update(model)
+        let original = try #require(content.subviews.compactMap { $0 as? NSTextField }.first)
+        #expect(window.makeFirstResponder(original))
+        let editor = try #require(original.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 1, length: 4))
+        model.title = "Changed title"
+        content.update(model)
+        let replacement = try #require(content.subviews.compactMap { $0 as? NSTextField }.first { $0.currentEditor() != nil })
+        let after = try #require(replacement.currentEditor() as? NSTextView)
+        #expect(after.selectedRange() == NSRange(location: 1, length: 4))
+        model.title = "Shorter value"
+        if isSearch { model.search?.value = "A😀" } else { model.rows[0].value = "A😀" }
+        content.update(model)
+        let shorter = try #require(content.subviews.compactMap { $0 as? NSTextField }.first { $0.currentEditor() != nil })
+        let shorterEditor = try #require(shorter.currentEditor() as? NSTextView)
+        #expect(shorterEditor.selectedRange() == NSRange(location: 1, length: 2))
+    }
+
     @Test func documentTracksAClampedViewport() {
         let viewport = NSClipView(frame: NSRect(x: 0, y: 0, width: 180, height: 120))
         let content = NativePopupContent(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
