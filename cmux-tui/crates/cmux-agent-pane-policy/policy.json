@@ -5,7 +5,7 @@
   "requests": [
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
     "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
-    "_acpmux/peer_snapshot", "_acpmux/retry",
+    "_acpmux/peer_snapshot", "_acpmux/peer_reconnect", "_acpmux/retry",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
     "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
@@ -65,6 +65,7 @@
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], "acpmux": []},
     "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},
     "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/peer_reconnect": {"params": ["name", "wait"], "acpmux": []},
     "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
     "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
@@ -121,7 +122,8 @@
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []}
   },
   "reply_shapes": {
-    "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}}
+    "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}},
+    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "error": "string"}}}}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
