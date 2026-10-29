@@ -288,6 +288,13 @@ test("at rest the lit band glides as it moves (the wave); hover, scrub and Reduc
   }
 });
 
+test("keyboard focus on a rail tick has a visible focus treatment", () => {
+  const css = minimapCss();
+  const focus = /\.acpmux-minimap__tick:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(focus).toMatch(/outline:\s*1\.5px\s+solid\s+var\(--agent-text\)/);
+  expect(focus).toMatch(/outline-offset:\s*-1\.5px/);
+});
+
 // Codex review of #24526: a key focusing a tick, or the focus leaving it, changes rows while the rail
 // is at rest; those rows must switch at once, not glide. The commit that changes the active row marks
 // the rail data-snap; the scroll's next band move drops the mark, so the band glides again.
