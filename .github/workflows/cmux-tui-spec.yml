@@ -164,7 +164,7 @@ jobs:
 
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
-      - name: cargo test -p acpmux --lib protocol::
+      - name: "cargo test -p acpmux --lib -- protocol::"
         if: ${{ steps.scope.outputs.run == 'true' }}
         working-directory: cmux-tui
         run: |
