@@ -884,6 +884,34 @@ run_compile_tests() {
   echo "compile-tests: every planned test target compiled (${#rows[@]})"
 }
 
+# --- S3 QoS environment probe (throwaway branch cp/probe-s3-qos; never lands) ---
+qos_probe() {
+  echo "::group::S3 qos probe"
+  echo "launchctl managername: $(/bin/launchctl managername 2>&1)"
+  local pid=$$
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
+    /bin/ps -o pid=,ppid=,pri=,nice=,stat=,comm= -p "$pid"
+    pid=$(/bin/ps -o ppid= -p "$pid" | tr -d ' ')
+  done
+  /bin/ps -o pid=,pri=,nice=,comm= -p 1
+  echo "a plain child: pri $(/bin/sh -c '/bin/ps -o pri= -p $$')"
+  echo "a child under taskpolicy -c utility: pri $(/usr/sbin/taskpolicy -c utility /bin/sh -c '/bin/ps -o pri= -p $$' 2>&1)"
+  /usr/bin/python3 - <<'PY'
+import ctypes, subprocess, os, threading
+libc = ctypes.CDLL("/usr/lib/libSystem.dylib")
+libc.qos_class_self.restype = ctypes.c_uint
+names = {0x21: "user-interactive", 0x19: "user-initiated", 0x15: "default", 0x11: "utility", 0x09: "background", 0: "unspecified"}
+def pri():
+    out = subprocess.run(["/bin/ps", "-M", "-o", "pri=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.split()
+    return out
+print("python main thread qos_class_self:", names.get(libc.qos_class_self(), hex(libc.qos_class_self())), "thread pris:", pri())
+for name, cls in (("utility", 0x11), ("user-initiated", 0x19), ("user-interactive", 0x21)):
+    rc = libc.pthread_set_qos_class_self_np(cls, 0)
+    print(f"set {name}: rc={rc} qos_class_self={names.get(libc.qos_class_self(), hex(libc.qos_class_self()))} thread pris={pri()}")
+PY
+  echo "::endgroup::"
+}
+qos_probe
 case "$phase" in
   suite)
     run_suite
