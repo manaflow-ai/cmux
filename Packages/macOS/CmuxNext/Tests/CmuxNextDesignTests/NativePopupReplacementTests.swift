@@ -139,7 +139,8 @@ import Testing
         #expect(host.show(model)["shown"] as? Bool == true)
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         func content(in panel: NSWindow) throws -> NativePopupContent {
-            try #require(descendants(try #require(panel.contentView)).compactMap { $0 as? NativePopupContent }.first)
+            let rootView = try #require(panel.contentView)
+            return try #require(descendants(rootView).compactMap { $0 as? NativePopupContent }.first)
         }
         let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         let root = try content(in: panel)
