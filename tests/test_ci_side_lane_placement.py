@@ -1065,5 +1065,62 @@ class FeedReplyFullText(unittest.TestCase):
         self.assertEqual(evaluate(self.runs_on("verify"), self.context()), FALLBACK)
 
 
+class SingleHostRoute(unittest.TestCase):
+    """The side route never resolves to a single-host label with no fallback.
+
+    Leo (rulebook): "No job waits on one reserved machine: every reservation (a label one host serves) has a
+    fallback within minutes ... a CI test fails on a runs-on that can resolve to a single-host label with no
+    fallback." Each owned route the placement writes either has an idle runner now, or its jobs are moved off it:
+    the reserved routes (fast, fresh, gateway) are written only while one of their runners is idle, and the side
+    route's jobs take Blacksmith 6 vCPU while it is a dead end (route_wait(), next_macos_cascade.dead_end()).
+    """
+
+    LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+
+    def one_host(self, label: str, busy: bool = True) -> list[dict]:
+        return [runner("cmux9s-mac-mini-glaeda-2", busy=busy, labels=(STD, label)),
+                runner("cmux9s-mac-mini-glaeda-3", busy=busy, labels=(STD, label)),
+                runner("cmux8s-mac-mini-glaeda-2", status="offline", labels=(STD, label))]
+
+    def test_route_wait_calls_a_busy_single_host_label_a_dead_end(self):
+        seen = placement.cascade.Seen(waits={}, owned={SIDE: 12.0})
+        self.assertEqual(placement.route_wait(SIDE, self.one_host(SIDE), seen), float("inf"))
+        self.assertEqual(placement.route_wait(SIDE, [], seen), float("inf"))
+        self.assertIsNone(placement.route_wait(SIDE, self.one_host(SIDE, busy=False), seen))
+        self.assertIsNone(placement.route_wait(SIDE, None, seen))
+        two = [*self.one_host(SIDE), runner("cmux10s-mac-mini-glaeda-4", busy=True)]
+        self.assertEqual(placement.route_wait(SIDE, two, seen), 12.0)
+        self.assertEqual(placement.route_wait(SIDE, two, placement.cascade.Seen(waits={})), 0.0)
+        self.assertIsNone(placement.route_wait(SIDE, two, None))
+
+    def test_no_reserved_route_names_a_busy_single_host_label(self):
+        fast, fresh, gateway = ("glaeda-fast-light-xcode-26.6", "glaeda-dev-std-xcode-26.6",
+                                "glaeda-side-light-xcode-26.6")
+        values = {"FAST_LABEL": fast, "FRESH_LABEL": fresh, "FRESH_JOBS": "cmux-scheme-compile",
+                  "FRESH_SLOT_JOBS": "cmux-scheme-compile", "JOBS": "cmux-scheme-compile",
+                  "GATEWAY_LABEL": gateway, "GATEWAY_JOBS": "app-compile-fleet"}
+        runners = self.one_host(fast) + self.one_host(fresh) + self.one_host(gateway)
+        self.assertEqual(placement.fast_route(values, runners), "")
+        self.assertEqual(placement.fresh_route(values, runners), ("", ()))
+        self.assertEqual(placement.gateway_route(values, runners), "")
+
+    def test_the_side_routes_jobs_leave_a_busy_single_host_label(self):
+        # The incident's Blacksmith reads (2026-10-29 08:24Z): 6 vCPU busy and called stalled, 12 vCPU dead.
+        counts = ({self.LARGE: 0, self.SMALL: 4}, {self.LARGE: 121, self.SMALL: 42},
+                  placement.cascade.Seen(waits={self.LARGE: 1223.0, self.SMALL: 27.0}))
+        for route_runners in (self.one_host(SIDE), []):
+            with self.subTest(online=len(route_runners)), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(JOBS="fast-tier swift-canary", CASCADE_RUNS=" fast-tier swift-canary ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=counts), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = route_runners
+                    placement.main(values)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(lines["blacksmith_6_jobs"], " fast-tier swift-canary ")
+
+
 if __name__ == "__main__":
     unittest.main()

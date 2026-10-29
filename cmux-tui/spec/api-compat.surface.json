@@ -10016,6 +10016,14 @@
       "/shell_args/*": {
         "ty": "string"
       },
+      "/side": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
       "/tab_id": {
         "ty": "string",
         "nullable": true

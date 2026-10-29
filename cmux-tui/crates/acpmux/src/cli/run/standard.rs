@@ -228,7 +228,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since } => {
+        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(parse_fields).transpose()?;
@@ -237,11 +237,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // possible; a `--since` filter must run before the limit, so that combination reads
             // the complete list and applies both filters locally.
             let daemon_limit = limit.filter(|_| status.is_none() && !pending && tag.is_none());
-            let params = if since_ms.is_none() {
+            let mut params = if since_ms.is_none() {
                 daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
             } else {
                 json!({})
             };
+            if with_tools {
+                params["withTools"] = json!(true);
+            }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
                 let mut sessions = match v.get_mut("sessions") {
@@ -269,6 +272,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let st = s.get("status").and_then(Value::as_str).unwrap_or("");
                     let status_ok = match status.as_deref() {
                         None => true,
+                        Some("stuck") => s["state"] == "stuck",
                         Some("waiting") => pend,
                         Some(want) => st == want,
                     };
@@ -331,7 +335,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             );
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                let mut status = g("status");
+                let mut status =
+                    s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
                     status = "waiting!".into();
                 }
@@ -484,7 +489,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 },
             };
-            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+            let id = crate::cli::resolve::routed_id(&v)?;
+            let session_id = v["sessionId"].as_str().unwrap_or_default();
+            let session_id = v["peer"]
+                .as_str()
+                .and_then(|peer| session_id.strip_prefix(&format!("{peer}/")))
+                .unwrap_or(session_id);
+            // Keep the host-qualified route for every follow-up request. A peer may
+            // legitimately return the same raw id as a local session; using the raw id
+            // here would send prompts, info and lifecycle controls to the local chat.
+            let route_id = id.as_str();
             // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
             if reused.is_none()
                 && let Some(w) =
@@ -496,7 +510,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
                 .and_then(Value::as_str)
-                .unwrap_or(&id)
+                .unwrap_or(session_id)
                 .to_owned();
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
@@ -523,7 +537,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    let accepted = queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    let accepted =
+                        queue_prompt(client, route_id, text, false, None, &prompt).await?;
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
@@ -537,13 +552,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else if first.is_some() {
                     println!(
                         "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
-                        &id[..8.min(id.len())]
+                        session_id.get(..8).unwrap_or(session_id)
                     );
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
                          use `acpmux send {name}` to give it more",
-                        &id[..8.min(id.len())]
+                        session_id.get(..8).unwrap_or(session_id)
                     );
                 }
                 return Ok(());
@@ -551,7 +566,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let first = launch.first_prompt(&args, &v);
             if json_out && !one_shot {
                 let mut info = client
-                    .request(method::MUX_INFO, json!({"sessionId": id}))
+                    .request(method::MUX_INFO, json!({"sessionId": route_id}))
                     .await
                     .unwrap_or(v.clone());
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
@@ -563,8 +578,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 print_json(&info);
             } else if !one_shot {
                 let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
-                let line =
-                    crate::cli::session_folder::created_line(&name, &id, host.as_deref(), folder);
+                let line = crate::cli::session_folder::created_line(
+                    &name,
+                    session_id,
+                    host.as_deref(),
+                    folder,
+                );
                 println!("{line}");
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
@@ -573,7 +592,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // Before it works: an allow it asks for is the app's alone.
                 if on_permission == OnPermission::Wait
                     && let Ok(info) =
-                        client.request(method::MUX_INFO, json!({"sessionId": id})).await
+                        client.request(method::MUX_INFO, json!({"sessionId": route_id})).await
                     && let Some(note) = crate::question_answer::app_allow_note(&info, &name)
                 {
                     eprintln!("{note}");
@@ -590,15 +609,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         steer: false,
                     };
                     show();
-                    let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
+                    let outcome =
+                        collect_reply(client.clone(), route_id, &text, opts, &prompt).await;
                     if ephemeral {
                         let _ = client
-                            .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
+                            .request(
+                                method::MUX_KILL,
+                                json!({"sessionId": route_id, "purge": true}),
+                            )
                             .await;
                     }
                     let r = outcome?;
                     if json_out {
-                        let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        let mut out = json!({"sessionId": session_id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        if v["peer"].is_string() {
+                            out["peer"] = v["peer"].clone();
+                            out["qualifiedSessionId"] = json!(id);
+                        }
                         if let Some(a) = v.pointer("/_meta/acpmux/admission") {
                             out["admission"] = a.clone();
                         }
@@ -611,7 +638,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if args.detach {
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
-                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    let accepted =
+                        queue_prompt(client, route_id, &text, false, None, &prompt).await?;
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
@@ -628,7 +656,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 show();
                 return stream_prompt(
                     client,
-                    &id,
+                    route_id,
                     &text,
                     false,
                     false,
@@ -643,7 +671,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
-            crate::tui::run(client, Some(id)).await
+            crate::tui::run(client, Some(route_id.to_owned())).await
         }
         Command::Send {
             session,
@@ -683,6 +711,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             });
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
+            // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
+            // more when config.json names a mesh hub: the hub delivers it (`server/mesh_send.rs`).
+            let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = connect(true).await?;
                 // Any size and number: inline when they fit one message with the text, else uploaded
@@ -786,6 +817,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         attaching,
                         json_out,
                     )
+                }
+                (Err(e), None)
+                    if !no_wait
+                        && !attaching
+                        && crate::cli::send_relay::no_such_session(&e)
+                        && crate::mesh_http::configured() =>
+                {
+                    let client = connect(true).await?;
+                    super::send_async::queue(
+                        &client,
+                        &relay_session,
+                        &relay_text,
+                        mesh_steer,
+                        &mesh_prompt,
+                        superseding,
+                        json_out,
+                    )
+                    .await
                 }
                 (sent, _) => sent,
             }
@@ -1119,12 +1168,13 @@ fn parse_duration_ms(text: &str) -> Result<u64> {
             ))
             .into());
         }
-        let number: u64 = rest[..digits].parse().map_err(|_| {
+        let (number_text, after_number) = rest.split_at_checked(digits).unwrap_or((rest, ""));
+        let number: u64 = number_text.parse().map_err(|_| {
             errors::AppError::usage(format!(
                 "invalid --since duration {text:?}; use values such as 30m or 24h"
             ))
         })?;
-        rest = &rest[digits..];
+        rest = after_number;
         let unit_len = rest.chars().next().map_or(0, char::len_utf8);
         let unit = rest.get(..unit_len).unwrap_or("");
         let multiplier = match unit {
@@ -1147,7 +1197,7 @@ fn parse_duration_ms(text: &str) -> Result<u64> {
             .ok_or_else(|| {
                 errors::AppError::usage(format!("--since duration {text:?} is too large"))
             })?;
-        rest = &rest[unit_len..];
+        rest = rest.get(unit_len..).unwrap_or("");
     }
     Ok(total)
 }
