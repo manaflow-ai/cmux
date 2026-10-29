@@ -143,6 +143,13 @@ struct ControlCommandCoordinatorSurfaceTextBoxTests {
         ))
     }
 
+    @Test func reportsUnavailableWhenDockFocusCannotBeApplied() throws {
+        let context = TextBoxControlContext()
+        context.resolution = .dockUnavailable(message: "Dock could not be revealed")
+        let result = try run("surface.textbox.show", params: ["focus": .bool(true)], context: context)
+        #expect(result == .err(code: "unavailable", message: "Dock could not be revealed", data: nil))
+    }
+
     @Test func reportsUnavailableBeforeAskingTheApp() throws {
         let context = TextBoxControlContext()
         context.resolvesTabManager = false
