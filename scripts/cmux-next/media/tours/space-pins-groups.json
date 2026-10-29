@@ -1,11 +1,64 @@
 {
   "title": "Each space owns its pins and groups",
   "steps": [
-    {"title": "Launch", "wait": 3, "shot": false},
-    {"title": "Default space: a workspace in a new group Design", "cmux": ["action", "run", "workspace.newInNewGroup", "--name", "Design"], "wait": 2, "shot": false},
-    {"title": "Pin the group Design", "cmux": ["action", "run", "workspaceGroup.togglePin"], "wait": 2, "shot": false},
-    {"title": "Default space: Design stays in Pinned after its workspace closes", "cmux": ["action", "run", "closeWorkspace"], "wait": 3},
-    {"title": "A new space, Work: none of the default space's groups", "cmux": ["action", "run", "space.new", "--name", "Work"], "wait": 3},
-    {"title": "Back in the default space: Design is there", "cmux": ["action", "run", "space.selectByNumber", "--index", "1"], "wait": 3}
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Default space: a workspace in a new group Design",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.newInNewGroup",
+        "--name",
+        "Design"
+      ],
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "Pin the group Design",
+      "cmux": [
+        "action",
+        "run",
+        "workspaceGroup.togglePin"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Default space: Design stays in Pinned after its workspace closes",
+      "cmux": [
+        "action",
+        "run",
+        "closeWorkspace",
+        "--confirm"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "A new space, Work: none of the default space's groups",
+      "cmux": [
+        "action",
+        "run",
+        "space.new",
+        "--name",
+        "Work"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Back in the default space: Design is there",
+      "cmux": [
+        "action",
+        "run",
+        "space.selectByNumber",
+        "--index",
+        "1"
+      ],
+      "wait": 3
+    }
   ]
 }
