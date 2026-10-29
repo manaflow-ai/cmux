@@ -182,9 +182,9 @@ public final class DesignSettings {
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
-    public var defaultColumnWidth: Double = 0.5
+    public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
-    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    public var newColumnWidth: NewColumnWidthMode = .fixed
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
@@ -204,6 +204,9 @@ public final class DesignSettings {
     /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
     /// pane under the pointer (`command`, default), or the rule before it (`none`).
     public var layoutScrollModifier: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel (Figma,
+    /// Excalidraw zoom) keeps a Command scroll that starts over it; on by default.
+    public var pagesHandleCommandScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

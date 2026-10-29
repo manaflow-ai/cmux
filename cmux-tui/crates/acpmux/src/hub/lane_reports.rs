@@ -626,6 +626,8 @@ impl Hub {
             resend: true,
             provenance: Some(provenance),
             agent: Some(report.name.clone()),
+            // A lane's report says what its turn did (`prompt_class.rs`).
+            class: Some(crate::prompt_class::PromptClass::Result),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);
             })),
@@ -1225,6 +1227,9 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert_eq!(parent.queued(), 1, "the report never queued behind the parent's turn");
+        // A lane's report is a result (`prompt_class.rs`): it never wakes a coordinator by itself.
+        let class = parent.queue().first().and_then(|q| q.run.class);
+        assert_eq!(class, Some(crate::prompt_class::PromptClass::Result));
         let turns = parent.meta().turn_count;
         hub.kill(&parent, false).await.unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), busy).await;
