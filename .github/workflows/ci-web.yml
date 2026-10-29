@@ -83,7 +83,8 @@ jobs:
           name: webviews-test-durations
           path: ${{ runner.temp }}/webviews-durations/manifest.json
           if-no-files-found: error
-          retention-days: 7
+          # A same-run handoff: the cache keeps the manifest between runs.
+          retention-days: 1
 
   web-typecheck:
     needs: web-subarea-scope
@@ -323,6 +324,14 @@ jobs:
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
 
+      # The run's one manifest, from web-subarea-scope. No fallback: a shard
+      # that split without it would disagree with its siblings.
+      - name: Download the duration manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-test-durations
+          path: ${{ runner.temp }}/webviews-durations
+
       - name: List the pull request's files
         if: github.event_name == 'pull_request'
         run: |
@@ -454,14 +463,6 @@ jobs:
         continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
-      # The run's one manifest, from web-subarea-scope. No fallback: a shard
-      # that split without it would disagree with its siblings.
-      - name: Download the duration manifest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: webviews-test-durations
-          path: ${{ runner.temp }}/webviews-durations
-
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -520,7 +521,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-durations-out/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
@@ -753,13 +754,19 @@ jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
 
-      # The next run's shard split: this run's per-file seconds, averaged with
-      # the manifest it split by. Never fails the check: a missing manifest
-      # only means the next run splits by path hash. A pull request's entry is
-      # scoped to its own ref; fork pull requests write none.
+  # The next run's shard split: this run's per-file seconds, averaged with the
+  # manifest it split by. Its own job, outside the required react-apps-check:
+  # a stalled download or cache save must not time out the gate. A missing
+  # manifest only means the next run splits by path hash. A pull request's
+  # entry stays in its own ref's scope; fork pull requests save none.
+  webviews-test-durations:
+    needs: [web-subarea-scope, react-apps-check-shard]
+    if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
       - name: Checkout the shard helper
         id: durations-checkout
-        if: ${{ needs.react-apps-check-shard.result != 'skipped' }}
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

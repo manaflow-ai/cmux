@@ -625,10 +625,13 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("actions/cache", shard.replace("Cache Bun", "").split("Test webviews")[0].split("Download the duration manifest")[1])
         self.assertIn("CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json", shard)
         self.assertIn("webviews_test_shards.py", shard[shard.index("cp ../scripts/ci/run-webviews-tests.sh"):][:200])
-        check = text[text.index("  react-apps-check:"):text.index("  diff-sidecar-check:")]
-        self.assertIn("webviews_test_shards.py merge", check)
-        self.assertIn("key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}", check)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", check)
+        check = text[text.index("  react-apps-check:"):text.index("  webviews-test-durations:")]
+        self.assertNotIn("durations", check)  # the required gate does no manifest upkeep
+        upkeep = text[text.index("  webviews-test-durations:"):text.index("  diff-sidecar-check:")]
+        self.assertIn("webviews_test_shards.py merge", upkeep)
+        self.assertIn("key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}", upkeep)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", upkeep)
+        self.assertIn("timeout-minutes: 5", upkeep)
 
 
 if __name__ == "__main__":
