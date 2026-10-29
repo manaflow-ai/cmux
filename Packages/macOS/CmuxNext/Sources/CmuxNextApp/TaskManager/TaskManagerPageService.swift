@@ -166,8 +166,8 @@ final class TaskManagerPageService: InternalPageProvider {
         dropModelWhenUnused()
     }
 
-    /// The row of `rows` (in the table's order) drawn at the top of the table in `content`; nil
-    /// with no table or no row there.
+    /// The row of `rows` (in the table's order) shown whole at the top of the table in `content` (the one the
+    /// restore scrolls back to the top); nil with no table or no row there.
     static func topRow(in content: NSView, rows: [TaskManagerRow]) -> ProcessKey? {
         var queue: [NSView] = [content]
         var index = 0
@@ -177,8 +177,14 @@ final class TaskManagerPageService: InternalPageProvider {
             if let scroll = next as? NSScrollView, let tableView = scroll.documentView as? NSTableView {
                 // The clip's bounds start above the document by its top inset (the header) at the top.
                 let clip = scroll.contentView
-                let top = NSPoint(x: clip.bounds.minX, y: max(0, clip.bounds.minY + clip.contentInsets.top))
-                let row = tableView.row(at: top)
+                let top = max(0, clip.bounds.minY + clip.contentInsets.top)
+                let shown = NSRect(x: clip.bounds.minX, y: top, width: clip.bounds.width, height: max(0, clip.bounds.maxY - top))
+                // The first row shown whole: an inset table pads above its first row, so the point at the top can be
+                // padding (at the top) or the row above (scrolled). A row cut by the top edge is the last one before it.
+                let range = tableView.rows(in: shown)
+                guard range.length > 0 else { return nil }
+                let row = (range.location..<range.location + range.length).first { tableView.rect(ofRow: $0).minY >= top - 0.5 }
+                    ?? range.location
                 return rows.indices.contains(row) ? rows[row].id : nil
             }
             queue.append(contentsOf: next.subviewsIncludingGated)
