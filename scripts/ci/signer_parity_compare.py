@@ -687,28 +687,33 @@ def marked_plist(data: bytes, names: dict, expected: int):
 
     def mark(match):
         nonlocal replaced
+        text = match.group(1)
         try:
-            value = base64.b64decode(re.sub(rb"\s+", b"", match.group(1)), validate=True)
+            value = base64.b64decode(re.sub(rb"\s+", b"", text), validate=True)
         except (binascii.Error, ValueError):
             return match.group(0)
-        if value not in names:
+        if value not in names or base64.b64encode(value) != re.sub(rb"\s+", b"", text):
             return match.group(0)
         replaced += 1
-        return b"<data>\0<" + names[value].encode() + b">\0</data>"
+        layout = re.sub(rb"\S", b"*", text)  # whitespace and length stay compared
+        return b"<data>\0<" + names[value].encode() + b">\0" + layout + b"</data>"
     out = re.sub(rb"<data>([^<]*)</data>", mark, data)
     return out if replaced == expected else None
 
 
 def marked_attribute(attr_oid: str, values: Node, names: dict):
     """A CodeDirectory-hash attribute with only its digest values named."""
-    def name(value):
-        return ("digest", names[value]) if value in names else value
+    def tag(node):
+        return (node.cls, node.constructed, node.number, tuple(node.issues))
+
+    def name(node):
+        return (tag(node), ("digest", names[node.value]) if node.value in names else node.value)
     if attr_oid == MESSAGE_DIGEST:
-        return [name(v.value) for v in values.children]
+        return [name(v) for v in values.children]
     if attr_oid == APPLE_CDHASHES:
-        return [(der(v.children[0]), name(v.children[1].value)) if len(v.children) == 2 else der(v)
+        return [(tag(v), der(v.children[0]), name(v.children[1])) if len(v.children) == 2 else der(v)
                 for v in values.children]
-    if len(values.children) != 1:
+    if len(values.children) != 1 or tag(values.children[0]) != (0, False, 4, ()):
         return der(values)
     try:
         plist = plistlib.loads(values.children[0].value)
@@ -981,10 +986,11 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
 
 
 def label_path(name):
-    """The item path in a hash_names() label ("<sha256 of PATH>", "<sha256 of PATH [arm64] CodeDirectory 0x0>")."""
+    """The item path in a hash_names() label ("<sha256 of PATH>", or "<sha256 of PATH\\0[arm64] CodeDirectory 0x0>":
+    no path holds a NUL, so no file name can pose as a CodeDirectory label)."""
     if not name:
         return None
-    return re.sub(r" \[[^\]]*\] CodeDirectory 0x[0-9a-f]+$", "", name.split(" of ", 1)[1][:-1])
+    return name.split(" of ", 1)[1][:-1].split("\0", 1)[0]
 
 
 HASH_FIELDS = {"hash", "hash2", "cdhash"}
@@ -1205,7 +1211,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
             for arch, body in sl:
                 for typ, blob in blobs(body).items():
                     if typ == 0 or 0x1000 <= typ < 0x2000:
-                        known[side].update(hash_names(blob, f"{rel} [{arch}] CodeDirectory {typ:#x}"))
+                        known[side].update(hash_names(blob, f"{rel}\0[{arch}] CodeDirectory {typ:#x}"))
 
     def settle(known, accept):
         """Accepts pending items until none changes; returns the accepted ones."""

@@ -943,7 +943,9 @@ class StrictFifthReviewTests(StrictFixture):
 class StrictSeventhReviewTests(StrictFixture):
     def test_a_path_with_brackets_names_only_itself(self):
         self.assertEqual(spc.label_path("<sha256 of Contents/foo [bar]>"), "Contents/foo [bar]")
-        self.assertEqual(spc.label_path("<sha256 of Contents/foo [bar] [arm64] CodeDirectory 0x0>"), "Contents/foo [bar]")
+        self.assertEqual(spc.label_path("<sha256 of Contents/foo [arm64] CodeDirectory 0x0>"),
+                         "Contents/foo [arm64] CodeDirectory 0x0")
+        self.assertEqual(spc.label_path("<sha256 of Contents/foo\0[arm64] CodeDirectory 0x0>"), "Contents/foo")
 
     def test_a_blob_length_past_the_superblob_fails(self):
         good = bytearray(macho(b"T" * 32, lambda cd: self.signer.cms(cd)))
@@ -970,6 +972,35 @@ class StrictSeventhReviewTests(StrictFixture):
         proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(a), str(self.root / "o.json"), "--strict"],
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 1)
+
+
+
+class StrictEighthReviewTests(unittest.TestCase):
+    def test_the_cdhashes_attribute_tag_counts(self):
+        plist = plistlib.dumps({"cdhashes": [bytes(20)]})
+        octets = spc.read_tlv(der_set(tlv(0x04, plist)))[0]
+        utf8 = spc.read_tlv(der_set(tlv(0x0C, plist)))[0]
+        names = {bytes(20): "<sha256 of CodeDirectory 0x0>"}
+        self.assertNotEqual(spc.attribute_value(spc.APPLE_CDHASHES_PLIST, octets, names),
+                            spc.attribute_value(spc.APPLE_CDHASHES_PLIST, utf8, names))
+        digest = spc.read_tlv(der_set(tlv(0x04, bytes(20))))[0]
+        other = spc.read_tlv(der_set(tlv(0x0C, bytes(20))))[0]
+        self.assertNotEqual(spc.attribute_value(spc.MESSAGE_DIGEST, digest, names),
+                            spc.attribute_value(spc.MESSAGE_DIGEST, other, names))
+
+    def test_base64_layout_counts(self):
+        digest = hashlib.sha256(b"x").digest()
+        names = {digest: "<sha256 of x>"}
+        text = base64.b64encode(digest)
+        plain = b"<plist><data>" + text + b"</data></plist>"
+        spaced = b"<plist><data>" + text[:8] + b"\n" + text[8:] + b"</data></plist>"
+        self.assertIsNotNone(spc.marked_plist(plain, names, 1))
+        self.assertNotEqual(spc.marked_plist(plain, names, 1), spc.marked_plist(spaced, names, 1))
+        alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        last = alphabet[alphabet.index(text[-2]) | 1]  # a padding bit set: the same bytes, non-canonical
+        loose_text = text[:-2] + bytes([last]) + b"="
+        self.assertEqual(base64.b64decode(loose_text), digest)
+        self.assertIsNone(spc.marked_plist(b"<plist><data>" + loose_text + b"</data></plist>", names, 1))
 
 
 if __name__ == "__main__":
