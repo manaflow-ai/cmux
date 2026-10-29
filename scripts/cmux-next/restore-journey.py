@@ -659,6 +659,7 @@ def restore_acpmux_config():
 REPORTS = {}  # page name -> latest {path, scrollY, at}
 LIVE_READ = {}  # the seeded history page's outside-folder read probe, before the first quit
 SINCE = 0.0  # when the last quit ended: reports older than this are stale
+CHAT_CONNECT_BOUND = 10  # seconds a shown chat page may take to connect after a relaunch
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
 PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
@@ -988,9 +989,13 @@ CHAT_PROFILES = {
 }
 CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
 CLI_AGENTS = {
-    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
-    # Each resumes by itself after a reboot ("Resume Agents After Restart" is on by default), also
-    # Claude's with its approval bypass: a resumed session waits for the person's next prompt.
+    # After a reboot a respawned terminal resumes its agent with its flags and account ("Resume
+    # Agents After Restart" is on by default). Claude's runs with its approvals off, so its resume
+    # is typed on the new prompt without Return (#22292: a respawn never starts an agent with its
+    # approvals off by itself); the journey checks it waits there, then presses Return as a
+    # person does. Codex's resume runs by itself.
+    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5",
+               "resume_waits": True},
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
@@ -1240,6 +1245,16 @@ def tagent_items(label, items, raw):
         def current():
             starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
             return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
+        if getattr(APP, "rebooted", False) and CLI_AGENTS[agent["provider"]].get("resume_waits"):
+            # Its resume is typed on the new prompt and does not run by itself: the command with
+            # its session on screen, no agent started for it. Then Return, as a person presses it.
+            typed = wait(lambda: f"--resume {agent['session']}" in screen_text(agent["terminal"])[-600:], 30, 1)
+            ran = current()
+            ran = ran if ran and ran.get("pid") != agent.get("pid") else None
+            items[f"{a}.resume_waits"] = (bool(typed) and not ran) or \
+                (f"started by itself: {ran}" if ran else f"no resume typed; screen ends {screen_text(agent['terminal'])[-200:]!r}")
+            if typed and not ran:
+                write(agent["terminal"], "\r")
         start = wait(current, 60, 1)
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
@@ -1426,14 +1441,40 @@ def history(term):
     return rows
 
 
+HISTORY_BY_SHA = {}  # history_sha -> the rows it hashes, for the history_sha row's compare
+
+
 def terminal_items(term):
     rows = history(term)
     screen = cli("terminal", term, "screen", "read", quiet=True)
     text = "\n".join(rows or []) + "\n" + (screen.get("text", "") if isinstance(screen, dict) else "")
     numbered = [int(n) for n in re.findall(rf"rj-line-(\d+)-{RUN}", text)]
+    HISTORY_BY_SHA[sha("\n".join(rows or []))] = rows or []
     return {"history_rows": len(rows) if rows is not None else None, "history_sha": sha("\n".join(rows or [])),
             "numbered_lines": len(set(numbered)), "numbered_max": max(numbered) if numbered else 0,
             "ticks": [int(t) for t in re.findall(r"rj-tick-(\d+)", text)]}
+
+
+def pane_active_tab(pane_id):
+    """The tab pane `pane_id` shows, from its screen's layout export (`active_tab_id` of its leaf), or None."""
+    topo = topology() or {}
+    screen = next((s_.get("id") for ws in rj_workspaces(topo) for s_ in ws.get("screens", [])
+                   if any(p.get("id") == pane_id for p in s_.get("panes", []))), None)
+    if not screen:
+        return None
+    exported = cli("screen", screen, "layout", "export", quiet=True)
+    found = []
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("pane_id") == pane_id and node.get("active_tab_id"):
+                found.append(node["active_tab_id"])
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(exported.get("value", exported) if isinstance(exported, dict) else exported)
+    return found[0] if found else None
 
 
 def layout_shape(screen_id, pane_index):
@@ -1618,6 +1659,7 @@ def snapshot(label):
     for tp, term in terms.items():
         info = terminal_items(term)
         raw[f"terminal {tp}"] = info
+        raw[f"terminal {tp} rows"] = HISTORY_BY_SHA.get(info["history_sha"])
         if info["numbered_lines"]:
             items[f"{tp}.scrollback.numbered_lines"] = info["numbered_lines"]
             items[f"{tp}.scrollback.numbered_max"] = info["numbered_max"]
@@ -1687,13 +1729,27 @@ def snapshot(label):
         # The chat's page shows only while its workspace is shown: visit it.
         with visiting("rj-agent"):
             # A page still connecting to acpmux has no session yet: wait for it to connect.
-            shown_at = time.time()
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting" else None)(
-                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 45, 1) \
-                or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
+            # Each ask is short (5 s): one call that hangs must not count as the page's connect time.
+            shown_at, asks = time.time(), []
+            def connected():
+                answer = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=5)
+                asks.append([round(time.time() - shown_at, 1), (answer.get("error") or answer.get("connection")) if isinstance(answer, dict) else str(answer)])
+                return answer if isinstance(answer, dict) and "error" not in answer and answer.get("connection") != "connecting" else None
+            state = wait(connected, 90, 0.25)
+            connect_seconds = round(time.time() - shown_at, 1)
+            state = state or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=10)
         raw["agent_pane.chat_state"] = state
-        raw["agent_pane.connect_seconds"] = round(time.time() - shown_at, 1)
+        raw["agent_pane.connect_seconds"] = connect_seconds
+        raw["agent_pane.connect_asks"] = asks[-40:]
         say(f"  chat page {state.get('connection') if isinstance(state, dict) else state} {raw['agent_pane.connect_seconds']} s after it was shown")
+        if label.endswith("-after"):
+            # A person who opens the chat after a relaunch waits this long for it (before: 61 s, one
+            # 60 s debug call that hung, not the page).
+            RESULTS.append((f"{label[:-len('-after')]}: the chat page connects within {CHAT_CONNECT_BOUND} s after it is shown",
+                            isinstance(state, dict) and "error" not in state and state.get("connection") not in (None, "connecting", "disconnected")
+                            and connect_seconds <= CHAT_CONNECT_BOUND,
+                            f"{state.get('connection') if isinstance(state, dict) else state} after {connect_seconds} s; asks {json.dumps(asks[:6])[:200]}",
+                            "agent chat"))
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
             items["agent.page.last_assistant"] = state.get("lastAssistant")
@@ -1905,6 +1961,15 @@ def compare(variant, before, after):
             # A reboot ends every process: running programs and their screens cannot come back.
             RESULTS.append((f"{variant}: {item}", NA, "n/a: a reboot ends every running program", area_of(item)))
             continue
+        if item == "agent.status" and {b, a} <= {"ready", "idle"}:
+            # acpmux hibernates a chat whose agent sat idle 2 min (`idle`: no agent process, the next
+            # prompt resumes it): the same live session as `ready`, not a lost one.
+            RESULTS.append((f"{variant}: {item}", True, f"{json.dumps(b)} -> {json.dumps(a)} (idle: hibernated, resumes on the next prompt)", area_of(item)))
+            continue
+        if item.startswith("tagent[") and item.endswith(".resume_waits"):
+            # Only after a reboot: nothing to compare with before it.
+            RESULTS.append((f"{variant}: {item}", a is True, json.dumps(a)[:200], area_of(item)))
+            continue
         if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
             ok = a is True and b is True
             detail = f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
@@ -1954,8 +2019,29 @@ def compare(variant, before, after):
             ok = a == seeded_value
             detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
                       else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
+        elif item.endswith(".scrollback.history_sha") and a in HISTORY_BY_SHA and b in HISTORY_BY_SHA:
+            # Every row exactly as before, in order; rows only after them (a respawned shell's
+            # marker line and prompt push the old screen's top rows into the history). Soft
+            # wraps must survive the replay too: a line wrapped at an older width re-flows at
+            # the new one, so the same text with other row breaks fails ("re-wrapped").
+            rows_b, rows_a = HISTORY_BY_SHA[b], HISTORY_BY_SHA[a]
+            ok = bool(rows_b) and rows_a[:len(rows_b)] == rows_b
+            if a == b:
+                detail = json.dumps(a)
+            elif ok:
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: rows kept, {len(rows_a) - len(rows_b)} rows"
+                          f" after them {json.dumps(rows_a[len(rows_b):])[:80]}")
+            else:
+                row = next((i for i, (x, y) in enumerate(zip(rows_b, rows_a)) if x != y), min(len(rows_b), len(rows_a)))
+                text_b, text_a = "".join(rows_b), "".join(rows_a)
+                rewrapped = bool(rows_b) and text_a.startswith(text_b)
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: row {row} "
+                          f"{json.dumps(rows_b[row] if row < len(rows_b) else None)[:50]} -> "
+                          f"{json.dumps(rows_a[row] if row < len(rows_a) else None)[:50]}"
+                          + (f" (re-wrapped: same text, {sum(1 for x, y in zip(rows_b, rows_a) if x != y)}"
+                             " rows with other breaks)" if rewrapped else " (the text changed)"))
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
-            # A view re-attaching may add a prompt line, never drop rows.
+            # A view re-attaching may add a prompt line, never drop rows (see history_sha).
             ok = a >= b
             detail = f"{b} -> {a}"
         else:
@@ -2294,7 +2380,16 @@ def finish_turn_in_flight(variant, turn):
     if tab:
         with visiting("rj-chats"):
             pane = place_of(tab.get("id"), topo)[1]
-            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+            # Its pane holds another chat too: show this chat's tab, and read only its own page.
+            # The tab the pane showed comes back after, so the layout rows see the seeded state.
+            shown_tab = pane_active_tab(pane)
+            cli("tab", tab["id"], "focus", quiet=True)
+            def own_page_shows():
+                state = page(pane, "chat_state") or {}
+                return state.get("sessionId") == turn["chat"]["session"] and "after-gate" in str((state.get("lastAssistant") or {}).get("text"))
+            shown = wait(own_page_shows, 20, 0.5)
+            if shown_tab and shown_tab != tab["id"]:
+                cli("tab", shown_tab, "focus", quiet=True)
     RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
                     f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
                     + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))

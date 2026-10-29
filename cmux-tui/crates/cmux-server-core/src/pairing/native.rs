@@ -54,7 +54,7 @@ fn origin(value: &str) -> bool {
 fn tenant(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 fn public_point(jwk: &Value) -> Option<String> {
@@ -92,11 +92,13 @@ impl Grant {
             || !tenant(&wire.tenant_id)
             || name.is_empty()
             || name.len() > 63
-            || !name.as_bytes()[0].is_ascii_alphanumeric()
+            || !name.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
             || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._ -".contains(&b))
             || !canonical_key(&wire.binding.wg_public_key, 32)
             || !canonical_key(&wire.binding.install_public_key, 65)
-            || !STANDARD.decode(&wire.binding.install_public_key).is_ok_and(|p| p[0] == 4)
+            || !STANDARD
+                .decode(&wire.binding.install_public_key)
+                .is_ok_and(|p| p.first() == Some(&4))
             || expires_ms == 0
         {
             return Err(INVALID.into());
@@ -217,7 +219,9 @@ impl Registration {
     ) -> Result<Value, String> {
         if !opaque(&self.device, "dev_")
             || !STANDARD.decode(&self.install_public_key).is_ok_and(|p| {
-                p.len() == 65 && p[0] == 4 && STANDARD.encode(p) == self.install_public_key
+                p.len() == 65
+                    && p.first() == Some(&4)
+                    && STANDARD.encode(p) == self.install_public_key
             })
         {
             return Err(INVALID.into());

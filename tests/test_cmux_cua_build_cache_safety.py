@@ -17,7 +17,19 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = ROOT / "scripts" / "build-cmux-cua.sh"
-PATCH_FILE = ROOT / "scripts" / "cmux-cua-codex-delivery-mode.patch"
+
+
+def patch_files() -> list[Path]:
+    """The patch series build-cmux-cua.sh applies, in its order."""
+    block = re.search(
+        r"^CMUX_CUA_PATCH_RELATIVE_PATHS=\(\n(.*?)^\)$",
+        BUILD_SCRIPT.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block is not None
+    paths = re.findall(r'^\s*"([^"]+)"$', block.group(1), re.MULTILINE)
+    assert paths
+    return [ROOT / path for path in paths]
 
 
 def pinned_sha() -> str:
@@ -31,7 +43,7 @@ def pinned_sha() -> str:
 
 
 def patch_digest() -> str:
-    return hashlib.sha256(PATCH_FILE.read_bytes()).hexdigest()
+    return hashlib.sha256(b"".join(path.read_bytes() for path in patch_files())).hexdigest()
 
 
 def write_executable(path: Path, contents: str) -> None:

@@ -233,33 +233,12 @@ fn print_list(v: &Value) {
     }
 }
 
-/// The most stdin `host join` reads for a ticket (a ticket is ~300 bytes).
-const MAX_STDIN_TICKET: u64 = 4096;
-
 /// What `host join TICKET` prints, once, before it joins: never the ticket.
 pub(crate) const ARGV_TICKET_WARNING: &str = "acpmux host join: a ticket on the command line is readable by other users of this machine (ps); pass it on stdin instead: printf '%s\\n' TICKET | cmux host join";
 
-/// The ticket `host join` redeems, checked before any daemon is reached:
-/// `TICKET` from argv (kept for old install lines; it warns), else stdin.
-pub(crate) fn join_ticket(arg: Option<String>) -> Result<Ticket> {
-    let text = match arg {
-        Some(text) => {
-            eprintln!("{ARGV_TICKET_WARNING}");
-            zeroize::Zeroizing::new(text)
-        }
-        None => {
-            use std::io::IsTerminal;
-            let stdin = std::io::stdin();
-            if stdin.is_terminal() {
-                return Err(AppError::usage(
-                    "pass the ticket on stdin: printf '%s\\n' TICKET | cmux host join",
-                )
-                .into());
-            }
-            read_ticket(stdin.lock())?
-        }
-    };
-    let ticket = Ticket::decode(&text).map_err(AppError::usage)?;
+/// Decode and validate text already read by the shared host-join stdin reader.
+pub(crate) fn join_ticket_text(text: &str) -> Result<Ticket> {
+    let ticket = Ticket::decode(text).map_err(AppError::usage)?;
     if !crate::pairing::transport_ok(&ticket.url) {
         return Err(anyhow!(
             "refusing to send the ticket to {}: only wss://, or ws:// to a loopback host, carries it",
@@ -274,33 +253,9 @@ pub(crate) fn join_ticket(arg: Option<String>) -> Result<Ticket> {
 
 /// A ticket from stdin: one line, one trailing newline (`\n` or `\r\n`)
 /// trimmed, nothing after it. No error quotes the input.
+#[cfg(test)]
 pub(crate) fn read_ticket(input: impl std::io::Read) -> Result<zeroize::Zeroizing<String>> {
-    use std::io::Read as _;
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    input
-        .take(MAX_STDIN_TICKET + 1)
-        .read_to_end(&mut bytes)
-        .context("read the ticket from stdin")?;
-    if bytes.len() as u64 > MAX_STDIN_TICKET {
-        return Err(AppError::usage("stdin holds more than a ticket").into());
-    }
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|_| AppError::usage("the ticket on stdin is not text"))?;
-    let line = match text.strip_suffix('\n') {
-        Some(line) => line.strip_suffix('\r').unwrap_or(line),
-        None => text,
-    };
-    if line.contains(['\n', '\r']) {
-        return Err(
-            AppError::usage("stdin must hold the ticket on one line and nothing else").into()
-        );
-    }
-    if line.trim().is_empty() {
-        return Err(
-            AppError::usage("no ticket on stdin: printf '%s\\n' TICKET | cmux host join").into()
-        );
-    }
-    Ok(zeroize::Zeroizing::new(line.to_owned()))
+    crate::cli::join_input::read_line(input)
 }
 
 /// What `host join` was asked.
@@ -479,9 +434,7 @@ mod tests {
 
     #[cfg(unix)]
     fn executable(path: &std::path::Path, text: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::write(path, text).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(path, text);
     }
 
     /// Runs `line` with `sh -c` and `bin` first on PATH: (argv, stdin) of
