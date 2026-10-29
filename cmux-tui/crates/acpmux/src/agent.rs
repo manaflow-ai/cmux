@@ -1411,6 +1411,32 @@ impl ChildAgent {
         fence: Option<&Fence>,
         on_written: F,
     ) -> Result<Value, RpcError> {
+        self.request_hook(method, params, fence, false, on_written).await
+    }
+
+    /// Like `request_with_hook`, but the callback requires confirmation from the stdin writer
+    /// (or hosted harness receipt), not acceptance into the transport queue.
+    pub(crate) async fn request_with_confirmed_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
+        let own_fence = Fence::default();
+        let fence = fence.unwrap_or(&own_fence);
+        let _unsent = CutOnDrop(Some(fence));
+        self.request_hook(method, params, Some(fence), true, on_written).await
+    }
+
+    async fn request_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        confirmed: bool,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
@@ -1421,6 +1447,23 @@ impl ChildAgent {
             let mut unhanded = CutOnDrop(fence);
             self.write_fenced(&msg, fence).await.map_err(|e| RpcError::internal(e.to_string()))?;
             unhanded.0 = None;
+            let mut rx = rx;
+            if confirmed && let Some(fence) = fence {
+                // A legacy host may answer without a write receipt. Return its answer, but
+                // never consume information or report read from an unconfirmed transport.
+                tokio::select! {
+                    () = fence.settled() => {}
+                    answer = &mut rx => {
+                        if fence.now() == Fence::WRITTEN { on_written(); }
+                        return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
+                    }
+                }
+                if fence.now() != Fence::WRITTEN {
+                    return Err(RpcError::internal(
+                        "agent process closed before the prompt write was confirmed",
+                    ));
+                }
+            }
             on_written();
             let answer = rx.await;
             // No answer proves its line was written: an error may be this side's own "closed" or

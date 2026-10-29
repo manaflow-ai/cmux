@@ -834,7 +834,7 @@ impl Mux {
                 let (workspace, _) = state.screen_of(landed)?;
                 (record["split"].is_object()
                     && record["workspace_id"].as_str()
-                        == Some(state.workspaces[workspace].public_id.as_str()))
+                        == Some(state.workspaces.get(workspace)?.public_id.as_str()))
                 .then_some(landed)
             })
         };
