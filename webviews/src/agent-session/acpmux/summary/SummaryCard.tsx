@@ -13,6 +13,9 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { sessionStatus } from "../inspector/ChildSessionRows";
+import { SubagentSummaryCard } from "../inspector/SubagentSummaryCard";
+import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
@@ -59,6 +62,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenWorkflow,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -100,6 +104,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens Session Info's Background tasks when the compact card represents workflow-only work.
+  onOpenWorkflow?: () => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -183,12 +189,16 @@ export function SummaryCard({
   );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
+    subsessionRows.filter(
+      (session) =>
+        (sessionRetry(session).kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state]) ===
+        status,
+    ).length;
   // A started chat waiting on the person is counted with the waiting subagents.
-  const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
+  const waitingCount = count("waiting") + children.filter((child) => sessionStatus(child) === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
-  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
+  const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
@@ -201,6 +211,10 @@ export function SummaryCard({
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
+  const hasAgentWork = hasSubagents || (workflows?.length ?? 0) > 0;
+  const workflowIds = new Set((workflows ?? []).map((workflow) => workflow.id));
+  const summaryAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
+  const hasSummaryDetails = summaryAgents.length + children.length + subsessionRows.length > 0;
   return (
     <>
       <aside
@@ -302,20 +316,43 @@ export function SummaryCard({
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
-            {hasSubagents && (
-              <SubagentStatusList
-                agents={agents}
-                waiting={waiting}
-                current={subagents.current}
-                onOpen={subagents.onOpen}
-                autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
-                // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
-                onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
-                subsessions={subsessionRows}
-                sessions={children}
-                onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
-                stack={agents.length === 0 ? summary.subagents : undefined}
-              />
+            {hasAgentWork && (
+              <>
+                <SubagentSummaryCard
+                  agents={summaryAgents}
+                  waiting={waiting}
+                  sessions={children}
+                  subsessions={subsessionRows}
+                  workflows={workflows}
+                  onOpen={() => {
+                    // Keep all of the existing detail visible, including started chats and
+                    // sub-sessions which the Subagents tab does not list.
+                    const detail = panel.current?.querySelector<HTMLElement>(
+                      hasSummaryDetails ? ".acpmux-summary-agents" : ".acpmux-workflow",
+                    );
+                    if (!hasSummaryDetails && onOpenWorkflow) return onOpenWorkflow();
+                    const toggle = detail?.querySelector<HTMLButtonElement>(".acpmux-workflow__row");
+                    if (toggle?.getAttribute("aria-expanded") === "false") toggle.click();
+                    detail?.scrollIntoView({ block: "nearest" });
+                    detail?.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+                  }}
+                />
+                {hasSubagents && (
+                  <SubagentStatusList
+                    agents={agents}
+                    waiting={waiting}
+                    current={subagents.current}
+                    onOpen={subagents.onOpen}
+                    autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
+                    // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
+                    onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                    subsessions={subsessionRows}
+                    sessions={children}
+                    onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
+                    stack={agents.length === 0 ? summary.subagents : undefined}
+                  />
+                )}
+              </>
             )}
             <SummaryBody
               summary={summary}
@@ -326,7 +363,7 @@ export function SummaryCard({
               }}
               changes={changes}
               onOpenChanges={onOpenChanges}
-              subagents={hasSubagents ? <></> : undefined}
+              subagents={hasAgentWork ? <></> : undefined}
               onOpenOutput={onOpenOutput}
               onAttach={onAttach}
               tools={tools}

@@ -6,8 +6,7 @@
 #     as an exception still has its files copied);
 #   - "Bundle Ghostty resources" (bundle-ghostty-resources.sh) puts the directories
 #     ghostty/, terminfo/, shell-integration/ and cmux-cli-path/ there.
-# Xcode runs the Resources phase first; the fleet's Linux builder (swift-linux-builder
-# assemble.py) runs it after the script phases, and a flat file replaces a directory
+# Xcode runs the Resources phase first; the fleet builder runs it after the script phases, and a flat file replaces a directory
 # of the same name. When a flat resource is named like one of those directories, a
 # fleet build ships no themes: every theme resolves to Ghostty's built-in default
 # (#282C34), so `debug.appearance light` and a cmux.json theme change nothing
@@ -87,12 +86,12 @@ flat_copy "$xcode/app.app/Contents/Resources" 2>"$TMP/xcode-flat.log"
 phase "$xcode"
 check "Resources phase first" "$xcode/app.app/Contents/Resources"
 
-# The fleet's Linux builder: the script phase, then the Resources phase.
-linux="$TMP/linux"
-phase "$linux"
-flat_copy "$linux/app.app/Contents/Resources" 2>"$TMP/linux-flat.log" || { cat "$TMP/linux-flat.log" >&2; echo "FAIL: the flat copy failed" >&2; exit 1; }
-cat "$TMP/linux-flat.log" >&2
-check "script phase first" "$linux/app.app/Contents/Resources"
+# The fleet builder: the script phase, then the Resources phase.
+fleet="$TMP/fleet"
+phase "$fleet"
+flat_copy "$fleet/app.app/Contents/Resources" 2>"$TMP/fleet-flat.log" || { cat "$TMP/fleet-flat.log" >&2; echo "FAIL: the flat copy failed" >&2; exit 1; }
+cat "$TMP/fleet-flat.log" >&2
+check "script phase first" "$fleet/app.app/Contents/Resources"
 
 [[ $fail -eq 0 ]] || exit 1
 echo "PASS: the bundle has Ghostty's themes and terminfo whichever order the resource phases run in"

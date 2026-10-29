@@ -3,8 +3,9 @@
 //! an optional lock, so a scan never rewrites an index and never makes a
 //! worktree look used.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_git::Repository;
@@ -194,7 +195,7 @@ pub fn scan(common_dir: &Path, bases: &[String]) -> Result<Repo, String> {
         {
             continue;
         }
-        worktrees.push(worktree(entry, &overrides, &bases));
+        worktrees.push(worktree(entry, common_dir, &overrides, &bases));
     }
     Ok(Repo { common_dir: common_dir.to_path_buf(), main_root, worktrees, overrides, bases })
 }
@@ -208,14 +209,19 @@ pub fn rescan(repo: &Repo, path: &Path) -> Result<Worktree, String> {
         .skip(1)
         .find(|entry| same_path(&entry.path, path))
         .ok_or_else(|| format!("{} is no longer a worktree", path.display()))?;
-    Ok(worktree(entry, &repo.overrides, &repo.bases))
+    Ok(worktree(entry, &repo.common_dir, &repo.overrides, &repo.bases))
 }
 
-fn worktree(entry: ListEntry, overrides: &[Override], bases: &[String]) -> Worktree {
+fn worktree(
+    entry: ListEntry,
+    common_dir: &Path,
+    overrides: &[Override],
+    bases: &[String],
+) -> Worktree {
     let facts = if entry.prunable || !entry.path.is_dir() {
         Err("its folder is gone".to_string())
     } else {
-        facts(&entry, overrides, bases)
+        facts(&entry, common_dir, overrides, bases)
     };
     Worktree {
         path: entry.path,
@@ -276,7 +282,12 @@ pub(crate) fn parse_worktree_list(bytes: &[u8]) -> Vec<ListEntry> {
     entries
 }
 
-fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<Facts, String> {
+fn facts(
+    entry: &ListEntry,
+    common_dir: &Path,
+    overrides: &[Override],
+    bases: &[String],
+) -> Result<Facts, String> {
     let root = &entry.path;
     let git_dir = PathBuf::from(git::line(root, overrides, &["rev-parse", "--absolute-git-dir"])?);
     let mut facts = Facts { git_dir: git_dir.clone(), ..Facts::default() };
@@ -341,11 +352,11 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
     // Commits only here, and whether the work is on a base already.
     let remotes = git::read(root, overrides, &["for-each-ref", "--count=1", "refs/remotes/"])?;
     facts.has_remotes = !remotes.is_empty();
-    if entry.head.is_some() {
+    if let Some(head) = &entry.head {
         let count =
             git::line(root, overrides, &["rev-list", "--count", "HEAD", "--not", "--remotes"])?;
         facts.unpushed = count.parse().unwrap_or(u32::MAX);
-        facts.finished = finished(root, overrides, bases);
+        facts.finished = finished(root, head, &common_dir.join("objects"), overrides, bases);
     }
 
     facts.sparse = sparse(root, overrides, &git_dir);
@@ -477,9 +488,68 @@ fn operation(git_dir: &Path) -> Option<String> {
     .map(|(_, name)| name.to_string())
 }
 
+/// How HEAD's work is on a base: in it, or merged into it changing nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Finish {
+    InBase,
+    Squashed,
+}
+
+/// [`finished`]'s answer for a worktree's (HEAD, base) pair of commits.
+/// Both are content-addressed, so in one worktree a pair's answer does not
+/// change, and a pass asks again about every worktree while most HEADs and
+/// bases have not moved since the last: on a machine with hundreds of
+/// worktrees of a big repository, a `merge-tree` each kept git busy for
+/// half an hour a pass. Keyed by the worktree too (its config may merge
+/// differently), and never used in a repository with replacement refs or
+/// grafts, which change history without changing ids.
+type Answers = HashMap<(PathBuf, String, String), Option<Finish>>;
+static FINISHED: LazyLock<Mutex<Answers>> = LazyLock::new(Mutex::default);
+/// The most pairs [`FINISHED`] keeps; past it, it starts over.
+const MAX_REMEMBERED: usize = 16_384;
+
+fn key(root: &Path, head: &str, base: &str) -> (PathBuf, String, String) {
+    (root.to_path_buf(), head.to_string(), base.to_string())
+}
+
+fn remembered(root: &Path, head: &str, base: &str) -> Option<Option<Finish>> {
+    let memo = FINISHED.lock().unwrap_or_else(|e| e.into_inner());
+    memo.get(&key(root, head, base)).copied()
+}
+
+fn remember(root: &Path, head: &str, base: &str, answer: Option<Finish>) {
+    let mut memo = FINISHED.lock().unwrap_or_else(|e| e.into_inner());
+    if memo.len() >= MAX_REMEMBERED {
+        memo.clear();
+    }
+    memo.insert(key(root, head, base), answer);
+}
+
+/// Whether history in this repository can differ from what its ids say:
+/// replacement refs or a grafts file. Unreadable counts as yes.
+fn rewritten_history(root: &Path, objects: &Path, overrides: &[Override]) -> bool {
+    let grafts = objects.parent().map(|common| common.join("info/grafts"));
+    // Only a grafts file known to be absent lets the memo in.
+    let grafted = grafts.is_none_or(|path| match std::fs::symlink_metadata(path) {
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+        Ok(_) => true,
+    });
+    grafted
+        || git::read(root, overrides, &["for-each-ref", "--count=1", "refs/replace/"])
+            .map_or(true, |out| !out.is_empty())
+}
+
 /// Evidence that HEAD's work is on a base branch: HEAD is in it, or merging
-/// HEAD into it changes nothing (a squash merge).
-fn finished(root: &Path, overrides: &[Override], configured: &[String]) -> Option<String> {
+/// HEAD into it changes nothing (a squash merge). `objects` is the
+/// repository's object folder: the merge's trees go to a scratch folder,
+/// never into it.
+fn finished(
+    root: &Path,
+    head: &str,
+    objects: &Path,
+    overrides: &[Override],
+    configured: &[String],
+) -> Option<String> {
     let repository = Repository::open(root).ok()?;
     let mut bases: Vec<String> = Vec::new();
     if let Some((reference, _)) = repository.recorded_base() {
@@ -493,29 +563,70 @@ fn finished(root: &Path, overrides: &[Override], configured: &[String]) -> Optio
             if base.starts_with("refs/") { base.clone() } else { format!("refs/remotes/{base}") };
         bases.push(reference);
     }
+    let memo = !rewritten_history(root, objects, overrides);
     let mut seen = HashSet::new();
     for base in bases.into_iter().filter(|b| seen.insert(b.clone())) {
-        let Some(base_tree) = git::try_line(
+        let Some(base_commit) = git::try_line(
             root,
             overrides,
-            &["rev-parse", "--verify", "--quiet", &format!("{base}^{{tree}}")],
+            &["rev-parse", "--verify", "--quiet", &format!("{base}^{{commit}}")],
         ) else {
             continue;
         };
+        let answer = match memo.then(|| remembered(root, head, &base_commit)).flatten() {
+            Some(answer) => answer,
+            None => {
+                let Some(answer) = finish(root, head, &base_commit, objects, overrides) else {
+                    // Unreadable: asked again next time.
+                    continue;
+                };
+                if memo {
+                    remember(root, head, &base_commit, answer);
+                }
+                answer
+            }
+        };
         let short = base.trim_start_matches("refs/remotes/").trim_start_matches("refs/heads/");
-        if git::read(root, overrides, &["merge-base", "--is-ancestor", "HEAD", &base]).is_ok() {
-            return Some(format!("HEAD is in {short}"));
-        }
-        let merged = git::try_line(
-            root,
-            overrides,
-            &["merge-tree", "--write-tree", "--no-messages", &base, "HEAD"],
-        );
-        if merged.as_deref().and_then(|out| out.lines().next()) == Some(base_tree.as_str()) {
-            return Some(format!("HEAD's changes are already in {short}"));
+        match answer {
+            Some(Finish::InBase) => return Some(format!("HEAD is in {short}")),
+            Some(Finish::Squashed) => {
+                return Some(format!("HEAD's changes are already in {short}"));
+            }
+            None => {}
         }
     }
     None
+}
+
+/// Whether `head`'s work is on `base` (both commit ids); `None` when the
+/// trees could not be read.
+fn finish(
+    root: &Path,
+    head: &str,
+    base: &str,
+    objects: &Path,
+    overrides: &[Override],
+) -> Option<Option<Finish>> {
+    if git::read(root, overrides, &["merge-base", "--is-ancestor", head, base]).is_ok() {
+        return Some(Some(Finish::InBase));
+    }
+    let base_tree = git::try_line(
+        root,
+        overrides,
+        &["rev-parse", "--verify", "--quiet", &format!("{base}^{{tree}}")],
+    )?;
+    // A conflict (`Ok(None)`) is never the base's tree. A run that could
+    // not finish, or failed saying why, is no answer: not remembered.
+    let merged = git::read_scratch_objects(
+        root,
+        overrides,
+        objects,
+        &["merge-tree", "--write-tree", "--no-messages", base, head],
+    )
+    .ok()?;
+    let merged = merged
+        .map(|out| String::from_utf8_lossy(&out).lines().next().unwrap_or_default().to_string());
+    Some((merged.as_deref() == Some(base_tree.as_str())).then_some(Finish::Squashed))
 }
 
 fn sparse(root: &Path, overrides: &[Override], git_dir: &Path) -> Option<Sparse> {

@@ -238,14 +238,14 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.spaces.hide", title: t("action.sidebar.spaces.hide", "Hide Spaces"),
                 keywords: ["sidebar", "spaces", "dots", "hide", "footer"], category: .sidebar, symbol: "eye.slash",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.profile, .view, 100)])
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "sidebar hide-spaces",
+                surfacePlan: plan(menus: [p(.profile, .view, 100)])
             ),
             ActionDescriptor(
                 id: "sidebar.spaces.show", title: t("action.sidebar.spaces.show", "Show Spaces"),
                 keywords: ["sidebar", "spaces", "dots", "show", "unhide", "footer"], category: .sidebar, symbol: "circle.grid.2x2",
-                surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 100)])
+                surfaces: [.palette, .keyboard, .contextMenu], cliName: "sidebar show-spaces",
+                surfacePlan: plan(menus: [p(.sidebarFooter, .view, 100)])
             ),
             ActionDescriptor(
                 id: "sidebar.profileControl.hide", title: t("action.sidebar.profileControl.hide", "Hide Profile Button"),
@@ -258,6 +258,40 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "profile", "account", "avatar", "show", "unhide", "footer"], category: .sidebar, symbol: "person.crop.circle",
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 110)])
+            ),
+            // `sidebar.noFade` (Lawrence 2026-10-26): the whole list shows with no edge fade, and the
+            // profile and search bar hides. Cmd+Shift+P shows the one that applies. In the sidebar
+            // menu they sit in Options, so the top level keeps at most 12 rows; their icons differ from
+            // the Minimal Mode rows beside them (one icon per row in a menu).
+            ActionDescriptor(
+                id: "sidebar.noFade.on", title: t("action.sidebar.noFade.on", "Show Whole Sidebar (No Fade)"),
+                keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"],
+                category: .sidebar, symbol: "arrow.up.and.down",
+                surfaces: [.palette, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 135, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.noFade.off", title: t("action.sidebar.noFade.off", "Restore Sidebar Fade"),
+                keywords: ["sidebar", "fade", "restore", "edges", "profile", "search", "footer", "show", "unhide"],
+                category: .sidebar, symbol: "rectangle.dashed",
+                surfaces: [.palette, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 136, folder: .options)])
+            ),
+            // `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover, Lawrence 2026-10-27): the sidebar's controls show
+            // only while the pointer is over it. Cmd+Shift+P, `cmux sidebar ...` and MCP show the one that applies.
+            ActionDescriptor(
+                id: "sidebar.controlsOnHover.on", title: t("action.sidebar.controlsOnHover.on", "Show Sidebar Controls Only on Hover"),
+                keywords: ["sidebar", "minimal", "hover", "hide", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"],
+                category: .sidebar, symbol: "cursorarrow.rays",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar hide-controls-until-hover",
+                surfacePlan: plan(menus: [p(.sidebarBackground, .view, 137, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.controlsOnHover.off", title: t("action.sidebar.controlsOnHover.off", "Always Show Sidebar Controls"),
+                keywords: ["sidebar", "minimal", "hover", "show", "always", "controls", "buttons", "search", "profile", "spaces", "footer"],
+                category: .sidebar, symbol: "rectangle",
+                surfaces: [.palette, .contextMenu], cliName: "sidebar show-controls-always",
+                surfacePlan: plan(menus: [p(.sidebarBackground, .view, 138, folder: .options)])
             ),
             // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
             // Projects list buckets its loose rows (`sidebar.groupBy`).
@@ -274,9 +308,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
-            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the Options of the
-            // sidebar's menu and of a row's ⋮ offer the ones that do not apply now (not a group's:
-            // every group menu row is a palette row, and Compact is not one)
+            // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar background
+            // menu owns these global controls, while the row's ⋮ keeps its pointer menu focused.
             // (Leo 2026-10-21: view toggles should not need the palette to find). The app density
             // (`appearance.density`, DensityActionCatalog) owns the palette's density rows.
             ActionDescriptor(
@@ -286,8 +319,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
                 surfaces: [.keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact),
-                                          p(.workspaceRow, .view, 101, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                                  menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
@@ -295,8 +327,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
                 category: .sidebar, symbol: "list.bullet", surfaces: [.keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable),
-                                          p(.workspaceRow, .view, 102, folder: .options, label: ObjectMenuLabels.densityComfortable)],
+                                  menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)],
                                   palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
@@ -304,17 +335,16 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "density", "expanded", "rows", "preview", "two lines", "t3", "codex"], category: .sidebar,
                 symbol: "list.bullet.below.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly),
-                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded),
-                                          p(.workspaceRow, .view, 103, folder: .options, label: ObjectMenuLabels.densityExpanded)])
+                                  menus: [p(.sidebarBackground, .view, 134, folder: .options, label: ObjectMenuLabels.densityExpanded)])
             ),
             // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
             // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
-            // Options, and a workspace row's ⋮ offers it under More ▸ Options.
+            // Options; the workspace row's ⋮ keeps its pointer menu focused.
             ActionDescriptor(
                 id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
                 keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
                 surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options)])
             ),
             ActionDescriptor(
                 id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",

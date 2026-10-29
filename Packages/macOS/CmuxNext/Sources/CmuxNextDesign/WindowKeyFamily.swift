@@ -20,6 +20,8 @@ final class WindowKeyFamily {
     private var observers: [MainActorObservation] = []
     /// The keyboard left the window's family after the family held it.
     private(set) var isInactive = false
+    /// The last flip eased the wash (no key window in an active app) and the keys have not settled since.
+    private var easing = false
     /// The window's family has held the keyboard since the tracker started.
     private var familyHeldKey = false
     /// A deferred check is scheduled and has not run: later notices in the same turn need no
@@ -84,8 +86,9 @@ final class WindowKeyFamily {
         }
     }
 
-    /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash.
+    /// Reads where the keyboard is once the notices of this key change have posted (a resign
+    /// posts before the next window becomes key, so the key window in between, nil, would flash
+    /// the wash), and before Core Animation commits the pass that redraws the window for it.
     private func keyDidMove() { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
         guard !checkPending else { return }
         checkPending = true
@@ -105,9 +108,23 @@ final class WindowKeyFamily {
             let inactive = WindowMaterialView.looksInactive(appActive: active, familyHoldsKey: holds,
                                                             familyHeldKey: self.familyHeldKey)
             if active, holds { self.familyHeldKey = true }
-            guard inactive != self.isInactive else { return }
+            let settled = !active || key != nil
+            guard inactive != self.isInactive else {
+                // A wash easing from an unsettled check lands now that the keys settled.
+                if self.easing, settled {
+                    self.easing = false
+                    self.forEachView { $0.updateInactiveTint(fades: false) }
+                }
+                return
+            }
             self.isInactive = inactive
-            self.forEachView { $0.updateInactiveTint() }
+            self.easing = !settled
+            // Settled (another app is active, or a window holds the keys): no fade, so the wash
+            // switches with the glass and the window chrome in this pass's transaction
+            // (``WindowMaterialView/updateInactiveTint(fades:)``). An active app with no key
+            // window may be between a resign and a become that a later pass posts: the wash
+            // eases then, so a reversal one pass later does not flash.
+            self.forEachView { $0.updateInactiveTint(fades: !settled) }
         }
     }
 

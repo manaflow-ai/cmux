@@ -1,8 +1,7 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
-import { foldMs } from "./fold";
 import { Close } from "./icons";
 import { TurnActionsContext } from "./turnActions";
 
@@ -14,52 +13,29 @@ import { TurnActionsContext } from "./turnActions";
 /// 2026-10-20). An agent that cannot stop one step reads it when the step ends, as before. `send`
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
-/// Both lead the prompt's action row, before its receipt, age and message buttons (Leo, 2026-10-24).
-/// Once Send now worked they leave at once, though acpmux still says the steer waits until the agent
-/// reads it (Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear"):
-/// they fade and fold their width over the transcript's fold duration, the row's height never
-/// changes, and then they are gone.
+/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it.
+/// A refusal keeps the controls available. Accepted delivery removes them in the same render.
 export function PendingSteer({
   row,
   send,
+  children,
 }: {
   row: AcpmuxRow;
   send: (promptId: string, edit: QueueEdit) => Promise<boolean>;
+  children?: ReactNode;
 }) {
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
-  // Shown while the steer waited: it leaves with the fold too when the agent reads it first.
-  const [shown, setShown] = useState(waiting);
-  if (waiting && !shown) setShown(true);
   const [sentNow, setSentNow] = useState(false);
-  // The width it folds from, set once Send now worked or the agent read the steer; `gone` when
-  // the fold ended.
-  const [leaving, setLeaving] = useState<number | "gone">();
-  const self = useRef<HTMLDivElement>(null);
-  // Measured before paint, so the controls never draw a frame unfolded after they should leave.
-  useLayoutEffect(() => {
-    if (leaving === undefined && (sentNow || (shown && !waiting))) setLeaving(self.current?.offsetWidth ?? 0);
-  }, [leaving, sentNow, shown, waiting]);
-  // The fold's one timer, as long as the transcript's folds (`foldMs`: 0 under Reduce Motion or
-  // with the app's animation off): it stops when the fold ends, and is cleared if the row goes first.
-  useEffect(() => {
-    if (typeof leaving !== "number") return;
-    const timer = setTimeout(() => setLeaving("gone"), foldMs(self.current));
-    return () => clearTimeout(timer);
-  }, [leaving]);
   const promptId = row.steerPromptId;
-  // Sent now before this row was last drawn (the transcript drops rows scrolled away): no controls.
-  if (!shown || leaving === "gone" || (!sentNow && promptId && sentNowIds.has(promptId))) return null;
-  const busy = sending || leaving !== undefined;
+  // The transcript virtualizes rows: a remount must not offer an accepted send again.
+  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
+  if (!promptId) return null;
+  const busy = sending;
   return (
-    <div
-      ref={self}
-      className={leaving === undefined ? "cv-user__pending" : "cv-user__pending cv-user__pending--leaving"}
-      style={leaving === undefined ? undefined : ({ "--cv-pending-width": `${leaving}px` } as CSSProperties)}
-      aria-hidden={leaving === undefined ? undefined : true}
-    >
+    <div className="cv-user__pending">
       {promptId && (
         <button
           type="button"
@@ -124,15 +100,20 @@ export async function takeBackSteer(
   io: {
     withdraw: (promptId: string) => Promise<boolean>;
     attachments: (rowId: string) => Promise<ComposerAttachment[]>;
+    draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
 ): Promise<boolean> {
   const promptId = row.steerPromptId;
   if (!promptId || row.steer !== "waiting") return false;
-  const attachments = await io.attachments(row.id).catch(() => undefined);
+  const text = row.resend ?? row.text ?? "";
+  const draft = await (
+    io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
+  ).catch(() => undefined);
+  const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
   const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
-  if (!attachments || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
-  io.restore(row.resend ?? row.text ?? "", attachments);
+  if (!draft || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
+  io.restore(draft.input, draft.attachments);
   return true;
 }

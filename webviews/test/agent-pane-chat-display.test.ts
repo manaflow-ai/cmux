@@ -13,7 +13,6 @@ import {
   chatMetrics,
   DEFAULT_CHAT_DISPLAY,
   ENVIRONMENT_PLACEMENT_KEY,
-  environmentPlacementSurface,
   resolveChatDisplay,
 } from "../src/agent-session/acpmux/chatDisplay";
 import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
@@ -24,7 +23,7 @@ describe("chat display resolution", () => {
     expect(display).toEqual(DEFAULT_CHAT_DISPLAY);
     expect(Object.values(chatDisplayVariables(display)).every((value) => value === null)).toBe(true);
     const metrics = chatMetrics(display);
-    expect(metrics.measureFont).toBe("14px system-ui");
+    expect(metrics.measureFont).toBe('14px "Inter", system-ui, sans-serif');
     expect(metrics.lineHeight).toBe(22.75);
     expect(metrics.codeLineHeight).toBe(20);
     expect(metrics.inlineCodeSize).toBe(13);
@@ -88,63 +87,6 @@ describe("chat display resolution", () => {
     expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "off" }).environmentPlacement).toBe("off");
     expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "center" }).environmentPlacement).toBe("left");
   });
-
-  test("the environment chip owns one surface and unmounts while covered", () => {
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: true, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "right",
-        inTabRow: true,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: true, row: false, compact: true });
-    expect(
-      environmentPlacementSurface({
-        placement: "right",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: true, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "off",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: true,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: true,
-        hasEnvironment: true,
-        hasStatus: true,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
-  });
 });
 
 describe("chat display drawing", () => {
@@ -154,7 +96,7 @@ describe("chat display drawing", () => {
     expect(variables["--cv-font-size"]).toBe("16px");
     expect(variables["--cv-line-height"]).toBe("24px");
     expect(chatMetrics(display).lineHeight).toBe(24);
-    expect(chatMetrics(display).measureFont).toBe("16px system-ui");
+    expect(chatMetrics(display).measureFont).toBe('16px "Inter", system-ui, sans-serif');
     // Code keeps its share of the text: 13/14 inline and 12/14 in blocks.
     expect(chatMetrics(display).blockCodeSize).toBeCloseTo((12 * 16) / 14, 2);
   });

@@ -180,7 +180,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
     };
     let peers = read(&["acp", "host", "ls", "--json"], "agent peers");
     let pairing = read(&["acp", "host", "ticket", "ls", "--json"], "paired devices");
-    let remote = match host_config::path().map(|p| p.exists()) {
+    let remote = match host_config::exists() {
         Ok(true) => match host_config::load() {
             Ok(c) => serde_json::to_value(&c).unwrap_or(Value::Null),
             Err(e) => {
@@ -190,7 +190,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
         },
         _ => Value::Null,
     };
-    Sources { peers, pairing, remote }
+    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_targets() }
 }
 
 fn choice(flags: &Flags) -> anyhow::Result<Choice> {
@@ -274,14 +274,28 @@ fn print_listing(listing: &Listing, notes: &[String]) {
         }
     }
     if !listing.available.is_empty() {
-        println!("\nOn your network, not added:");
+        println!("\nNot added yet (your network and ~/.ssh/config):");
         for a in &listing.available {
-            println!("  {:<28} {:<10} cmux device add {} --yes", a.name, a.os, a.address);
+            println!(
+                "  {:<28} {:<10} cmux device add {} --yes",
+                a.name,
+                a.os,
+                shell_word(&a.address)
+            );
         }
     }
     for note in notes {
         println!("\nNote: {note}");
     }
+}
+
+/// `text` as one shell word for a command a person copies: as is when it is
+/// only letters, digits and `@%+=:,./-_`, else single-quoted (an ssh alias
+/// may hold anything ssh's config grammar allows).
+fn shell_word(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text.chars().all(|c| c.is_ascii_alphanumeric() || "@%+=:,./-_".contains(c));
+    if plain { text.to_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
 }
 
 /// Who did it, for the audit: the login when known, else the OS user.

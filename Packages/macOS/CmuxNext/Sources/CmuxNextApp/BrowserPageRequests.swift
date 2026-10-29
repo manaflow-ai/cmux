@@ -363,7 +363,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.registry.track(Task { [weak self] in
             do {
                 let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
-                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, after: after)
+                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, activate: !background, after: after)
                 }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil

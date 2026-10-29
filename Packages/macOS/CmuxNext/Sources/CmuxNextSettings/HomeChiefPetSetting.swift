@@ -5,13 +5,13 @@ public import CmuxNextActions
 /// default; the person or an agent turns it on (Settings > Home > Chief Pet, View > Show Chief Pet, the
 /// palette's Show Chief Pet, the empty Chief conversation, `cmux settings set`), and the person can
 /// hide it again the same way. Message the Chief shows it for one message without turning it on.
-/// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots.
+/// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots and the animated sets.
 public nonisolated struct HomeChiefPetSetting {
     public nonisolated init() {}
     public static let configPath = ["home", "chiefPetEnabled"]
     public static let mascotPath = ["home", "chiefPetMascot"]
     /// The Chief Dock's mascot ids (`ChiefPetMascot`, webviews `ChiefMascot`), its default first.
-    public static let mascots = ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox"]
+    public static let mascots = ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox", "mochi"]
     public static let defaultMascot = "orb"
 
     /// The mascot id; one that is not a mascot is the default plus a diagnostic.

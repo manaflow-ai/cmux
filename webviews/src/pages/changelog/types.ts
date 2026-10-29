@@ -15,6 +15,8 @@ export interface IndexEntry {
   shortVersion: string;
   date: string;
   highlights: number;
+  /** The commit the build was cut from; older indexes lack it. */
+  head?: string;
 }
 
 export interface ListResult {
@@ -76,6 +78,9 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
+      whatever its subject says. Absent in notes published before the flag. */
+  internal?: boolean;
 }
 
 export interface ReleaseNotes {

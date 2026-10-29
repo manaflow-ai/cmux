@@ -174,7 +174,9 @@ impl Translator {
                             // One model call's own usage, marked so a client can add a turn's
                             // calls up (the pane's running line). The result's resend below is
                             // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend.
+                            // marked too: they are the turn's spend. The four counts split the
+                            // call so the line can say its output apart from what it read (fresh
+                            // input, cache reads and cache writes).
                             out.push(upd(json!({
                                 "sessionUpdate": "usage_update",
                                 "used": used,
@@ -299,12 +301,20 @@ impl Translator {
                 }
                 drop(prompt);
                 let mut steers = self.steers.lock().await;
-                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
-                    && let Some((_, k)) = steers.remove(at)
-                {
+                // A line of several sessions' messages answers each (`steer_batch.rs`).
+                let read: Vec<String> = steers
+                    .iter()
+                    .filter(|(u, _)| !uuid.is_empty() && u == uuid)
+                    .map(|(_, k)| k.clone())
+                    .collect();
+                if !read.is_empty() {
+                    steers.retain(|(u, _)| u != uuid);
                     drop(steers);
-                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    self.forget_batch(uuid).await;
+                    for k in read {
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    }
                     // A turn the client stopped: Claude Code runs a line it
                     // read after the stop as one more turn, so that turn is
                     // stopped too, and the prompt ends cancelled.
@@ -390,17 +400,31 @@ impl Translator {
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
-                        // A background subagent's result is only its launch.
-                        if self.background_subagents.lock().await.contains(tool) {
-                            continue;
+                        // A background subagent's result is only its launch, unless the launch
+                        // failed: then it never ran, and ends here (manaflow-ai/cmux#25230: else
+                        // the chat reads working forever).
+                        {
+                            let mut background = self.background_subagents.lock().await;
+                            if background.contains(tool) && !is_err {
+                                continue;
+                            }
+                            background.remove(tool);
                         }
                         if let Some(child) = self.subagents.lock().await.remove(tool) {
-                            self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
-                            out.push(upd(json!({
+                            let mut tasks = self.subagent_tasks.lock().await;
+                            let agent =
+                                tasks.iter().find(|(_, t)| *t == tool).map(|(a, _)| a.clone());
+                            tasks.retain(|_, t| *t != tool);
+                            drop(tasks);
+                            let mut update = json!({
                                 "sessionUpdate": "subagent_state_update",
                                 "subagentSessionId": child,
                                 "state": if is_err { "failed" } else { "completed" },
-                            })));
+                            });
+                            if is_err {
+                                self.failed_with(&mut update, tool, &child, agent, &text).await;
+                            }
+                            out.push(upd(update));
                         }
                     }
                 }
@@ -461,7 +485,12 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
-                self.forget_elicitation(rid).await;
+                if let Some(id) = self.cancel_control_request(rid).await {
+                    out.push(Message::notification(
+                        method::CANCEL_REQUEST,
+                        json!({"requestId": id}),
+                    ));
+                }
             }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);
@@ -549,6 +578,9 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
+                    // A line dropped to be written again with more messages (`steer_batch.rs`).
+                    out.extend(self.rebatched(uuid, ok, &inner).await);
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);
@@ -637,9 +669,11 @@ impl Translator {
                 if unread && self.prompt_echo.lock().await.is_none() {
                     return out;
                 }
+                // Out of the turn first: a steer that takes the steer locks after `fail_steers`
+                // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
+                self.in_turn.store(false, Ordering::SeqCst);
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
-                self.in_turn.store(false, Ordering::SeqCst);
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
                 // What the context holds now, as Claude Code's /context breaks it down; its
@@ -729,6 +763,8 @@ impl Translator {
                     _ => {}
                 }
             }
+            // The account's plan usage limits, newest per window (`usage_limits.rs`).
+            "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
@@ -867,10 +903,22 @@ impl Translator {
     /// `subagent_state_update` with its tool id when it ended.
     async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
-        let tool = match line.get("tool_use_id").and_then(Value::as_str) {
-            Some(tool) => tool.to_owned(),
-            None => self.subagent_tasks.lock().await.get(task)?.clone(),
+        // SendMessage resumed an agent that failed: its task starts again under the SendMessage
+        // call, and it is that subagent running again (its lines still name its Agent call).
+        let resumed = {
+            let mut failed = self.failed_agents.lock().await;
+            let at = failed.iter().position(|(agent, _, _)| !task.is_empty() && agent == task);
+            at.filter(|_| sub == "task_started").and_then(|at| failed.remove(at))
         };
+        if let Some((_, tool, child)) = resumed {
+            self.subagents.lock().await.insert(tool.clone(), child.clone());
+            self.background_subagents.lock().await.insert(tool.clone());
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool);
+            let update = json!({"sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child, "state": "running", "agentId": task});
+            return Some((update, None));
+        }
+        let tool = self.task_tool(line).await?;
         if !self.subagents.lock().await.contains_key(&tool) {
             return None;
         }
@@ -914,7 +962,7 @@ impl Translator {
             return None;
         }
         self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
-        self.workflows.lock().await.remove(&tool);
+        let workflow = self.workflows.lock().await.remove(&tool).is_some();
         let child = self.subagents.lock().await.remove(&tool)?;
         let state = match status {
             "failed" => "failed",
@@ -929,7 +977,50 @@ impl Translator {
         if status == "paused" {
             update.set("reason", json!("paused"));
         }
+        if state == "failed" {
+            // A workflow resumes by its run id, never by SendMessage: it names no agent.
+            let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
+            let error = line.get("summary").and_then(Value::as_str).unwrap_or_default();
+            self.failed_with(&mut update, &tool, &child, agent, error).await;
+        }
         Some((update, Some(tool)))
+    }
+
+    /// The Agent call a task line is about: its `tool_use_id` when that is a subagent's, else
+    /// the call its task id ran under (a resumed agent's lines name the SendMessage call).
+    pub(super) async fn task_tool(&self, line: &Value) -> Option<String> {
+        let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        if let Some(tool) = text("tool_use_id")
+            && self.subagents.lock().await.contains_key(tool)
+        {
+            return Some(tool.to_owned());
+        }
+        self.subagent_tasks.lock().await.get(text("task_id")?).cloned()
+    }
+
+    /// A failed subagent's end says why (`error`) and, when Claude named its agent, the
+    /// `agentId` SendMessage resumes it by; a resume then reports it running again.
+    async fn failed_with(
+        &self,
+        update: &mut Value,
+        tool: &str,
+        child: &str,
+        agent: Option<String>,
+        error: &str,
+    ) {
+        if !error.is_empty() {
+            let error: String = error.chars().take(MAX_FAILURE_CHARS).collect();
+            update.set("error", json!(error));
+        }
+        if let Some(agent) = agent {
+            update.set("agentId", json!(agent));
+            let mut failed = self.failed_agents.lock().await;
+            failed.retain(|(a, _, _)| *a != agent);
+            if failed.len() >= MAX_FAILED_AGENTS {
+                failed.pop_front();
+            }
+            failed.push_back((agent, tool.to_owned(), child.to_owned()));
+        }
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
@@ -940,12 +1031,6 @@ impl Translator {
         let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
-        if workflow {
-            self.workflows
-                .lock()
-                .await
-                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input));
-        }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
@@ -954,6 +1039,22 @@ impl Translator {
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
+        let model = Some(
+            s("model")
+                .filter(|m| *m != "inherit")
+                .map(str::to_owned)
+                .unwrap_or(self.model.lock().await.clone()),
+        );
+        let effort = s("effort")
+            .or(s("reasoning_effort"))
+            .map(str::to_owned)
+            .or(Some(self.effort.lock().await.clone()));
+        if workflow {
+            self.workflows
+                .lock()
+                .await
+                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input, effort.clone()));
+        }
         let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -963,6 +1064,12 @@ impl Translator {
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         });
+        if let Some(model) = model {
+            update.set("model", json!(model));
+        }
+        if let Some(effort) = effort {
+            update.set("effort", json!(effort));
+        }
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
             update.set("background", json!(true));

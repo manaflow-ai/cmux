@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -66,6 +69,11 @@ pub struct Conn {
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
+    /// Its pace of full session lists (`hub/list_guard.rs`).
+    list_pace: StdMutex<crate::hub::list_guard::Pacer>,
+    /// `session_changed` notices queued for it, counted before each is queued
+    /// (`list_reply.rs`: a list sent after one must show its change).
+    notices: Arc<AtomicU64>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -95,6 +103,8 @@ pub struct Conn {
     /// The media files of peers' chats it opened, closed on the peer when it closes
     /// (`media_forward.rs`).
     pub(super) remote_media: media_forward::RemoteMedia,
+    /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
+    client_requests: client_request::ClientRequests,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -278,7 +288,11 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
-        let control = matches!(msg, Message::Response { .. });
+        // A request to the client waits on its answer, so it is never dropped as lossy.
+        let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
+        if msg.method() == Some(method::MUX_SESSION_CHANGED) {
+            self.notices.fetch_add(1, Ordering::SeqCst);
+        }
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
@@ -313,8 +327,93 @@ impl Conn {
             }
         }
     }
+    /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
+    /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
+    /// if a notice was queued since, it is not sent (false) unless `anyway`. A reply that
+    /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
+    /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
+    /// One larger than a frame goes as its error, as in [`Self::send`].
+    /// None if it was not sent; else whether it went whole into an open queue (not as its
+    /// too-large error, nor into a queue whose reader is gone).
+    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> Option<bool> {
+        let mut line = list_reply::reply_line(id, result);
+        let whole = line.len() <= crate::rpc::MAX_MESSAGE_BYTES;
+        if !whole {
+            line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
+        }
+        let lag = || {
+            let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
+            Message::notification("_acpmux/lagged", lag).to_line()
+        };
+        let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let stale = self.notices.load(Ordering::SeqCst) != seen;
+        if stale && !anyway {
+            return None;
+        }
+        match self.out.try_send(line) {
+            Ok(()) if stale => self.enqueue_control_locked(lag()),
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
+            // No room: it waits for some, and a notice may go first; then the lag follows it.
+            Err(mpsc::error::TrySendError::Full(line)) => {
+                let (out, notices) = (self.out.clone(), self.notices.clone());
+                let pending = self.outbound_pending_controls.clone();
+                pending.fetch_add(1, Ordering::AcqRel);
+                tokio::spawn(async move {
+                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
+                        let _ = out.send(lag()).await;
+                    }
+                    pending.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+        }
+        Some(whole)
+    }
+
+    /// [`Self::send`] for a request to the client that must go out after every response and
+    /// request queued before it ([`enqueue_after_controls`]): a GitHub action after the watch
+    /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
+    /// while one of those still waits for room, or when it is larger than a frame.
+    fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
+        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
+        let msg = masked.as_ref().unwrap_or(msg);
+        let line = msg.bounded_line().map_err(RpcError::too_large)?;
+        if self.out.is_closed() {
+            return Err(RpcError::internal("the connection that would answer ended"));
+        }
+        let queued = enqueue_after_controls(
+            &self.out,
+            line,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+        if !queued {
+            return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
+                .with_data(json!({"reason": "client.busy", "retryable": true})));
+        }
+        Ok(())
+    }
+
+    fn enqueue_control_locked(&self, line: String) {
+        enqueue_outbound_locked(
+            &self.out,
+            line,
+            true,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+    }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
+    }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
     }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
@@ -338,10 +437,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -367,6 +462,47 @@ fn enqueue_outbound(
     pending_controls: &Arc<AtomicUsize>,
 ) {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    enqueue_outbound_locked(
+        out,
+        line,
+        control,
+        dropped,
+        gap_pending,
+        outbound_lock,
+        pending_controls,
+    );
+}
+
+/// [`enqueue_outbound`] of a control line that must go out after every control queued before
+/// it: queued only if none of those still waits for room in a full queue (each such waits in a
+/// task of its own, which a line queued now would pass). False, with nothing queued, if one does
+/// or the queue's reader is gone.
+fn enqueue_after_controls(
+    out: &mpsc::Sender<String>,
+    line: String,
+    dropped: &Arc<AtomicU64>,
+    gap_pending: &Arc<AtomicBool>,
+    outbound_lock: &Arc<StdMutex<()>>,
+    pending_controls: &Arc<AtomicUsize>,
+) -> bool {
+    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    if out.is_closed() || pending_controls.load(Ordering::Acquire) != 0 {
+        return false;
+    }
+    enqueue_outbound_locked(out, line, true, dropped, gap_pending, outbound_lock, pending_controls);
+    true
+}
+
+/// [`enqueue_outbound`] with `outbound_lock` held.
+fn enqueue_outbound_locked(
+    out: &mpsc::Sender<String>,
+    line: String,
+    control: bool,
+    dropped: &Arc<AtomicU64>,
+    gap_pending: &Arc<AtomicBool>,
+    outbound_lock: &Arc<StdMutex<()>>,
+    pending_controls: &Arc<AtomicUsize>,
+) {
     // Notifications are lossy by design when the reader is too slow, but the
     // The final three permits are reserved for two response/control messages
     // and the recovery marker.
@@ -814,6 +950,9 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            // Binary frames are upload data (`upload_frames.rs`), written in order by their own
+            // worker; it refuses them on any connection but the local app's.
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
             let reader = tokio::spawn(async move {
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
@@ -824,9 +963,16 @@ pub async fn serve_ws_with(
                             break;
                         }
                     };
-                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
-                        && in_tx.send(t.to_string()).await.is_err()
-                    {
+                    let sent = match frame {
+                        // After the frames before it are written (`upload_frames::InFlight`).
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            frames.in_flight.drained().await;
+                            in_tx.send(t.to_string()).await.is_ok()
+                        }
+                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                        _ => true,
+                    };
+                    if !sent {
                         break;
                     }
                 }
@@ -990,7 +1136,7 @@ async fn serve_http(
         if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
             ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
         } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
+            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to open it with its token (<code>acpmux web --no-open --show-token</code> prints the link).</p>".to_owned(), "text/html; charset=utf-8")
         }
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
@@ -1112,6 +1258,8 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        list_pace: Default::default(),
+        notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
@@ -1132,6 +1280,7 @@ async fn serve_connection_from(
             crate::hub::media_handles::Handles::default()
         },
         remote_media: media_forward::RemoteMedia::default(),
+        client_requests: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1190,11 +1339,30 @@ async fn serve_connection_from(
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
-                    let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                    conn.send(&match result {
-                        Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
-                    });
+                    let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
+                    let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    // Its answer went whole into an open queue: one sent as its too-large error, or
+                    // to a reader that is gone, opened nothing.
+                    let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
+                    // A shared session list, sent already as the bytes it was serialized to.
+                    if !(sent.is_some() && result.is_ok()) {
+                        conn.send(&match result {
+                            Ok(v) => Message::ok(id, v),
+                            Err(mut e) => {
+                                // What kind of failure, and what to do (`recovery.rs`).
+                                crate::recovery::annotate(&mut e, None);
+                                Message::err(id, e)
+                            }
+                        });
+                    }
+                    // A Mac that lends GitHub counts from here: its watch answer is queued, so
+                    // no action reaches it before the answer that opens its side.
+                    if watched
+                        && conn.watch_all.load(Ordering::SeqCst)
+                        && conn.client_requests.lends_github.load(Ordering::SeqCst)
+                    {
+                        hub.add_github_owner(&conn);
+                    }
                 });
             }
             // A read-only machine's notifications (a cancel) change nothing.
@@ -1233,9 +1401,9 @@ async fn serve_connection_from(
                     }
                 }
             }
-            Message::Response { .. } => {
-                // acpmux sends no requests to clients today (permission goes
-                // through _acpmux/permission_pending + permission_respond).
+            // An answer to a request this daemon sent the client (`client_request.rs`).
+            Message::Response { id, result, error } => {
+                conn.settle_client_request(&id, result, error);
             }
         }
     }
@@ -1445,6 +1613,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 
 mod agent_messages;
 mod app_reply;
+mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
@@ -1454,11 +1623,16 @@ mod ephemeral;
 mod fanout;
 mod forum;
 mod media_forward;
+pub mod mesh_relay;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+mod list_reply;
+use lane_parent::lane_parent;
+mod bg_tasks;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1477,16 +1651,20 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 mod secrets;
+mod session_auth;
 mod session_files;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
+pub mod upload_frames;
 mod view;
-mod wait;
+mod vm_host;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
@@ -1663,7 +1841,7 @@ mod nodelay_tests {
 
 #[cfg(test)]
 mod outbound_queue_tests {
-    use super::{Message, enqueue_outbound};
+    use super::{Message, enqueue_after_controls, enqueue_outbound};
     use serde_json::json;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
     use std::sync::{Arc, Mutex};
@@ -1730,4 +1908,75 @@ mod outbound_queue_tests {
         let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
         assert!(matches!(gap, Message::Notification { method, .. } if method == "_acpmux/lagged"));
     }
+
+    /// Review of #26784 at 0a57249: a watch answer that waited for room in a full queue (in a
+    /// task of its own) could be passed by the GitHub request sent after it, which the Mac then
+    /// refused. That request now waits for no such answer: it is refused until none is left.
+    #[tokio::test]
+    async fn a_request_in_order_never_passes_an_answer_waiting_for_room() {
+        let (out, mut queued) = mpsc::channel(1);
+        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
+        let dropped = Arc::new(AtomicU64::new(0));
+        let gap_pending = Arc::new(AtomicBool::new(false));
+        let pending_controls = Arc::new(AtomicUsize::new(0));
+        let lock = Arc::new(Mutex::new(()));
+        let answer = Message::ok(json!(7), json!({"sessions": []})).to_line();
+        enqueue_outbound(&out, answer, true, &dropped, &gap_pending, &lock, &pending_controls);
+        let request =
+            || Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({})).to_line();
+
+        // The reader takes a line; the answer still waits for room in its task. The request is
+        // refused, and queues nothing.
+        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
+        let sent = enqueue_after_controls(
+            &out,
+            request(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending_controls,
+        );
+        assert!(!sent, "nothing goes ahead of an answer that waits for room");
+        let first = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        assert!(matches!(first, Message::Response { id, .. } if id == json!(7)));
+        // The answer is in the queue, so the request is sent after it.
+        while pending_controls.load(std::sync::atomic::Ordering::Acquire) != 0 {
+            tokio::task::yield_now().await;
+        }
+        assert!(enqueue_after_controls(
+            &out,
+            request(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending_controls
+        ));
+        let next = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        assert!(matches!(next, Message::Request { .. }));
+    }
+
+    /// Review of #26784 at d0b90b0: a request to a client whose reader was gone counted as sent,
+    /// and its action waited out the whole wait before failing.
+    #[test]
+    fn a_request_in_order_to_a_reader_that_is_gone_is_not_sent() {
+        let (out, queued) = mpsc::channel(4);
+        drop(queued);
+        let (dropped, gap_pending) =
+            (Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(false)));
+        let (pending, lock) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(())));
+        let request = Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({}));
+        let sent = enqueue_after_controls(
+            &out,
+            request.to_line(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending,
+        );
+        assert!(!sent);
+    }
 }
+
+/// Owner-only TLS ingress from the embedded tailnet node.
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod tailnet_ingress;

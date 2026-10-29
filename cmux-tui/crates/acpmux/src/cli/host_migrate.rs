@@ -132,14 +132,16 @@ systemctl --user daemon-reload && systemctl --user enable --now "$u"
 /// other daemon. `dry` (the probe before an update) only checks the plan.
 /// It refuses (exit 3, [`REFUSED`]) before changing anything; once it
 /// changed something it prints [`MIGRATING`] and ends the script, with
-/// [`SYSTEMD_STARTED`] when `acpmux.service` started. A second run finds the
+/// [`SYSTEMD_STARTED`] when `acpmux.service` started (and the self-update
+/// timer installed beside it, `host_auto_update.rs`). A second run finds the
 /// daemon under `acpmux.service` and does nothing.
 pub(super) fn migrate(dry: bool) -> String {
     let apply = if dry {
         "rm -rf \"$t\"; exit 0\n".to_owned()
     } else {
         format!(
-            "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}echo {SYSTEMD_STARTED}; exit 0\n"
+            "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}{}echo {SYSTEMD_STARTED}; exit 0\n",
+            super::host_auto_update::install_script()
         )
     };
     let old = super::old_unit_check();

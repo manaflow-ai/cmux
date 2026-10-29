@@ -236,6 +236,10 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+// Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
+mod steer_batch;
+#[cfg(test)]
+mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
@@ -244,9 +248,21 @@ mod subagent_route;
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
+pub use usage_limits::merge_usage_limits;
+
+/// Longest failure text a failed subagent's end carries, in characters.
+const MAX_FAILURE_CHARS: usize = 600;
+
+/// Most failed subagents remembered for a resume (`failed_agents`); the oldest goes first. A
+/// resume of one forgotten still streams under its own session (`subagent_route.rs`); only its
+/// `running` again is not said.
+const MAX_FAILED_AGENTS: usize = 64;
 
 /// The internal ACP request that stops one of Claude Code's background
 /// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
@@ -412,6 +428,9 @@ pub struct Translator {
     /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
     /// withdraw names the line to drop (`steer_withdraw.rs`).
     steer_lines: Mutex<HashMap<String, String>>,
+    /// The waiting lines of other sessions' messages, and those being written again with more
+    /// (`steer_batch.rs`). Taken before `steers`.
+    batches: Mutex<steer_batch::Batches>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -433,6 +452,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// Subagents that ended failed, oldest first: the agent id SendMessage resumes each by, its
+    /// Agent call and its session, so a resume reports that subagent running again.
+    failed_agents: Mutex<std::collections::VecDeque<(String, String, String)>>,
     /// Running Workflow tool calls (`workflows.rs`): each run's transcript
     /// dir once its launch named it, and what was last sent of its agents.
     workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
@@ -468,6 +490,9 @@ pub struct Translator {
     /// and those in the background (`run_in_background`, or moved there) until
     /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
+    /// The plan usage limit windows Claude Code reported, newest each, by id
+    /// (`usage_limits.rs`).
+    usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -537,6 +562,7 @@ impl Translator {
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
+            batches: Mutex::new(Default::default()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -545,6 +571,7 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
@@ -555,6 +582,7 @@ impl Translator {
             streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
+            usage_limits: Mutex::new(Default::default()),
         })
     }
 
@@ -563,41 +591,46 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
-        // pending entry before it inspects the steers, so holding steers while awaiting pending
-        // would invert the lock order used by the withdrawal path.
-        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
+        // Under `batches` and `steers`, the order every steer path takes them, and only then
+        // `pending`: a withdraw registers its pending entry while it holds `steers`
+        // (`steer_withdraw.rs`), so it is either drained here or finds no steer left to take
+        // back. A withdrawal reply holds neither lock while it removes its entry.
+        let mut batches = self.batches.lock().await;
         // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
         // records or waits until the stale index has been cleared.
         let mut steers = self.steers.lock().await;
+        let mut held = Self::end_batches(&mut batches, message);
+        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
-        ids.into_iter()
-            .map(|id| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(id, RpcError::internal(message))
-            })
-            .collect()
+        drop(batches);
+        held.extend(ids.into_iter().map(|id| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(id, RpcError::internal(message))
+        }));
+        held
     }
 
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
+        let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
+        // Held for a line being written again, never written: they go in the next turn.
+        let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
         drop(steers);
-        failed
-            .into_iter()
-            .map(|(_, id)| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(
-                    id,
-                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
-                )
-            })
-            .collect()
+        drop(batches);
+        let failed = failed.into_iter().map(|(_, id)| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(
+                id,
+                RpcError::internal("steer: the turn ended before Claude Code read the message"),
+            )
+        });
+        held.into_iter().chain(failed).collect()
     }
 
     /// Ends the `background_tasks` requests `ended` picks by ACP id and

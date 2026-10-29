@@ -45,14 +45,18 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    var crashReloads = PageCrashReloads()
-    /// Shown instead of reloading once the page keeps crashing.
+    /// Shown when the page's web content ends (it never reloads by itself).
     var crashNotice: NSView?
+    /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
+    public var showsCrashNotice: Bool { crashNotice != nil }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
+    /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
+    /// approvals); nil for no notice or another one.
+    var peerApprovalsReason: AgentPanePeerApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
@@ -177,8 +181,7 @@ public final class AgentPaneView: NSView {
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
             // background is the one surface token, or clear over a see-through
             // window (plans/cmux-next/windows.md).
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            WebTheme.installUserScripts(on: configuration.userContentController)
             if let script = AgentPaneTunables.documentScript {
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -401,16 +404,22 @@ public final class AgentPaneView: NSView {
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
+        model.transport.onPeerApprovalsOff = nil
+        hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()
         if let page {
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+            // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
             webView.navigationDelegate = nil
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+            WebViewRetirement.retire(webView)
         }
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
     }
 
@@ -451,8 +460,10 @@ public final class AgentPaneView: NSView {
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
-    /// selects its text, wherever focus was on the page.
+    /// selects its text, wherever focus was on the page. The page takes the window's keyboard first:
+    /// a Chromium page whose window lost the keys had the field focused and typed nowhere.
     public func focusLocation() {
+        focusChat()
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 

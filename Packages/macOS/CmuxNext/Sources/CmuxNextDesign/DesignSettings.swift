@@ -103,6 +103,15 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
+    /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
+    /// setting reaches it (``SettingsApplier``).
+    public var wallpaperTint = false {
+        didSet {
+            guard wallpaperTint != oldValue else { return }
+            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
+        }
+    }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
@@ -119,6 +128,9 @@ public final class DesignSettings {
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
     /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
     public var homeChiefBubblesThemed = false
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); empty keeps the bubble style's. A chat's own Chat Colors… go over it.
+    public var homeBubbleColors: [String: String] = [:]
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.

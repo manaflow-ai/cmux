@@ -37,8 +37,8 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
 cmux cloud new-machine                                    # answers machine_id (or pending)
 cmux cloud new-workspace                                  # a new cloud workspace
-cmux cloud open-machine --target machine:vm-…
-cmux cloud new-terminal-on-machine --target machine:vm-…
+cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
+cmux cloud ssh --target machine:vm-…                      # a terminal tab in its first workspace
 cmux cloud machine-status --target machine:vm-…
 cmux cloud resize-machine --target machine:vm-… --size large --wait
 cmux cloud snapshot-machine --target machine:vm-…
@@ -59,7 +59,8 @@ unloaded list from an empty one.
 
 ## Work inside a machine
 
-Open a terminal on the machine (`cmux cloud open-machine --target machine:vm-…`, or the sidebar), then use
+Open a terminal on the machine (`cmux cloud new-terminal-on-machine --target machine:vm-…`, or
+`cmux cloud ssh --target machine:vm-…`, or the sidebar), then use
 the machine's own `cmux` from that terminal. `current` selectors address the
 session's active terminal, pane and workspace; use `$CMUX_TUI_TERMINAL_ID` for the
 caller's own terminal:

@@ -409,3 +409,46 @@ struct MacScreenCardInputTests {
         pane.close()
     }
 }
+
+/// 120 Hz streaming: the pane tells its session how fast its display
+/// refreshes, and the stats line shows the agreed rate next to the measured one.
+@MainActor
+struct MacScreenFrameRateTests {
+    @Test func thePaneReportsItsDisplayRateToTheSession() {
+        let pane = devicePane()
+        #expect(pane.session?.displayMaximumFrameRate == nil, "nothing reported before the pane is in a window")
+        pane.view.reportDisplayRefresh(120)
+        #expect(pane.session?.displayMaximumFrameRate == 120)
+        // The window moved to a 60 Hz display.
+        pane.view.reportDisplayRefresh(60)
+        #expect(pane.session?.displayMaximumFrameRate == 60)
+        // No screen (the window left every display): the last rate stays.
+        pane.view.reportDisplayRefresh(nil)
+        #expect(pane.session?.displayMaximumFrameRate == 60)
+    }
+
+    #if DEBUG
+    /// DEV builds (`debug.mac_screen` `display_fps`): a pane on a 60 Hz
+    /// display can report 120, to check the 120 fps path end to end.
+    @Test func aDevOverrideIsReportedInsteadOfTheDisplaysRate() {
+        let pane = devicePane()
+        pane.view.reportDisplayRefresh(60)
+        pane.view.debugDisplayFrameRate = 120
+        #expect(pane.session?.displayMaximumFrameRate == 120, "the override is reported at once")
+        pane.view.reportDisplayRefresh(60)
+        #expect(pane.session?.displayMaximumFrameRate == 120, "the display's own rate does not replace it")
+        pane.view.debugDisplayFrameRate = nil
+        pane.view.reportDisplayRefresh(60)
+        #expect(pane.session?.displayMaximumFrameRate == 60, "with the override off the display's rate counts again")
+    }
+    #endif
+
+    @Test func statsShowTheAgreedRateNextToTheMeasuredOne() {
+        let agreed = MacScreenToolbarView.statsLine(path: "Direct", fps: 118.4, targetFps: 120, latencyMs: 4, encoding: "H264 HW",
+                                                frameSize: CGSize(width: 3024, height: 1964))
+        #expect(agreed == "Direct · 118/120 fps · 4 ms · H264 HW · 3024×1964")
+        // A host that predates the agreed rate sends none: the line is as before.
+        let oldHost = MacScreenToolbarView.statsLine(path: "Relay", fps: 59.6, targetFps: nil, latencyMs: nil, encoding: "-", frameSize: .zero)
+        #expect(oldHost == "Relay · 60 fps")
+    }
+}

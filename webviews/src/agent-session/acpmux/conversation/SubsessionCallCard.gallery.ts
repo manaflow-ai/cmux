@@ -4,6 +4,7 @@
 // with what it does now and its queue, waiting on a question or a permission, failed, done), a
 // message sent to one with how it was delivered, a wait's replies, and calls still running. The
 // summary card's Subagents list shows the same sub-sessions (summary/SubagentStatusList.tsx).
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -215,6 +216,22 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    avatars: {
+      note: "Sub-sessions whose person uploaded an avatar (the chat menu's Set Avatar…): each card draws it in place of the harness mark (a synthetic picture).",
+      snapshot: withChildren(
+        [
+          user(prompt, 6),
+          activity([started("tests", "sub-tests"), started("docs", "sub-docs"), started("lint", "sub-lint")], 5.8),
+          assistant("Started three sub-sessions; I'll collect their reports.", 5.5),
+        ],
+        { isWorking: true },
+      ),
+      native: { "agent.avatar": { src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
+        await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
+      },
     },
     messages: {
       note: "Messages to sub-sessions and how each was delivered: read at its next step (a working one), queued at a position, or a turn of its own (an idle one).",

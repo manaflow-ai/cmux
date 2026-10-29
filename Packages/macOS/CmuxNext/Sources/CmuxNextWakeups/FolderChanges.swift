@@ -11,9 +11,11 @@ public import Foundation
 /// move down to it); otherwise it is dropped, and counted in the ledger under
 /// `FolderChanges/stand-in`. Each element is counted under `FolderChanges/change`.
 ///
-/// Each element comes after the watch is armed again when it had to move, so a change between
-/// two elements is either seen by the watch or happened before the element, and the consumer's
-/// work for the element (re-reading the folders) covers it.
+/// The watches are armed before ``events()`` returns, so a change made after that call is seen
+/// even when the watch loop has not run yet (a store that calls ``events()`` and then reads the
+/// folders misses nothing in between). Each element comes after the watch is armed again when it
+/// had to move, so a change between two elements is either seen by the watch or happened before
+/// the element, and the consumer's work for the element (re-reading the folders) covers it.
 ///
 /// ```swift
 /// for await _ in FolderChanges(folders: [wallpapers, userImages]).events() { rebuild() }
@@ -37,9 +39,12 @@ public struct FolderChanges: Sendable {
         let targets = folders.map(\.path)
         let ledger = ledger
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // Armed here, not in the loop: a utility task can start long after this returns under load,
+        // and a change made before it armed was never seen (BackdropCatalogStoreTests hung on it).
+        let first = Self.arm(targets)
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
-            var armed = Self.arm(targets)
+            var armed = first
             // wakeup-allow: each pass waits for one file-system event in a watched folder, never polls
             while !Task.isCancelled {
                 var iterator = armed.events.makeAsyncIterator()

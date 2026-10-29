@@ -57,6 +57,13 @@ public final class AcpmuxPersonLine {
         (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
     }
 
+    /// The pending prompts of `session` while this daemon holds it itself: empty when `_acpmux/info`
+    /// says a peer holds it (`peer`), as ``AgentPanePendingAsks`` reads it.
+    func ownPending(of session: String) async -> [[String: Any]] {
+        guard let info = await call("_acpmux/info", ["sessionId": session]), info["peer"] == nil else { return [] }
+        return info["pending"] as? [[String: Any]] ?? []
+    }
+
     public func close() {
         guard !closed else { return }
         closed = true

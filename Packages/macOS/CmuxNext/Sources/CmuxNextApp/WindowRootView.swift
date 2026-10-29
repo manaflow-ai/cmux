@@ -177,7 +177,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             }
         }
         placementObservation = observePlacement()
-        contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        contentHost.onFrameChange = { [weak self] in
+            self?.updateMainPaneShade()
+            self?.onMainPaneMove?()
+        }
         wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
@@ -239,6 +242,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
+    var onMainPaneMove: (() -> Void)?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a

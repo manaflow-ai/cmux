@@ -55,6 +55,27 @@ fn text(args: &[String]) -> Option<String> {
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
+        ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
+        ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
+        ["cloud", "exec"] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                } else {
+                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                }
+                .into(),
+            );
+        }
+        ["cloud", ..] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    super::super::CLOUD_HELP.to_owned()
+                } else {
+                    super::super::CLOUD_HELP_JA.to_owned()
+                },
+            );
+        }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));

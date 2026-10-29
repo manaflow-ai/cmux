@@ -6,7 +6,7 @@ import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
-import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, parseAppendBody, parseImportBody } from "./memory-import.ts"
+import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -93,7 +93,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
 type MemoryBrain = {
   status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
-  memoryImport(body: ImportBody | AppendBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true })>
+  memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })>
 }
 
 /**

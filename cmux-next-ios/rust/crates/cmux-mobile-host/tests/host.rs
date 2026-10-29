@@ -207,7 +207,6 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         pairing: None,
         agent_tab_host: Some("install:mac-test".into()),
         uploads_dir: uploads.path().to_path_buf(),
-        upload_max_bytes: 1024 * 1024,
         browser: cmux_mobile_host::browser::BrowserConfig::new(
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
@@ -540,15 +539,12 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     let root = std::fs::canonicalize(&fixture.root).unwrap();
     assert!(path.starts_with(root.join(".cmux/attachments")), "{path:?}");
-    // A folder that is no tab's and outside the roots, or too large: refused.
+    // A folder that is no tab's and outside the roots: refused.
     let mut outside = link
         .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
         .await
         .unwrap();
     assert_eq!(drain(&mut outside).await.1, "forbidden");
-    let mut large =
-        link.open("upload", serde_json::json!({"name": "x", "size": 2 * 1024 * 1024})).await.unwrap();
-    assert_eq!(drain(&mut large).await.1, "too_large");
     // browser: hostd sends the hello, the phone reads the host's carrier.
     let tab = format!("s{}", kind as u8);
     let mut first =
@@ -892,6 +888,36 @@ async fn services_over_wireguard_turn_tls_with_udp_blocked() {
     assert!(turn.stream_connections() >= 1, "the phone never connected to TURN over TLS");
 }
 
+/// A phone attachment has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES
+/// OF ANY TYPE"): a file just past the old 100 MiB default, streamed in chunks, is saved
+/// whole. The test never holds the file in memory; it checks the saved length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
+    const CHUNK: usize = 256 * 1024;
+    let size: u64 = 100 * 1024 * 1024 + 1;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut upload =
+        connected.link.open("upload", serde_json::json!({"name": "big.bin", "size": size})).await.unwrap();
+    let chunk = Bytes::from(vec![0x5a_u8; CHUNK]);
+    let mut sent: u64 = 0;
+    while sent < size {
+        let take = usize::try_from(size - sent).unwrap_or(CHUNK).min(CHUNK);
+        if upload.send(chunk.slice(..take)).await.is_err() {
+            break;
+        }
+        sent += take as u64;
+    }
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
+    assert_eq!(sent, size);
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["size"].as_u64(), Some(size));
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    assert!(path.starts_with(&fixture.uploads), "{path:?}");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dials_without_a_stamped_user_are_refused() {
     let fixture = fixture(FakeOptions { omit_from_user_id: true, ..FakeOptions::default() }).await;
@@ -943,6 +969,18 @@ async fn auth(
     signer: &ring::signature::EcdsaKeyPair,
     action: &str,
 ) -> Channel {
+    auth_presenting(link, fixture, keys, signer, action, None).await
+}
+
+/// `auth`, with the pairing code's pre-approval sent beside the signature when `pair_token` is set.
+async fn auth_presenting(
+    link: &cmux_mobile_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+    pair_token: Option<&str>,
+) -> Channel {
     let mut channel = link
         .open(
             "auth",
@@ -962,8 +1000,46 @@ async fn auth(
         action,
     );
     let signature = hex(signer.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    let mut reply = serde_json::json!({"signature": signature});
+    if let Some(token) = pair_token {
+        reply["pairToken"] = serde_json::json!(token);
+    }
+    channel.send(Bytes::from(reply.to_string())).await.unwrap();
     channel
+}
+
+/// A pairing code's pre-approval rides with the signature to the app, which decides; hostd only
+/// checks its shape, and a phone without one is asked exactly as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let token = "Zm9vYmFyLWJhel9xdXV4";
+
+    let mut bad =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
+            .await;
+    assert_eq!(drain(&mut bad).await.1, "bad_request");
+
+    let mut channel =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
+    assert_eq!(
+        request,
+        Event::PairRequest {
+            phone_device_id: fixture.phone_id.clone(),
+            name: "Test iPhone".into(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+            registered_at_ms: None,
+            pair_token: Some(token.into()),
+        }
+    );
+    // The app allowed it (as it does for a live token): the phone is served.
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -995,6 +1071,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
+            pair_token: None,
         }
     );
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {

@@ -139,6 +139,7 @@ extension IconName {
     nonisolated public static let diffViewed = IconName("diff.viewed")
     nonisolated public static let disclosureCollapsed = IconName("disclosure.collapsed")
     nonisolated public static let disclosureExpanded = IconName("disclosure.expanded")
+    nonisolated public static let disclosureFolded = IconName("disclosure.folded")
     nonisolated public static let `extension` = IconName("extension")
     nonisolated public static let extensionCrashed = IconName("extension.crashed")
     nonisolated public static let feedChoice = IconName("feed.choice")

@@ -1,10 +1,12 @@
-// The Mobile Pairing page (palette "Open Mobile Pairing"): three steps to a phone that reaches this
-// Mac (sign in, phone access, the listener), the button for the one missing step, and once the Mac
-// is reachable a QR code the iPhone camera opens in cmux.
+// The Mobile Pairing page (palette "Open Mobile Pairing", Settings > Accounts, the composer's
+// machine picker): three steps to a phone that reaches this Mac (sign in, iPhone connections, the
+// iPhone host), the button for the one missing step, then how to connect, the phones asking to
+// connect (Allow, Don't Allow) and the account's phones. A QR code shows only when the host sends
+// one; it sends none until cmux on iPhone opens a pairing link.
 import { useEffect, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import type { MobilePairingStore } from "./store";
-import type { MobilePairingStatus, PairingState } from "./types";
+import type { MobilePairingStatus, PairingHost, PairingState } from "./types";
 
 const ORDER: PairingState[] = ["signedOut", "accessOff", "preparing", "ready"];
 
@@ -158,8 +160,10 @@ function Content({ status, store, strings }: Props) {
               <figcaption className="pairing-body">{strings.t("mobilePairing.page.ready.scan")}</figcaption>
             </figure>
           )}
-          {status.account && (
+          {status.qr && status.account ? (
             <p className="pairing-body">{strings.format("mobilePairing.page.ready.list", status.account)}</p>
+          ) : (
+            status.host?.how && <p className="pairing-body pairing-how">{status.host.how}</p>
           )}
           <Footer status={status} store={store} strings={strings} />
         </div>
@@ -170,13 +174,10 @@ function Content({ status, store, strings }: Props) {
 function Footer({ status, store, strings }: Props) {
   return (
     <div className="pairing-footer">
+      {status.host && <Requests host={status.host} store={store} />}
       <p className="pairing-muted">{strings.format("mobilePairing.page.macName", status.macName)}</p>
-      <p className="pairing-muted pairing-connected">
-        {strings.format(
-          "mobilePairing.page.connected",
-          new Intl.NumberFormat(strings.language).format(status.connectedPhones),
-        )}
-      </p>
+      {status.host?.status && <p className="pairing-muted pairing-host-status">{status.host.status}</p>}
+      {status.host && <Phones host={status.host} />}
       <div className="pairing-actions">
         <button
           type="button"
@@ -189,6 +190,63 @@ function Footer({ status, store, strings }: Props) {
         <SettingsButton store={store} strings={strings} />
       </div>
     </div>
+  );
+}
+
+/** Phones asking to connect: the person's Allow or Don't Allow answers each, as the prompt does. */
+function Requests({ host, store }: { host: PairingHost; store: MobilePairingStore }) {
+  if (host.pending.length === 0 && !host.blocked) return null;
+  return (
+    <section className="pairing-requests" aria-label={host.pendingTitle}>
+      {host.pendingTitle && host.pending.length > 0 && <h2 className="pairing-section-title">{host.pendingTitle}</h2>}
+      {host.pending.map((request) => (
+        <div key={request.id} className="pairing-request" data-request={request.id}>
+          <p className="pairing-row-title">{request.title}</p>
+          <p className="pairing-muted pairing-row-subtitle">{request.subtitle}</p>
+          <div className="pairing-actions">
+            <button
+              type="button"
+              className="pairing-button"
+              data-action="deny"
+              onClick={() => void store.answerPair(request.id, false)}
+            >
+              {host.denyTitle}
+            </button>
+            <button
+              type="button"
+              className="pairing-button is-primary"
+              data-action="allow-phone"
+              onClick={() => void store.answerPair(request.id, true)}
+            >
+              {host.allowTitle}
+            </button>
+          </div>
+        </div>
+      ))}
+      {host.blocked && <p className="pairing-muted">{host.blocked}</p>}
+    </section>
+  );
+}
+
+/** The account's phones, each with its live link if one is up. */
+function Phones({ host }: { host: PairingHost }) {
+  return (
+    <section className="pairing-phones" aria-label={host.phonesTitle}>
+      {host.phonesTitle && <h2 className="pairing-section-title">{host.phonesTitle}</h2>}
+      {host.phonesError && <p className="pairing-muted pairing-phones-error">{host.phonesError}</p>}
+      {host.phones.length === 0 ? (
+        !host.phonesError && host.phonesEmpty && <p className="pairing-muted">{host.phonesEmpty}</p>
+      ) : (
+        <ul className="pairing-phone-list">
+          {host.phones.map((phone) => (
+            <li key={phone.id} className={`pairing-phone${phone.connected ? " is-connected" : ""}`}>
+              <span className="pairing-row-title">{phone.title}</span>
+              <span className="pairing-muted pairing-row-subtitle">{phone.subtitle}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
