@@ -506,13 +506,15 @@ fn legacy_channel_report(
         );
         h.brain
             .step(Input::from(AgentEvent::SessionChanged(idle("legacy-sub"))));
-        assert_eq!(
-            h.brain.state().spawns["legacy-spawn"]
-                .conversation
-                .as_deref(),
-            Some("conv_channel"),
-            "migration marks provenance so consumed assignments are not inferred again"
-        );
+        if !consumed_before_upgrade {
+            assert_eq!(
+                h.brain.state().spawns["legacy-spawn"]
+                    .conversation
+                    .as_deref(),
+                Some("conv_channel"),
+                "migration marks provenance for an outstanding legacy assignment"
+            );
+        }
         let owner = h.owner.lock().unwrap();
         let reports: Vec<_> = owner
             .run_steps

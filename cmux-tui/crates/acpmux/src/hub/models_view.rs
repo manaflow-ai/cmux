@@ -19,6 +19,7 @@
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
 /// The curated catalog entry for a profile (by its name, else its family).
@@ -60,7 +61,7 @@ fn curated_json(model: &HarnessModel, catalog: &Catalog) -> Value {
             }
         }
     }
-    v["curated"] = json!(true);
+    v.set("curated", json!(true));
     v
 }
 
@@ -233,16 +234,16 @@ impl Hub {
                 };
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
             if let Some(top) = top {
-                entry["topModels"] = json!(top);
+                entry.set("topModels", json!(top));
             }
             if let Some(reason) = probe_errors.get(name) {
-                entry["probeError"] = json!(reason);
+                entry.set("probeError", json!(reason));
             }
             if picker_hidden(&cfg, name) {
-                entry["pickerHidden"] = json!(true);
+                entry.set("pickerHidden", json!(true));
             }
             if let Some(curated) = &curated {
-                entry["catalog"] = harness_catalog_json(curated);
+                entry.set("catalog", harness_catalog_json(curated));
             }
             out.push(entry);
         }
@@ -265,12 +266,12 @@ impl Hub {
                     .map(|(name, _)| name)
                     .collect();
                 let mut v = harness_catalog_json(h);
-                v["profiles"] = json!(profiles);
+                v.set("profiles", json!(profiles));
                 v
             })
             .collect();
         let mut summary = self.catalog.summary();
-        summary["harnesses"] = json!(list);
+        summary.set("harnesses", json!(list));
         summary
     }
 }
