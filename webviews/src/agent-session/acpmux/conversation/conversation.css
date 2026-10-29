@@ -3970,8 +3970,18 @@ article.acpmux-row:empty {
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
 }
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one small quiet tag at
-   the line's end ("Read after this turn"), always shown, still. No spinner, no dot, no motion. */
+/* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): their one quiet
+   "Read after this turn", 18px (model.ts estimates it), in from the icon column. */
+.cv-received__queued-head {
+  padding-inline-start: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: 18px;
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's one small
+   quiet tag at the line's end ("Read after this step"), always shown, still. No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
   box-sizing: border-box;

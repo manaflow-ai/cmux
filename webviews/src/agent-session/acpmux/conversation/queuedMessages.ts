@@ -1,8 +1,9 @@
 // Another agent's message that waits in the chat's queue is not the person's prompt (Leo,
 // 2026-10-25: "I don't know why these things are queued up. It's kind of strange."). It never
 // draws as a composer-queue row: the transcript shows it at once as the message it is (its
-// received card, IncomingMessageCard.tsx), after the running turn, with a quiet "Read after this
-// turn" (QueuedMessageCard.tsx). Its ⋯ menu keeps the queue row's actions: Steer, Edit message,
+// received line, IncomingMessageCard.tsx), after the running turn. "Read after this turn" is said
+// once, over the first of them (`lead`), never on each (Leo, 2026-10-29: "the "read after this turn"
+// stuff gets a bit redundant") (QueuedMessageCard.tsx). Its ⋯ menu keeps the queue row's actions: Steer, Edit message,
 // queueing on or off, Delete. Once acpmux starts it, the queue drops it and the prompt's own row
 // is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
@@ -34,8 +35,10 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   for (const entry of queue) {
     const message = entry.message;
     if (!message) continue;
+    // The first of them carries the run's one "Read after this turn"; it changes as the queue drains.
+    const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
-    if (!row) {
+    if (!row || Boolean(row.queuedMessage?.lead) !== lead) {
       row = {
         id: queuedMessageRowId(entry.id),
         version: ++version,
@@ -43,7 +46,7 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}) },
+        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}), ...(lead ? { lead: true } : {}) },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };

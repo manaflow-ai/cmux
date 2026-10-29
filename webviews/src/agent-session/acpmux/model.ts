@@ -231,7 +231,8 @@ export type AcpmuxRow = {
   /// Another agent's message still waiting in the queue (conversation/queuedMessages.ts): the
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
-  queuedMessage?: { promptId: string; next?: boolean };
+  /// `lead`: the first of the queued messages, which says "Read after this turn" for them all.
+  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -1356,7 +1357,8 @@ function measuredRowHeight(
     // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
     // from the icon column and 10px padding across): the 18px From line, 4px, and the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
-    const line = 2 + 26 + 2 + MESSAGE_GAP;
+    // The first queued message has the run's 18px "Read after this turn" over its line.
+    const line = 2 + 26 + 2 + MESSAGE_GAP + (row.queuedMessage?.lead ? 18 : 0);
     if (!messageOpened(sessionId, row.id)) return finish(line);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
