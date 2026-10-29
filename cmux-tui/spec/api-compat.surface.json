@@ -8261,15 +8261,6 @@
         "required": true
       }
     },
-    "request:bridge-hello": {
-      "/features": {
-        "ty": "array",
-        "required": true
-      },
-      "/features/*": {
-        "ty": "string"
-      }
-    },
     "request:browser-activate": {
       "/surface": {
         "ty": "uint64",
@@ -15483,15 +15474,6 @@
       "/data/surface": {
         "ty": "uint64",
         "required": true
-      }
-    },
-    "response:bridge-hello": {
-      "/data/features": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/features/*": {
-        "ty": "string"
       }
     },
     "response:browser-activate": {},

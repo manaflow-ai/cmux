@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    BRIDGE_FRAMES_V1_FEATURE, Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId,
-    ProcessReplayRange, RouteId, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
-    Service, ServiceControl, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
-    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED, WorkspaceRequest, WorkspaceResponse,
+    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
+    RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+    WorkspaceRequest, WorkspaceResponse,
 };
 use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
@@ -828,15 +828,11 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        // Whether the daemon took frames changes nothing here: it decides
-        // the far client's grants, and the bridge reads frames either way.
-        let (socket, _frames) =
-            tokio::time::timeout(MUX_BRIDGE_HELLO_TIMEOUT, open_mux_bridge(path))
-                .await
-                .map_err(|_| ServicesError::Remote("mux bridge hello timed out".into()))??;
+        let socket = connect_owned_unix_socket(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
-        pump_mux_server_with_budget(stream, socket.reader, socket.writer, upload_budget).await
+        let (reader, writer) = socket.into_split();
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
     }
 
     #[cfg(not(unix))]
@@ -853,82 +849,6 @@ impl DaemonServices {
             .await?;
         Ok(())
     }
-}
-
-/// The daemon capability that says it takes [`BRIDGE_HELLO_LINE`].
-#[cfg(unix)]
-const BRIDGE_HELLO_CAPABILITY: &str = "bridge-hello-v1";
-
-/// The remote end's first line on the local mux socket: it reads the
-/// daemon's frames by header (`bridge-frames-v1`), so the daemon may grant
-/// the far client frames, never descriptors (cmux-tui-core
-/// server/client_hello.rs; spec/transports.md "Framed IPC grants").
-#[cfg(unix)]
-const BRIDGE_HELLO_LINE: &[u8] =
-    b"{\"cmd\":\"bridge-hello\",\"features\":[\"bridge-frames-v1\"]}\n";
-
-/// Longest `identify` or `bridge-hello` reply the remote end reads.
-#[cfg(unix)]
-const MAX_BRIDGE_HELLO_REPLY_BYTES: usize = 1024 * 1024;
-
-#[cfg(unix)]
-const MUX_BRIDGE_HELLO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// The remote end's connection to the local daemon.
-#[cfg(unix)]
-struct MuxBridgeSocket {
-    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
-    writer: tokio::net::unix::OwnedWriteHalf,
-}
-
-/// Connects the remote end of the mux bridge to the local daemon and says
-/// it is a bridge that reads frames. A daemon that predates `bridge-hello`
-/// would take it as the connection's first line and close the far client's
-/// hello window, so an `identify` on its own connection asks first. The
-/// flag is true when the daemon took `bridge-frames-v1`: it may then grant
-/// the far client frames.
-#[cfg(unix)]
-async fn open_mux_bridge(path: &std::path::Path) -> Result<(MuxBridgeSocket, bool), ServicesError> {
-    let takes_hello = {
-        let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
-        writer.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").await?;
-        let identify = read_bridge_hello_reply(&mut BufReader::new(reader)).await?;
-        identify.pointer("/data/capabilities").and_then(serde_json::Value::as_array).is_some_and(
-            |capabilities| {
-                capabilities.iter().any(|name| name.as_str() == Some(BRIDGE_HELLO_CAPABILITY))
-            },
-        )
-    };
-    let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
-    let mut reader = BufReader::new(reader);
-    let mut frames = false;
-    if takes_hello {
-        writer.write_all(BRIDGE_HELLO_LINE).await?;
-        // A refusal (an unverified peer) leaves the connection a plain
-        // bridge: the far client gets streams only.
-        let reply = read_bridge_hello_reply(&mut reader).await?;
-        frames = reply.pointer("/data/features").and_then(serde_json::Value::as_array).is_some_and(
-            |features| features.iter().any(|name| name.as_str() == Some(BRIDGE_FRAMES_V1_FEATURE)),
-        );
-    }
-    Ok((MuxBridgeSocket { reader, writer }, frames))
-}
-
-#[cfg(unix)]
-async fn read_bridge_hello_reply<R>(reader: &mut R) -> Result<serde_json::Value, ServicesError>
-where
-    R: tokio::io::AsyncBufRead + Unpin,
-{
-    let mut line = Vec::new();
-    let size =
-        reader.take(MAX_BRIDGE_HELLO_REPLY_BYTES as u64 + 1).read_until(b'\n', &mut line).await?;
-    if size == 0 {
-        return Err(ServicesError::Remote("mux closed before the bridge hello reply".into()));
-    }
-    if size > MAX_BRIDGE_HELLO_REPLY_BYTES || line.last() != Some(&b'\n') {
-        return Err(ServicesError::Remote("mux bridge hello reply exceeds size limit".into()));
-    }
-    Ok(serde_json::from_slice(&line)?)
 }
 
 /// Validated `terminal-bytes-v1` open metadata.
@@ -1304,7 +1224,7 @@ async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesE
         serde_json::to_vec(&serde_json::json!({
             "type": "opened",
             "service": stream.service(),
-            "features": [MUX_INPUT_V1_FEATURE, BRIDGE_FRAMES_V1_FEATURE],
+            "features": [MUX_INPUT_V1_FEATURE],
         }))?
     } else {
         serde_json::to_vec(&ServiceControl::Opened { service: stream.service() })?
@@ -1412,34 +1332,26 @@ where
 {
     use tokio::io::BufReader;
 
-    use crate::mux_codec::MuxMessage;
-
     let mut reader = BufReader::new(local_reader);
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        // The daemon's frames are read by their header (bridge-frames-v1),
-        // so a `\n` inside a binary payload never cuts a message.
-        let lane = match crate::mux_codec::read_mux_message(
+        let size = crate::mux_codec::read_bounded_line_with_limit(
             &mut reader,
             &mut line,
             crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
         )
-        .await?
+        .await?;
+        if size == 0 {
+            return Ok(());
+        }
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
         {
-            MuxMessage::End => return Ok(()),
-            MuxMessage::Frame(header) => crate::mux_lanes::classify_server_frame(&header),
-            MuxMessage::Line => {
-                if crate::mux_codec::mux_line_payload_len(&line)
-                    > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
-                {
-                    return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
-                }
-                let Some(lane) = tracker.classify_server_line(&line) else {
-                    continue;
-                };
-                lane
-            }
+            return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
+        }
+        let Some(lane) = tracker.classify_server_line(&line) else {
+            continue;
         };
         let sender = match lane {
             Lane::Interactive => &interactive,
@@ -1716,10 +1628,6 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
 #[cfg(all(test, unix))]
 mod hex_tests;
 
-#[cfg(all(test, unix))]
-#[path = "services_bridge_tests.rs"]
-mod bridge_tests;
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1742,7 +1650,7 @@ mod tests {
     use crate::service::{ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
-    pub(super) struct TestEndpoint {
+    struct TestEndpoint {
         outgoing: mpsc::Sender<ReceivedFrame>,
         incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
         sequence: AtomicU64,
@@ -1780,7 +1688,7 @@ mod tests {
         }
     }
 
-    pub(super) fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
         let (left_tx, left_rx) = mpsc::channel(64);
         let (right_tx, right_rx) = mpsc::channel(64);
         let (left_generation, _) = watch::channel(0);
@@ -3022,215 +2930,5 @@ mod tests {
             .expect("completed process stream handler should release its slot")
             .unwrap()
             .unwrap();
-    }
-
-    /// The remote end of the bridge advertises bridge-frames-v1, and a flood
-    /// of interleaved frames and stream lines from the daemon reaches the
-    /// local client with the same digest; an INPUT frame goes the other way
-    /// whole.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn binary_frames_cross_the_ssh_bridge_byte_for_byte() {
-        use cmux_ipc::{Aux, FrameHeader, FrameKind};
-        use sha2::{Digest, Sha256};
-
-        fn frame(kind: FrameKind, stream: u16, aux: Aux, payload: &[u8]) -> Vec<u8> {
-            let len = u32::try_from(payload.len()).unwrap();
-            let mut bytes = FrameHeader::new(kind, stream, len, aux).unwrap().encode().to_vec();
-            bytes.extend_from_slice(payload);
-            bytes
-        }
-
-        // The flood: OUTPUT and GRID frames of three streams whose payloads
-        // hold LFs and 0xFF, each stream's notification lines among them and
-        // its stream-end last. Every item names its stream, so all ride the
-        // stream lane and keep one total order.
-        let mut flood = Vec::new();
-        let mut offsets = [0_u64; 4];
-        for round in 0..200_u32 {
-            for stream in 1..=3_u16 {
-                let len = (round as usize * 7919 + usize::from(stream) * 131) % 70_000;
-                let payload: Vec<u8> =
-                    (0..len).map(|index| [b'\n', 0xFF, b'a', 0][index % 4]).collect();
-                let index = usize::from(stream);
-                flood.extend(frame(
-                    FrameKind::Output,
-                    stream,
-                    Aux::Offset(offsets[index]),
-                    &payload,
-                ));
-                offsets[index] += payload.len() as u64;
-                // A JSON output line of a stream-less attach rides the same
-                // lane; a line reader would send the cut frame pieces on
-                // another one and reorder them around it.
-                flood.extend_from_slice(
-                    format!("{{\"event\":\"output\",\"surface\":{stream},\"data\":\"YQ==\"}}\n")
-                        .as_bytes(),
-                );
-                if round % 50 == 0 {
-                    let mut grid = 2_u32.to_le_bytes().to_vec();
-                    grid.extend_from_slice(b"{}\n\xff");
-                    flood.extend(frame(
-                        FrameKind::Grid,
-                        stream,
-                        Aux::Offset(offsets[index]),
-                        &grid,
-                    ));
-                    flood.extend_from_slice(
-                        format!("{{\"stream\":{stream},\"event\":\"notification\"}}\n").as_bytes(),
-                    );
-                }
-            }
-        }
-        for stream in 1..=3 {
-            flood.extend_from_slice(
-                format!(
-                    "{{\"event\":\"stream-end\",\"stream\":{stream},\"reason\":\"canceled\"}}\n"
-                )
-                .as_bytes(),
-            );
-        }
-        let local_digest = Sha256::digest(&flood);
-        let input = frame(FrameKind::Input, 2, Aux::FlowId(77), b"ls\n\xff\r");
-
-        let directory = tempdir().unwrap();
-        let mux_path = directory.path().join("mux.sock");
-        let bridge_path = directory.path().join("bridge.sock");
-        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
-        let bridge_listener = tokio::net::UnixListener::bind(&bridge_path).unwrap();
-
-        // The remote host's daemon: reads the INPUT frame, then floods.
-        let daemon = {
-            let input = input.clone();
-            let flood = flood.clone();
-            tokio::spawn(async move {
-                let mut socket = bridge_tests::accept_bridge(&mux_listener, true).await;
-                let mut received = vec![0_u8; input.len()];
-                socket.read_exact(&mut received).await.unwrap();
-                assert_eq!(received, input);
-                socket.write_all(&flood).await.unwrap();
-                socket.shutdown().await.unwrap();
-                // Hold the socket until the client closes its side.
-                let mut rest = Vec::new();
-                let _ = socket.read_to_end(&mut rest).await;
-            })
-        };
-
-        let (client_endpoint, daemon_endpoint) = endpoint_pair();
-        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
-        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
-        let remote = tokio::spawn({
-            let daemon_mux = daemon_mux.clone();
-            async move {
-                let incoming = daemon_mux.accept().await.unwrap().unwrap();
-                assert_eq!(incoming.service, Service::MuxControl);
-                DaemonServices::serve_mux_control_with_budget(
-                    Some(mux_path),
-                    incoming.stream,
-                    MuxUploadBudget::new(),
-                )
-                .await
-            }
-        });
-        let (bridge_shutdown, bridge_stop) = oneshot::channel();
-        let bridge = tokio::spawn({
-            let client_mux = client_mux.clone();
-            async move {
-                crate::bridge::serve_mux_bridge(client_mux, &bridge_listener, bridge_stop).await;
-            }
-        });
-
-        let mut app = tokio::net::UnixStream::connect(&bridge_path).await.unwrap();
-        app.write_all(&input).await.unwrap();
-        let mut received = Vec::with_capacity(flood.len());
-        tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            let mut buffer = vec![0_u8; 64 * 1024];
-            while received.len() < flood.len() {
-                let read = app.read(&mut buffer).await.unwrap();
-                assert_ne!(read, 0, "bridge closed after {} bytes", received.len());
-                received.extend_from_slice(&buffer[..read]);
-            }
-        })
-        .await
-        .expect("the flood did not cross the bridge");
-        assert_eq!(received.len(), flood.len());
-        assert_eq!(Sha256::digest(&received), local_digest, "remote flood digest differs");
-
-        drop(app);
-        let _ = bridge_shutdown.send(());
-        bridge.await.unwrap();
-        daemon.await.unwrap();
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), remote).await;
-        client_mux.shutdown().await;
-        daemon_mux.shutdown().await;
-    }
-
-    /// A bridge whose remote end did not advertise bridge-frames-v1 refuses
-    /// a frame instead of sending it as lines the remote would cut.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_frame_toward_a_remote_without_bridge_frames_is_refused() {
-        use cmux_ipc::{Aux, FrameHeader, FrameKind};
-
-        let (client_endpoint, daemon_endpoint) = endpoint_pair();
-        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
-        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
-        let (payload_tx, mut payload_rx) = mpsc::unbounded_channel();
-        let remote = tokio::spawn({
-            let daemon_mux = daemon_mux.clone();
-            async move {
-                let incoming = daemon_mux.accept().await.unwrap().unwrap();
-                // An older remote: opened without bridge-frames-v1.
-                let opened = serde_json::to_vec(&serde_json::json!({
-                    "type": "opened",
-                    "service": Service::MuxControl,
-                    "features": [MUX_INPUT_V1_FEATURE],
-                }))
-                .unwrap();
-                for lane in [Lane::Interactive, Lane::Control, Lane::Bulk] {
-                    incoming.stream.send_on(lane, Bytes::from(opened.clone())).await.unwrap();
-                }
-                while let Ok(Some(chunk)) = incoming.stream.receive().await {
-                    let _ = payload_tx.send(chunk.payload);
-                    if chunk.finished || chunk.reset {
-                        break;
-                    }
-                }
-            }
-        });
-        let directory = tempdir().unwrap();
-        let bridge_path = directory.path().join("bridge.sock");
-        let bridge_listener = tokio::net::UnixListener::bind(&bridge_path).unwrap();
-        let (bridge_shutdown, bridge_stop) = oneshot::channel();
-        let bridge = tokio::spawn({
-            let client_mux = client_mux.clone();
-            async move {
-                crate::bridge::serve_mux_bridge(client_mux, &bridge_listener, bridge_stop).await;
-            }
-        });
-
-        let mut app = tokio::net::UnixStream::connect(&bridge_path).await.unwrap();
-        let header = FrameHeader::new(FrameKind::Input, 1, 3, Aux::FlowId(0)).unwrap();
-        app.write_all(&header.encode()).await.unwrap();
-        app.write_all(b"a\nb").await.unwrap();
-        let mut rest = Vec::new();
-        tokio::time::timeout(std::time::Duration::from_secs(5), app.read_to_end(&mut rest))
-            .await
-            .expect("the bridge kept a connection whose frame it cannot carry")
-            .unwrap();
-        assert!(rest.is_empty());
-
-        let _ = bridge_shutdown.send(());
-        bridge.await.unwrap();
-        client_mux.shutdown().await;
-        daemon_mux.shutdown().await;
-        remote.abort();
-        let _ = remote.await;
-        while let Ok(payload) = payload_rx.try_recv() {
-            assert!(
-                !payload.windows(3).any(|bytes| bytes == b"a\nb"),
-                "a frame reached a remote that cannot carry frames"
-            );
-        }
     }
 }

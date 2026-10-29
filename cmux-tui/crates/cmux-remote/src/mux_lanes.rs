@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, PoisonError};
 
-use cmux_ipc::FrameHeader;
 use cmux_remote_protocol::Lane;
 use serde::Deserialize;
 
@@ -180,15 +179,15 @@ fn parse_envelope(line: &[u8]) -> Result<MuxEnvelope<'_>, serde_json::Error> {
 }
 
 /// The lane of every server item of an attach stream: its READY, output,
-/// frames, events and `stream-end`, and the replies to the client's requests
+/// events and `stream-end`, and the replies to the client's requests
 /// that name it. One lane keeps them in the daemon's order, as one Mojo
 /// endpoint keeps its messages in order (mojo/core/README.md).
 const SERVER_STREAM_LANE: Lane = Lane::Bulk;
 
 /// The lane of every client message of an attach stream: the
 /// `attach-surface` that opens it, its view commands, `cancel-stream` and
-/// its INPUT frames. Keys are person input, so the lane is the interactive
-/// one that already carries JSON `send`.
+/// its keys. Keys are person input, so the lane is the interactive one that
+/// already carries JSON `send`.
 const CLIENT_STREAM_LANE: Lane = Lane::Interactive;
 
 impl MuxLaneTracker {
@@ -268,9 +267,8 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     let Ok(envelope) = parse_envelope(line) else { return Lane::Control };
     match envelope.cmd.as_ref().map(MuxName::as_str) {
         // Everything of one attach stream, its opening `attach-surface`
-        // included, keeps one order with its INPUT frames
-        // ([`classify_client_frame`]), so a view command never overtakes
-        // the attach that opened its stream.
+        // included, keeps one order, so a view command never overtakes the
+        // attach that opened its stream.
         Some(_) if envelope.attach_stream().is_some() => CLIENT_STREAM_LANE,
         Some("paste-image") if envelope.op.as_ref().map(MuxName::as_str) == Some("commit") => {
             Lane::Interactive
@@ -310,22 +308,6 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     }
 }
 
-/// The lane of a binary frame the local client sent. A frame on an attach
-/// stream (INPUT) rides its stream's lane. A call frame on control stream 0
-/// may be a mutation, and mutations keep one order with PTY input on the
-/// interactive lane (see [`classify_client_line`]).
-pub(crate) fn classify_client_frame(_header: &FrameHeader) -> Lane {
-    CLIENT_STREAM_LANE
-}
-
-/// The lane of a binary frame the daemon sent: every frame of an attach
-/// stream (OUTPUT, GRID, EVENT, SNAPSHOT, REPLAY, RING) on the stream's lane,
-/// in the daemon's order; a call frame on control stream 0 on the control
-/// lane, as a JSON reply without a tracked request.
-pub(crate) fn classify_server_frame(header: &FrameHeader) -> Lane {
-    if header.stream() == 0 { Lane::Control } else { SERVER_STREAM_LANE }
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -354,31 +336,27 @@ mod tests {
 
     #[test]
     fn every_item_of_an_attach_stream_rides_one_lane_per_direction() {
-        use cmux_ipc::{Aux, FrameKind};
-
         let tracker = MuxLaneTracker::default();
-        // Client to daemon: the attach, view commands and INPUT frames of
-        // stream 5 share one lane.
+        // Client to daemon: the attach and view commands of stream 5 share
+        // one lane.
         let attach = br#"{"id":1,"cmd":"attach-surface","surface":3,"stream":5}"#;
         let resize = br#"{"id":2,"cmd":"resize-attached-view","stream":5,"cols":80,"rows":24}"#;
         let cancel = br#"{"id":3,"cmd":"cancel-stream","stream":5}"#;
-        let input = FrameHeader::new(FrameKind::Input, 5, 1, Aux::FlowId(0)).unwrap();
         let lanes = [
             classify_client_line(attach),
             classify_client_line(resize),
             classify_client_line(cancel),
-            classify_client_frame(&input),
         ];
         assert!(lanes.iter().all(|lane| *lane == CLIENT_STREAM_LANE), "{lanes:?}");
         // Without a stream, attach-surface keeps its bulk lane.
         assert_eq!(classify_client_line(br#"{"id":4,"cmd":"attach-surface"}"#), Lane::Bulk);
 
-        // Daemon to client: READY, replies, frames, notification and
-        // stream-end of stream 5 share one lane.
+        // Daemon to client: READY, replies, notification and stream-end of
+        // stream 5 share one lane.
         for (line, lane) in [(&attach[..], lanes[0]), (resize, lanes[1]), (cancel, lanes[2])] {
             tracker.observe_request(line, lane);
         }
-        let mut server = vec![
+        let server = [
             tracker.classify_server_line(br#"{"stream":5,"event":"vt-state","surface":3}"#),
             tracker.classify_server_line(br#"{"id":1,"ok":true}"#),
             tracker.classify_server_line(br#"{"stream":5,"event":"notification","surface":3}"#),
@@ -387,10 +365,6 @@ mod tests {
                 .classify_server_line(br#"{"event":"stream-end","stream":5,"reason":"canceled"}"#),
             tracker.classify_server_line(br#"{"id":3,"ok":true,"data":{"stream":5}}"#),
         ];
-        for kind in [FrameKind::Output, FrameKind::Grid, FrameKind::Event, FrameKind::Snapshot] {
-            let header = FrameHeader::new(kind, 5, 0, Aux::Offset(9)).unwrap();
-            server.push(Some(classify_server_frame(&header)));
-        }
         assert!(server.iter().all(|lane| *lane == Some(SERVER_STREAM_LANE)), "{server:?}");
 
         // Resource streams name theirs with a string: not an attach stream.

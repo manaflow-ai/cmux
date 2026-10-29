@@ -13051,26 +13051,6 @@
    },
    "additional_properties": false
   },
-  "BridgeHelloResult": {
-   "kind": "object",
-   "fields": {
-    "features": {
-     "type": {
-      "kind": "array",
-      "items": {
-       "kind": "scalar",
-       "name": "string"
-      }
-     },
-     "presence": "required",
-     "nullable": false,
-     "constraints": [
-      "The features the daemon took: bridge-frames-v1 when the connection may get frames."
-     ]
-    }
-   },
-   "additional_properties": false
-  },
   "ClientHelloResult": {
    "kind": "object",
    "fields": {
@@ -36363,47 +36343,6 @@
    "method_id": 5125,
    "priority": "control",
    "durability": "read_only",
-   "clients": [
-    "sdk"
-   ]
-  },
-  "bridge-hello": {
-   "authority": "local-admin",
-   "since": 12,
-   "capability": "bridge-hello-v1",
-   "request": {
-    "kind": "object",
-    "fields": {
-     "features": {
-      "type": {
-       "kind": "array",
-       "items": {
-        "kind": "scalar",
-        "name": "string"
-       }
-      },
-      "presence": "required",
-      "nullable": false,
-      "constraints": [
-       "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
-      ]
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "BridgeHelloResult"
-   },
-   "stream": null,
-   "constraints": [
-    "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
-    "Local (Unix) connections only (bridge_hello.local_only).",
-    "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
-   ],
-   "method_id": 518,
-   "priority": "control",
-   "durability": "memory",
    "clients": [
     "sdk"
    ]

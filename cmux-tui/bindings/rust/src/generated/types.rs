@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR ddab6779c50f2a11dadad954b29a4534271986163c5109a9fe0ccc23a70f305b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -643,12 +643,6 @@ pub struct BookmarkImportNode {
     /// Required for a url node; refused for a folder.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BridgeHelloResult {
-    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]

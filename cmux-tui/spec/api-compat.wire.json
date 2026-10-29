@@ -317,7 +317,8 @@
       },
       "bridge-hello": {
         "id": 518,
-        "priority": "control"
+        "priority": "control",
+        "removed": "bridge-frames-v1 had no consumer; removed in the principled audit deletion wave (p01-19)"
       },
       "browser-activate": {
         "id": 2828,

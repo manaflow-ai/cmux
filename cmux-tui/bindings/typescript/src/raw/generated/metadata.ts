@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ddab6779c50f2a11dadad954b29a4534271986163c5109a9fe0ccc23a70f305b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3" as const;
+export const SDK_IR_SHA256 = "ddab6779c50f2a11dadad954b29a4534271986163c5109a9fe0ccc23a70f305b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -818,18 +818,6 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
-    ]
-  },
-  "bridge-hello": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "bridge-hello-v1",
-    "fields": {},
-    "stream": null,
-    "constraints": [
-      "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
-      "Local (Unix) connections only (bridge_hello.local_only).",
-      "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
     ]
   },
   "browser-activate": {
@@ -7330,26 +7318,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
-        }
-      }
-    },
-    "kind": "object"
-  },
-  "BridgeHelloResult": {
-    "additional_properties": false,
-    "fields": {
-      "features": {
-        "constraints": [
-          "The features the daemon took: bridge-frames-v1 when the connection may get frames."
-        ],
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "items": {
-            "kind": "scalar",
-            "name": "string"
-          },
-          "kind": "array"
         }
       }
     },
@@ -21504,32 +21472,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
-    }
-  },
-  "bridge-hello": {
-    "request": {
-      "additional_properties": false,
-      "fields": {
-        "features": {
-          "constraints": [
-            "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
-          ],
-          "nullable": false,
-          "presence": "required",
-          "type": {
-            "items": {
-              "kind": "scalar",
-              "name": "string"
-            },
-            "kind": "array"
-          }
-        }
-      },
-      "kind": "object"
-    },
-    "result": {
-      "kind": "ref",
-      "name": "BridgeHelloResult"
     }
   },
   "browser-activate": {

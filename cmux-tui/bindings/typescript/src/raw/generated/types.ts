@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ddab6779c50f2a11dadad954b29a4534271986163c5109a9fe0ccc23a70f305b. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -362,10 +362,6 @@ export type BookmarkImportNode = {
   "title": string;
   /** Required for a url node; refused for a folder. */
   "url"?: string;
-};
-
-export type BridgeHelloResult = {
-  "features": Array<string>;
 };
 
 export type BrowserFrame = {

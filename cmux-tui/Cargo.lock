@@ -1499,7 +1499,6 @@ dependencies = [
  "bytes",
  "cmux-blocking",
  "cmux-build-identity",
- "cmux-ipc",
  "cmux-link",
  "cmux-panic-log",
  "cmux-pty",
