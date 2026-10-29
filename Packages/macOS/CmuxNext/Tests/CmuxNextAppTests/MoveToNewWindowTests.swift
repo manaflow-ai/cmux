@@ -142,6 +142,27 @@ struct MoveToNewWindowTests {
         }
     }
 
+    /// v2.2.6-opt gate (mw-restart-three-windows; handoff/v224-gate-triage.md): two Move to New Window from one window
+    /// opened both new windows at the same frame ([438, 242, 1100, 720] when the source had no room beside it), so the
+    /// second hid the first completely. A new window never opens exactly on a window already there: it steps on from
+    /// it, as AppKit's `cascadeTopLeft(from:)` does.
+    @Test func twoMovesFromOneWindowOpenTwoWindowsThatDoNotCoverEachOther() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let first = try await Self.newWorkspace(services)
+            let second = try await Self.newWorkspace(services)
+            let source = try Self.window(ofTab: try #require(first.screens.first?.panes.first?.tabs.first).id, services)
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, first.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
+            // Back to the source window, as the gate journey moves both workspaces out of window 1.
+            if let window = services.windows.controller(for: source) { services.windows.bringToFront(window) }
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, second.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 3 })
+            let frames = services.windows.controllers.compactMap { $0.window?.frame }
+            let origins = Set(frames.map { "\(Int($0.minX)),\(Int($0.minY))" })
+            #expect(origins.count == frames.count, "two windows opened on the same frame: \(frames)")
+        }
+    }
+
     /// The placement rule: beside the source on its right when the screen
     /// has room, else on its left, else cascaded; always on the screen.
     @Test func theNewWindowOpensBesideTheOldOne() {
