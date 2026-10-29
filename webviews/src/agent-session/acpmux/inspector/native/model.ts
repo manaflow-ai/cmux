@@ -86,7 +86,8 @@ export type NativeSessionInfo = {
   sections: readonly NativeInfoSection[];
 };
 
-/// Longest id the App hands back (host.ts refuses longer); a longer one is sent as a short hash of it.
+/// Longest id the App hands back, in UTF-16 units (host.ts refuses longer); a longer one is sent as a
+/// short hash of it (at most 200 code points, 400 units, plus the hash).
 export const NATIVE_ACTION_ID_MAX = 512;
 const ID_KEEP = 200;
 
@@ -101,7 +102,8 @@ function boundedId(id: string): string {
     low = Math.imul(low ^ code, 0x01000193) >>> 0;
     high = Math.imul(high ^ code, 0x85ebca6b) >>> 0;
   }
-  return `${id.slice(0, ID_KEEP)}#${low.toString(36)}${high.toString(36)}`;
+  // Whole code points, so an emoji at the cut is never split into half a surrogate pair.
+  return `${Array.from(id).slice(0, ID_KEEP).join("")}#${low.toString(36)}${high.toString(36)}`;
 }
 
 /// The actions one model's rows and buttons name: `add` keeps `run` under `id` (unique in the model,

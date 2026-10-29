@@ -94,6 +94,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
     var onChange: (() -> Void)?
     /// Follows the Debug Settings toggle while the view lives (AgentPaneView+SessionInfo.swift).
     var hostObservation: Task<Void, Never>?
+    /// What the loaded page was last told about the App drawing it (nil before the first load).
+    var announced: Bool?
 
     /// Whether the panel shows.
     public var isOpen: Bool { info?.open == true }

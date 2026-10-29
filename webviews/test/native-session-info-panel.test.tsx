@@ -120,3 +120,12 @@ test("a row whose id is a long signed URL still runs from the App's click", asyn
   await Promise.resolve();
   expect(opened).toBe(1);
 });
+
+test("a long id cut at an emoji keeps the emoji whole, so the App can hand it back", () => {
+  const actions = new NativeInfoActions();
+  const long = `sources.open:/${"a".repeat(185)}📁${"b".repeat(400)}`;
+  const id = actions.add(long, () => undefined);
+  expect(id.length).toBeLessThanOrEqual(NATIVE_ACTION_ID_MAX);
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(id)).toBe(false);
+  expect(id).toContain("📁");
+});

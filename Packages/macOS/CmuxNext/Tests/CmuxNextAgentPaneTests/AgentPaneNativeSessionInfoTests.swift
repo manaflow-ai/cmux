@@ -89,11 +89,13 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(view.model.sessionInfo.panel != nil)
 
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(false))
-        while view.model.sessionInfo.panel != nil { await Task.yield() }
+        while view.model.sessionInfo.panel != nil, !Task.isCancelled { await Task.yield() }
+        #expect(view.model.sessionInfo.panel == nil)
         #expect(!view.drawsSessionInfo)
 
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
-        while view.model.sessionInfo.panel == nil { await Task.yield() }
+        while view.model.sessionInfo.panel == nil, !Task.isCancelled { await Task.yield() }
+        #expect(view.model.sessionInfo.panel != nil)
         view.close()
     }
 

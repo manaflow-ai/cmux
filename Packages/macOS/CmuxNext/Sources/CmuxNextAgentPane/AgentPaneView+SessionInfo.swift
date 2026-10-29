@@ -17,12 +17,11 @@ extension AgentPaneView {
         model.sessionInfo.onChange = { [weak self] in self?.applySessionInfo() }
         // task-owner: lives as long as the view, cancelled in close(); event-driven (Observation)
         model.sessionInfo.hostObservation = Task { [weak self] in
-            var shown = AgentPaneTunables.nativeSessionInfo.value
             for await on in ObservationStream({ AgentPaneTunables.nativeSessionInfo.value }) {
                 guard let self else { return }
-                guard on != shown else { continue }
-                shown = on
-                self.announceSessionInfo()
+                // Compared with what the loaded page was last told, so a flip before this first
+                // runs is not lost; a page not loaded yet hears it in its load replay.
+                if let told = self.model.sessionInfo.announced, told != on { self.announceSessionInfo() }
                 self.applySessionInfo()
             }
         }
@@ -31,6 +30,7 @@ extension AgentPaneView {
     /// Tells a loaded page whether the App draws Session Info (its load and `ready` replays).
     func announceSessionInfo() {
         let on = drawsSessionInfo
+        model.sessionInfo.announced = on
         deliver([.sessionInfoHost(on)], scripts: [AgentPaneSessionInfo.hostScript(on)])
     }
 
