@@ -7,9 +7,14 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
+use tokio::time::Instant;
+use wait_timeout::ChildExt;
 
 use crate::cli::command::NewArgs;
 use crate::client::Client;
@@ -331,6 +336,7 @@ pub(super) fn show_in_group(
     title: Option<&str>,
     group: &str,
     daemon_cli_path: Option<&std::path::Path>,
+    deadline: Option<Instant>,
 ) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
@@ -343,7 +349,7 @@ pub(super) fn show_in_group(
     let cli =
         select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
     let path_cli = PathBuf::from("cmux");
-    let (cli, result) = run_with_fallback(&cli, &args, &path_cli);
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli, deadline);
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
@@ -369,13 +375,94 @@ fn run_with_fallback(
     primary: &Path,
     args: &[&str],
     fallback: &Path,
+    deadline: Option<Instant>,
 ) -> (PathBuf, std::io::Result<std::process::Output>) {
-    let result = std::process::Command::new(primary).args(args).output();
-    if primary != fallback && !result.as_ref().is_ok_and(|output| output.status.success()) {
-        let fallback_result = std::process::Command::new(fallback).args(args).output();
+    let result = run_bounded(primary, args, deadline);
+    if primary != fallback
+        && !result.as_ref().is_ok_and(|output| output.status.success())
+        && !result.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+    {
+        let fallback_result = run_bounded(fallback, args, deadline);
         return (fallback.to_path_buf(), fallback_result);
     }
     (primary.to_path_buf(), result)
+}
+
+fn run_bounded(path: &Path, args: &[&str], deadline: Option<Instant>) -> std::io::Result<Output> {
+    let mut command = Command::new(path);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut child = command.spawn()?;
+    let stdout = pipe_reader(child.stdout.take());
+    let stderr = pipe_reader(child.stderr.take());
+    let status = match deadline {
+        Some(deadline) => {
+            match child.wait_timeout(deadline.saturating_duration_since(Instant::now()))? {
+                Some(status) => status,
+                None => {
+                    terminate_child(&mut child);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "cmux group open exceeded the caller deadline",
+                    ));
+                }
+            }
+        }
+        None => child.wait()?,
+    };
+    let stdout = read_pipe(stdout, deadline, &mut child)?;
+    let stderr = read_pipe(stderr, deadline, &mut child)?;
+    Ok(Output { status, stdout, stderr })
+}
+
+fn pipe_reader(
+    pipe: Option<impl Read + Send + 'static>,
+) -> Option<mpsc::Receiver<std::io::Result<Vec<u8>>>> {
+    let pipe = pipe?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut pipe = pipe;
+        let mut bytes = Vec::new();
+        let result = pipe.read_to_end(&mut bytes).map(|_| bytes);
+        let _ = tx.send(result);
+    });
+    Some(rx)
+}
+
+fn read_pipe(
+    pipe: Option<mpsc::Receiver<std::io::Result<Vec<u8>>>>,
+    deadline: Option<Instant>,
+    child: &mut Child,
+) -> std::io::Result<Vec<u8>> {
+    let Some(pipe) = pipe else { return Ok(Vec::new()) };
+    let result = match deadline {
+        Some(deadline) => {
+            match pipe.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(result) => result,
+                Err(_) => {
+                    terminate_child(child);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "cmux group output stalled",
+                    ));
+                }
+            }
+        }
+        None => {
+            pipe.recv().map_err(|_| std::io::Error::other("cmux group output reader stopped"))?
+        }
+    }?;
+    Ok(result)
+}
+
+fn terminate_child(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = i32::try_from(child.id()) {
+        unsafe { libc::kill(-pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
@@ -447,7 +534,7 @@ mod tests {
             }
         }
         let args = ["agent", "open", "session-id"];
-        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli);
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli, None);
         assert_eq!(chosen, path_cli);
         assert!(output.unwrap().status.success());
         std::fs::remove_dir_all(root).unwrap();
@@ -579,12 +666,28 @@ mod tests {
             None,
             "remote-audit",
             Some(Path::new("/definitely/missing/cmux")),
+            None,
         )
         .unwrap_err()
         .to_string();
         assert!(error.contains("session lane-name was created"), "{error}");
         assert!(error.contains("cmux agent open session-id"), "{error}");
         assert!(error.contains("--group remote-audit"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stalled_group_open_is_killed_at_the_caller_deadline() {
+        let path = std::env::temp_dir().join(format!("acpmux-group-stall-{}", std::process::id()));
+        std::fs::write(&path, "#!/bin/sh\nsleep 30\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let started = std::time::Instant::now();
+        let result =
+            run_bounded(&path, &[], Some(Instant::now() + std::time::Duration::from_millis(200)));
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
