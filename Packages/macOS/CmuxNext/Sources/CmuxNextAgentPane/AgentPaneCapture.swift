@@ -106,7 +106,18 @@ enum AgentPaneCapture {
             guard (answer?["offset"] as? NSNumber)?.intValue == offset + data.count else { return await cancel() }
             offset += data.count
         }
-        guard let path = value(await stager(.finish(token: token), session))?["path"] as? String, path.hasPrefix("/") else { return await cancel() }
+        guard let finished = value(await stager(.finish(token: token), session)) else { return await cancel() }
+        // Local/peer stagers answer path; CloudUploads answers one upload for this one file.
+        // Never pick an arbitrary entry from an ambiguous response.
+        let path: String?
+        if let direct = finished["path"] as? String {
+            path = direct
+        } else if let uploads = finished["uploads"] as? [[String: Any]], uploads.count == 1 {
+            path = uploads[0]["path"] as? String
+        } else {
+            path = nil
+        }
+        guard let path, path.hasPrefix("/") else { return await cancel() }
         return path
     }
 
