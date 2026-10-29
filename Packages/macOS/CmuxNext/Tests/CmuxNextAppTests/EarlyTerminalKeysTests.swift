@@ -448,4 +448,42 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.heldCount(in: window) == 0, "keys still wait after the model's target took the keyboard: \(Self.held(h))")
         }
     }
+
+    /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
+    /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
+    /// that cannot come; the held keys go to that target once its view has the keyboard.
+    @Test func aFailedCreationLeavesTheModelOnATargetThatTakesKeys() async throws {
+        try await Self.withTerminal(panes: 2) { h in
+            let (controller, window, tab) = (h.controller, h.window, h.tab)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let store = h.services.machines.local.store
+            let otherKey = try #require(controller.focus.state.topology.panes.map(\.id).first { $0 != h.paneKey }, "the harness has no second pane")
+            try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: otherKey)?.currentContent != nil },
+                                                      within: .seconds(10), report: { "the second pane never showed its terminal" })
+            let otherPane = try #require(controller.workspaceContent?.paneController(key: otherKey))
+            guard case .terminal(let otherEntry)? = otherPane.currentContent, let otherTab = otherPane.currentTabKey else {
+                Issue.record("the second pane shows no terminal")
+                return
+            }
+            let mount = try Self.unmount(h)
+            defer { mount() }
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            // The creation failed: the daemon's tree no longer has the new terminal's pane, and the creation resolves.
+            var tree = Self.tree(panes: 2)
+            let remaining = tree.workspaces[0].screens[0].panes.filter { $0.id != PaneID(rawValue: 1) }
+            tree.workspaces[0].screens[0] = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 2)), panes: remaining)
+            store.apply(snapshot: tree)
+            coordinator.resolve(ticket, landed: false, in: window)
+            #expect(controller.focus.state.resolved == .terminal(pane: otherKey, tab: otherTab),
+                    "in the failure's turn the model names \(controller.focus.state.resolved), not the target that remains")
+
+            window.makeFirstResponder(otherEntry.session.surfaceView)
+            #expect(!router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window), "the key after the failure waited: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before + 1, "the held key did not go to the target the model names")
+        }
+    }
 }
