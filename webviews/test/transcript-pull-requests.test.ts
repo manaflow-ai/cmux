@@ -540,6 +540,8 @@ test("shell substitutions and conditions retain executed mutations", () => {
 test("shell loops retain executed mutations without treating iterable words as commands", () => {
   for (const command of [
     "for attempt in 1 2 3; do gh pr merge 41 -R acme/app && break; done",
+    'for x in "one"; do gh pr merge 41 -R acme/app; done',
+    'for x in ""; do gh pr merge 41 -R acme/app; done',
     "while true; do gh pr merge 41 -R acme/app; break; done",
     "until false; do gh pr merge 41 -R acme/app; break; done",
   ])
