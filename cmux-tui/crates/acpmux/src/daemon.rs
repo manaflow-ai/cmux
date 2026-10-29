@@ -1214,22 +1214,48 @@ async fn start_from_user_unit() -> Option<String> {
     if !systemctl.is_file() {
         return None;
     }
-    let cat = tokio::process::Command::new(&systemctl)
-        .args(["--user", "cat", "acpmux.service"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    let cat = tokio::time::timeout(START_BUDGET, cat).await.ok()?.ok()?;
-    if !cat.success() {
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    if !bounded_user_systemctl(&systemctl, &["--user", "cat", "acpmux.service"], deadline).await {
         return None;
     }
-    let status = tokio::process::Command::new(&systemctl)
-        .args(["--user", "start", "acpmux.service"])
+    bounded_user_systemctl(&systemctl, &["--user", "start", "acpmux.service"], deadline)
+        .await
+        .then(|| UNIT_STARTED_LINE.to_owned())
+}
+
+#[cfg(target_os = "linux")]
+async fn bounded_user_systemctl(
+    systemctl: &std::path::Path,
+    args: &[&str],
+    deadline: tokio::time::Instant,
+) -> bool {
+    use std::os::unix::process::CommandExt;
+    let mut command = tokio::process::Command::new(systemctl);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
-    let status = tokio::time::timeout(START_BUDGET, status).await.ok()?.ok()?;
-    status.success().then(|| UNIT_STARTED_LINE.to_owned())
+        .kill_on_drop(true)
+        .process_group(0);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    let group = child.id();
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    match tokio::time::timeout(remaining, child.wait()).await {
+        Ok(Ok(status)) => status.success(),
+        _ => {
+            if let Some(pid) = group.and_then(|pid| i32::try_from(pid).ok()) {
+                // SAFETY: this is the process group created for the child above.
+                unsafe { libc::kill(-pid, libc::SIGKILL) };
+            }
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            false
+        }
+    }
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and

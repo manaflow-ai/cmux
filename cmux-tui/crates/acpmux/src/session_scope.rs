@@ -378,11 +378,7 @@ fn can_scope(
     let probe = || {
         let ok = probe(runner, properties, env);
         if ok {
-            limit_sessions_slice(
-                runner,
-                env,
-                properties.iter().any(|p| p.starts_with("MemorySwapMax=")),
-            );
+            limit_sessions_slice(runner, env);
         }
         ok
     };
@@ -398,19 +394,12 @@ fn can_scope(
 /// answers) and before the session's scope joins the slice. Best effort: a
 /// failure is logged, and each session still has its own scope's limits.
 #[cfg(target_os = "linux")]
-fn limit_sessions_slice(
-    runner: &std::path::Path,
-    env: &BTreeMap<String, String>,
-    swap_supported: bool,
-) {
-    let mut wanted = slice_settings_with_swap(
+fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>) {
+    let wanted = slice_settings_with_swap(
         &|key| env.get(key).cloned().or_else(|| std::env::var(key).ok()),
         physical_memory(),
         swap_memory(),
     );
-    if !swap_supported {
-        wanted.retain(|(key, _)| *key != "MemorySwapMax");
-    }
     let systemctl = runner.with_file_name("systemctl");
     if !systemctl.is_file() {
         tracing::warn!(
