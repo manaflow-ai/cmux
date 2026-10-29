@@ -344,6 +344,17 @@ async fn a_prompt_waiting_for_the_lock_queues_behind_a_carried_turn() {
     assert_eq!(ended[1]["turnId"], turns[1]["turnId"], "{ended:#?}");
 }
 
+/// A connection from inside a session (its cmux-subsessions MCP server): `initialize` carries
+/// that session's caller token, as the first thing on the connection.
+async fn in_session(hub: &Arc<Hub>, init: Value) -> TestClient {
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, init).await.unwrap();
+    c
+}
+
 /// Waits until Claude Code's stdin has a line holding `text`.
 async fn on_stdin(hub: &Hub, id: &str, text: &str) {
     let written = |e: &acpmux::store::EventRecord| {
@@ -376,16 +387,14 @@ async fn two_joined_steers_then_one_end_turn(sub_session: bool) {
             let token = acpmux::hub::person::caller_token(sid);
             json!({"protocolVersion": 1, "_meta": {"acpmux": {"callerSession": {"sessionId": sid, "token": token}}}})
         };
-        let mut parent = connect(&hub).await;
-        parent.request(method::INITIALIZE, caller(&id)).await.unwrap();
+        let mut parent = in_session(&hub, caller(&id)).await;
         let child_gates = Gates::new();
         let started = parent
             .request("_acpmux/subsession/start", json!({"prompt": child_gates.text()}))
             .await
             .unwrap();
         let child = started["sessionId"].as_str().unwrap().to_owned();
-        let mut k = connect(&hub).await;
-        k.request(method::INITIALIZE, caller(&child)).await.unwrap();
+        let mut k = in_session(&hub, caller(&child)).await;
         let params = json!({"sessionId": id, "text": "SUB-RESULT", "promptId": "p-sub", "deliver": "next_step"});
         let sent = k.request("_acpmux/subsession/send", params).await.unwrap();
         assert_eq!(sent["delivery"], "next_step", "{sent}");
