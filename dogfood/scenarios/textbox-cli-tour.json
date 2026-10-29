@@ -1,0 +1,25 @@
+{
+  "paths": ["Sources/TerminalController+ControlSurfaceTextBox.swift", "Sources/Panels/TerminalPanel+TextBoxControl.swift", "CLI/*TextBox*"],
+  "launch": {"language": "en", "locale": "en_US"},
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "TextBox CLI verification", "focus": true}, "save": "terminal"},
+    {"socket": "surface.textbox.state", "params": {"surface_id": "${terminal.surface_id}"}},
+    {"shot": "textbox-hidden"},
+    {"socket": "surface.textbox.show", "params": {"surface_id": "${terminal.surface_id}"}},
+    {"shot": "textbox-shown-without-focus"},
+    {"socket": "surface.textbox.show", "params": {"surface_id": "${terminal.surface_id}", "focus": true}},
+    {"type": "A retained TextBox draft"},
+    {"shot": "textbox-focused-with-draft"},
+    {"socket": "surface.textbox.hide", "params": {"surface_id": "${terminal.surface_id}"}},
+    {"shot": "textbox-hidden-with-draft-retained"},
+    {"socket": "surface.textbox.toggle", "params": {"surface_id": "${terminal.surface_id}", "focus": true}},
+    {"shot": "textbox-toggle-restores-draft"},
+    {"socket": "surface.textbox.toggle", "params": {"surface_id": "${terminal.surface_id}"}},
+    {"socket": "workspace.create", "params": {"title": "Other workspace", "focus": true}, "save": "other"},
+    {"socket": "surface.textbox.show", "params": {"workspace_id": "${terminal.workspace_id}", "surface_id": "${terminal.surface_id}"}},
+    {"shot": "unfocused-show-preserves-other-workspace"},
+    {"socket": "surface.textbox.show", "params": {"workspace_id": "${terminal.workspace_id}", "surface_id": "${terminal.surface_id}", "focus": true}},
+    {"shot": "focused-show-selects-target-workspace"},
+    {"tree": "textbox-final"}
+  ]
+}
