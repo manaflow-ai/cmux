@@ -20,7 +20,7 @@ import Testing
             "displayBackgroundRotations": .object([first: "15m", second: "hourly"]),
         ]]
         let app = ThemeScope(level: .room)
-        app.setBackdropSelection(.art(.degasHalevy))
+        app.setBackdropSelection(.art(.munchScream))
         let left = ThemeScope(level: .room, parent: app)
         let right = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
@@ -59,7 +59,7 @@ import Testing
 
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
         let app = ThemeScope(level: .room)
-        app.setBackdropSelection(.art(.degasHalevy))
+        app.setBackdropSelection(.art(.munchScream))
         let room = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
         let center = NotificationCenter()
@@ -74,15 +74,15 @@ import Testing
         #expect(room.backdropSelection == nil)
         room.pinBackdrop(.inherit)
         #expect(room.backdropSelection == nil, "Reapplying room settings preserves the display opt-out")
-        room.pinBackdrop(.selection(.art(.degasHalevy)))
-        #expect(room.backdropSelection == .art(.degasHalevy), "An explicit window choice wins over its display")
+        room.pinBackdrop(.selection(.art(.munchScream)))
+        #expect(room.backdropSelection == .art(.munchScream), "An explicit window choice wins over its display")
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "none"]) ]])
-        #expect(room.backdropSelection == .art(.degasHalevy), "Display refresh does not erase an explicit window choice")
+        #expect(room.backdropSelection == .art(.munchScream), "Display refresh does not erase an explicit window choice")
         room.pinBackdrop(.inherit)
         let workspace = ThemeScope(level: .workspace, parent: room)
-        workspace.pinBackdrop(.selection(.art(.degasHalevy)))
+        workspace.pinBackdrop(.selection(.art(.munchScream)))
         room.show(workspace)
-        #expect(room.backdropSelection == .art(.degasHalevy))
+        #expect(room.backdropSelection == .art(.munchScream))
         workspace.pinBackdrop(.none)
         #expect(room.backdropSelection == nil)
         room.show(nil)
