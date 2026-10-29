@@ -479,6 +479,10 @@ final class CreationInputCoordinator {
         hold.typedAt[target] = max(hold.typedAt[target] ?? 0, current.acts)
         hold.queue.capture(event, for: target)
         syncMode()
+        // Level-triggered release needs a check after each change, the capture included: the target may take keys by the
+        // next turn with no further event (a landing applied in this turn). Before step 2, the hold's timer hid this:
+        // a key typed into a shown terminal waited for it (SwitchToColdTabTypeAheadTests, green 6be48998).
+        scheduleReconcile(in: shell)
         return true
     }
 

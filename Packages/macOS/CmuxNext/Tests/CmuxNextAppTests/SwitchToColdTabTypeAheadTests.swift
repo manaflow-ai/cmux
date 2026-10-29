@@ -101,7 +101,8 @@ struct SwitchToColdTabTypeAheadTests {
         var seq = Self.lastSeq()
         Self.type("x", in: window, router: router)
         await Self.wait(within: .seconds(10)) { !Self.inputBytes(after: seq).isEmpty }
-        let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
+        let shown = try #require(Self.inputBytes(after: seq).keys.first,
+                                 "the shown terminal got no input: \(router.creationInputCoordinator.earlyDeliveryState(in: window)), held \(router.creationInputCoordinator.heldCount(in: window))")
 
         // A second terminal tab made by a script: the window does not show it, so it has no surface.
         let before = Set(pane.orderedIDs.map(\.rawValue))
@@ -122,7 +123,8 @@ struct SwitchToColdTabTypeAheadTests {
 
         #expect(pane.currentTabKey == cold)
         #expect(after[shown] == nil, "keys typed after Ctrl-\(number) went to the tab it left: \(after)")
-        #expect(after.count == 1 && after.values.first == 5, "the selected tab's terminal got \(after) of 5 typed bytes")
+        #expect(after.count == 1 && after.values.first == 5,
+                "the selected tab's terminal got \(after) of 5 typed bytes: \(router.creationInputCoordinator.earlyDeliveryState(in: window))")
 
         // Another cold tab, then typing and a terminal chord behind it: the chord waits its turn.
         let listed = Set(pane.orderedIDs.map(\.rawValue))
