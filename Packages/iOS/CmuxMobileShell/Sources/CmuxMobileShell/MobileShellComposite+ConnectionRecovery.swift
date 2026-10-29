@@ -825,9 +825,10 @@ extension MobileShellComposite {
         foregroundProbeIndicatorTask?.cancel()
         foregroundProbeIndicatorAttemptID = attempt.id
         foregroundProbeIndicatorIsVisible = false
+        let clock = foregroundProbeIndicatorClock
         foregroundProbeIndicatorTask = Task { @MainActor [weak self] in
             do {
-                try await ContinuousClock().sleep(for: Self.foregroundProbeIndicatorGrace)
+                try await clock.sleep(for: Self.foregroundProbeIndicatorGrace)
             } catch {
                 return
             }

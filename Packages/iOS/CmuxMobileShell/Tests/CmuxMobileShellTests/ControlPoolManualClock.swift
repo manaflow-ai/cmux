@@ -1,5 +1,6 @@
 import Foundation
 
+/// Safety: mutable clock state is protected by `lock`; AsyncStream is concurrency-safe.
 final class ControlPoolManualClock: Clock, @unchecked Sendable {
     typealias Instant = ControlPoolManualClockInstant
 
@@ -7,6 +8,7 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
     private var current = Instant(offset: .zero)
     private var sleepers: [ControlPoolManualClockSleeper] = []
     private var preCancelledIDs: Set<UUID> = []
+    private let sleepRegistrations = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
 
     var now: Instant { lock.withLock { current } }
     var minimumResolution: Duration { .zero }
@@ -31,11 +33,18 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
                         continuation: continuation
                     ))
                     lock.unlock()
+                    sleepRegistrations.continuation.yield(())
                 }
             }
         } onCancel: {
             cancelSleeper(id: id)
         }
+    }
+
+    /// Waits for a sleep to be registered, without polling the scheduler.
+    func waitForSleep() async {
+        var registrations = sleepRegistrations.stream.makeAsyncIterator()
+        _ = await registrations.next()
     }
 
     func advance(by duration: Duration) {

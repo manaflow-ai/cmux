@@ -258,10 +258,12 @@ struct MobileShellForegroundConnectionRecoveryTests {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
+    let indicatorClock = ControlPoolManualClock()
     let (store, directory) = try await makeForegroundRecoveryStore(
         router: router,
         box: box,
         clock: clock,
+        indicatorClock: indicatorClock,
         probeTimeoutNanoseconds: 10_000_000_000
     )
     defer {
@@ -282,8 +284,13 @@ struct MobileShellForegroundConnectionRecoveryTests {
         of: "mobile.workspace.list",
         atLeast: probeCount + 1
     ))
-    // Let the reveal grace pass while the failing probe is still held.
-    #expect(try await pollUntil(attempts: 2_000) { store.isRecoveringConnection })
+    await indicatorClock.waitForSleep()
+    let indicatorTask = try #require(store.foregroundProbeIndicatorTask)
+    indicatorClock.advance(by: .milliseconds(399))
+    #expect(!store.isRecoveringConnection)
+    indicatorClock.advance(by: .milliseconds(1))
+    await indicatorTask.value
+    #expect(store.isRecoveringConnection)
     await router.releaseAllHeld()
     #expect(try await pollUntil {
         store.connectionState == .disconnected
@@ -298,10 +305,12 @@ struct MobileShellForegroundConnectionRecoveryTests {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
+    let indicatorClock = ControlPoolManualClock()
     let (store, directory) = try await makeForegroundRecoveryStore(
         router: router,
         box: box,
         clock: clock,
+        indicatorClock: indicatorClock,
         probeTimeoutNanoseconds: 10_000_000_000
     )
     defer {
@@ -320,7 +329,13 @@ struct MobileShellForegroundConnectionRecoveryTests {
         of: "mobile.workspace.list",
         atLeast: probeCount + 1
     ))
-    #expect(try await pollUntil(attempts: 2_000) { store.isRecoveringConnection })
+    await indicatorClock.waitForSleep()
+    let indicatorTask = try #require(store.foregroundProbeIndicatorTask)
+    indicatorClock.advance(by: .milliseconds(399))
+    #expect(!store.isRecoveringConnection)
+    indicatorClock.advance(by: .milliseconds(1))
+    await indicatorTask.value
+    #expect(store.isRecoveringConnection)
     // The probe keeps the session and the keyboard: only presentation changes.
     #expect(store.connectionState == .connected)
     #expect(store.remoteClient === originalClient)
@@ -339,10 +354,12 @@ struct MobileShellForegroundConnectionRecoveryTests {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
+    let indicatorClock = ControlPoolManualClock()
     let (store, directory) = try await makeForegroundRecoveryStore(
         router: router,
         box: box,
         clock: clock,
+        indicatorClock: indicatorClock,
         probeTimeoutNanoseconds: 10_000_000_000
     )
     defer {
@@ -360,9 +377,11 @@ struct MobileShellForegroundConnectionRecoveryTests {
         of: "mobile.workspace.list",
         atLeast: probeCount + 1
     ))
-    // Well past the reveal grace: a short dwell keeps the probe silent.
-    let revealed = try await pollUntil(attempts: 100) { store.isRecoveringConnection }
-    #expect(!revealed)
+    // A short dwell never schedules an indicator, even past its grace.
+    #expect(store.foregroundProbeIndicatorTask == nil)
+    #expect(indicatorClock.sleeperCount == 0)
+    indicatorClock.advance(by: .seconds(1))
+    #expect(!store.isRecoveringConnection)
     await router.releaseAllHeld()
     #expect(try await pollUntil { store.connectionRecoveryOwner.phase == .idle })
 }
@@ -618,6 +637,7 @@ private func makeForegroundRecoveryStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,
+    indicatorClock: any Clock<Duration> = ContinuousClock(),
     probeTimeoutNanoseconds: UInt64 = 200_000_000
 ) async throws -> (store: MobileShellComposite, directory: URL) {
     let (pairedStore, directory) = try ReconnectRouteSelectionTests()
@@ -645,7 +665,8 @@ private func makeForegroundRecoveryStore(
         reachability: AlwaysOnlineReachability(),
         pairingHintDefaults: UserDefaults(
             suiteName: "foreground-recovery-\(UUID().uuidString)"
-        )!
+        )!,
+        foregroundProbeIndicatorClock: indicatorClock
     )
     #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))

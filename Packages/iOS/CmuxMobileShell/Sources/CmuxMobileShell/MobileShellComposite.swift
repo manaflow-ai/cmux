@@ -393,6 +393,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Reveals a long-background foreground probe as Reconnecting once its
     /// grace elapses, so a fast healthy answer never flashes the indicator.
     var foregroundProbeIndicatorTask: Task<Void, Never>?
+    /// Clock for the foreground probe grace; tests advance it without wall-time waits.
+    @ObservationIgnored let foregroundProbeIndicatorClock: any Clock<Duration>
     /// The probing attempt that owns the pending or visible indicator.
     var foregroundProbeIndicatorAttemptID: UUID?
     var foregroundProbeIndicatorIsVisible = false
@@ -2045,6 +2047,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
+        foregroundProbeIndicatorClock: any Clock<Duration> = ContinuousClock(),
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
@@ -2074,6 +2077,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
         self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
+        self.foregroundProbeIndicatorClock = foregroundProbeIndicatorClock
         self.connectionHandoffDrainTimeoutNanoseconds =
             connectionHandoffDrainTimeoutNanoseconds
         self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
