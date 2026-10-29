@@ -97,9 +97,10 @@ SKIPPED_WORKFLOW_RATIO = 0.90
 SKIPPED_WORKFLOW_MIN_RUNS = 20
 CANCELLED_MACOS_WASTE_MINUTES = 5.0
 REPEATED_FAILURE_MIN_HEADS = 3
-# The events whose head is a pull request's: its run's head_sha is the head that pull request had when
-# the event fired (for pull_request_target too, though the run executes the base's workflow).
-PULL_REQUEST_EVENTS = frozenset({"pull_request", "pull_request_target"})
+# The events whose runs are never superseded: a base branch failing on commit after commit is the main-broken
+# signal itself. Every other run that links a pull request (pull_request, pull_request_target, workflow_run,
+# review and comment events) is judged by that pull request's head.
+NEVER_SUPERSEDED_EVENTS = frozenset({"push", "schedule"})
 UNCHANGED_TREE_MIN_RUNS = 2
 
 START_MARKER = "<!-- ci-health-report:start -->"
@@ -263,12 +264,13 @@ def never_got_a_runner(job: Mapping[str, Any]) -> bool:
     return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
 
 
-def link_repo(pull: Mapping[str, Any]) -> str:
-    """The base repository a `pull_requests` entry belongs to, as lower-case owner/name ("" when unknown).
+def link_repo(pull: Mapping[str, Any], side: str = "base") -> str:
+    """The `side` ("base" or "head") repository of a `pull_requests` entry, as lower-case owner/name ("" when
+    unknown).
 
-    GitHub's run listing names it by `base.repo.url` (api.github.com/repos/OWNER/NAME); a fuller payload has
+    GitHub's run listing names it by `repo.url` (api.github.com/repos/OWNER/NAME); a fuller payload has
     `full_name`. A bare `name` is not an identity: another owner's fork can share it."""
-    repo = (pull.get("base") or {}).get("repo") or {}
+    repo = (pull.get(side) or {}).get("repo") or {}
     full = str(repo.get("full_name") or "")
     if not full:
         url = str(repo.get("url") or "")
@@ -278,10 +280,16 @@ def link_repo(pull: Mapping[str, Any]) -> str:
 
 
 def pull_links(run: Mapping[str, Any], repo: str) -> list[Mapping[str, Any]]:
-    """The run's `pull_requests` entries for pull requests into `repo` (full owner/name), with a number."""
+    """The run's `pull_requests` entries that are this run's own pull requests: into `repo` (full owner/name),
+    with a number, and whose head repository is the run's head repository. GitHub also links a push or
+    dispatch run to any fork pull request whose head commit matches; its head repository is the fork, so
+    it is never taken for the run's own. A run whose head repository is unknown has no links."""
+    head_repo = str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
+    if not head_repo:
+        return []
     return [pull for pull in run.get("pull_requests") or ()
             if isinstance(pull, Mapping) and isinstance(pull.get("number"), int)
-            and link_repo(pull) == repo.lower()]
+            and link_repo(pull) == repo.lower() and link_repo(pull, "head") == head_repo]
 
 
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
@@ -500,7 +508,7 @@ def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str) -> dict[int
     linked: dict[int, str] = {}
     newest: dict[int, tuple[tuple[str, int], str]] = {}
     for run in runs:
-        if run.get("event") not in PULL_REQUEST_EVENTS:
+        if run.get("event") in NEVER_SUPERSEDED_EVENTS:
             continue
         stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
         sha = str(run.get("head_sha") or "")
@@ -527,7 +535,7 @@ def superseded(row: JobRow, heads: Mapping[int, str]) -> bool:
     pull requests share is superseded only when every one of them is known and
     has moved past it: it is still current for any that has not.
     """
-    if row.event not in PULL_REQUEST_EVENTS or not row.prs:
+    if row.event in NEVER_SUPERSEDED_EVENTS or not row.prs:
         return False
     return all(number in heads and heads[number] != row.head_sha for number in row.prs)
 

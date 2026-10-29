@@ -211,10 +211,10 @@ class QueueWaitTests(unittest.TestCase):
         self.assertEqual(self.stats[0].label, MAC)
 
 
-def link(number: int, head: str, repo: str = REPO) -> dict[str, Any]:
-    """A `pull_requests` entry as GitHub's run listing has it (base.repo names its repository by url)."""
-    url = f"https://api.github.com/repos/{repo}"
-    return {"number": number, "head": {"sha": head}, "base": {"repo": {"url": url, "name": repo.split("/")[1]}}}
+def link(number: int, head: str, repo: str = REPO, head_repo: str = REPO) -> dict[str, Any]:
+    """A `pull_requests` entry as GitHub's run listing has it (each repo named by its url)."""
+    side = lambda r: {"url": f"https://api.github.com/repos/{r}", "name": r.split("/")[1]}
+    return {"number": number, "head": {"sha": head, "repo": side(head_repo)}, "base": {"repo": side(repo)}}
 
 
 class WastePatternTests(unittest.TestCase):
@@ -369,14 +369,39 @@ class WastePatternTests(unittest.TestCase):
         self.assertEqual(report.link_repo(link(1, "x", "Manaflow-AI/cmux")), "manaflow-ai/cmux")
         self.assertEqual(report.link_repo({"base": {"repo": {"name": "cmux"}}}), "")
 
+    def test_a_linked_workflow_run_is_judged_by_its_pull_requests_head(self):
+        # A workflow_run (or review, comment) run that links its pull request is as superseded as the
+        # pull_request run it follows; push and schedule runs never are.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            run = dict(base, id=9800 + n, event="workflow_run", head_branch=f"w{n}", head_sha=f"old{n}",
+                       pull_requests=[link(60 + n, f"new{n}")])
+            runs.append(run)
+            rows += self.failing(run)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        pushed = [dict(run, event="push") for run in runs]
+        rows = [row for run in pushed for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(rows, runs=pushed, repo=REPO)[0].heads, 3)
+
+    def test_a_fork_pull_request_linked_to_a_main_dispatch_is_not_its_own(self):
+        # GitHub links a dispatch run on main to a fork pull request whose head commit matches; that fork
+        # pull request moving on must not hide main's failures.
+        base = dict(self.fixture["runs"][5], event="workflow_dispatch")
+        runs = [dict(base, id=9900 + n, head_sha=f"main{n}",
+                     pull_requests=[link(70 + n, "fork-moved", head_repo="outsider/cmux")]) for n in range(3)]
+        rows = [row for run in runs for row in self.failing(run)]
+        self.assertEqual(report.pull_request_heads(runs, REPO), {})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+
     def test_the_links_head_wins_over_the_newest_run(self):
         # An old head's run created later (a re-dispatch) does not decide: the link names the head now.
         base = self.fixture["runs"][2]
         old = self.linked(dict(base, id=1, head_sha="old", created_at="2026-09-22T12:00:00Z"), 9, "new")
         new = self.linked(dict(base, id=2, head_sha="new", created_at="2026-09-22T11:00:00Z"), 9, "new")
         self.assertEqual(report.pull_request_heads([old, new], REPO), {9: "new"})
-        unlinked = dict(old, pull_requests=[dict(link(9, ""), head={})])
-        headless = dict(new, pull_requests=[dict(link(9, ""), head={})])
+        unlinked = dict(old, pull_requests=[dict(link(9, ""), head={"repo": link(9, "")["head"]["repo"]})])
+        headless = dict(new, pull_requests=[dict(link(9, ""), head={"repo": link(9, "")["head"]["repo"]})])
         self.assertEqual(report.pull_request_heads([unlinked, headless], REPO), {9: "old"})
 
     def test_base_branch_failures_across_commits_still_count(self):

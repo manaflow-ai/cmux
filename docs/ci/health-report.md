@@ -78,7 +78,9 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
   replaced, such as a stale CLA policy guard event, says nothing about it. A
   run with no pull request link (a fork's) is never treated as superseded, and
   a run several pull requests share is superseded only once all of them moved
-  past it. Links count only for pull requests into this repository (owner/name).
+  past it. Links count only for pull requests into this repository (owner/name)
+  whose head repository is the run's own, and for any event but push and
+  schedule (workflow_run and review runs too).
 - **Workflows ≥90% skipped** (with at least 20 runs in the window). A shim that
   decides it had nothing to do is cheap per run and expensive per day: it still
   queues, still writes a check, and still fills every list of runs anybody
