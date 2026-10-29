@@ -663,6 +663,8 @@ impl Hub {
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
                 Self::hold_stalled_count(session);
+                // The conversation the chat's own profile resumes, if the fallback cannot start.
+                let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
@@ -761,7 +763,14 @@ impl Hub {
                     }
                     // It could not start after all: the chat goes back to the profile it was
                     // on, and the turn fails with its own error, saying why.
+                    // An agent its failed start left behind is not the chat's, and the
+                    // conversation is the one it had.
                     (Err(e2), _) => {
+                        let turn = session.turn();
+                        self.detach_child(session).await;
+                        *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
+                        self.set_status(session, SessionStatus::Running);
+                        kept.restore(session);
                         self.move_profile(session, &from, &e2.message, &turn_id, true);
                         result = Err(super::fallback_start::fallback_not_started(
                             e,

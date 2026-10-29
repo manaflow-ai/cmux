@@ -115,6 +115,46 @@ impl Hub {
     }
 }
 
+/// Which conversation the chat's agent resumes, as it was before a failover's fallback started:
+/// a fallback on another Claude store drops the id and marks the chat to get its transcript
+/// (`lifecycle.rs` `cold_start`) before its process starts, so a start that then fails would
+/// leave the chat's own profile to begin a fresh conversation.
+pub(super) struct ConversationMark {
+    agent_session_id: Option<String>,
+    agent_session_family: Option<String>,
+    previous_agent_session_ids: Vec<String>,
+    claude_unstored: bool,
+    claude_profile: Option<String>,
+    rehydrate: bool,
+}
+
+impl ConversationMark {
+    pub(super) fn of(session: &Session) -> Self {
+        let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        Self {
+            agent_session_id: m.agent_session_id.clone(),
+            agent_session_family: m.agent_session_family.clone(),
+            previous_agent_session_ids: m.previous_agent_session_ids.clone(),
+            claude_unstored: m.claude_unstored,
+            claude_profile: m.claude_profile.clone(),
+            rehydrate: session.rehydrate.load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+
+    /// Put it back (`Hub::move_profile` saves it with the move).
+    pub(super) fn restore(self, session: &Session) {
+        {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.agent_session_id = self.agent_session_id;
+            m.agent_session_family = self.agent_session_family;
+            m.previous_agent_session_ids = self.previous_agent_session_ids;
+            m.claude_unstored = self.claude_unstored;
+            m.claude_profile = self.claude_profile;
+        }
+        session.rehydrate.store(self.rehydrate, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// The turn's own error `e`, saying that its fallback `to` could not take the turn (`why`) and
 /// that the chat stays on `from`.
 pub(super) fn fallback_not_started(e: &RpcError, from: &str, to: &str, why: &str) -> RpcError {
