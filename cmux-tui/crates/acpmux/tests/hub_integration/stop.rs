@@ -40,6 +40,134 @@ async fn a_cancel_the_agent_never_answers_still_ends_the_turn() {
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");
 }
 
+/// Another agent's message (`acpmux send --from`), queued as `prompt_id`.
+fn from_agent(id: &str, prompt_id: &str, text: &str) -> Value {
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "fromAgent": "coordinator"}}})
+}
+
+/// Sends `params` and waits until it is queued.
+async fn queued(c: &mut TestClient, params: Value) {
+    let prompt_id = params["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned();
+    c.send(method::SESSION_PROMPT, params).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == *prompt_id && p["queued"] == true)
+        .await;
+}
+
+fn summary(hub: &Arc<Hub>, id: &str) -> Value {
+    hub.session_summary(&hub.resolve(id).unwrap())
+}
+
+/// The queued prompts' ids and whether each is held.
+fn held(row: &Value) -> Vec<(String, bool)> {
+    let queue = row["queue"].as_array().cloned().unwrap_or_default();
+    queue.iter().map(|q| (q["promptId"].as_str().unwrap().to_owned(), q["held"] == true)).collect()
+}
+
+/// An agent that goes on working after Stop (2026-10-29: a coordinator kept making tool calls
+/// after Stop, the chat read as running, and its queued agent messages started the next turn
+/// behind it). acpmux cancels it once more, then ends its process and starts it again on the
+/// same conversation. The turn reads `stopping` until it really ended, nothing of the old
+/// process lands after it, and the other agents' messages stay queued, held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agent_working_through_stop_is_restarted_on_the_same_conversation() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "works-through-stop").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "works-through-cancel", Some("p-work"))).await;
+    let first =
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "tool_call").await;
+    let title = first["update"]["title"].as_str().unwrap().to_owned();
+    let old_pid = format!("pid {}", title.rsplit(' ').next().unwrap());
+    let conversation = summary(&hub, &id)["agentSessionId"].clone();
+    assert!(conversation.is_string(), "{conversation}");
+    queued(&mut c, from_agent(&id, "p-agent", "from the coordinator")).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let mut state = Value::Null;
+    for _ in 0..200 {
+        state = summary(&hub, &id)["state"].clone();
+        if state == "stopping" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(state, "stopping", "a Stop's turn reads stopping until it ends");
+    let ended = tokio::time::timeout(
+        Duration::from_secs(40),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("the stopped turn never ended");
+    assert_eq!(ended["msg"]["status"], "cancelled", "{ended}");
+    assert_eq!(ended["msg"]["cancelForced"], true, "{ended}");
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "stop_restarted"),
+    )
+    .await
+    .expect("the agent was not started again");
+    // Another agent's message after the Stop waits too.
+    queued(&mut c, from_agent(&id, "p-agent-2", "the coordinator again")).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let result = events.iter().find(|e| e.kind == "turn_result").unwrap();
+    let steps: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "stop_escalated" && e.seq < result.seq)
+        .filter_map(|e| e.msg["step"].as_str())
+        .collect();
+    assert_eq!(steps, ["interrupt", "restart"], "cancelled again, then restarted, then ended");
+    assert!(
+        events.iter().any(|e| e.kind == "resumed" && e.seq > result.seq),
+        "the new process did not resume the conversation"
+    );
+    let late: Vec<&str> = events
+        .iter()
+        .filter(|e| e.kind == "tool_call" && e.at > result.at + 500)
+        .filter_map(|e| e.msg["params"]["update"]["title"].as_str())
+        .filter(|t| t.ends_with(&old_pid))
+        .collect();
+    assert!(late.is_empty(), "the stopped process worked on after its turn ended: {late:?}");
+    let row = summary(&hub, &id);
+    assert_eq!(row["agentSessionId"], conversation, "{row}");
+    assert!(row["turn"].is_null(), "a turn runs after the Stop: {row}");
+    assert!(!["running", "stopping"].contains(&row["state"].as_str().unwrap()), "{row}");
+    assert_eq!(
+        held(&row),
+        [("p-agent".to_owned(), true), ("p-agent-2".to_owned(), true)],
+        "the agents' messages stay queued, held: {row}"
+    );
+}
+
+/// The person's Stop keeps their own queued prompt as it was: it runs next. The other agents'
+/// messages wait held until it completed, then go in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-keeps-person").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, from_agent(&id, "p-agent", "agent words")).await;
+    queued(&mut c, json!({"sessionId": id, "prompt": [{"type": "text", "text": "person words"}], "_meta": {"acpmux": {"promptId": "p-next"}}})).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    c.wait_for(method::MUX_EVENT, |p| {
+        p["kind"] == "turn_started" && p["msg"]["promptId"] == "p-next"
+    })
+    .await;
+    assert_eq!(held(&summary(&hub, &id)), [("p-agent".to_owned(), true)]);
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        c.wait_for(method::SESSION_UPDATE, |p| {
+            p["update"]["content"]["text"].as_str().is_some_and(|t| t.contains("agent words"))
+        }),
+    )
+    .await
+    .expect("the agent's message never went in after the person's turn");
+}
+
 #[tokio::test]
 async fn session_cancel_as_a_request_is_answered() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
