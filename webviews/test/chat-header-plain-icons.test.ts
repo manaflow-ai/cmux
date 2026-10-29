@@ -34,9 +34,7 @@ function rules(): { file: string; selector: string; body: Map<string, string> }[
         body
           .split(";")
           .map((declaration) =>
-            declaration
-              .split(/:(.*)/s)
-              .map((part) => part.replace(/\s*!important\s*$/i, "").trim()),
+            declaration.split(/:(.*)/s).map((part) => part.replace(/\s*!important\s*$/i, "").trim()),
           )
           .filter(([property, value]) => property && value)
           .map(([property, value]) => [property!, value!]),
@@ -65,7 +63,8 @@ test("the header tools' focus rule clears the shared focus gradient without draw
   // focus rule answers with an important `background:none`, which is no fill.
   const focus = rules().find(
     ({ file, selector }) =>
-      file === "header/header.css" && selector.split(",").includes(".acpmux-header-tools .acpmux-header-tool:focus-visible"),
+      file === "header/header.css" &&
+      selector.split(",").includes(".acpmux-header-tools .acpmux-header-tool:focus-visible"),
   );
   expect(focus?.body.get("background")).toBe("none");
   expect(focus?.body.get("outline")).toMatch(/solid/);
