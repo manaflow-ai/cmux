@@ -230,8 +230,11 @@ def violations(focus, check, expect, report=None):
         out.append(f"I3 the sidebar has the keys ({classified}) while the model targets {kind}")
     # Nothing focused, whatever the model says: the window itself (or nothing) is first responder, no Chromium page
     # and no palette has the keys. A key typed now goes nowhere.
-    if (w is not None and classified == "windowOrNone" and not appkit.get("child_window_page") and not appkit.get("devtools_tab")
-            and kind != "palette" and not (kind in CHILD_PAGE_KINDS and not page)):
+    responder = appkit.get("first_responder")
+    # The window itself (or no responder) has the keys: a view outside every pane (a top page's web view) is a target.
+    bare = responder is None or str(responder).endswith("Window")
+    if (w is not None and classified == "windowOrNone" and bare and not appkit.get("child_window_page")
+            and not appkit.get("devtools_tab") and kind != "palette" and not (kind in CHILD_PAGE_KINDS and not page)):
         out.append(f"I8 nothing has the keys: first responder {appkit.get('first_responder')}, no page, model {kind}")
     if w is not None and not page:
         out += [f"I4 {m}" for m in w.get("mismatches") or []]
