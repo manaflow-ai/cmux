@@ -66,7 +66,19 @@ final class DesktopNotifier: NSObject {
     /// Whether a launch with `environment` uses the system notification center: every launch but
     /// an automation one, and an automation one that sets `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
     nonisolated static func usesSystemCenter(in environment: [String: String]) -> Bool {
-        environment[nativeNotificationsVariable] == "1" || !WindowDrawPolicy.isAutomationLaunch(environment)
+        optsIntoNativeNotifications(environment) || !WindowDrawPolicy.isAutomationLaunch(environment)
+    }
+
+    /// Whether a launch with `environment` asks macOS for notification permission and answers
+    /// `notifications.status` / `notifications.request`: one that uses the system center, unless it is a
+    /// GUI job (`NX_REMOTE=1`, `CMUX_TEST_REQUIRE_GUI=1`: the banner would catch its clicks) that did not
+    /// opt in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
+    nonisolated static func asksPermission(in environment: [String: String]) -> Bool {
+        usesSystemCenter(in: environment) && (optsIntoNativeNotifications(environment) || !isGUIJob(environment))
+    }
+
+    nonisolated private static func optsIntoNativeNotifications(_ environment: [String: String]) -> Bool {
+        environment[nativeNotificationsVariable] == "1"
     }
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
@@ -181,7 +193,7 @@ final class DesktopNotifier: NSObject {
     private func resolvedCenter() -> UNUserNotificationCenter? {
         guard let center = configuredCenter() else { return nil }
         // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
-        if !askedAuthorization, !Self.isGUIJob {
+        if !askedAuthorization, Self.asksPermission {
             askedAuthorization = true
             center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
                 Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
@@ -205,15 +217,17 @@ final class DesktopNotifier: NSObject {
         return center
     }
 
-    nonisolated private static var isGUIJob: Bool {
-        ["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains { ProcessInfo.processInfo.environment[$0] == "1" }
+    nonisolated private static func isGUIJob(_ environment: [String: String]) -> Bool {
+        ["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains { environment[$0] == "1" }
     }
+
+    nonisolated private static var asksPermission: Bool { asksPermission(in: ProcessInfo.processInfo.environment) }
 
     /// The permission `notifications.status` reads and `notifications.request` asks for, on the
     /// banners' own center. A launch that never asks (an automation launch, a GUI job, not the
     /// main app bundle) answers `unavailable`.
     func permission() throws -> any NotificationPermissionCenter {
-        guard !Self.isGUIJob, configuredCenter() != nil else {
+        guard Self.asksPermission, configuredCenter() != nil else {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
         return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] granted in
