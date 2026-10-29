@@ -226,6 +226,18 @@ async fn request_writes_showing_an_unread_chat_is_not_waited_for() {
     }
 }
 
+/// `_acpmux/markUnread` is the person's own change, not bookkeeping: its answer waits for its
+/// `status` record, which a restart rebuilds the mark from (lead, 2026-10-29: the write rule
+/// covers every acknowledged change).
+#[tokio::test]
+async fn request_writes_an_answered_mark_unread_waits_for_its_record() {
+    let hub = hub_on(Box::new(MemoryStore::default()));
+    let session = chat(&hub, "s1");
+    let ((), writes) = scope(Box::pin(async { hub.mark_unread(&session) })).await;
+    let seq = session.seq.load(Ordering::SeqCst);
+    assert_eq!(writes.logs.get("s1"), Some(&seq), "markUnread did not wait for its record");
+}
+
 /// A store whose log progress the test holds: queued and not written until the test says.
 struct HeldStore {
     inner: MemoryStore,
