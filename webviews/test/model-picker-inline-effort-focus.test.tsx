@@ -128,6 +128,14 @@ async function openPicker(
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
+// Focus returns on a later turn; poll it against a deadline instead of one fixed wait.
+async function focusSettles(done: () => boolean) {
+  const deadline = Date.now() + 2_000;
+  while (!done() && Date.now() < deadline) {
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+}
+
 test("the current model's inline effort pick returns focus to the prompt through ModelPicker", async () => {
   prompt = document.createElement("textarea");
   document.body.append(prompt);
@@ -136,7 +144,7 @@ test("the current model's inline effort pick returns focus to the prompt through
   const segment = host.ownerDocument.querySelector<HTMLElement>('[aria-label="Opus 5.5 · Low"]');
   expect(segment).toBeDefined();
   await act(async () => segment!.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  await focusSettles(() => document.activeElement === prompt);
   expect(effortPicks).toEqual(["low"]);
   expect(document.activeElement).toBe(prompt);
 });
