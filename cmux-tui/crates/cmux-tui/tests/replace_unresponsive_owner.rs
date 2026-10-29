@@ -142,6 +142,8 @@ fn replace_unresponsive_keeps_a_responsive_owner() {
 /// owner still restoring answers at once (`lifecycle_ready: false`), so this is not one: plain
 /// `server ensure` reports it unavailable soon, which offers "Restart cmux-tui", instead of
 /// waiting out the 120 s restore bound (restore journey, daemon-stop variant: no offer in 150 s).
+/// macOS only: the owner's stopped state comes from `proc_pidinfo` (Linux keeps the restore wait).
+#[cfg(target_os = "macos")]
 #[test]
 fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bound() {
     let mut fixture = Fixture::new("ensure-frozen");
