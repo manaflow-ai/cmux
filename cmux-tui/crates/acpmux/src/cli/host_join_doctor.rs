@@ -112,13 +112,18 @@ fn origin(facts: &Facts) -> String {
         o.strip_prefix("https://").is_some_and(|rest| {
             let host = rest.strip_suffix('/').unwrap_or(rest);
             !host.is_empty()
-                && host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'))
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'))
         }) && plain(o)
     };
     match &facts.status {
-        Status::Json(v) => {
-            v["hubOrigin"].as_str().filter(bare).unwrap_or(DEV_ORIGIN).trim_end_matches('/').to_owned()
-        }
+        Status::Json(v) => v["hubOrigin"]
+            .as_str()
+            .filter(bare)
+            .unwrap_or(DEV_ORIGIN)
+            .trim_end_matches('/')
+            .to_owned(),
         _ => DEV_ORIGIN.to_owned(),
     }
 }
@@ -196,11 +201,9 @@ fn binary_step(facts: &Facts) -> JoinStep {
         Binary::Missing(path) => {
             JoinStep::fail("binary", format!("no acpmux at {}", path.display()), rejoin(facts))
         }
-        Binary::NotExecutable(path) => JoinStep::fail(
-            "binary",
-            format!("{} is not executable", path.display()),
-            rejoin(facts),
-        ),
+        Binary::NotExecutable(path) => {
+            JoinStep::fail("binary", format!("{} is not executable", path.display()), rejoin(facts))
+        }
     }
 }
 
@@ -242,11 +245,13 @@ fn credential_step(facts: &Facts) -> JoinStep {
         Status::Json(v) if v["credentialPresent"].as_bool() == Some(true) => {
             let mode = v["credentialMode"].as_str().map(|m| m.trim_start_matches('0'));
             match (mode, v["credentialPath"].as_str()) {
-                (Some(mode), Some(path)) if mode != "600" && plain(path) && plain(mode) => JoinStep::fail(
-                    "credential",
-                    format!("the credential file is mode {mode}, readable by others"),
-                    format!("chmod 600 {path}"),
-                ),
+                (Some(mode), Some(path)) if mode != "600" && plain(path) && plain(mode) => {
+                    JoinStep::fail(
+                        "credential",
+                        format!("the credential file is mode {mode}, readable by others"),
+                        format!("chmod 600 {path}"),
+                    )
+                }
                 _ => {
                     let id = v["machineId"].as_str().unwrap_or("this machine");
                     JoinStep::new("credential", StepState::Ok, format!("joined as {id}"))

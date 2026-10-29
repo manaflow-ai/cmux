@@ -233,7 +233,8 @@ fn absent_fields_skip_and_a_null_heartbeat_fails() {
     assert_eq!(step(&checked, "heartbeat").state, StepState::Skip);
     let checked = with_status(json!({"lastHeartbeat": null}));
     assert_eq!(step(&checked, "heartbeat").state, StepState::Fail);
-    let unsaid = steps(&Facts { status: Status::Json(json!({"hubReachable": true})), ..healthy() }, NOW);
+    let unsaid =
+        steps(&Facts { status: Status::Json(json!({"hubReachable": true})), ..healthy() }, NOW);
     assert_eq!(step(&unsaid, "credential").state, StepState::Skip);
 }
 
