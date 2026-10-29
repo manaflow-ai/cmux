@@ -70,6 +70,7 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
     let cmux = root.join("bin/cmux");
     std::fs::write(&cmux, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GROUP_CAPTURE\"\n").unwrap();
     std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut previous = None;
     let mut unnamed = None;
     for (attempt, (peer, named)) in
@@ -113,7 +114,8 @@ async fn remote_group_cli_opens_the_remote_id_locally_and_reuses_its_row() {
         assert!(uuid::Uuid::parse_str(args[key_index + 1]).is_ok());
         let id = args[2];
         let remote = &remotes[usize::from(peer == "other")];
-        assert!(remote.resolve(id).is_ok(), "the session belongs to the remote hub");
+        let raw_id = id.strip_prefix(&format!("{peer}/")).expect("the group keeps its peer route");
+        assert!(remote.resolve(raw_id).is_ok(), "the session belongs to the remote hub");
         assert!(local.resolve(id).is_err(), "no local agent was created");
         // The ID handed to cmux is usable through the controller daemon, without --host.
         let client = acpmux::client::Client::connect(&socket).await.unwrap();

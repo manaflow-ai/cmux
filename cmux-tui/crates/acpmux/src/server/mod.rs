@@ -1492,6 +1492,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
+    // Attached peer updates retain the raw wire id, but also identify its owner so
+    // clients can key live transcripts by the same route as their session rows.
+    let routed = |mut params: Value| {
+        if let Some(obj) = params.as_object_mut() {
+            obj.remove("peer");
+            if let Some(remote) = &ev.remote {
+                obj.insert("peer".into(), json!(remote.peer));
+            }
+        }
+        params
+    };
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
     let attached = sub.is_some();
@@ -1505,7 +1516,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             if sub.filter.matches(rec) {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
-                    event_value(&ev.session_id, rec),
+                    routed(event_value(&ev.session_id, rec)),
                 ));
             }
         } else {
@@ -1521,19 +1532,19 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     &mut params,
                     json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
                 );
-                conn.send(&Message::notification(method::SESSION_UPDATE, params));
+                conn.send(&Message::notification(method::SESSION_UPDATE, routed(params)));
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
-                    event_value(&ev.session_id, rec),
+                    routed(event_value(&ev.session_id, rec)),
                 ));
             }
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                permission_pending(&ev.session_id, rec, "attach"),
+                routed(permission_pending(&ev.session_id, rec, "attach")),
             ));
         }
     }
