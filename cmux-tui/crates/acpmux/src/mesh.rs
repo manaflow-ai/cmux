@@ -142,7 +142,7 @@ pub struct InMessage {
     pub to: Target,
     #[serde(default)]
     pub from: Sender,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "nullable_body")]
     pub body: String,
     /// How many times it was leased (1 for the first).
     #[serde(default)]
@@ -156,6 +156,18 @@ pub struct InMessage {
     pub state: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+}
+
+fn nullable_body<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// A page of durable recipient messages. Browsing never changes delivery state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamPage {
+    pub messages: Vec<InMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u64>,
 }
 
 /// A message to post.
@@ -192,6 +204,14 @@ pub struct Receipt {
     pub leased_until: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acked_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acked_by: Option<String>,
     /// The hub's resolved destination for a team address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolution: Option<Value>,
@@ -282,29 +302,22 @@ impl std::error::Error for HubError {}
 pub trait MeshHub: Send + Sync {
     /// Up to `max` messages for this daemon, leased to it, waiting up to `wait` for one.
     fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>>;
-    /// List durable team messages. Implementations may use the same leased
-    /// inbox endpoint when the hub has not split team messages into a route.
-    fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
-        let _ = unread_only;
+    /// Browse recipient team messages without acquiring a delivery lease.
+    fn team_messages<'a>(
+        &'a self,
+        _unread_only: bool,
+        _team_address: Option<&'a str>,
+        _before: Option<u64>,
+    ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
         Box::pin(async { Err(HubError::unavailable("team inbox is unavailable")) })
     }
-    /// List team messages for one claimed address when the caller is an agent.
-    /// The default keeps older hub implementations compatible; HTTP hubs filter server-side.
-    fn team_inbox_for<'a>(
-        &'a self,
-        unread_only: bool,
-        team_address: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<Vec<InMessage>, HubError>> {
-        if team_address.is_some() {
-            return Box::pin(async {
-                Err(HubError::unavailable("team inbox filtering is unavailable"))
-            });
-        }
-        self.team_inbox(unread_only)
-    }
-    /// Mark a team message read without acknowledging delivery.
-    fn read<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
+    /// Mark a team message read, preserving the hub's idempotent receipt.
+    fn read<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async { Err(HubError::unavailable("team message read is unavailable")) })
+    }
+    /// Explicit recipient acknowledgement, separate from the relay's delivery ack.
+    fn acknowledge<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team acknowledgement is unavailable")) })
     }
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
     /// Replace this daemon's sessions in the address book.

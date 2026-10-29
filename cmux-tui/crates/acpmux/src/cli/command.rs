@@ -874,6 +874,9 @@ pub enum SessionCmd {
 
 #[derive(Args)]
 pub struct InboxArgs {
+    /// Continue browsing from the previous JSON response's `next` cursor.
+    #[arg(long)]
+    pub before: Option<u64>,
     #[command(subcommand)]
     pub command: Option<InboxCmd>,
 }

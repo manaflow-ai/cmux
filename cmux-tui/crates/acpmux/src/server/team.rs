@@ -5,7 +5,7 @@
 //! the local request and passes the signed daemon identity to `MeshHub`.
 
 use super::*;
-use crate::mesh::{Ack, Kind, MeshHub, Mode, OutMessage, Sender, Target};
+use crate::mesh::{Kind, MeshHub, Mode, OutMessage, Sender, Target};
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -13,6 +13,17 @@ pub(super) async fn handle(
     method: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    // A remote daemon may not borrow this daemon's team identity. Local agents use
+    // their proven caller session; an owner at the owner-only socket may browse all
+    // addresses the platform grants this daemon. Team membership is checked by the hub.
+    if conn.origin != Origin::Local && !conn.is_person() {
+        return Err(RpcError::invalid_params(
+            "team messaging requires the local socket or the app",
+        ));
+    }
+    if conn.unproven_caller.get().is_some() && !conn.is_person() {
+        return Err(forbidden());
+    }
     let enabled =
         hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
     if !enabled {
@@ -40,10 +51,15 @@ async fn send(
 ) -> Result<Value, RpcError> {
     let raw = required(params, "to")?;
     let address = raw.strip_prefix('@').unwrap_or(&raw);
-    if !valid_address(address) {
+    if !super::mesh_send::valid_team_address(&format!("@{address}")) {
         return Err(RpcError::invalid_params("team address must be @member/agent or @team/role"));
     }
-    let body = required(params, "body")?;
+    let body = params
+        .get("body")
+        .and_then(Value::as_str)
+        .filter(|body| !body.trim().is_empty())
+        .ok_or_else(|| RpcError::invalid_params("body is required"))?
+        .to_owned();
     let wire_address = format!("@{address}");
     let id = params
         .get("idempotencyKey")
@@ -61,7 +77,12 @@ async fn send(
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
                 team_address: caller_session.as_ref().and_then(|session| {
-                    session.meta().tags.get("teamAddress").map(|tag| tag.value.clone())
+                    session
+                        .meta()
+                        .tags
+                        .get("teamAddress")
+                        .filter(|tag| tag.expires_at.is_none_or(|at| at > crate::store::now_ms()))
+                        .map(|tag| tag.value.clone())
                 }),
                 host: Some(crate::pairing::machine_name()),
                 ..Sender::default()
@@ -78,80 +99,79 @@ async fn send(
 }
 
 async fn inbox(
-    hub: &Arc<Hub>,
+    _hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mesh: &Arc<dyn MeshHub>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
-    let team_address = claimed_address(hub, conn)?;
-    let rows = mesh
-        .team_inbox_for(unread_only, Some(&team_address))
+    let before = params.get("before").and_then(Value::as_u64);
+    let mut page = mesh
+        .team_messages(unread_only, None, before)
         .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?
-        .into_iter()
-        .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
-        .collect::<Vec<_>>();
-    Ok(json!({"messages": rows}))
+        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+    page.messages.retain(|message| may_read(conn, &message.to));
+    Ok(serde_json::to_value(page).unwrap_or(Value::Null))
+}
+
+/// Local session identity, not a mutable address tag, scopes agent access. The hub
+/// authorizes this daemon's recipient addresses before returning any page or receipt.
+fn may_read(conn: &Conn, to: &Target) -> bool {
+    conn.is_person() || conn.caller().is_none_or(|id| to.session_id.as_deref() == Some(id))
 }
 
 async fn read(
-    hub: &Arc<Hub>,
+    _hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mesh: &Arc<dyn MeshHub>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let id = required(params, "id")?;
-    let message = owned_message(hub, conn, mesh, &id).await?;
-    mesh.read(&id)
-        .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not mark it read: {e}")))?;
-    Ok(json!({"messageId": id, "state": "read", "message": message}))
+    let mut before = None;
+    // Browse all pages to locate the body; this never steals the relay's lease.
+    loop {
+        let page = mesh
+            .team_messages(false, None, before)
+            .await
+            .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+        if let Some(mut message) = page
+            .messages
+            .into_iter()
+            .find(|message| message.message_id == id && may_read(conn, &message.to))
+        {
+            let receipt = mesh.read(&id).await.map_err(|e| {
+                RpcError::internal(format!("the mesh hub did not mark it read: {e}"))
+            })?;
+            message.state = Some(receipt.state.clone());
+            return Ok(json!({"message": message, "receipt": receipt}));
+        }
+        match page.next {
+            Some(next) if before.is_none_or(|previous| next < previous) => before = Some(next),
+            _ => return Err(forbidden()),
+        }
+    }
 }
 
 async fn ack(
-    hub: &Arc<Hub>,
+    _hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mesh: &Arc<dyn MeshHub>,
     params: &Value,
 ) -> Result<Value, RpcError> {
     let id = required(params, "id")?;
-    let _ = owned_message(hub, conn, mesh, &id).await?;
-    mesh.ack(&id, &Ack::delivered(&id, None))
-        .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not accept the ack: {e}")))?;
-    Ok(json!({"id": id, "state": "acked"}))
-}
-
-fn claimed_address(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<String, RpcError> {
-    let address = conn
-        .caller()
-        .and_then(|id| hub.resolve(id).ok())
-        .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()))
-        .filter(|address| valid_claim(address.trim()));
-    address.ok_or_else(|| {
-        RpcError::invalid_params("team inbox requires a claimed team address")
-            .with_data(json!({"reason": "team.forbidden"}))
-    })
-}
-
-async fn owned_message(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    mesh: &Arc<dyn MeshHub>,
-    id: &str,
-) -> Result<Value, RpcError> {
-    let address = claimed_address(hub, conn)?;
-    let messages = mesh
-        .team_inbox_for(false, Some(&address))
-        .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
-    if let Some(message) = messages.into_iter().find(|message| message.message_id == id) {
-        Ok(serde_json::to_value(message).unwrap_or(Value::Null))
-    } else {
-        Err(RpcError::invalid_params("team message is not addressed to this session")
-            .with_data(json!({"reason": "team.forbidden"})))
+    let receipt = mesh.receipt(&id).await.map_err(|_| forbidden())?;
+    if receipt.to.team_address.is_none() || !may_read(conn, &receipt.to) {
+        return Err(forbidden());
     }
+    let receipt = mesh.acknowledge(&id).await.map_err(|e| {
+        RpcError::internal(format!("the mesh hub did not accept the acknowledgement: {e}"))
+    })?;
+    Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
+}
+
+fn forbidden() -> RpcError {
+    RpcError::invalid_params("team message is not addressed to this session")
+        .with_data(json!({"reason": "team.forbidden"}))
 }
 
 fn required(params: &Value, name: &str) -> Result<String, RpcError> {
@@ -162,43 +182,4 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
-}
-
-fn valid_address(address: &str) -> bool {
-    let Some((scope, role)) = address.split_once('/') else { return false };
-    !scope.is_empty()
-        && !role.is_empty()
-        && scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-fn valid_claim(address: &str) -> bool {
-    let address = address.strip_prefix('@').unwrap_or(address);
-    valid_address(address)
-        || (!address.is_empty()
-            && address.len() <= 128
-            && address.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{valid_address, valid_claim};
-
-    #[test]
-    fn team_address_requires_a_scope_and_role() {
-        assert!(valid_address("lawrence/coordinator"));
-        assert!(valid_address("team/release"));
-        assert!(!valid_address("@team/release"));
-        assert!(!valid_address("team"));
-        assert!(!valid_address("team/release/extra"));
-    }
-
-    #[test]
-    fn session_claims_accept_bare_roles_and_canonical_addresses() {
-        assert!(valid_claim("coordinator"));
-        assert!(valid_claim("@lawrence/coordinator"));
-        assert!(valid_claim("team/release"));
-        assert!(!valid_claim("team/release/extra"));
-        assert!(!valid_claim(""));
-    }
 }

@@ -131,10 +131,12 @@ pub(super) async fn status(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<Value, R
             )
         }
     })?;
-    let target = match (&receipt.to.host, &receipt.to.name) {
-        (Some(host), Some(name)) => format!("{host}/{name}"),
-        (_, name) => name.clone().unwrap_or_default(),
-    };
+    let target = receipt.to.team_address.clone().unwrap_or_else(|| {
+        match (&receipt.to.host, &receipt.to.name) {
+            (Some(host), Some(name)) => format!("{host}/{name}"),
+            (_, name) => name.clone().unwrap_or_default(),
+        }
+    });
     Ok(status_of(&receipt, &target))
 }
 
@@ -149,11 +151,16 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
         "refused" | "expired" => "failed",
         _ => "queued",
     };
-    let accepted = (status == "delivered")
+    let accepted = matches!(status, "delivered" | "read" | "acked")
         .then(|| json!({"promptId": receipt.prompt_id, "detail": receipt.detail}));
     let error = (status == "failed")
         .then(|| receipt.detail.clone().unwrap_or_else(|| receipt.state.clone()));
-    let updated = receipt.acked_at.or(receipt.leased_until).unwrap_or(receipt.created_at);
+    let updated = receipt
+        .acked_at
+        .or(receipt.read_at)
+        .or(receipt.delivered_at)
+        .or(receipt.leased_until)
+        .unwrap_or(receipt.created_at);
     json!({
         "deliveryId": format!("{PREFIX}{}", receipt.message_id),
         "target": target,

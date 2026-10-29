@@ -96,7 +96,8 @@ fn tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "unreadOnly": {"type": "boolean", "description": "Only messages that have not been read or acknowledged (default true)."}
+                    "unreadOnly": {"type": "boolean", "description": "Only messages that have not been read or acknowledged (default true)."},
+                    "before": {"type": "integer", "minimum": 0, "description": "Continue from a previous response's next cursor."}
                 }
             }
         },
@@ -205,7 +206,11 @@ async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
 /// repeatedly receive old information unless it explicitly asks for all messages.
 async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
     let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
-    match daemon.request(method::MUX_TEAM_INBOX, json!({"unreadOnly": unread_only})).await {
+    let mut params = json!({"unreadOnly": unread_only});
+    if let Some(before) = args.get("before").and_then(Value::as_u64) {
+        params["before"] = json!(before);
+    }
+    match daemon.request(method::MUX_TEAM_INBOX, params).await {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
     }

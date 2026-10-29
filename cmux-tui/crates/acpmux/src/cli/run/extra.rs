@@ -153,19 +153,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
                 "team-address" | "teamAddress" => {
-                    let valid_part = |part: &str| {
-                        !part.is_empty()
-                            && part.len() <= 128
-                            && part
-                                .chars()
-                                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                    };
-                    let valid = val.split_once('/').map_or_else(
-                        || valid_part(val),
-                        |(scope, role)| valid_part(scope) && valid_part(role),
-                    );
-                    if !valid {
-                        return Err(anyhow!("team-address must be a role or scope/role"));
+                    if val.is_empty()
+                        || val.len() > 128
+                        || !val.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+                    {
+                        return Err(anyhow!(
+                            "team-address must be an agent suffix such as coordinator; the hub supplies your member namespace"
+                        ));
                     }
                     client
                         .request(

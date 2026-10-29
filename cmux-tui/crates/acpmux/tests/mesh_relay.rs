@@ -220,6 +220,10 @@ impl MeshHub for FakeHub {
                     created_at: 1000,
                     leased_until: None,
                     acked_at: None,
+                    delivered_at: None,
+                    read_at: None,
+                    read_by: None,
+                    acked_by: None,
                     resolution: None,
                     start_work: None,
                 };

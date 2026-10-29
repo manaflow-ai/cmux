@@ -12,7 +12,7 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -121,6 +121,21 @@ pub struct HttpHub {
 }
 
 impl HttpHub {
+    async fn team_receipt(&self, id: &str, action: &str) -> Result<Receipt, HubError> {
+        if !crate::mesh::is_message_id(id) {
+            return Err(HubError::refused("the message id is not valid"));
+        }
+        decode(
+            self.call(
+                reqwest::Method::POST,
+                &format!("/v1/mesh/messages/{id}/{action}"),
+                Some(&json!({})),
+                CALL_WAIT,
+            )
+            .await?,
+        )
+    }
+
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -301,41 +316,31 @@ impl MeshHub for HttpHub {
         })
     }
 
-    fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
-        self.team_inbox_for(unread_only, None)
-    }
-
-    fn team_inbox_for<'a>(
+    fn team_messages<'a>(
         &'a self,
         unread_only: bool,
         team_address: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<Vec<InMessage>, HubError>> {
+        before: Option<u64>,
+    ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
         Box::pin(async move {
-            let mut path =
-                format!("/v1/mesh/inbox?team=true&unreadOnly={}&waitSeconds=0&max=50", unread_only);
-            if let Some(address) = team_address.filter(|a| !a.is_empty()) {
+            let mut path = format!("/v1/mesh/messages?unreadOnly={unread_only}&max=50");
+            if let Some(address) = team_address {
                 path.push_str("&teamAddress=");
                 path.push_str(&query_component(address));
             }
-            let inbox = self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?;
-            decode(inbox.get("messages").cloned().unwrap_or(json!([])))
+            if let Some(before) = before {
+                path.push_str(&format!("&before={before}"));
+            }
+            decode(self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?)
         })
     }
 
-    fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
-        Box::pin(async move {
-            if !crate::mesh::is_message_id(id) {
-                return Err(HubError::refused("the message id is not valid"));
-            }
-            self.call(
-                reqwest::Method::POST,
-                &format!("/v1/mesh/messages/{id}/read"),
-                Some(&json!({})),
-                CALL_WAIT,
-            )
-            .await
-            .map(drop)
-        })
+    fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(self.team_receipt(id, "read"))
+    }
+
+    fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(self.team_receipt(id, "acknowledge"))
     }
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
@@ -513,3 +518,7 @@ mod tests {
         assert_eq!(answer(200, br#"{"ok": 1}"#).unwrap(), json!({"ok": 1}));
     }
 }
+
+#[cfg(test)]
+#[path = "mesh_http_team_tests.rs"]
+mod team_tests;
