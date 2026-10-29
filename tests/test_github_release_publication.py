@@ -916,9 +916,16 @@ class AdoptTests(unittest.TestCase):
         self.assertFalse(client.table[1]["draft"])
         self.assertEqual(client.table[1]["tag_name"], "v1.2.3")
 
-    def test_a_release_already_deleted_is_tolerated(self):
+    def test_a_release_already_deleted_stops_before_writes_then_allows_a_fresh_rerun(self):
         client = self.client()
         client.stale[2] = client.table.pop(2)
+        before = {key: dict(value) for key, value in client.table.items()}
+        with self.assertRaises(finalize.RequestError) as raised:
+            self.adopt(client)
+        self.assertEqual(raised.exception.status, 404)
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+        client.stale.clear()
         self.adopt(client)
         self.assertFalse(client.table[1]["draft"])
 
