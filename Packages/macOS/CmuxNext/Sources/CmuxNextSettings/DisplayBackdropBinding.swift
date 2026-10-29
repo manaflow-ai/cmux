@@ -19,7 +19,7 @@ public final class DisplayBackdropBinding {
     private var root: JSONValue = [:]
     private var stopped = false
     private var generation = 0
-    private var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date?, pictures: [BackdropSelection]?)] = [:]
+    private var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date, pictures: [BackdropSelection]?)] = [:]
     private(set) var folderRefresh: Task<Void, Never>?
 
     public init(window: NSWindow, scope: ThemeScope, center: NotificationCenter = .default,
@@ -111,9 +111,13 @@ public final class DisplayBackdropBinding {
         }
         if folders[path] == nil {
             let listFolder = listFolder
-            folders[path] = (Task.detached(priority: .utility) { await listFolder(path) }, nil, nil)
+            folders[path] = (Task.detached(priority: .utility) { await listFolder(path) },
+                             rotation.nextTurn(after: now(), calendar: calendar()), nil)
         }
         guard let request = folders[path] else { return }
+        // Freshness belongs to the read, not to whichever display eventually consumes it.
+        // A shorter cadence also shortens the lifetime of an already cached/in-flight read.
+        folders[path]?.expires = min(request.expires, rotation.nextTurn(after: now(), calendar: calendar()))
         if let pictures = request.pictures {
             applyFolder(pictures, rotation: rotation)
             return
@@ -123,7 +127,6 @@ public final class DisplayBackdropBinding {
         folderRefresh = Task { [weak self] in
             let pictures = await request.task.value
             guard !Task.isCancelled, let self, !self.stopped, self.generation == requestedGeneration else { return }
-            self.folders[path]?.expires = rotation.nextTurn(after: self.now(), calendar: self.calendar())
             self.folders[path]?.pictures = pictures
             self.applyFolder(pictures, rotation: rotation)
         }
