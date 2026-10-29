@@ -123,7 +123,7 @@ export function ThreadMinimap({
   placed,
   change,
 }: {
-  rows: AcpmuxRow[];
+  rows: readonly AcpmuxRow[];
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;

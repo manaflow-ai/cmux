@@ -21,7 +21,7 @@ extension MessagesLabHomeView {
     /// Posted when `reduceMotionOverride` changes.
     nonisolated public static let reduceMotionDidChange = Notification.Name("MessagesLabHome.reduceMotionDidChange")
 
-    /// Reduce Motion: the caret holds solid and the working spinner stands still.
+    /// Reduce Motion: the caret holds solid, the typing dots stand still and do not breathe.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
@@ -74,10 +74,21 @@ extension FieldTextView {
     }
 }
 
+extension MessagesLabHomeView {
+    /// Whether the typing indicator holds still: Reduce Motion, or the host's Home motion gate
+    /// (`voiceMotionGate`: the app's animation switch) is off. Off the main thread it holds still.
+    nonisolated static var holdsTypingStill: Bool {
+        reducesMotion || !HomeTypingMotionGate.allowsLoops()
+    }
+}
+
 extension RowCell {
-    /// A working row holds its arc still when motion is disabled, then resumes rotation.
+    /// A typing row's dots stand still and its breath stops under Reduce Motion or with Home
+    /// animations off; after either they run again from now.
     func applyReduceMotion() {
-        guard typingSpinnerActive else { return }
-        startTypingSpinner(begin: CACurrentMediaTime())
+        guard dots.contains(where: { $0.sublayers?.first?.animation(forKey: "dots") != nil }) else { return }
+        let now = CACurrentMediaTime()
+        startTypingDots(begin: now)
+        startTypingBreath(insert: now)
     }
 }
