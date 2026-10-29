@@ -331,12 +331,14 @@ def main():
                     app.wait(15)
                 except subprocess.TimeoutExpired:
                     app.kill()
-        for s in streams:
-            s.stop()
-        collect(support, a.out, note)
-        teardown.end()
-        shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
-        forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
+        try:
+            for s in streams:
+                s.stop()
+            collect(support, a.out, note)
+            teardown.end()
+            shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
+        finally:  # the account's keychains are put back even when a step above fails
+            forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
     if not url and not expects_code:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     return 0 if paired else 1
@@ -373,6 +375,16 @@ def forget_tag(app):
     socket and log; the iPhone link journal; the Keychain items. Home paths are tried under $HOME (a step
     runs with its own) and the account home (reload.sh's markers, the app's FileManager home)."""
     bundle, tag, ls_env = step_tag(app)
+    # First, so no later cleanup step (a hung cfprefsd, an error) can keep the account's search list
+    # and default keychain changed: the run's own keychain and its items go, the user's list and default back.
+    try:
+        RigKeychain(app).end()
+    finally:
+        _forget_tag_files(app, bundle, tag, ls_env)
+
+
+def _forget_tag_files(app, bundle, tag, ls_env):
+    """forget_tag's files, folders and defaults domain (see there)."""
     slug = re.sub(r"[^a-z0-9]+", "-", bundle[len("com.cmuxterm.app.debug."):].lower()).strip("-")
     safe = re.sub(r"[^A-Za-z0-9.-]", "_", bundle)  # CrashReportWriter.safe
     homes = {os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir}
@@ -391,7 +403,10 @@ def forget_tag(app):
                   os.path.join(home, f".local/state/cmux/dev-{slug}-last-socket-path"),
                   os.path.join(home, "Library/Preferences", f"{bundle}.plist")]
     # Through cfprefsd first, so a cached domain is not written back after the file goes.
-    subprocess.run(["/usr/bin/defaults", "delete", bundle], capture_output=True)
+    try:
+        subprocess.run(["/usr/bin/defaults", "delete", bundle], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # the plist file goes below either way
     for path in dirs:
         shutil.rmtree(path, ignore_errors=True)
     for path in files:
@@ -400,7 +415,6 @@ def forget_tag(app):
                 os.unlink(path)
             except OSError:
                 pass
-    RigKeychain(app).end()  # the run's own keychain and its items; the user's list and default back
 
 
 def forget_keychain(bundle, keychain):
