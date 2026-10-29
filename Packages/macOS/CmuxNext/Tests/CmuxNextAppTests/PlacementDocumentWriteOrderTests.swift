@@ -52,14 +52,14 @@ struct PlacementDocumentWriteOrderTests {
     /// Holds all replies until the synchronous burst is inspected. To commit,
     /// replay the emitted ops through an independent Rust mirror and save its
     /// rows as the next sidebar.get document; no test code implements moving.
-    @Observable @MainActor private final class Remote: SidebarDocRemote {
+    @MainActor private final class Remote: SidebarDocRemote {
         nonisolated struct Call: Sendable { let ops: Data; let key: String }
         nonisolated enum Failure: Error { case closed, unexpectedCommand }
         private(set) var calls: [Call] = []
         private(set) var document: Data
-        @ObservationIgnored private let reducer: SidebarMirror
-        @ObservationIgnored private var held: [CheckedContinuation<SidebarDocReply, any Error>] = []
-        @ObservationIgnored private var closed = false
+        private let reducer: SidebarMirror
+        private var held: [CheckedContinuation<SidebarDocReply, any Error>] = []
+        private var closed = false
 
         init(document: Data, reducer: SidebarMirror) {
             self.document = document
