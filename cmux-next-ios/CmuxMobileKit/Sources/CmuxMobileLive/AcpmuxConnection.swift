@@ -54,7 +54,7 @@ public actor AcpmuxConnection {
     }
 
     /// `request` that gives up after `timeout` (a read the person waits on: the
-    /// agent catalog). A late reply is dropped.
+    /// agent catalog), or when the task that asked is cancelled. A late reply is dropped.
     public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
         let id = nextID
         let timer = Task { [weak self] in
@@ -63,7 +63,11 @@ public actor AcpmuxConnection {
             await self?.fail(id, LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"))
         }
         defer { timer.cancel() }
-        return try await request(method, params)
+        return try await withTaskCancellationHandler {
+            try await request(method, params)
+        } onCancel: {
+            Task { [weak self] in await self?.fail(id, CancellationError()) }
+        }
     }
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
