@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::ResourceError;
 use crate::workspace_registry::{RegistryTab, RegistryWorkspace};
+use cmux_json::JsonSet as _;
 
 /// Missing provenance in an older registry is conservatively user-owned.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +175,7 @@ impl NameUpdate {
                 "expected_name_revision": self.name_revision.map(|revision| revision.to_string()),
             });
             if self.release {
-                fingerprint["release"] = json!(true);
+                fingerprint.set("release", json!(true));
             }
             fingerprint
         })
@@ -306,7 +307,7 @@ pub(crate) fn name_refusal(
     } else {
         "automatic names cannot clear a title"
     };
-    resource["reason_code"] = json!(reason_code);
+    resource.set("reason_code", json!(reason_code));
     ResourceError::operation_failed(operation, reason, resource)
 }
 

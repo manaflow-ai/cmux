@@ -110,6 +110,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:didCloseMenu/2:with": {
+   "27.0.1": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -188,6 +191,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSButton call:willOpenMenu/2:with": {
    "27.0.1": true
   },
   "NSButton get:acceptsFirstResponder/0": {
@@ -273,6 +279,9 @@
   "NSControl call:layout/0": {
    "27.0.1": true,
    "27.0": true
+  },
+  "NSControl call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
   },
   "NSGlassEffectView call:layout/0": {
    "27.0.1": true
