@@ -62,6 +62,21 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/check/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Check the pull request against open freezes
         env:
           GH_TOKEN: ${{ steps.glaeda-token.outputs.token || github.token }}
@@ -89,6 +104,17 @@ jobs:
             exit 0
           fi
           exit "$status"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/check/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
   expire:
     if: github.event_name != 'pull_request_target'
