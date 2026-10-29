@@ -17,7 +17,8 @@
 //! the list first: a machine of the task's name, or a create of that name
 //! still on its way (the list's `creating`), is answered and never made
 //! again. An app whose list has no `creating` gets the same from the names
-//! this host asked for, held for [`CREATING_FOR`].
+//! this host asked for, held for [`CREATING_FOR`], as does a create of this
+//! host's still running or with no answer, which the list can lag.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -153,16 +154,57 @@ pub fn machine_name(title: &str) -> Result<String, String> {
     Ok(name)
 }
 
+/// A machine name reserved for a create, from before its run starts.
+#[derive(Clone, Copy, Debug)]
+struct Reservation {
+    at: Instant,
+    /// The attempt (key suffix) its run uses.
+    attempt: u64,
+    /// The app answered the run (pending or done): from then on a `creating`
+    /// list that names neither the create nor the machine is authoritative.
+    answered: bool,
+}
+
+/// The reservations and attempts, under one lock so that releasing a
+/// reservation and moving its key on are one step.
+#[derive(Default)]
+struct State {
+    /// Names reserved before a create begins, including pending, successful
+    /// but not yet listed, or unanswered creates; held for CREATING_FOR.
+    creating: HashMap<String, Reservation>,
+    /// The attempt of each key base (a machine create, or a (machine, title)
+    /// workspace run): its key's suffix. A workspace run's moves on after
+    /// every run the app answered; a machine create's after a refusal or a
+    /// finished create, so only a retry of a run still going reuses a key
+    /// (and joins that run).
+    attempts: HashMap<String, u64>,
+}
+
+impl State {
+    /// Moves `base` on past `attempt`, unless another call already did.
+    fn advance(&mut self, base: &str, attempt: u64) {
+        let next = self.attempts.entry(base.to_owned()).or_default();
+        if *next == attempt {
+            *next += 1;
+        }
+    }
+
+    /// Drops the reservation of `name` if it is still the one for `attempt`.
+    fn release(&mut self, name: &str, attempt: u64) {
+        if self
+            .creating
+            .get(name)
+            .is_some_and(|r| r.attempt == attempt)
+        {
+            self.creating.remove(name);
+        }
+    }
+}
+
 /// The tool, over the app's actions.
 pub struct CloudWorkspaces {
     app: Arc<dyn AppActions>,
-    /// Names reserved before a create begins, including pending, successful
-    /// but not yet listed, or unanswered creates; held for CREATING_FOR.
-    creating: Mutex<HashMap<String, Instant>>,
-    /// The attempt of each (machine, title) workspace run: its key's suffix.
-    /// It moves on after every run the app answered, so only a retry of a
-    /// run with no answer reuses a key (and joins that run).
-    attempts: Mutex<HashMap<String, u64>>,
+    state: Mutex<State>,
     now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
@@ -177,8 +219,7 @@ impl CloudWorkspaces {
     ) -> CloudWorkspaces {
         CloudWorkspaces {
             app,
-            creating: Mutex::new(HashMap::new()),
-            attempts: Mutex::new(HashMap::new()),
+            state: Mutex::new(State::default()),
             now,
         }
     }
@@ -225,9 +266,10 @@ impl CloudWorkspaces {
             .map(|name| format!("optchat-cloud-workspace-{target}-{name}"));
         let attempt = base.as_ref().map(|base| {
             *self
-                .attempts
+                .state
                 .lock()
-                .expect("attempts")
+                .expect("state")
+                .attempts
                 .entry(base.clone())
                 .or_default()
         });
@@ -247,9 +289,10 @@ impl CloudWorkspaces {
             && !matches!(answer, Err(RunError::NoAnswer(_)))
         {
             *self
-                .attempts
+                .state
                 .lock()
-                .expect("attempts")
+                .expect("state")
+                .attempts
                 .entry(base.clone())
                 .or_default() += 1;
         }
@@ -303,8 +346,20 @@ impl CloudWorkspaces {
         let existing = list["machines"]
             .as_array()
             .and_then(|machines| machines.iter().find(|m| named(m, "title")));
+        // The idempotency key is stable through NoAnswer and across Chief
+        // restarts. It moves on only once its create is over (refused, done,
+        // or listed as made or failed); a retry after an ambiguous reply must
+        // join the same app action, not provision twice.
+        let base_key = format!("optchat-cloud-machine-{name}");
         if let Some(machine) = existing {
-            self.creating.lock().expect("creating").remove(&name);
+            let mut state = self.state.lock().expect("state");
+            state.creating.remove(&name);
+            // A listed machine is a finished create: a later create of the
+            // name (once this one is deleted or renamed) is a new action,
+            // never a replay of this one.
+            let attempt = *state.attempts.entry(base_key.clone()).or_default();
+            state.advance(&base_key, attempt);
+            drop(state);
             let target = machine["target"].as_str().unwrap_or_default();
             let status = machine["status"].as_str().unwrap_or("unknown");
             return Ok(format!(
@@ -312,62 +367,96 @@ impl CloudWorkspaces {
             ));
         }
         let now = (self.now)();
-        // The app's own create list is authoritative when it names a live or failed
-        // create. An absent entry is not proof that our in-flight request failed:
-        // the list can lag behind a newly accepted create or a lost socket reply.
-        if let Some(creates) = list["creating"].as_array()
-            && let Some(create) = creates.iter().find(|c| named(c, "name"))
-        {
-            self.creating.lock().expect("creating").remove(&name);
-            if create["status"] == "failed" {
-                let reason = create["reason"].as_str().unwrap_or("no reason given");
-                return Err(format!(
-                    "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
-                ));
-            }
-            return Ok(format!(
-                "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
-            ));
-        }
         // A name must be reserved BEFORE action.run, atomically with the
-        // in-flight check. Otherwise two calls can both see no machine and
-        // both create one, or a NoAnswer can lose an accepted remote create.
-        {
-            let mut creating = self.creating.lock().expect("creating");
-            creating.retain(|_, at| now.duration_since(*at) < CREATING_FOR);
-            if let Some(at) = creating.get(&name) {
-                let minutes = now.duration_since(*at).as_secs() / 60;
+        // in-flight check and the attempt read. Otherwise two calls can both
+        // see no machine and both create one, or a NoAnswer can lose an
+        // accepted remote create.
+        let attempt = {
+            let mut state = self.state.lock().expect("state");
+            state
+                .creating
+                .retain(|_, r| now.duration_since(r.at) < CREATING_FOR);
+            match list["creating"].as_array() {
+                // The app lists its creates still on their way: one of the
+                // name decides.
+                Some(creates) => {
+                    if let Some(create) = creates.iter().find(|c| named(c, "name")) {
+                        if create["status"] == "failed" {
+                            // That create is over: a later one is a new action.
+                            state.creating.remove(&name);
+                            let attempt = *state.attempts.entry(base_key.clone()).or_default();
+                            state.advance(&base_key, attempt);
+                            let reason = create["reason"].as_str().unwrap_or("no reason given");
+                            return Err(format!(
+                                "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
+                            ));
+                        }
+                        if let Some(r) = state.creating.get_mut(&name) {
+                            r.answered = true;
+                        }
+                        return Ok(format!(
+                            "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
+                        ));
+                    }
+                    // Named nowhere: a create the app answered is over (it
+                    // failed and was dismissed). Only a create still running
+                    // or with no answer keeps its name, as the list can lag it.
+                    if let Some(r) = state.creating.get(&name).copied()
+                        && r.answered
+                    {
+                        state.release(&name, r.attempt);
+                        state.advance(&base_key, r.attempt);
+                    }
+                }
+                // An app that does not: the names this host asked for.
+                None => {}
+            }
+            if let Some(r) = state.creating.get(&name) {
+                let minutes = now.duration_since(r.at).as_secs() / 60;
                 return Ok(format!(
                     "outcome: noop. Cloud machine {name} is still being made (asked {minutes} min ago); it opens in the sidebar when it is up. Never ask for a second one."
                 ));
             }
-            creating.insert(name.clone(), now);
-        }
+            let attempt = *state.attempts.entry(base_key.clone()).or_default();
+            state.creating.insert(
+                name.clone(),
+                Reservation {
+                    at: now,
+                    attempt,
+                    answered: false,
+                },
+            );
+            attempt
+        };
 
         let mut args = json!({"name": name});
         if let Some(size) = &request.size {
             args["size"] = json!(size);
         }
-        // The idempotency key is stable through NoAnswer and across Chief
-        // restarts. Increment only after a definitive refusal; a retry after
-        // an ambiguous reply must join the same app action, not provision twice.
-        let base_key = format!("optchat-cloud-machine-{name}");
-        let attempt = *self
-            .attempts
-            .lock()
-            .expect("attempts")
-            .entry(base_key.clone())
-            .or_default();
         let key = format!("{base_key}-{attempt}");
         let answer = self.app.run("newCloudMachine", None, args, Some(&key));
-        if matches!(&answer, Err(RunError::Refused(_))) {
-            self.creating.lock().expect("creating").remove(&name);
-            *self
-                .attempts
-                .lock()
-                .expect("attempts")
-                .entry(base_key)
-                .or_default() += 1;
+        {
+            // Releasing the name and moving the key on happen in one step,
+            // and only for this call's attempt: a retry that replays an old
+            // refusal never moves on the key of a newer create.
+            let mut state = self.state.lock().expect("state");
+            match &answer {
+                Err(RunError::Refused(_)) => {
+                    state.release(&name, attempt);
+                    state.advance(&base_key, attempt);
+                }
+                Err(RunError::NoAnswer(_)) => {}
+                Ok(result) => {
+                    if let Some(r) = state.creating.get_mut(&name)
+                        && r.attempt == attempt
+                    {
+                        r.answered = true;
+                    }
+                    if result["pending"] != true && result["machine_id"].as_str().is_some() {
+                        state.advance(&base_key, attempt);
+                    }
+                }
+            }
         }
         let result = answer.map_err(|e| match e {
             RunError::NoAnswer(_) => format!(
@@ -376,10 +465,6 @@ impl CloudWorkspaces {
             RunError::Refused(_) => format!("cloud_workspace: {e}"),
         })?;
         if result["pending"] == true || result["machine_id"].as_str().is_none() {
-            self.creating
-                .lock()
-                .expect("creating")
-                .insert(name.clone(), now);
             return Ok(format!(
                 "outcome: queued. Cloud machine {name} is being made; its workspace opens in the sidebar when it is up. Call cloud_workspace with the same title later to check; never ask for a second one."
             ));
@@ -548,26 +633,35 @@ mod tests {
         *at.lock().unwrap() = start + CREATING_FOR;
         tool.call(&request("fix login bug")).unwrap();
         assert_eq!(creates(&app), 2);
-        let keys: Vec<_> = app.runs().into_iter()
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
             .map(|r| r.3)
             .collect();
-        assert_eq!(keys, vec![
-            Some("optchat-cloud-machine-fix-login-bug-0".into()),
-            Some("optchat-cloud-machine-fix-login-bug-0".into())
-        ]);
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-0".into())
+            ]
+        );
     }
 
     #[test]
     fn an_unanswered_machine_create_is_reserved_and_uses_one_key() {
         let app = FakeApp::new(vec![
             ("cloudListMachines", list(json!([]))),
-            ("newCloudMachine", Err(RunError::NoAnswer("socket closed".into()))),
+            (
+                "newCloudMachine",
+                Err(RunError::NoAnswer("socket closed".into())),
+            ),
         ]);
         let start = Instant::now();
         let at = Arc::new(Mutex::new(start));
         let clock = at.clone();
-        let tool = CloudWorkspaces::with_clock(app.clone(), Box::new(move || *clock.lock().unwrap()));
+        let tool =
+            CloudWorkspaces::with_clock(app.clone(), Box::new(move || *clock.lock().unwrap()));
         let first = tool.call(&request("Fix login bug")).unwrap_err();
         assert!(first.contains("may still finish"), "{first}");
         *at.lock().unwrap() = start + Duration::from_secs(40);
@@ -575,41 +669,63 @@ mod tests {
         assert!(second.starts_with("outcome: noop."), "{second}");
         let runs = app.runs();
         assert_eq!(runs.iter().filter(|r| r.0 == "newCloudMachine").count(), 1);
-        assert_eq!(runs[1].3.as_deref(), Some("optchat-cloud-machine-fix-login-bug-0"));
+        assert_eq!(
+            runs[1].3.as_deref(),
+            Some("optchat-cloud-machine-fix-login-bug-0")
+        );
 
         // After the bounded reservation, the same key still joins the
         // original action even if Chief was unable to observe the result.
         *at.lock().unwrap() = start + CREATING_FOR;
-        assert!(tool.call(&request("Fix login bug")).unwrap_err().contains("may still finish"));
-        let keys: Vec<_> = app.runs().into_iter()
-            .filter(|r| r.0 == "newCloudMachine").map(|r| r.3).collect();
-        assert_eq!(keys, vec![
-            Some("optchat-cloud-machine-fix-login-bug-0".into()),
-            Some("optchat-cloud-machine-fix-login-bug-0".into())
-        ]);
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap_err()
+                .contains("may still finish")
+        );
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .map(|r| r.3)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-0".into())
+            ]
+        );
     }
 
     #[test]
     fn concurrent_calls_for_one_title_send_only_one_create() {
         let app = FakeApp::new(vec![
             ("cloudListMachines", list(json!([]))),
-            ("newCloudMachine", Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"}))),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"})),
+            ),
         ]);
         let tool = Arc::new(CloudWorkspaces::new(app.clone()));
         let barrier = Arc::new(std::sync::Barrier::new(8));
-        let handles: Vec<_> = (0..8).map(|_| {
-            let tool = Arc::clone(&tool);
-            let barrier = Arc::clone(&barrier);
-            std::thread::spawn(move || {
-                barrier.wait();
-                tool.call(&request("Fix login bug"))
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let tool = Arc::clone(&tool);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    tool.call(&request("Fix login bug"))
+                })
             })
-        }).collect();
+            .collect();
         for handle in handles {
             assert!(handle.join().unwrap().is_ok());
         }
         assert_eq!(
-            app.runs().iter().filter(|r| r.0 == "newCloudMachine").count(),
+            app.runs()
+                .iter()
+                .filter(|r| r.0 == "newCloudMachine")
+                .count(),
             1
         );
     }
@@ -622,15 +738,30 @@ mod tests {
             ("newCloudMachine", Ok(json!({"machine_id": "vm-2"}))),
         ]);
         let tool = CloudWorkspaces::new(app.clone());
-        assert!(tool.call(&request("Fix login bug")).unwrap_err().contains("plan cap"));
-        assert!(tool.creating.lock().unwrap().is_empty());
-        assert!(tool.call(&request("Fix login bug")).unwrap().starts_with("outcome: done."));
-        let keys: Vec<_> = app.runs().into_iter()
-            .filter(|r| r.0 == "newCloudMachine").map(|r| r.3).collect();
-        assert_eq!(keys, vec![
-            Some("optchat-cloud-machine-fix-login-bug-0".into()),
-            Some("optchat-cloud-machine-fix-login-bug-1".into())
-        ]);
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap_err()
+                .contains("plan cap")
+        );
+        assert!(tool.state.lock().unwrap().creating.is_empty());
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .starts_with("outcome: done.")
+        );
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .map(|r| r.3)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-1".into())
+            ]
+        );
     }
 
     #[test]
@@ -784,26 +915,163 @@ mod tests {
         );
         assert!(app.runs().iter().all(|r| r.0 != "newCloudMachine"));
 
-        // This host reserved the name but the app's list has no such create yet:
-        // the list can lag an accepted request, so we must keep the reservation.
-        let app = FakeApp::new(vec![
-            (
-                "cloudListMachines",
-                listed(json!([{"name": "other", "status": "creating"}])),
-            ),
-            (
-                "newCloudMachine",
-                Ok(json!({"machine_id": "vm-3", "target": "machine:vm-3"})),
-            ),
-        ]);
-        let tool = CloudWorkspaces::new(app.clone());
-        tool.creating
-            .lock()
-            .unwrap()
-            .insert("fix-login-bug".into(), Instant::now());
+        // This host's create of the name was answered, but the app lists no
+        // such create: it failed and was dismissed, so a create goes, as a
+        // new action.
+        let reserved = |answered: bool| {
+            let app = FakeApp::new(vec![
+                (
+                    "cloudListMachines",
+                    listed(json!([{"name": "other", "status": "creating"}])),
+                ),
+                (
+                    "newCloudMachine",
+                    Ok(json!({"machine_id": "vm-3", "target": "machine:vm-3"})),
+                ),
+            ]);
+            let tool = CloudWorkspaces::new(app.clone());
+            tool.state.lock().unwrap().creating.insert(
+                "fix-login-bug".into(),
+                Reservation {
+                    at: Instant::now(),
+                    attempt: 0,
+                    answered,
+                },
+            );
+            (app, tool)
+        };
+        let (app, tool) = reserved(true);
+        let answer = tool.call(&request("Fix login bug")).unwrap();
+        assert!(
+            answer.starts_with("outcome: done.") && answer.contains("machine:vm-3"),
+            "{answer}"
+        );
+        assert_eq!(
+            app.runs()[1].3.as_deref(),
+            Some("optchat-cloud-machine-fix-login-bug-1")
+        );
+
+        // A create still running or with no answer keeps its name: the list
+        // can lag an accepted request.
+        let (app, tool) = reserved(false);
         let answer = tool.call(&request("Fix login bug")).unwrap();
         assert!(answer.starts_with("outcome: noop."), "{answer}");
         assert!(app.runs().iter().all(|r| r.0 != "newCloudMachine"));
+    }
+
+    /// A refusal releases the name and moves the key on only for the attempt
+    /// it answered: a retry that replays an old refusal after a newer create
+    /// started leaves that create's reservation and key alone.
+    #[test]
+    fn a_stale_refusal_never_moves_a_newer_create_on() {
+        let mut state = State::default();
+        let base = "optchat-cloud-machine-fix-login-bug";
+        state.attempts.insert(base.into(), 1);
+        state.creating.insert(
+            "fix-login-bug".into(),
+            Reservation {
+                at: Instant::now(),
+                attempt: 1,
+                answered: false,
+            },
+        );
+        state.release("fix-login-bug", 0);
+        state.advance(base, 0);
+        assert_eq!(state.attempts[base], 1);
+        assert_eq!(state.creating["fix-login-bug"].attempt, 1);
+        state.release("fix-login-bug", 1);
+        state.advance(base, 1);
+        assert_eq!(state.attempts[base], 2);
+        assert!(state.creating.is_empty());
+    }
+
+    /// A finished create never lends its key to a later one of the same name
+    /// (after the machine is deleted or renamed): the app would replay the
+    /// old success.
+    #[test]
+    fn a_finished_create_gives_the_next_one_a_fresh_key() {
+        let listed = |machines: Value| {
+            Ok(
+                json!({"loaded": true, "machines": machines, "creating": [], "account": {"signed_in": true}}),
+            )
+        };
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "cloudListMachines",
+                listed(json!([{"title": "fix-login-bug", "target": "machine:vm-1"}])),
+            ),
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"})),
+            ),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-2", "target": "machine:vm-2"})),
+            ),
+        ]);
+        let tool = CloudWorkspaces::new(app.clone());
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .contains("vm-1")
+        );
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .contains("already exists")
+        );
+        // The machine was deleted: a new one, under a new key.
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .contains("vm-2")
+        );
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .map(|r| r.3)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-1".into())
+            ]
+        );
+
+        // Without a listing in between (an app with no `creating`), a done
+        // answer alone moves the key on once its reservation lapses.
+        let start = Instant::now();
+        let at = Arc::new(Mutex::new(start));
+        let clock = at.clone();
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", list(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"})),
+            ),
+        ]);
+        let tool =
+            CloudWorkspaces::with_clock(app.clone(), Box::new(move || *clock.lock().unwrap()));
+        tool.call(&request("Fix login bug")).unwrap();
+        *at.lock().unwrap() = start + CREATING_FOR;
+        tool.call(&request("Fix login bug")).unwrap();
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .map(|r| r.3)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-1".into())
+            ]
+        );
     }
 
     #[test]
@@ -821,7 +1089,7 @@ mod tests {
         let error = tool.call(&request("task")).unwrap_err();
         assert!(error.contains("was not created"), "{error}");
         // A declined create is not "being made": the next call may ask again.
-        assert!(tool.creating.lock().unwrap().is_empty());
+        assert!(tool.state.lock().unwrap().creating.is_empty());
         let error = tool
             .call(&Request {
                 size: Some("huge".into()),
