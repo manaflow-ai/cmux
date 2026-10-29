@@ -334,11 +334,13 @@ public final class AcpmuxHub {
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
-            // Missed notifications: re-run watch and let attached chats fill their gap.
+            // Missed notifications: attached chats fill their gap, and watch runs again. The
+            // chats first, before the next notification: a record after the dropped ones must
+            // be held for the refill, not applied ahead of it.
+            for entry in sources.values { entry.source?.refill() }
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
                 _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
-                for entry in self.sources.values { entry.source?.refill() }
             }
         default:
             break
@@ -702,8 +704,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// from the last record applied, holding live records until that page is in, so the
     /// records in the gap are applied in order instead of skipped as older than `lastSeq`.
     func refill() {
-        // An attach in flight may have read its page before the Mac dropped records: refill
-        // once it ends.
+        // An attach in flight may have read its page before the Mac dropped records: it reads
+        // on before applying what it held (`attach`).
         guard !attaching else {
             refillPending = true
             return
@@ -753,25 +755,30 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     private func attach(_ hub: AcpmuxHub, _ generation: Int) async {
-        let caughtUp = await catchUp(hub, generation)
-        guard generation == self.generation else { return }
-        attaching = false
-        guard caughtUp else {
-            // Live records held meanwhile are newer than the gap: applying them would move
-            // `lastSeq` past it for good. The retry reads to the log's end, them included.
-            held = []
-            scheduleRetry()
-            return
+        while true {
+            refillPending = false
+            let caughtUp = await catchUp(hub, generation)
+            guard generation == self.generation else { return }
+            guard caughtUp else {
+                attaching = false
+                // Live records held meanwhile are newer than the gap: applying them would move
+                // `lastSeq` past it for good. The retry reads to the log's end, them included.
+                held = []
+                scheduleRetry()
+                return
+            }
+            // The Mac dropped records while this catch-up read (`refill`): the held records
+            // may come after one it dropped, so read on from the last record applied first.
+            // Applying them would move `lastSeq` past the dropped one for good.
+            if refillPending { continue }
+            break
         }
+        attaching = false
         failures = 0
         attached = true
         let pending = held
         held = []
         for record in pending { apply(record: record) }
-        if refillPending {
-            refillPending = false
-            refill()
-        }
     }
 
     /// Reads from the last record applied to the log's end and applies it as one batch.
