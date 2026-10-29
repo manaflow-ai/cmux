@@ -235,7 +235,7 @@ import Testing
     @Test func everyKindIsSwiftUIAtAccessibilitySizes() {
         let call = ACPToolCall(id: "c", title: "Read a.swift", kind: .read, status: .completed)
         let kinds: [ChatRow.Kind] = [
-            .sessionStart(Date()), .prompt(text: "hi", attachments: [], at: Date(), isLast: true),
+            .sessionStart(Date(), earlier: false), .prompt(text: "hi", attachments: [], at: Date(), isLast: true),
             .block(messageID: "m", block: MarkdownBlock(id: 0, kind: .paragraph("text"))),
             .block(messageID: "m", block: MarkdownBlock(id: 1, kind: .code(language: "swift", code: "let x = 1", isClosed: true))),
             .thought(text: "t", isLive: false), .tool(call), .toolGroup([call, call], turnRunning: false),

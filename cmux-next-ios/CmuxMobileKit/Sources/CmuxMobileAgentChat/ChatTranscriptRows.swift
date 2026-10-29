@@ -15,7 +15,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
     var gap: Double
 
     enum Kind: Equatable, Sendable {
-        case sessionStart(Date)
+        /// `earlier`: the chat opened on its newest history (older records exist), so the line
+        /// says where what is shown starts instead of when the session started.
+        case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
@@ -37,6 +39,13 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case actions(AgentTurn, isLast: Bool)
     }
 
+    /// The session line's text: "Session started …", or "Showing messages since …" when
+    /// the chat opened on its newest history.
+    static func sessionLine(_ date: Date, earlier: Bool) -> String {
+        let when = date.formatted(date: .abbreviated, time: .shortened)
+        return earlier ? "Showing messages since \(when)" : "Session started \(when)"
+    }
+
     /// The answer action row draws 6 pt into the gaps around it (its 44 pt targets).
     var isActions: Bool {
         if case .actions = kind { return true }
@@ -48,6 +57,8 @@ struct ChatRow: Equatable, Identifiable, Sendable {
 struct ChatTurnContext: Equatable, Sendable {
     var isFirst: Bool
     var isLast: Bool
+    /// The first turn of a chat opened on its newest history (`sessionStart(earlier:)`).
+    var earlierHistory = false
     /// The previous turn ended on its action row (the bubble's gap is 6 pt less).
     var followsActions: Bool
     /// A permission or question waits on the person (the working label hides).
@@ -93,15 +104,17 @@ final class ChatTranscriptBuilder {
     /// Lines the last parse of `messageID` read (tests: a token re-parses the tail only).
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
-    func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool) -> [ChatTurnRows] {
+    func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
+               earlierHistory: Bool = false) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
         let choicesFor = permissionBarHidden ? pendingPermission?.request.id : nil
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
-            let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, followsActions: followsActions,
-                                          askOpen: isLast && askOpen, choicesFor: isLast ? choicesFor : nil)
+            let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
+                                          followsActions: followsActions, askOpen: isLast && askOpen,
+                                          choicesFor: isLast ? choicesFor : nil)
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -138,7 +151,7 @@ final class ChatTranscriptBuilder {
             nextGap = 10
         }
         if context.isFirst {
-            rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt), gap: 0))
+            rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
                             kind: .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),

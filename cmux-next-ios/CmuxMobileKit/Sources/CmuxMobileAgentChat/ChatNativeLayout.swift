@@ -127,11 +127,11 @@ struct ChatNativeLayout: @unchecked Sendable {
         let styles = NativeTextStyles(category: environment.category)
         let width = environment.width
         switch kind {
-        case .sessionStart(let date):
+        case .sessionStart(let date, let earlier):
             let font = styles.font(.footnote)
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
-            let text = NSAttributedString(string: "Session started \(date.formatted(date: .abbreviated, time: .shortened))",
+            let text = NSAttributedString(string: ChatRow.sessionLine(date, earlier: earlier),
                                           attributes: [.font: font, .foregroundColor: UIColor.tertiaryLabel, .paragraphStyle: paragraph])
             let size = measure(text, width: width)
             return ChatNativeLayout(content: .drawn(Drawn(texts: [Text(text: text, frame: CGRect(x: 0, y: 8, width: width, height: size.height))])),

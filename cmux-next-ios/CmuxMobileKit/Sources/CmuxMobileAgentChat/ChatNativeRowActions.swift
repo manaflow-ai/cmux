@@ -75,10 +75,20 @@ enum ChatNativeRowActions {
         case .actions(let turn, _):
             actions.menu = { nil }
             actions.moreMenu = {
-                UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: [
+                var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
                     UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.send(prompt: turn.prompt) },
-                ])])
+                ]
+                // Retry with another model (`RetryModelChoice`), read when the menu opens.
+                if !store.retryModels.isEmpty {
+                    let models = store.retryModels.map { model in
+                        UIAction(title: model.name, image: model.id == store.currentModelID ? UIImage(systemName: "checkmark") : nil) { _ in
+                            store.retry(turn, model: model.id)
+                        }
+                    }
+                    items.append(UIMenu(title: RetryModelChoice.title, image: UIImage(systemName: "arrow.triangle.2.circlepath"), children: models))
+                }
+                return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt), options: .displayInline, children: items)])
             }
             actions.hit = { hit in
                 switch hit {

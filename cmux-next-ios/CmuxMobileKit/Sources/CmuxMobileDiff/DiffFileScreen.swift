@@ -16,6 +16,15 @@ public struct DiffFileScreen: View {
     @State private var viewportWidth: CGFloat = 400
     /// The rows, texts and heights, prepared off the main thread once per (file, options, style).
     @State private var renderer = DiffRenderer()
+    /// Next / Previous Hunk: the change the last jump went to (this file).
+    @State private var hunkLine: Int?
+    /// Search in the file (the Mac's Diff: Search): the bar, what is typed, the match shown.
+    @State private var searching = false
+    @State private var query = ""
+    @State private var matchIndex = 0
+    @FocusState private var queryFocused: Bool
+    /// The line a jump scrolls to, with a serial so the same line can be scrolled to again.
+    @State private var scrollTarget: DiffScrollTarget?
 
     init(state: DiffViewerState, fileID: String) {
         _state = State(initialValue: state)
@@ -45,7 +54,8 @@ public struct DiffFileScreen: View {
             fileID: file.id, contentHash: file.contentHash,
             options: DiffRows.Options(hideWhitespace: state.hideWhitespace, split: split, expanded: expanded[file.id] ?? []),
             // Unwrapped unified rows do not depend on the width (the layout fills it).
-            style: DiffRenderStyle(codeSize: codeSize, wrap: wrap, split: split, width: wrap || split ? viewportWidth.rounded() : 0)
+            style: DiffRenderStyle(codeSize: codeSize, wrap: wrap, split: split, width: wrap || split ? viewportWidth.rounded() : 0,
+                                   search: searching ? query.trimmingCharacters(in: .whitespacesAndNewlines) : "")
         )
     }
 
@@ -65,7 +75,7 @@ public struct DiffFileScreen: View {
                 }
                 .scrollEdgeEffectStyle(.hard, for: .top)
             } else if let model = renderer.model, model.key.fileID == file.id {
-                DiffCodeList(model: model) { expand($0) }
+                DiffCodeList(model: model, currentLine: currentMatchLine, scrollTarget: scrollTarget) { expand($0) }
                     .ignoresSafeArea(.container, edges: .bottom)
                     .transition(.opacity)
             } else {
@@ -73,17 +83,54 @@ public struct DiffFileScreen: View {
             }
         }
         .task(id: renderKey) { await renderer.update(file: file, key: renderKey) }
+        .onChange(of: fileID) {
+            hunkLine = nil
+            matchIndex = 0
+        }
+        .onChange(of: state.hideWhitespace) { wasHidden, hides in
+            // `hunkLine` indexes the shown lines; keep it on the same line of the file.
+            hunkLine = DiffNavigation.remap(hunkLine,
+                                            from: DiffNavigation.visibleLines(file.lines, hideWhitespace: wasHidden),
+                                            to: DiffNavigation.visibleLines(file.lines, hideWhitespace: hides))
+        }
+        .onChange(of: query) {
+            // Typing shows the first match; Return and the arrows go on from it.
+            matchIndex = 0
+            if let first = matches.first { scroll(to: first) }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
-        .safeAreaInset(edge: .top, spacing: 0) { stickyHeader(isViewed: isViewed) }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                stickyHeader(isViewed: isViewed)
+                if searching { findBar(isViewed: isViewed) }
+            }
+        }
         .navigationTitle(file.fileName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state, allowsSplit: DiffLayout.allowsSplit(width: viewportWidth)) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button(Self.searchTitle, systemImage: "magnifyingglass") {
+                    withAnimation(.cmuxMobileSnap) { searching = true }
+                    queryFocused = true
+                }
+                .disabled(isViewed)
+                .accessibilityIdentifier("diff.search")
+                DiffOptionsMenu(state: state, allowsSplit: DiffLayout.allowsSplit(width: viewportWidth))
+            }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button("Previous file", systemImage: "chevron.up") { move(-1) }
                     .disabled(index == 0)
                 Button("Next file", systemImage: "chevron.down") { move(1) }
                     .disabled(index >= files.count - 1)
+            }
+            ToolbarItemGroup(placement: .bottomBar) {
+                let starts = DiffNavigation.changeStarts(lines)
+                Button(Self.previousHunkTitle, systemImage: "chevron.up.2") { jumpHunk(forward: false) }
+                    .disabled(isViewed || DiffNavigation.step(starts, from: hunkLine, forward: false) == nil)
+                    .accessibilityIdentifier("diff.previousHunk")
+                Button(Self.nextHunkTitle, systemImage: "chevron.down.2") { jumpHunk(forward: true) }
+                    .disabled(isViewed || DiffNavigation.step(starts, from: hunkLine, forward: true) == nil)
+                    .accessibilityIdentifier("diff.nextHunk")
             }
             ToolbarSpacer(.flexible, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
@@ -119,6 +166,94 @@ public struct DiffFileScreen: View {
         }
     }
     #endif
+
+    // MARK: Next / Previous Hunk, Search
+
+    /// The Mac's titles (`action.diffViewerNextHunk`, `…PreviousHunk`, `…Search`, without "Diff:").
+    static let nextHunkTitle = "Next Hunk"
+    static let previousHunkTitle = "Previous Hunk"
+    static let searchTitle = "Search in File"
+
+    /// The file's lines as shown (Hide Whitespace drops blank-only changes), as `DiffRows` shows them.
+    private var lines: [DiffLine] { DiffNavigation.visibleLines(file.lines, hideWhitespace: state.hideWhitespace) }
+
+    private var matches: [Int] { searching ? DiffNavigation.matches(query, in: lines) : [] }
+
+    private var currentMatchLine: Int? {
+        let matches = matches
+        return matches.indices.contains(matchIndex) ? matches[matchIndex] : nil
+    }
+
+    private func jumpHunk(forward: Bool) {
+        guard let line = DiffNavigation.step(DiffNavigation.changeStarts(lines), from: hunkLine, forward: forward) else { return }
+        hunkLine = line
+        scroll(to: line)
+    }
+
+    private func stepMatch(_ delta: Int) {
+        let matches = matches
+        guard !matches.isEmpty else { return }
+        matchIndex = (matchIndex + delta + matches.count) % matches.count
+        scroll(to: matches[matchIndex])
+    }
+
+    /// Shows line `index` (unfolding its context when it is folded) and scrolls to it.
+    private func scroll(to index: Int) {
+        let lines = lines
+        let shown = DiffRows.segments(lines: lines, hasFullContext: file.hasFullContext, expanded: expanded[file.id] ?? []).contains { segment in
+            if case .lines(let range) = segment { return range.contains(index) }
+            return false
+        }
+        if !shown, file.hasFullContext {
+            expanded[file.id, default: []].append(DiffNavigation.reveal(index, lineCount: lines.count))
+        }
+        // The list scrolls once its rows show the line (after the unfold lands).
+        scrollTarget = DiffScrollTarget(line: index, serial: (scrollTarget?.serial ?? 0) + 1)
+    }
+
+    /// The find bar under the file header: the field, "2 of 5", previous and next, Done.
+    private func findBar(isViewed: Bool) -> some View {
+        let matches = matches
+        return HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Search in this file", text: $query)
+                .focused($queryFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { stepMatch(1) }
+                .accessibilityIdentifier("diff.search.field")
+            if !query.isEmpty {
+                Text(matches.isEmpty ? "No matches" : "\(min(matchIndex + 1, matches.count)) of \(matches.count)")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityIdentifier("diff.search.count")
+            }
+            Button("Previous match", systemImage: "chevron.up") { stepMatch(-1) }
+                .labelStyle(.iconOnly)
+                .frame(width: 44, height: 44)
+                .disabled(matches.isEmpty)
+            Button("Next match", systemImage: "chevron.down") { stepMatch(1) }
+                .labelStyle(.iconOnly)
+                .frame(width: 44, height: 44)
+                .disabled(matches.isEmpty)
+            Button("Done") {
+                withAnimation(.cmuxMobileSnap) { searching = false }
+                query = ""
+                queryFocused = false
+            }
+            .fontWeight(.semibold)
+            .padding(.leading, 4)
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .frame(minHeight: 44)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
 
     private func move(_ delta: Int) {
         let next = index + delta

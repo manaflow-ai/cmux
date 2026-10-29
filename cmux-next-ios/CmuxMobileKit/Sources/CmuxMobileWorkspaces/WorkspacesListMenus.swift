@@ -50,8 +50,9 @@ extension WorkspacesList {
     }
 
     /// Pin Workspace; Appearance (Set Workspace Color…, Reset Workspace Color,
-    /// Set Icon…, Remove Icon); Options (Mark as Read / Unread, Clear Workspace
-    /// Name); Group; Move (Move Workspace Up / Down).
+    /// Set Icon…, Remove Icon, Remove All Workspace Colors); Options (Mark as Read /
+    /// Unread, Clear Workspace Name); Group; Move (Move Workspace Up / Down, to Top /
+    /// Bottom, Sort Workspaces).
     private func arrangeMenu(_ ws: Workspace, inbox: WorkspaceInbox) -> UIMenu {
         let order = inbox.macOrder(of: ws)
         var items: [UIMenuElement] = [
@@ -73,6 +74,7 @@ extension WorkspacesList {
         icons.append(action("Emoji…", "face.smiling") { startIconEmoji(ws) })
         appearance.append(UIMenu(title: "Set Icon…", image: UIImage(systemName: "app.badge"), children: icons))
         if ws.icon != nil { appearance.append(action("Remove Icon", "minus.circle") { creator.setIcon(ws, nil) }) }
+        if let removeAll = removeAllColorsAction(ws.macID) { appearance.append(removeAll) }
         items.append(UIMenu(title: "Appearance", image: UIImage(systemName: "paintbrush"), children: appearance))
         var options: [UIMenuElement] = [
             ws.hasUnread
@@ -82,6 +84,9 @@ extension WorkspacesList {
         if ws.hasCustomTitle { options.append(action("Clear Workspace Name", "textformat") { creator.clearName(ws) }) }
         items.append(UIMenu(title: "Options", image: UIImage(systemName: "ellipsis.circle"), children: options))
         if let group = groupFolder(ws) { items.append(group) }
+        let container = creator.container(of: ws)
+        let sortable = creator.containers(on: ws.macID).contains { $0.count > 1 }
+        var move: [UIMenuElement] = []
         if order.count > 1 {
             let up = action("Move Workspace Up", "arrow.up") {
                 withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
@@ -91,7 +96,29 @@ extension WorkspacesList {
                 withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
             }
             if order.last?.id == ws.id { down.attributes.insert(.disabled) }
-            items.append(UIMenu(title: "Move", image: UIImage(systemName: "arrow.up.arrow.down"), children: [up, down]))
+            move += [up, down]
+        }
+        if container.count > 1 {
+            for edge in WorkspaceEdge.allCases {
+                let item = action(edge.title(grouped: ws.group != nil), edge == .top ? "arrow.up.to.line" : "arrow.down.to.line") {
+                    withAnimation(theme.motion.smooth.animation) { creator.move(ws, to: edge) }
+                }
+                if edge.anchor(of: ws, in: container) == nil { item.attributes.insert(.disabled) }
+                move.append(item)
+            }
+        }
+        if sortable {
+            let keys = WorkspaceSortKey.allCases.map { key in
+                let item = action(key.shortTitle, key.systemImage) {
+                    withAnimation(theme.motion.smooth.animation) { creator.sortWorkspaces(on: ws.macID, by: key) }
+                }
+                item.accessibilityLabel = key.title
+                return item
+            }
+            move.append(UIMenu(title: "Sort Workspaces", image: UIImage(systemName: "arrow.up.arrow.down.square"), children: keys))
+        }
+        if !move.isEmpty {
+            items.append(UIMenu(title: "Move", image: UIImage(systemName: "arrow.up.arrow.down"), children: move))
         }
         return UIMenu(options: .displayInline, children: items)
     }
@@ -121,8 +148,8 @@ extension WorkspacesList {
     /// this workspace's Mac. The phone asks first (the Mac closes at once).
     private func bulkCloseMenu(_ ws: Workspace, inbox: WorkspaceInbox) -> UIMenu? {
         let order = inbox.macSidebar(ws.macID).filter { creator.canManage($0) }
-        // The Mac's Close folder order: Other, Below, Above.
-        let kinds = [WorkspaceBulkClose.others, .below, .above].filter { !$0.targets(of: ws, in: order).isEmpty }
+        // The Mac's Close folder order: Other, Other in Group, Below, Above, All.
+        let kinds = [WorkspaceBulkClose.others, .othersInGroup, .below, .above, .all].filter { !$0.targets(of: ws, in: order).isEmpty }
         guard !kinds.isEmpty else { return nil }
         let items = kinds.map { kind in
             UIAction(title: kind.title, attributes: .destructive) { _ in
@@ -133,7 +160,8 @@ extension WorkspacesList {
     }
 
     /// A group header's menu: Rename Group…, Set Workspace Group Color…,
-    /// Collapse / Expand Workspace Group, then Ungroup Workspaces and Delete Group.
+    /// Collapse / Expand Workspace Group, Options, then Ungroup Workspaces, Close All in
+    /// Group, Close Other Groups and Delete Group.
     func groupMenu(_ header: WorkspaceGroupHeaderModel) -> UIMenu? {
         guard header.canEdit else { return nil }
         let (group, macID) = (header.group, header.macID)
@@ -142,21 +170,79 @@ extension WorkspacesList {
                 ? action(color.title, "checkmark") { creator.setGroupColor(group, on: macID, color) }
                 : UIAction(title: color.title, image: WorkspaceSwatch.uiImage(color)) { _ in creator.setGroupColor(group, on: macID, color) }
         }
-        let edit = UIMenu(title: group.displayName, options: .displayInline, children: [
+        var editItems: [UIMenuElement] = [
             action("Rename Group…", "pencil.line") { startRenameGroup(group, macID: macID) },
             UIMenu(title: "Set Workspace Group Color…", image: UIImage(systemName: "paintpalette"), children: colors),
             action(group.isCollapsed ? "Expand Workspace Group" : "Collapse Workspace Group",
                    group.isCollapsed ? "chevron.down" : "chevron.right") {
                 withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
             },
-        ])
-        let remove = UIMenu(options: .displayInline, children: [
+        ]
+        if let options = groupOptions(group, macID: macID) { editItems.append(options) }
+        let edit = UIMenu(title: group.displayName, options: .displayInline, children: editItems)
+        var removeItems: [UIMenuElement] = [
             action("Ungroup Workspaces", "rectangle.stack.badge.minus") {
                 withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
             },
-            action("Delete Group", "trash", destructive: true) { confirmDeleteGroup(GroupTarget(group: group, macID: macID)) },
-        ])
+        ]
+        removeItems += groupCloses(group, macID: macID)
+        removeItems.append(action("Delete Group", "trash", destructive: true) { confirmDeleteGroup(GroupTarget(group: group, macID: macID)) })
+        let remove = UIMenu(options: .displayInline, children: removeItems)
         return UIMenu(children: [edit, remove])
+    }
+
+    /// The Mac's group Options folder: Collapse Others, Collapse All Groups, Expand All Groups,
+    /// and Remove All Workspace Colors.
+    private func groupOptions(_ group: MacWorkspaceGroup, macID: String) -> UIMenu? {
+        let groups = creator.shownGroups(on: macID)
+        var items: [UIMenuElement] = []
+        if groups.count > 1, creator.canCollapseOthers(keeping: group, on: macID) {
+            items.append(action("Collapse Others", "arrow.down.forward.and.arrow.up.backward") {
+                withAnimation(theme.motion.smooth.animation) { creator.collapseOtherGroups(keeping: group, on: macID) }
+            })
+        }
+        if groups.contains(where: { !$0.isCollapsed }) {
+            items.append(action("Collapse All Groups", "rectangle.compress.vertical") {
+                withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, true) }
+            })
+        }
+        if groups.contains(where: \.isCollapsed) {
+            items.append(action("Expand All Groups", "rectangle.expand.vertical") {
+                withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, false) }
+            })
+        }
+        if let removeAll = removeAllColorsAction(macID) { items.append(removeAll) }
+        guard !items.isEmpty else { return nil }
+        return UIMenu(title: "Options", image: UIImage(systemName: "ellipsis.circle"), children: items)
+    }
+
+    /// Remove All Workspace Colors: every workspace of the Mac (the Mac also clears its groups'
+    /// colors; a phone may not, see `WorkspaceCreator.removeAllColors`).
+    private func removeAllColorsAction(_ macID: String) -> UIAction? {
+        guard creator.hasColors(on: macID) else { return nil }
+        return action("Remove All Workspace Colors", "circle.slash") {
+            withAnimation(theme.motion.smooth.animation) { creator.removeAllColors(on: macID) }
+        }
+    }
+
+    /// Close All in Group and Close Other Groups. The phone asks first, as for every close of
+    /// several workspaces.
+    private func groupCloses(_ group: MacWorkspaceGroup, macID: String) -> [UIMenuElement] {
+        var items: [UIMenuElement] = []
+        let members = creator.members(of: [group], on: macID)
+        if let first = members.first {
+            items.append(action("Close All in Group", "xmark.square", destructive: true) {
+                confirmBulkClose(BulkClose(kind: .all, workspace: first, targets: members, groups: [group]))
+            })
+        }
+        let others = creator.shownGroups(on: macID).filter { $0.id != group.id }
+        let closing = creator.members(of: others, on: macID)
+        if let first = closing.first {
+            items.append(action("Close Other Groups", "xmark.circle", destructive: true) {
+                confirmBulkClose(BulkClose(kind: .others, workspace: first, targets: closing, groups: others))
+            })
+        }
+        return items
     }
 
     private func action(_ title: String, _ symbol: String, destructive: Bool = false, _ run: @escaping () -> Void) -> UIAction {

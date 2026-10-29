@@ -17,9 +17,31 @@ struct AgentPaneTranscriptStepTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// Collects the host events a subscribed page receives.
-    private final class Received {
-        var events: [JSONValue] = []
+    /// A page subscribed to the shared host's events. Subscribing queues the replay and flushes it in
+    /// a task (AgentPageProvider, #24617), so a push made right after arrives later: `take` reads the
+    /// stream until it has seen `count` events of `kind`. The time limit only stops a lost push from hanging
+    /// the run; it is generous because a loaded runner starts and runs these tests minutes late.
+    @MainActor private struct Subscribed {
+        let subscription: PageSubscription
+        let events: AsyncStream<JSONValue>
+
+        init(_ view: AgentPaneView) async throws {
+            let provider = try #require(view.pageEvents, "the shared page host has no event stream")
+            let (events, sink) = AsyncStream.makeStream(of: JSONValue.self)
+            self.events = events
+            subscription = try await provider.subscribe(
+                AgentPageProvider.hostEvents, filter: .null, context: PageCallContext(page: PageDescriptor.agent.id)
+            ) { sink.yield($0) }
+        }
+
+        func take(_ count: Int, kind: String) async -> [JSONValue] {
+            var taken: [JSONValue] = []
+            for await event in events where event["kind"] == .string(kind) {
+                taken.append(event)
+                if taken.count == count { break }
+            }
+            return taken
+        }
     }
 
     @Test func bookmarkStepsArePaletteActionsWithNoDefaultKey() throws {
@@ -40,18 +62,14 @@ struct AgentPaneTranscriptStepTests {
         }
     }
 
-    @Test func eachStepSendsItsPageCommand() async throws {
+    @Test(.timeLimit(.minutes(5))) func eachStepSendsItsPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
-        let provider = try #require(view.pageEvents, "the shared page host has no event stream")
-        let received = Received()
-        let subscription = try await provider.subscribe(
-            AgentPageProvider.hostEvents, filter: .null, context: PageCallContext(page: PageDescriptor.agent.id)
-        ) { event in received.events.append(event) }
-        defer { subscription.cancel() }
+        let page = try await Subscribed(view)
+        defer { page.subscription.cancel() }
 
         for step in AgentTranscriptStep.allCases { view.step(step) }
-        let commands = received.events.filter { $0["kind"] == .string("command") }
+        let commands = await page.take(AgentTranscriptStep.allCases.count, kind: "command")
         #expect(commands == [
             AgentPageEvent.command("previousTurn").data,
             AgentPageEvent.command("nextTurn").data,
@@ -60,19 +78,15 @@ struct AgentPaneTranscriptStepTests {
         ])
     }
 
-    @Test func stopTurnSendsTheComposerStopCommand() async throws {
+    @Test(.timeLimit(.minutes(5))) func stopTurnSendsTheComposerStopCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
-        let provider = try #require(view.pageEvents, "the shared page host has no event stream")
-        let received = Received()
-        let subscription = try await provider.subscribe(
-            AgentPageProvider.hostEvents, filter: .null, context: PageCallContext(page: PageDescriptor.agent.id)
-        ) { event in received.events.append(event) }
-        defer { subscription.cancel() }
+        let page = try await Subscribed(view)
+        defer { page.subscription.cancel() }
 
         view.stopTurn()
 
-        #expect(received.events.filter { $0["kind"] == .string("stopTurn") } == [
+        #expect(await page.take(1, kind: "stopTurn") == [
             AgentPageEvent(kind: "stopTurn", value: .string("session-a")).data,
         ])
     }

@@ -27,6 +27,15 @@ public struct DiffRows: Sendable {
         case collapsed(ClosedRange<Int>)
         case gap(Int)
 
+        /// Whether the row draws line `index` (a split pair draws two).
+        public func shows(line index: Int) -> Bool {
+            switch self {
+            case .line(let line): line == index
+            case .split(let left, let right): left == index || right == index
+            default: false
+            }
+        }
+
         /// Stable across expansions (a line keeps its id), unique in one file's rows.
         public var id: String {
             switch self {
@@ -48,9 +57,7 @@ public struct DiffRows: Sendable {
     public let longestColumns: Int
 
     public init(file: DiffFile, options: Options) {
-        let lines = options.hideWhitespace
-            ? file.lines.filter { $0.kind == .context || !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-            : file.lines
+        let lines = DiffNavigation.visibleLines(file.lines, hideWhitespace: options.hideWhitespace)
         self.lines = lines
         let displays = lines.map(DiffLayout.display)
         self.displays = displays

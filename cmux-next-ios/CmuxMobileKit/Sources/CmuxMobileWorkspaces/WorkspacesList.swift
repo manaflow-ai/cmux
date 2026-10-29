@@ -583,7 +583,13 @@ public struct WorkspacesList: View {
                                 titleVisibility: .visible, presenting: bulkClosing) { bulk in
                 Button(bulk.targets.count == 1 ? "Close Workspace" : "Close Workspaces", role: .destructive) {
                     theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) { creator.close(bulk.targets) }
+                    withAnimation(theme.motion.smooth.animation) {
+                        if bulk.groups.isEmpty {
+                            creator.close(bulk.targets)
+                        } else {
+                            creator.closeGroups(bulk.groups, on: bulk.workspace.macID)
+                        }
+                    }
                 }
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
@@ -1145,7 +1151,9 @@ struct BulkClose: Identifiable {
     var kind: WorkspaceBulkClose
     var workspace: Workspace
     var targets: [Workspace]
-    var id: String { "\(kind.rawValue)-\(workspace.id)" }
+    /// Close All in Group / Close Other Groups: the groups that close with their workspaces.
+    var groups: [MacWorkspaceGroup] = []
+    var id: String { "\(kind.rawValue)-\(workspace.id)-\(groups.map(\.id).joined(separator: ","))" }
 
     /// "a, b and c close on <Mac>, with their tabs."
     func message(macName: String) -> String {

@@ -792,8 +792,13 @@ export function percentile(values: readonly number[], p: number): number {
 }
 
 /** Snapshot and VM names: branch bakes carry cmuxnp-dev-; only an explicit promotion may not. */
-export function imageResourceName(options: { promotion: boolean; tag: string; date: string; sha: string }): string {
+/** The image prefix the production Worker boots (backend/apps/api/src/cloud-driver.ts ENV_IMAGE_PREFIX.production). */
+export const PROD_IMAGE_PREFIX = "cmuxnp-prod-vmimg-";
+
+export function imageResourceName(options: { promotion: boolean; prodCopy?: boolean; tag: string; date: string; sha: string }): string {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(options.tag)) throw new Error(`tag ${options.tag} must be [a-z0-9-], at most 41 chars`);
+  if (options.prodCopy && options.promotion) throw new Error("--prod-copy and --promotion name the snapshot differently; pass one");
+  if (options.prodCopy) return `${PROD_IMAGE_PREFIX}${options.tag}`;
   if (options.promotion) return `cmux-vm-${options.date}-${options.sha.slice(0, 10)}`;
   return `cmuxnp-dev-vmimg-${options.tag}`;
 }

@@ -238,14 +238,14 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.spaces.hide", title: t("action.sidebar.spaces.hide", "Hide Spaces"),
                 keywords: ["sidebar", "spaces", "dots", "hide", "footer"], category: .sidebar, symbol: "eye.slash",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.profile, .view, 100)])
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "sidebar hide-spaces",
+                surfacePlan: plan(menus: [p(.profile, .view, 100)])
             ),
             ActionDescriptor(
                 id: "sidebar.spaces.show", title: t("action.sidebar.spaces.show", "Show Spaces"),
                 keywords: ["sidebar", "spaces", "dots", "show", "unhide", "footer"], category: .sidebar, symbol: "circle.grid.2x2",
-                surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 100)])
+                surfaces: [.palette, .keyboard, .contextMenu], cliName: "sidebar show-spaces",
+                surfacePlan: plan(menus: [p(.sidebarFooter, .view, 100)])
             ),
             ActionDescriptor(
                 id: "sidebar.profileControl.hide", title: t("action.sidebar.profileControl.hide", "Hide Profile Button"),
@@ -282,7 +282,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.controlsOnHover.on", title: t("action.sidebar.controlsOnHover.on", "Show Sidebar Controls Only on Hover"),
                 keywords: ["sidebar", "minimal", "hover", "hide", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"],
-                category: .sidebar, symbol: "rectangle.dashed",
+                category: .sidebar, symbol: "cursorarrow.rays",
                 surfaces: [.palette, .contextMenu], cliName: "sidebar hide-controls-until-hover",
                 surfacePlan: plan(menus: [p(.sidebarBackground, .view, 137, folder: .options)])
             ),

@@ -111,6 +111,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return index[id].flatMap { $0 < tops.count ? tops[$0] : nil }
     }
 
+    /// A row's height as laid out (measured, else estimated).
+    func height(of id: String) -> CGFloat? {
+        prepareIfNeeded()
+        return index[id].flatMap { $0 < heights.count ? heights[$0] : nil }
+    }
+
     /// The first row whose bottom is below `y`, and its top.
     func firstRow(below y: CGFloat) -> (id: String, top: CGFloat)? {
         prepareIfNeeded()
@@ -485,6 +491,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             _ = surface.holdsTranscript
             _ = surface.heldRefresh
             _ = surface.disclosures.revision
+            _ = surface.find?.currentBlock
+            _ = store.hasEarlierHistory
             _ = DiffViewedStore.shared.isViewed(Self.viewedProbe)
         } onChange: { [weak self] in
             // Called before the change lands: rebuild once it has, later in this turn.
@@ -515,6 +523,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             }
             shownDisclosures = disclosures
         }
+        // Find in Chat's current match moved: the rows losing and taking the mark draw again.
+        let marked = surface.find?.currentBlock.map(Self.rowID(findBlock:))
+        if marked != lookup.findMarked {
+            for id in [lookup.findMarked, marked].compactMap(\.self) where rows[id] != nil { forced.insert(id) }
+            lookup.findMarked = marked
+        }
         // Edited-files cards on screen whose viewed marks changed (a file marked in Changes).
         for (id, native) in lookup.shownNative where native {
             guard let row = rows[id], case .editedFiles(let changes) = row.kind else { continue }
@@ -523,7 +537,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let turns = store.turns
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
-                                  permissionBarHidden: surface.permissionBarHidden)
+                                  permissionBarHidden: surface.permissionBarHidden,
+                                  earlierHistory: store.hasEarlierHistory)
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -712,6 +727,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
     }
 
+    /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
+    /// the turn's prompt bubble; `AgentChatFind.blockKey`: one block of an answer).
+    static func rowID(findBlock key: String) -> String {
+        guard let bar = key.lastIndex(of: "|") else { return key }
+        let owner = key[..<bar], part = key[key.index(after: bar)...]
+        return part == "prompt" ? "u-\(owner)" : "\(owner)#\(part)"
+    }
+
     /// The id the store marks replayed for this row (`TurnRow.id`, or the turn's).
     private static func storeID(_ row: ChatRow) -> String {
         if case .block = row.kind, let hash = row.id.firstIndex(of: "#") { return String(row.id[..<hash]) }
@@ -783,6 +806,8 @@ final class ChatRowLookup {
     }
     /// The viewed files each edited-files card was last drawn with.
     var viewedShown: [String: Set<Int>] = [:]
+    /// The row holding Find in Chat's current match (`ChatTranscriptList.rowID(findBlock:)`).
+    var findMarked: String?
 
     func expanded(_ id: String) -> Bool {
         guard let row = rows[id] else { return false }
@@ -837,6 +862,7 @@ final class ChatRowLookup {
         ChatNativeRowActions.configure(&actions, row: row, context: context)
         if case .editedFiles(let changes) = row.kind { viewedShown[id] = actions.viewed }
         cell.apply(native, actions: actions)
+        cell.setFindMarked(id == findMarked)
         #if DEBUG
         ChatAccessibilityLog.log(kind: row.hostedReuseKey == "block" ? row.nativeReuseKey : row.hostedReuseKey, cell: cell)
         #endif
@@ -851,6 +877,7 @@ final class ChatRowLookup {
         shownNative[id] = false
         shownPool[id] = "H:" + row.hostedReuseKey
         cell.known = layout?.knownHeight(of: id)
+        cell.setFindMarked(id == findMarked)
         #if DEBUG
         let start = CACurrentMediaTime()
         if ChatRowCost.isEnabled { cell.costKind = row.costKind }
@@ -866,6 +893,20 @@ final class ChatRowLookup {
         }
         .margins(.horizontal, 20)
         .margins(.vertical, 0)
+    }
+}
+
+extension UICollectionViewCell {
+    /// Find in Chat's mark on the row that holds the current match: a tinted rounded
+    /// background reaching 6 pt past the row's 20 pt margins.
+    func setFindMarked(_ marked: Bool) {
+        var background = UIBackgroundConfiguration.clear()
+        if marked {
+            background.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.28)
+            background.cornerRadius = 12
+            background.backgroundInsets = NSDirectionalEdgeInsets(top: -6, leading: 14, bottom: -6, trailing: 14)
+        }
+        backgroundConfiguration = background
     }
 }
 

@@ -316,6 +316,17 @@ public final class FeedStore {
         }
         if changed { items = next }
     }
+
+    /// Mark All Notifications as Read: every event in the Feed, in one write.
+    public func markAllRead() {
+        guard items.contains(where: { !$0.isRead }) else { return }
+        items = items.map { item in
+            var item = item
+            item.isRead = true
+            return item
+        }
+    }
+
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)

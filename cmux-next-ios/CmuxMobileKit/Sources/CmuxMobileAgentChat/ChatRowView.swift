@@ -59,8 +59,8 @@ struct ChatRowView: View {
     private var content: some View {
         let store = context.store
         switch row.kind {
-        case .sessionStart(let date):
-            Text("Session started \(date.formatted(date: .abbreviated, time: .shortened))")
+        case .sessionStart(let date, let earlier):
+            Text(ChatRow.sessionLine(date, earlier: earlier))
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity)
@@ -113,11 +113,15 @@ struct ChatRowView: View {
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
         case .failed(let prompt, let errorText):
             let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
-            FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
+            let turn = store.turns.last { $0.id == row.turnID }
+            FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) }) {
                 store.send(prompt: prompt)
             }
         case .actions(let turn, let isLast):
-            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false) { store.send(prompt: turn.prompt) }
+            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
+                store.send(prompt: turn.prompt)
+            }
         }
     }
 }

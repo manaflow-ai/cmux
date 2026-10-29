@@ -10,6 +10,8 @@ struct DiffRenderStyle: Hashable, Sendable {
     var split: Bool
     /// The list's width; only wrap and split heights depend on it (0 otherwise).
     var width: CGFloat
+    /// Search in File: every match in the code is highlighted (empty: no search).
+    var search = ""
 }
 
 /// Identifies one render model: the file's content, what is shown of it and how.
@@ -23,7 +25,7 @@ struct DiffRenderKey: Hashable, Sendable {
     /// key show every shared row id with the same content (expanding only adds rows).
     var contentKey: ContentKey {
         ContentKey(fileID: fileID, contentHash: contentHash, hideWhitespace: options.hideWhitespace, split: options.split,
-                   codeSize: style.codeSize, wrap: style.wrap)
+                   codeSize: style.codeSize, wrap: style.wrap, search: style.search)
     }
 
     struct ContentKey: Hashable {
@@ -33,6 +35,7 @@ struct DiffRenderKey: Hashable, Sendable {
         var split: Bool
         var codeSize: CGFloat
         var wrap: Bool
+        var search: String
     }
 }
 
@@ -87,7 +90,7 @@ final class DiffRenderModel: @unchecked Sendable {
                 indent = DiffLayout.hangingIndent(display, charWidth: charWidth, codeWidth: unifiedCodeWidth)
                 dropped = min(display.indent, Int((indent / max(charWidth, 1)).rounded(.down)))
             }
-            texts.append(Self.attributed(display, kind: rows.lines[index].kind, dropping: dropped, font: fonts.code))
+            texts.append(Self.attributed(display, kind: rows.lines[index].kind, dropping: dropped, font: fonts.code, search: style.search))
             indents.append(indent)
         }
         self.texts = texts
@@ -124,12 +127,18 @@ final class DiffRenderModel: @unchecked Sendable {
     /// Split: the number column (32 pt and 6 pt of padding) before each side's code.
     static let splitNumberColumn: CGFloat = 38
 
-    /// Code text with word-level highlights (tabs expanded, see `DiffLayout.display`).
-    static func attributed(_ display: DiffLayout.DisplayLine, kind: DiffLine.Kind, dropping prefix: Int, font: UIFont) -> NSAttributedString {
+    /// The background of a Search in File match.
+    static let searchMatch = UIColor.systemYellow.withAlphaComponent(0.45)
+
+    /// Code text with word-level highlights (tabs expanded, see `DiffLayout.display`), and the
+    /// matches of `search`.
+    static func attributed(_ display: DiffLayout.DisplayLine, kind: DiffLine.Kind, dropping prefix: Int, font: UIFont,
+                           search: String = "") -> NSAttributedString {
         let characters = Array(display.text.dropFirst(prefix))
         let string = characters.isEmpty ? " " : String(characters)
         let text = NSMutableAttributedString(string: string, attributes: [.font: font, .foregroundColor: UIColor.label])
-        guard !display.highlights.isEmpty, !characters.isEmpty else { return text }
+        let matches = search.isEmpty ? [] : DiffNavigation.ranges(of: search, in: display.text)
+        guard !display.highlights.isEmpty || !matches.isEmpty, !characters.isEmpty else { return text }
         let color: UIColor = kind == .added ? .cmuxMobileDiffAddWord : .cmuxMobileDiffDelWord
         // Character offsets to UTF-16 offsets (identical for ASCII).
         let ascii = string.utf8.count == characters.count
@@ -143,14 +152,18 @@ final class DiffRenderModel: @unchecked Sendable {
             }
             utf16.append(offset)
         }
-        for range in display.highlights {
-            let lower = max(0, range.lowerBound - prefix)
-            let upper = min(characters.count, range.upperBound - prefix)
-            guard lower < upper else { continue }
-            let start = ascii ? lower : utf16[lower]
-            let end = ascii ? upper : utf16[upper]
-            text.addAttribute(.backgroundColor, value: color, range: NSRange(location: start, length: end - start))
+        func paint(_ ranges: [Range<Int>], _ color: UIColor) {
+            for range in ranges {
+                let lower = max(0, range.lowerBound - prefix)
+                let upper = min(characters.count, range.upperBound - prefix)
+                guard lower < upper else { continue }
+                let start = ascii ? lower : utf16[lower]
+                let end = ascii ? upper : utf16[upper]
+                text.addAttribute(.backgroundColor, value: color, range: NSRange(location: start, length: end - start))
+            }
         }
+        paint(display.highlights, color)
+        paint(matches, searchMatch)
         return text
     }
 }
