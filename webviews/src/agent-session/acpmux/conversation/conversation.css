@@ -107,25 +107,11 @@
   flex-direction: column;
   align-items: flex-end;
 }
-/* Waiting controls belong beside their bubble. Delivered prompts keep their usual footer. */
+/* Waiting controls use the same footer slot as a delivered prompt. The bubble and its footer stay
+   right-aligned together, so accepting Send now changes only the footer contents, never the bubble's
+   horizontal position (Leo, 2026-10-28). */
 .cv-user__body {
   display: contents;
-}
-.cv-user__body:has(.cv-user__pending) {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2, 8px);
-  max-width: 100%;
-  min-width: 0;
-}
-.cv-user__body:has(.cv-user__pending) > .cv-user__bubble {
-  min-width: 0;
-  max-width: 100%;
-}
-.cv-user__body:has(.cv-user__pending) > .cv-user__actions {
-  flex: none;
-  margin-top: 0;
-  padding-right: 0;
 }
 /* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
    plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
