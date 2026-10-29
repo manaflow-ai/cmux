@@ -10,7 +10,8 @@
 //! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
 //! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
 //! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
-//! timer). The notice goes only into the turn it names ([`notice_reaches`]). The hub never cancels
+//! timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+//! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
 //! the turn itself.
 //!
 //! The timer: one per session, armed when a turn starts. It wakes once, at the cap, and ends; a
@@ -50,15 +51,20 @@ fn capped_turn(session: &Session, now: u64) -> Option<(String, u64)> {
     (now.saturating_sub(turn.started_at) >= cap).then_some((turn.turn_id, cap))
 }
 
+/// Whether `provenance` is the notice's.
+pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
+}
+
 /// Whether a steer with `provenance` may go into turn `turn_id`: anything but the notice, and the
 /// notice only into the turn it names while that turn still runs. A notice for a turn that ended
-/// never reaches the next one.
+/// never reaches the next one: checked here before it is logged, and again as it is written
+/// (`steer_end.rs` `agent_prompt_hook`, `bound`).
 pub(super) fn notice_reaches(session: &Session, provenance: Option<&Value>, turn_id: &str) -> bool {
-    let Some(p) = provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some(NOTICE_KIND))
-    else {
+    if !is_notice(provenance) {
         return true;
-    };
-    p.get("turnId").and_then(Value::as_str) == Some(turn_id)
+    }
+    provenance.and_then(|p| p.get("turnId")).and_then(Value::as_str) == Some(turn_id)
         && session.turn().is_some_and(|t| t.turn_id == turn_id)
 }
 

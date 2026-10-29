@@ -638,6 +638,7 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
+            false,
             fence.as_ref(),
             confirm_team_write,
             || {
@@ -782,6 +783,7 @@ impl Hub {
                                         &child2,
                                         json!({"sessionId": sid2, "prompt": wire}),
                                         &turn_id,
+                                        false,
                                         false,
                                         fence.as_ref(),
                                         confirm_team_write,

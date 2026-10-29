@@ -347,3 +347,49 @@ async fn a_notice_reaches_only_the_turn_it_names_and_a_restored_marker_sends_non
     f.open("g").await;
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_notice_whose_turn_ends_on_its_way_never_reaches_the_next_turn() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    let first = f.gated_turn("g1").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    // The notice stops after it is logged, before it is written (its model-sized copies).
+    let (arrived_tx, arrived) = oneshot::channel();
+    let (release, release_rx) = oneshot::channel();
+    *f.hub.copy_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let opts = PromptOptions {
+        prompt_id: Some(format!("turn-cap-{turn_id}")),
+        steer_only: true,
+        provenance: Some(json!({"kind": NOTICE_KIND, "turnId": turn_id, "capMs": cap})),
+        ..PromptOptions::default()
+    };
+    let (hub, session) = (f.hub.clone(), f.session.clone());
+    let notice = tokio::spawn(async move {
+        let blocks = vec![json!({"type": "text", "text": notice_text(cap)})];
+        hub.prompt_with(&session, blocks, "acpmux", true, opts).await
+    });
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    // Its turn ends and the next one starts meanwhile.
+    f.open("g1").await;
+    tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
+    let second = f.gated_turn("g2").await;
+    assert_ne!(f.session.turn().unwrap().turn_id, turn_id);
+    release.send(()).unwrap();
+    let refused = tokio::time::timeout(WAIT, notice).await.unwrap().unwrap();
+    let refused = refused.expect_err("a notice for a turn that ended");
+    assert!(refused.message.starts_with(crate::claude_stdio::STEER_NO_TURN), "{}", refused.message);
+    let records = f.hub.events(&f.session.id, 0, 100_000).unwrap();
+    let written = records
+        .iter()
+        .filter(|r| r.dir == "out" && r.kind == "session/prompt")
+        .filter(|r| r.msg["params"]["prompt"].to_string().contains(NOTICE))
+        .count();
+    assert_eq!(written, 0, "the next turn's agent never got it");
+    let withdrawn = records
+        .iter()
+        .any(|r| r.kind == "steer_withdrawn" && r.msg["promptId"] == format!("turn-cap-{turn_id}"));
+    assert!(withdrawn, "the log says the logged notice never went");
+    f.open("g2").await;
+    tokio::time::timeout(WAIT, second).await.unwrap().unwrap().unwrap();
+}
