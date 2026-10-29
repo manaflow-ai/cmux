@@ -45,8 +45,9 @@ impl Hub {
             })
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
-        // The hub refuses a heartbeat that lists one name twice: a name several sessions here
-        // share is listed once, for the one that works most (a send naming it lands there).
+        // The hub refuses a heartbeat that lists one name twice. Names are unique here
+        // (`admission.rs`), so this is a guard: a shared name is listed once, for the session that
+        // works most.
         let mut seen = std::collections::HashSet::new();
         rows.into_iter()
             .map(|(_, _, row)| row)
