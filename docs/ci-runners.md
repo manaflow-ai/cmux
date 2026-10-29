@@ -1034,8 +1034,11 @@ evicted with nothing decided.
   record is deleted. The probes ask for the same sizes whatever the record
   says. A Linux variable goes back only onto a size whose probe started; one
   whose value before is a label nobody probed (an older record's
-  `blacksmith-4vcpu-ubuntu-2404`, or unset) stays where it is. A GitHub-hosted
-  value before is never put back.
+  `blacksmith-4vcpu-ubuntu-2404`, or unset) stays where it is, unless it is on
+  GitHub-hosted Ubuntu (a record from before 2026-10-27): then `LINUX_RUNNER`
+  moves to a probed size that started and `CI_TRUSTED_RUNNER` is unset, so no
+  hosted value outlives the record. A GitHub-hosted value before is never put
+  back.
 - **Some start and some do not.** The switch changes nothing: overflow does
   not flip and a record is not cleared. Moving work off one stalled size is
   the `RUNNER_POOLS` reconciler's job, which reads the health below.

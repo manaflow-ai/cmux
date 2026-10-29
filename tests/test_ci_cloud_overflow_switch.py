@@ -579,6 +579,30 @@ class MainTests(unittest.TestCase):
         self.assertFalse(restores["MACOS_RUNNER_PR"].skipped)
         self.assertTrue(restores["MACOS_RUNNER_15"].skipped)  # GitHub-hosted is never put back
 
+    def test_a_recovered_legacy_hosted_record_never_leaves_linux_on_hosted(self) -> None:
+        # Review at cd797966: before was the unprobed 4 vCPU, after GitHub-hosted Ubuntu. Every size starts,
+        # the record is deleted, and LINUX_RUNNER must not stay on hosted Ubuntu.
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "CI_TRUSTED_RUNNER": {"before": None, "after": "ubuntu-24.04"}}}
+        started = probe_job(0, status="in_progress", runner_name="bs-1")
+        up = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+               "VAR_CI_TRUSTED_RUNNER": "ubuntu-24.04", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(up), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=started", out)
+        self.assertEqual(writer.writes, [("CI_TRUSTED_RUNNER", None),
+                                         ("LINUX_RUNNER", switch.PROBE_LABELS[0]),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        # Even an entry changed by hand to hosted Ubuntu since is moved, not left behind.
+        restores = {r.name: r for r in switch.plan_on(
+            {"changed": {"LINUX_RUNNER": {"before": None, "after": "blacksmith-16vcpu-ubuntu-2404"}}},
+            {"LINUX_RUNNER": "ubuntu-24.04"}, switch.PROBE_LABELS)}
+        self.assertEqual((restores["LINUX_RUNNER"].value, restores["LINUX_RUNNER"].skipped),
+                         (switch.PROBE_LABELS[0], ""))
+
     def test_no_code_path_writes_a_hosted_label(self) -> None:
         # Leo, 2026-10-28: "most of what GitHub has is hilariously slow. We can't be using them."
         self.assertFalse(hasattr(switch, "HOSTED_LINUX"))

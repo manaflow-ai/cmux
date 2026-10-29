@@ -317,6 +317,16 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
             continue
         before, after = change.get("before"), change.get("after")
         now = (current.get(name) or "").strip() or None
+        hosted_now = name in LINUX_VARIABLES and now is not None and bool(HOSTED_LINUX_LABEL.match(now.lower()))
+        if hosted_now and healthy is not None and (before or "") not in healthy:
+            # A record from when Linux failed over to GitHub-hosted Ubuntu, whose before is not a
+            # size seen serving: the record is about to be deleted, so the hosted value must not
+            # outlive it. LINUX_RUNNER takes a probed size that started; CI_TRUSTED_RUNNER, whose
+            # readers accept no probed size, is unset (its readers fall back to Blacksmith).
+            live = [label for label in PROBE_LABELS if label in healthy]
+            target = live[0] if name == LINUX_VARIABLE and live else None
+            restores.append(Restore(name, target))
+            continue
         if now != after and not (now is not None and now == change.get("was")):
             restores.append(Restore(name, before, f"now {now or 'unset'}, not the failover {after}; "
                                                   "someone changed it, so it is left alone"))
