@@ -240,6 +240,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn both_fork_names_have_identical_phone_controls() {
+        for key in ["sessionId", "session", "name"] {
+            for method in ["session/fork", "acp.session.fork"] {
+                let request = json!({"jsonrpc": "2.0", "id": 17, "method": method,
+                    "params": {key: "source", "throughSeq": 12}});
+                let text = request.to_string();
+                let (id, session) = controlled_session(&text).expect(method);
+                assert_eq!((id.clone(), session.as_str()), (json!(17), "source"));
+                for mode in PHONE_MODES {
+                    assert_eq!(mode_refusal(&id, Some(mode)), None, "{method}: {mode}");
+                }
+                for mode in ["agent", "agent-full-access", "bypassPermissions"] {
+                    let refused: Value = serde_json::from_str(
+                        &mode_refusal(&id, Some(mode)).expect(method),
+                    )
+                    .unwrap();
+                    assert_eq!(refused["id"], 17);
+                    assert_eq!(refused["error"]["data"]["reason"], "phone.mode_not_asking");
+                    let marked: Value = serde_json::from_str(&marked(&text).unwrap()).unwrap();
+                    assert_eq!(marked["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+                    assert_eq!(marked["params"][key], "source");
+                    assert_eq!(marked["params"]["throughSeq"], 12);
+                    assert_eq!(marked["method"], method);
+                }
+            }
+        }
+    }
+
     /// On a phone's own credential, what the filter refuses goes on marked, for acpmux to
     /// run only when that phone's Full-access setting covers it.
     #[test]
