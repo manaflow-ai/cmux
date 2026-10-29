@@ -120,20 +120,6 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         }
       });
       await page.screenshot({ path: path.join(captureDir, "new-tab-strip-after.png"), animations: "disabled" });
-      if (process.env.CMUX_UI_ARTIFACT === "1") {
-        const archive = path.join(captureDir, "new-tab-strip-capture.zip");
-        const zipped = Bun.spawnSync([
-          "zip",
-          "-j",
-          archive,
-          path.join(captureDir, "new-tab-strip-before.png"),
-          path.join(captureDir, "new-tab-strip-after.png"),
-        ]);
-        if (zipped.exitCode !== 0) throw new Error(`could not zip gallery captures: ${zipped.stderr.toString()}`);
-        const uploaded = Bun.spawnSync(["cmux-ci", "artifact-put", archive], { stdout: "pipe", stderr: "pipe" });
-        if (uploaded.exitCode !== 0) throw new Error(`could not upload gallery captures: ${uploaded.stderr.toString()}`);
-        console.log(uploaded.stdout.toString().trim());
-      }
     }
   });
 });
