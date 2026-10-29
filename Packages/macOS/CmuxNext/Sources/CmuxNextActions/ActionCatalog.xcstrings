@@ -31578,127 +31578,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Column"
+            "value": "New Column Right"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい列"
+            "value": "右に新しい列"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عمود جديد"
+            "value": "عمود جديد على اليمين"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova kolona"
+            "value": "Nova kolona desno"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny kolonne"
+            "value": "Ny kolonne til højre"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neue Spalte"
+            "value": "Neue Spalte rechts"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva columna"
+            "value": "Nueva columna a la derecha"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvelle colonne"
+            "value": "Nouvelle colonne à droite"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova colonna"
+            "value": "Nuova colonna a destra"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរថ្មី"
+            "value": "ជួរឈរថ្មីខាងស្ដាំ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 열"
+            "value": "오른쪽에 새 열"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny kolonne"
+            "value": "Ny kolonne til høyre"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa kolumna"
+            "value": "Nowa kolumna po prawej"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Coluna"
+            "value": "Nova Coluna à Direita"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новый столбец"
+            "value": "Новый столбец справа"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ใหม่"
+            "value": "คอลัมน์ใหม่ทางขวา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Sütun"
+            "value": "Sağa Yeni Sütun"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новий стовпець"
+            "value": "Новий стовпець праворуч"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cột mới"
+            "value": "Cột mới bên phải"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建列"
+            "value": "在右侧新建列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增欄"
+            "value": "在右側新增欄"
+          }
+        }
+      }
+    },
+    "action.newColumnLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Column Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左に新しい列"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عمود جديد على اليسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova kolona lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny kolonne til venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Spalte links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nueva columna a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvelle colonne à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuova colonna a sinistra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរឈរថ្មីខាងឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "왼쪽에 새 열"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny kolonne til venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa kolumna po lewej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova Coluna à Esquerda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новый столбец слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอลัมน์ใหม่ทางซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sola Yeni Sütun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий стовпець ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cột mới bên trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在左侧新建列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在左側新增欄"
           }
         }
       }
