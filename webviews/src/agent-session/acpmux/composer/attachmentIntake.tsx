@@ -16,7 +16,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "../attachments";
-import type { UploadResult } from "../cloudUploads";
+import type { UploadCancelled, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close, FileDoc, ImageIcon, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
@@ -65,7 +65,7 @@ export type AttachmentIntakeOptions = {
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
   /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
-  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: UploadCancelled): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -190,6 +190,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  const cancellationListeners = useRef(new Set<() => void>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -201,6 +202,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const places = useRef(new Map<string, number>());
   const gestures = useRef(0);
   const scope = options.scope;
+  useLayoutEffect(() => {
+    for (const changed of cancellationListeners.current) changed();
+  }, [attachments, scope]);
   const lastScope = useRef(scope);
   // Before paint: a carried placeholder never leaves the strip for a frame.
   useLayoutEffect(() => {
@@ -291,18 +295,28 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
           // would go nowhere.
-          cancelled: (index) => {
-            const chip = made[index];
-            if (!chip) return !sources.current.has(shown[index]!.id);
-            return chipRemoved({
-              chip,
-              stagedHere: staged.has(chip),
-              everDrawn: everStaged.current.has(chip),
-              pastedIn: batch.scope,
-              showing: live.current.options.scope,
-              strip: stagedNow.current,
-            });
-          },
+          cancelled: Object.assign(
+            (index: number) => {
+              const chip = made[index];
+              if (!chip) return !sources.current.has(shown[index]!.id);
+              return chipRemoved({
+                chip,
+                stagedHere: staged.has(chip),
+                everDrawn: everStaged.current.has(chip),
+                pastedIn: batch.scope,
+                showing: live.current.options.scope,
+                strip: stagedNow.current,
+              });
+            },
+            {
+              subscribe: (_index: number, changed: () => void) => {
+                cancellationListeners.current.add(changed);
+                return () => {
+                  cancellationListeners.current.delete(changed);
+                };
+              },
+            },
+          ),
         },
         {
           ready,
@@ -331,6 +345,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
   const [cancel] = useState(() => (id: string) => {
     sources.current.delete(id);
+    for (const changed of cancellationListeners.current) changed();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).

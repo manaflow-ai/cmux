@@ -124,3 +124,52 @@ test("a storage quota refusal stays a refusal, with no legacy bypass", async () 
   expect(result).toEqual({ error: "Storage quota exceeded" });
   expect(calls).toEqual(["chat.upload.begin"]);
 });
+
+test("removing a chip during finish cancels the native transfer before finish answers", async () => {
+  let subscriber: (() => void) | undefined;
+  let removed = false;
+  let subscriptions = 0;
+  const cancelled = Object.assign(() => removed, {
+    subscribe: (_index: number, listener: () => void) => {
+      subscriber = listener;
+      subscriptions++;
+      return () => {
+        subscriptions--;
+      };
+    },
+  });
+  let finishStarted!: () => void;
+  const finishing = new Promise<void>((resolve) => {
+    finishStarted = resolve;
+  });
+  let releaseFinish!: (value: unknown) => void;
+  const finish = new Promise<unknown>((resolve) => {
+    releaseFinish = resolve;
+  });
+  const calls: string[] = [];
+  const uploading = uploadToMachine(
+    [new File([], "empty.bin")],
+    async (method) => {
+      calls.push(method);
+      if (method === "chat.upload.begin") return { token: "active", size: 0, chunkSize: 4 };
+      if (method === "chat.upload.finish") {
+        finishStarted();
+        return finish;
+      }
+      return {};
+    },
+    cancelled,
+  );
+  try {
+    await finishing;
+    expect(subscriber).toBeDefined();
+    removed = true;
+    subscriber?.();
+    expect(await uploading).toEqual({ paths: [""] });
+    expect(calls).toEqual(["chat.upload.begin", "chat.upload.finish", "chat.upload.cancel"]);
+    expect(subscriptions).toBe(0);
+  } finally {
+    releaseFinish({ path: "/session/empty.bin" });
+    await uploading;
+  }
+});

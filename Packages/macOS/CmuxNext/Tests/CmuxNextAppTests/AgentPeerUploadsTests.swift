@@ -117,8 +117,8 @@ import Testing
             let staged = await host.waitForFile()
             #expect(FileManager.default.fileExists(atPath: staged.path))
             _ = await stager(.cancel(token: token), session)
-            _ = await finishing.value
             #expect(!FileManager.default.fileExists(atPath: staged.path))
+            _ = await finishing.value
         }
     }
 

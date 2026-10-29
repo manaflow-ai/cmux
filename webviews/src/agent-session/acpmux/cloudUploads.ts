@@ -4,6 +4,11 @@
 import { base64 } from "./attachments";
 import { translate } from "./i18n";
 
+/// Cancellation checks between chunks and notifications while the native finish is in flight.
+export type UploadCancelled = ((index: number) => boolean) & {
+  subscribe?(index: number, changed: () => void): () => void;
+};
+
 export type UploadResult = { paths: string[] } | { error: string } | undefined;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
@@ -17,28 +22,45 @@ export const UPLOAD_FINISH_DEADLINE_MS = 60 * 60 * 1_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
 /// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
-export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
+export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
+      const stop = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+      };
+      const abort = () => {
+        late = true;
+        stop();
+        reject(CANCELLED);
+      };
       const timer = setTimeout(() => {
         late = true;
+        stop();
         reject(new Error(UPLOAD_TIMED_OUT));
       }, ms);
-      call(method, params).then(
-        (value) => {
-          clearTimeout(timer);
-          // An upload the host started after the page gave up on it: the host drops its stage.
-          const token = (value as { token?: unknown } | null)?.token;
-          if (late && method === "chat.upload.begin" && typeof token === "string")
-            void call("chat.upload.cancel", { token }).catch(() => undefined);
-          resolve(value);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      Promise.resolve()
+        .then(() => call(method, params))
+        .then(
+          (value) => {
+            stop();
+            // An upload the host started after the page gave up on it: the host drops its stage.
+            const token = (value as { token?: unknown } | null)?.token;
+            if (late && method === "chat.upload.begin" && typeof token === "string")
+              void call("chat.upload.cancel", { token }).catch(() => undefined);
+            resolve(value);
+          },
+          (error: unknown) => {
+            stop();
+            reject(error);
+          },
+        );
     });
 }
 
@@ -87,10 +109,9 @@ function uploadedPaths(value: unknown): string[] {
 export async function uploadToMachine(
   files: File[],
   host: Call,
-  cancelled: (index: number) => boolean = () => false,
+  cancelled: UploadCancelled = () => false,
 ): Promise<UploadResult> {
   const call = callWithin(host);
-  const finishCall = callWithin(host, UPLOAD_FINISH_DEADLINE_MS);
   if (!files.length || files.some((file) => !file.name)) return undefined;
   const paths: string[] = [];
   const manifest = files.map(({ name, size }) => ({ name, size }));
@@ -123,6 +144,12 @@ export async function uploadToMachine(
     if (index === 0 && typeof begin.batchToken === "string" && begin.batchToken) batchToken = begin.batchToken;
     const token = begin.token;
     if (typeof token !== "string" || !token) return { error: translate("upload.notStarted") };
+    const controller = new AbortController();
+    const unsubscribe = cancelled.subscribe?.(index, () => {
+      if (cancelled(index)) controller.abort();
+    });
+    const step = callWithin(host, UPLOAD_STEP_DEADLINE_MS, controller.signal);
+    const finishCall = callWithin(host, UPLOAD_FINISH_DEADLINE_MS, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)
         throw new Error(translate("upload.notStarted"));
@@ -132,22 +159,25 @@ export async function uploadToMachine(
         const end = Math.min(file.size, offset + chunkSize);
         const slice = file.slice(offset, end);
         if (slice.size !== end - offset) throw new Error(translate("upload.notRead"));
-        const answer = object(await call("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
+        const answer = object(await step("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
         if (answer.offset !== end) throw new Error(translate("upload.notCompleted"));
         offset = end;
       }
       if (cancelled(index)) throw CANCELLED;
       const [path, extra] = uploadedPaths(await finishCall("chat.upload.finish", { token }));
       if (!path || extra) throw new Error(translate("upload.notCompleted"));
+      if (cancelled(index)) throw CANCELLED;
       paths.push(path);
     } catch (error) {
-      // Straight to the host, not behind another step deadline.
-      void host("chat.upload.cancel", { token }).catch(() => undefined);
+      // Keep cancellation owned until the host has stopped reading and removed its stage.
+      await call("chat.upload.cancel", { token }).catch(() => undefined);
       if (error === CANCELLED) {
         paths.push("");
         continue;
       }
       return { error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      unsubscribe?.();
     }
   }
   return { paths };
@@ -158,7 +188,7 @@ export async function uploadToMachine(
 async function legacyUpload(
   files: File[],
   call: Call,
-  cancelled: (index: number) => boolean = () => false,
+  cancelled: UploadCancelled = () => false,
 ): Promise<UploadResult> {
   try {
     const sending = files.flatMap((file, index) => (cancelled(index) ? [] : [{ file, index }]));

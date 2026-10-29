@@ -33,9 +33,18 @@ const PASTES: &str = "cmux-pastes";
 /// The longest file name the machine holds.
 const MAX_NAME_BYTES: usize = 255;
 
+#[cfg(test)]
 pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Value, Failure> {
+    upload_with_id(socket, root, files, None)
+}
+
+/// An app-owned id lets the app clean the exact transfer's directory after a killed CLI exits.
+pub(super) fn upload_with_id(socket: &Path, root: &str, files: &[String], id: Option<&str>) -> Result<Value, Failure> {
     use std::io::Write as _;
 
+    if id.is_some_and(|id| !valid_id(id) || files.len() != 1) {
+        return Err(Failure::new("upload_refused", "an upload id names exactly one file"));
+    }
     if files.is_empty() || files.len() > MAX_FILES {
         return Err(Failure::new("upload_refused", "upload 1 to 64 files at a time"));
     }
@@ -44,7 +53,7 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
     let mut uploads = Vec::new();
     let mut sent: Vec<String> = Vec::new();
     for (file, name) in &checked {
-        let at = format!("{root}/local/uploads/{}/{name}", random_id()?);
+        let at = format!("{root}/local/uploads/{}/{name}", id.map(str::to_string).map(Ok).unwrap_or_else(random_id)?);
         let mut heartbeat = || {
             println!(r#"{{"progress":"upload"}}"#);
             let _ = std::io::stdout().flush();
@@ -61,6 +70,20 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
         uploads.push(json!({"file": file, "path": at}));
     }
     Ok(json!({"uploads": uploads}))
+}
+
+/// Only the random transfer directory can be removed, never an arbitrary relative path.
+fn valid_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failure> {
+    if !valid_id(id) {
+        return Err(Failure::new("upload_refused", "invalid upload id"));
+    }
+    sync_cli::delete_remote(socket, &format!("{root}/local/uploads/{id}"))
+        .map_err(|error| Failure::new(&sync_cli::push_failure_code(&error), format!("{error:#}")))?;
+    Ok(json!({}))
 }
 
 /// The canonical file at `path` and its name, when it may be uploaded.

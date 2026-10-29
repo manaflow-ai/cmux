@@ -158,7 +158,7 @@ final class CloudUploads {
             if let batchID { response["batchToken"] = batchID }
             return AgentPaneReply.success(response)
         case .chunk(let token, let offset, let data):
-            guard var stage = stages[token], stage.target.chat.session == session, stage.received == offset,
+            guard var stage = stages[token], finishTasks[token] == nil, stage.target.chat.session == session, stage.received == offset,
                   let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
                   data.count <= Self.stageChunkBytes, data.count <= stage.size - offset else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             do {
@@ -173,17 +173,20 @@ final class CloudUploads {
                   let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
                   stage.received == stage.size, finishTasks[token] == nil else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             let task = Task { () -> CloudAccessCLI.Answer in
+                defer {
+                    finishTasks.removeValue(forKey: token)
+                    stages.removeValue(forKey: token)
+                    try? FileManager.default.removeItem(at: stage.folder)
+                    armExpiry()
+                }
                 guard let socket = await stage.target.machine.daemon.connection?.endpoint?.socketPath else {
                     return CloudAccessCLI.Answer(ok: false, errorCode: "link_error")
                 }
                 return (try? await CloudAccessCLI(binary: stage.target.binary).upload(socket: socket, remoteRoot: stage.target.remoteRoot, files: [stage.file.path])) ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed")
             }
             finishTasks[token] = task
-            let answer = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-            finishTasks.removeValue(forKey: token)
-            stages.removeValue(forKey: token)
-            try? FileManager.default.removeItem(at: stage.folder)
             armExpiry()
+            let answer = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
             return Self.reply(answer, names: [stage.name], services: services)
         case .cancel(let token):
             guard let stage = stages[token], stage.target.chat.session == session else { return AgentPaneReply.success() }
@@ -221,7 +224,7 @@ final class CloudUploads {
 
     /// Arms the deadline for the earliest live stage's expiry; nothing pending when no stage is left.
     private func armExpiry() {
-        guard let next = stages.enumerated().compactMap({ finishTasks[$0.element.key] == nil ? $0.element.value.expires : nil }).min() else { expiryTimer.cancel(); return }
+        guard let next = stages.compactMap({ finishTasks[$0.key] == nil ? $0.value.expires : nil }).min() else { expiryTimer.cancel(); return }
         expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
             guard let self else { return }
             purgeStages()
