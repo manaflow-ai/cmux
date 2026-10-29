@@ -8558,10 +8558,130 @@
       "comment": "Agent pane: import failed or contained no supported conversation messages",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر استيراد هذا النص. اختر نص محادثة مدعومًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće uvesti ovaj transkript. Odaberite podržani transkript razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne transskription kan ikke importeres. Vælg en understøttet samtaletransskription."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Transkript kann nicht importiert werden. Wähle ein unterstütztes Gesprächstranskript."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unable to import this transcript. Choose a supported conversation transcript."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede importar esta transcripción. Elige una transcripción de conversación compatible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’importer cette transcription. Choisissez une transcription de conversation prise en charge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile importare questa trascrizione. Scegli una trascrizione di conversazione supportata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話記録をインポートできません。対応している会話記録を選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចនាំចូលប្រតិចារឹកនេះបានទេ។ សូមជ្រើសរើសប្រតិចារឹកការសន្ទនាដែលគាំទ្រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 대화 기록을 가져올 수 없습니다. 지원되는 대화 기록을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan ikke importere denne transkripsjonen. Velg en støttet samtaletranskripsjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zaimportować tego zapisu. Wybierz obsługiwany zapis rozmowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível importar esta transcrição. Escolha uma transcrição de conversa compatível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось импортировать эту расшифровку. Выберите поддерживаемую запись разговора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถนำเข้าบันทึกนี้ได้ โปรดเลือกบันทึกการสนทนาที่รองรับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu döküm içe aktarılamıyor. Desteklenen bir konuşma dökümü seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося імпортувати цей запис. Виберіть підтримуваний запис розмови."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể nhập bản ghi này. Hãy chọn bản ghi cuộc trò chuyện được hỗ trợ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导入此记录。请选择受支持的对话记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯入此記錄。請選擇支援的對話記錄。"
           }
         }
       }
@@ -8570,10 +8690,130 @@
       "comment": "Agent pane: side command requires a local forkable chat and no arguments",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم /side دون وسائط في محادثة محلية جاهزة للتفرع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite /side bez argumenata u lokalnom razgovoru spremnom za grananje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug /side uden argumenter i en lokal samtale, der er klar til at blive forgrenet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende /side ohne Argumente in einem lokalen Chat, der zum Verzweigen bereit ist"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Use /side without arguments in a local chat that is ready to fork"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa /side sin argumentos en un chat local listo para bifurcarse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez /side sans argument dans une conversation locale prête à être bifurquée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa /side senza argomenti in una chat locale pronta per la biforcazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分岐可能なローカルチャットで、引数なしで /side を使用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ /side ដោយគ្មានអាគុយម៉ង់ក្នុងការជជែកមូលដ្ឋានដែលរួចរាល់សម្រាប់បំបែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분기할 준비가 된 로컬 채팅에서 인수 없이 /side를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk /side uten argumenter i en lokal samtale som er klar til å forgrenes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj /side bez argumentów w lokalnym czacie gotowym do rozgałęzienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use /side sem argumentos em um chat local pronto para bifurcação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте /side без аргументов в локальном чате, готовом к созданию ответвления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ /side โดยไม่มีอาร์กิวเมนต์ในแชตภายในเครื่องที่พร้อมแยกสาขา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dallanmaya hazır yerel bir sohbette /side komutunu bağımsız değişken olmadan kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте /side без аргументів у локальному чаті, готовому до створення відгалуження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng /side không có đối số trong cuộc trò chuyện cục bộ đã sẵn sàng phân nhánh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在可以分叉的本地聊天中使用 /side，不带参数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在可以分支的本機聊天中使用 /side，不帶參數"
           }
         }
       }
