@@ -40,11 +40,20 @@ final class HomeChatColumnView: NSView {
     /// Under the traffic lights (a folded list, or the chat at the window's left edge with the
     /// window's sidebar closed) the button starts after them on their line, as Messages' compose
     /// beside its lights; elsewhere it keeps its inset on the list header's row.
+    /// The traffic lights over the column's top band at its last layout.
+    private var windowControls: CGRect?
+
+    /// Relays out only when the traffic lights over the column changed (the page moved in its window).
+    func updateWindowControlsAvoidance() {
+        if homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls { needsLayout = true }
+    }
+
     override func layout() {
         super.layout()
         let side = HomeChatComposeButton.side
         var frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
-        if let lights = homeWindowControls(band: HomeSidebarHeaderLayout.band), lights.minX < frame.maxX + Metrics.space3 {
+        windowControls = homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        if let lights = windowControls, lights.minX < frame.maxX + Metrics.space3 {
             frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
             frame.origin.y = (lights.midY - side / 2).rounded()
         }
