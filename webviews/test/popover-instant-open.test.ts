@@ -220,8 +220,7 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
 };
 
 /// How many times a script drives the Web Animations API.
-const webAnimationCalls = (source: string) =>
-  source.match(/\.animate\s*\(|\bnew\s+KeyframeEffect\s*\(/g)?.length ?? 0;
+const webAnimationCalls = (source: string) => source.match(/\.animate\s*\(|\bnew\s+KeyframeEffect\s*\(/g)?.length ?? 0;
 
 describe("popovers and menus open in one frame", () => {
   // The effort track is the model menu's slider (EffortPicker), and stands on its own in the gallery:
@@ -308,9 +307,7 @@ describe("popovers and menus open in one frame", () => {
       const count = webAnimationCalls(readFileSync(file, "utf8"));
       if (count) found[path.relative(WEBVIEWS, file)] = count;
     }
-    expect(found).toEqual(
-      Object.fromEntries(Object.entries(WEB_ANIMATIONS).map(([file, { count }]) => [file, count])),
-    );
+    expect(found).toEqual(Object.fromEntries(Object.entries(WEB_ANIMATIONS).map(([file, { count }]) => [file, count])));
   });
 
   test("every exempt palette is still drawn by a stylesheet", () => {
