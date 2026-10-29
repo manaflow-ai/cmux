@@ -47,9 +47,12 @@ import Testing
         #expect(runs.names.count == 3, "one need per launch")
     }
 
+    /// The posts hold the feeds weakly (the app keeps them in `HomeService.launchFeeds`), so the test
+    /// keeps its own until the last frame.
     @Test func withNoPageTheFeedsStartAfterStartupEachOnce() {
         let s = StartupTestScheduler(), runs = RunLog()
-        Self.feeds(s, runs).post()
+        let feeds = Self.feeds(s, runs)
+        feeds.post()
         s.startup.firstFrameCommitted()
         s.fire()
         #expect(runs.names.isEmpty, "a launch with no Home or agent page keeps them out of the first frames")
@@ -58,6 +61,7 @@ import Testing
         #expect(s.startup.completion != nil)
         for _ in 0..<6 { s.fire() }
         #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent", "NewTabWeather.wire"])
+        withExtendedLifetime(feeds) {}
     }
 
     /// A need after some afterStartup posts ran reposts only the rest; nothing runs twice.
@@ -94,9 +98,11 @@ import Testing
     }
 
     /// Without a page the one queued post runs its start, then posts the next: one start per frame.
+    /// The test keeps the feeds, as the app does: a post holds them weakly.
     @Test func withNoPageEachStartIsItsOwnFrame() {
         let s = StartupTestScheduler(), runs = RunLog()
-        Self.feeds(s, runs).post()
+        let feeds = Self.feeds(s, runs)
+        feeds.post()
         s.complete()
         #expect(s.startup.completion?.heldTasks == 1)
         #expect(s.startup.log.records.map(\.name.description) == ["Home.start"])
@@ -106,6 +112,7 @@ import Testing
         #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent"])
         for _ in 0..<6 { s.fire() }
         #expect(runs.names == ["Home.start", "ChatsFeed.keepCurrent", "NewTabWeather.wire"])
+        #expect(feeds.started == runs.names)
     }
 
     @Test func quitNeverStartsTheFeeds() {

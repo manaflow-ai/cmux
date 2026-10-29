@@ -156,7 +156,9 @@ struct MainThreadReportLedgerTests {
         let ledger = inputs.ledger()
         let tap = FakeInputTap()
         let center = NotificationCenter()
-        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, events: AppEvents(center: center), isActive: false)
+        // The app holds its one AppEvents for its lifetime; a subscription holds it weakly.
+        let events = AppEvents(center: center)
+        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, events: events, isActive: false)
         #expect(!ledger.isActive)
         #expect(tap.classes == [.key, .button, .scroll])
         center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
@@ -169,6 +171,6 @@ struct MainThreadReportLedgerTests {
         #expect(ledger.take().input.activeSeconds == 101)
         center.post(name: NSApplication.didResignActiveNotification, object: nil)
         #expect(!ledger.isActive)
-        withExtendedLifetime(feed) {}
+        withExtendedLifetime((feed, events)) {}
     }
 }

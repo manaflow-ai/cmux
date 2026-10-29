@@ -144,14 +144,17 @@ private final class InputRig {
     let turns: WaitTurns
     let work: MainWorkScheduler
     private let keeper: FrameClient
-    private var timestamp: Double = 0
+    /// The display clock's media time, on the timebase of the frames' timestamps: the frame deadline measures a
+    /// tick's lateness as media time less its timestamp, so a real `CACurrentMediaTime` would make every frame late.
+    private let media: WaitMediaTime
 
     init() {
-        let clock = WaitClock(), turns = WaitTurns()
+        let clock = WaitClock(), turns = WaitTurns(), media = WaitMediaTime()
         self.clock = clock
         self.turns = turns
+        self.media = media
         work = MainWorkScheduler.testing(budget: MainFrameBudget(input: WaitNoInput(), uptimeNanos: clock.read),
-                                         performTurn: turns.perform) { _ in WaitFakeLink() }
+                                         mediaTime: { media.now }, performTurn: turns.perform) { _ in WaitFakeLink() }
         keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         keeper.activate()
     }
@@ -159,8 +162,8 @@ private final class InputRig {
     /// One display frame, a frame period after the last.
     func frame() {
         clock.advance(ms: 17)
-        timestamp += 1
-        work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+        media.now += 1
+        work.frameDidFire(timestamp: media.now, refreshInterval: 1.0 / 60)
     }
 
     func stop() { keeper.deactivate() }
@@ -187,6 +190,12 @@ private final class WaitClock {
     private var now: UInt64 = 1_000_000_000
     var read: () -> UInt64 { { [self] in self.now } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+/// The rig's media time: each frame's timestamp, so a tick runs on time.
+@MainActor
+private final class WaitMediaTime {
+    var now: Double = 0
 }
 
 /// No pending input: only the open input response holds automation.

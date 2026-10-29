@@ -21,6 +21,10 @@ import Testing
         scheduler.contentDidHide("a")
         scheduler.contentDidHide("b")
         scheduler.replan()
+        // The preparation is a task: it starts after this turn. Its first call runs through to its replan
+        // (the fake's preparation never suspends), which starts the next one as a task too.
+        var preparations = host.preparations.makeAsyncIterator()
+        #expect(await preparations.next() == "a")
         #expect(host.prepared == ["a"], "one per pass, the longest hidden first")
 
         await scheduler.settled()  // a came back empty: the replan in its turn prepares b
@@ -76,12 +80,22 @@ private final class AttemptHost: ContentDiscardHost {
     var closed: Set<String> = []
     private(set) var prepared: [String] = []
     private(set) var discarded: [String] = []
+    /// Each key whose preparation began, in order: a test awaits the start of a preparation task here.
+    let preparations: AsyncStream<String>
+    private let preparation: AsyncStream<String>.Continuation
+
+    init() {
+        let stream = AsyncStream.makeStream(of: String.self)
+        preparations = stream.stream
+        preparation = stream.continuation
+    }
 
     func discardPolicy(of key: String) -> ContentDiscardPolicy? { closed.contains(key) ? nil : .afterHidden(.zero) }
     func keepReasons(of key: String) -> [CannotDiscardReason] { [] }
     func isDrawn(_ key: String) -> Bool { false }
     func prepareDiscard(_ key: String) async -> ContentViewState? {
         prepared.append(key)
+        preparation.yield(key)
         return refuses.contains(key) ? nil : ContentViewState()
     }
     func commitDiscard(_ key: String) {

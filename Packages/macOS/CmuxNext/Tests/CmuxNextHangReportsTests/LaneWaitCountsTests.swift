@@ -31,7 +31,9 @@ struct LaneWaitCountsTests {
     /// the p99's label in a schema-3 report, and a schema-2 report leaves the key out.
     @Test func aReportBuiltAfterASlowUserBlockingWaitCarriesIt() async throws {
         let clock = ManualNanos()
-        let work = BackgroundWork(cpuWidth: 1, label: "test.hang-report.lane-wait", uptimeNanos: { clock.read() })
+        // One user-blocking files slot, so the second item queues behind the first (the app's lane runs 4 at once).
+        let work = BackgroundWork(cpuWidth: 1, filesWidths: .serial, label: "test.hang-report.lane-wait",
+                                  uptimeNanos: { clock.read() })
         let gate = DispatchSemaphore(value: 0)
         work.post(.userBlocking, mayBlock: .files) {
             gate.wait()

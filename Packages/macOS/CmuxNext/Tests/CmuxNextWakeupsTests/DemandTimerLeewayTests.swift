@@ -37,6 +37,18 @@ struct DemandTimerLeewayTests {
             return clock.sleepRequests.last
         }
 
+        /// Schedules a fire after `delay` whose sleep is zero (`.flexiblePreferEarly` with a leeway of at least the
+        /// delay) and returns the sleep the timer asked of the clock and the offset it fired at. A zero sleep returns
+        /// on the manual clock at once, without waiting there as a sleeper (``ManualClock/waitForSleeper(within:)``
+        /// would never see it), so this waits for the fire, with the clock not moved.
+        func scheduleDueNow(after delay: Duration, tolerance: Duration) async -> (request: ManualClock.SleepRequest?, firedAt: Duration?) {
+            let clock = clock
+            let fired = fired
+            timer.schedule(after: delay, tolerance: tolerance) { fired.yield(clock.now.offset) }
+            let firedAt = await nextFire()
+            return (clock.sleepRequests.last, firedAt)
+        }
+
         /// The clock offset the next fire ran at.
         func nextFire() async -> Duration? {
             var iterator = fires.makeAsyncIterator()
@@ -108,11 +120,13 @@ struct DemandTimerLeewayTests {
         #expect(request?.tolerance == .milliseconds(50))
     }
 
-    @Test func preferEarlyWithAToleranceLongerThanTheDelayAsksNow() async throws {
+    @Test(.timeLimit(.minutes(1))) func preferEarlyWithAToleranceLongerThanTheDelayAsksNow() async {
         let rig = Rig(policy: .flexiblePreferEarly)
-        let request = try await rig.schedule(after: .milliseconds(20), tolerance: .milliseconds(50))
+        let (request, firedAt) = await rig.scheduleDueNow(after: .milliseconds(20), tolerance: .milliseconds(50))
         #expect(request?.deadline.offset == .zero)
         #expect(request?.tolerance == .milliseconds(50))
+        #expect(firedAt == .zero, "the deadline did not fire now, with the clock not moved")
+        #expect(rig.clock.sleeperCount == 0)
     }
 
     /// A precise deadline below 36 ms stays exact; an explicit tolerance does not make it flexible.

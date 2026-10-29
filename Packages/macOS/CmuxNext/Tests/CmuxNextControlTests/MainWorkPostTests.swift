@@ -98,6 +98,9 @@ import Testing
         #expect(work.frames.frames == 0)
 
         input.pending = true
+        // A later turn: the budget reuses its input check's answer for 0.25 ms (MainFrameBudget.inputPending), and
+        // this clock moves only when the test moves it.
+        clock.advance(ms: 1)
         work.post(.automation, owner: "cli.request") { ran.append("held") }
         #expect(turns.runAll() == 1)
         #expect(ran == ["automation"], "the turn ran a request ahead of the person's pending key")

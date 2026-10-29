@@ -13,8 +13,11 @@ import Testing
         let rig = ShowRig(keepFrames: true)
         let workspace = VisibilityNode("workspace", own: .hidden, parent: rig.window)
         var watches: [VisibleObservation<Int>] = []
+        // The tree holds no node (a parent is weak, children are weak): the test holds the panes, as a pane view does.
+        var panes: [VisibilityNode] = []
         for pane in 0..<12 {
             let paneNode = VisibilityNode("pane:\(pane)", parent: workspace)
+            panes.append(paneNode)
             // Pane 0 is focused: it keeps the default, in the show turn.
             if pane > 0 { paneNode.showOrder = .afterShow(rank: pane) }
             let tab = VisibilityNode("tab:\(pane)", parent: paneNode)
@@ -53,6 +56,7 @@ import Testing
         for _ in 0..<3 where rig.applied.count < watches.count { rig.frame() }
         #expect(rig.applied.count == watches.count)
         rig.stop(watches)
+        withExtendedLifetime((panes, sidebar)) {}
     }
 
     /// A `firstFrame` observation under a node that shows after the pass reads in the show turn.

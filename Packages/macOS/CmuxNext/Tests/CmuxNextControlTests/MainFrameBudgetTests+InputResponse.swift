@@ -246,7 +246,7 @@ extension MainFrameBudgetTests {
     private func typeKeys(every keyInterval: UInt64, clock: ResponseClock, budget: MainFrameBudget,
                           scheduler: MainWorkScheduler) -> TypedRun {
         let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: scheduler)
-        let run = TypedRun(start: clock.now)
+        let run = TypedRun(start: clock.now, requests: requests)
         for _ in 0..<400 {
             requests.enqueue {
                 run.starts.append(clock.now)
@@ -282,9 +282,15 @@ extension MainFrameBudgetTests {
 @MainActor
 private final class TypedRun {
     let start: UInt64
+    /// The queue of agent requests. Its frame client holds it weakly (FrameBatchQueue's owner keeps it), so the run
+    /// keeps it for the frames a test fires after ``MainFrameBudgetTests/typeKeys(every:clock:budget:scheduler:)``.
+    let requests: FrameBatchQueue
     var starts: [UInt64] = []
     var insideResponse = 0
-    init(start: UInt64) { self.start = start }
+    init(start: UInt64, requests: FrameBatchQueue) {
+        self.start = start
+        self.requests = requests
+    }
 }
 
 /// The names of the requests that ran, in order (a Sendable class can own the `Mutex` that a

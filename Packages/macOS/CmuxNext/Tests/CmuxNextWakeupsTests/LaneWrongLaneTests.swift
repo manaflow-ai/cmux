@@ -17,8 +17,10 @@ import Testing
 /// A lane job runs on a lane thread, which does not inherit the test's task-locals, so each job binds the test's
 /// own table around its seam call.
 @Suite(.timeLimit(.minutes(1))) struct LaneWrongLaneTests {
-    /// The file the lane jobs read: it always exists and reads as empty, so no test writes or removes a file.
-    private static let url = URL(fileURLWithPath: "/dev/null")
+    /// The file the lane jobs read: a regular file every macOS has, so no test writes or removes a file. Not
+    /// `/dev/null`: Foundation's `Data(contentsOf:)` refuses any file that is not a regular one with
+    /// `NSFileReadNoPermissionError` (EACCES), so a read of a device never reaches the seam's record.
+    private static let url = URL(fileURLWithPath: "/System/Library/CoreServices/SystemVersion.plist")
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
     @Test func aFileReadInACPULaneJobRecordsOneWrongLaneSite() async throws {
@@ -34,7 +36,7 @@ import Testing
         await table.flush()
 
         let sites = BlockingDetector(table: table).sites
-        #expect(bytes.isEmpty)
+        #expect(!bytes.isEmpty)
         #expect(sites.map(\.kind) == [.wrongLane])
         #expect(sites.map(\.seamKind) == [.fileIO])
         #expect(sites.map(\.context) == [.cpuLane])
@@ -77,7 +79,7 @@ import Testing
         await table.flush()
 
         let sites = BlockingDetector(table: table).sites
-        #expect(bytes.isEmpty)
+        #expect(!bytes.isEmpty)
         #expect(sites.map(\.kind) == [.wrongLane])
         #expect(sites.map(\.context) == [.cpuLane])
     }
