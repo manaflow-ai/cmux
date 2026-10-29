@@ -453,7 +453,7 @@ class WebLintPrePushTests(unittest.TestCase):
 
     # webviews' check, cut down: a light python3 check, a nested script that mixes an allowlisted bun source check
     # with a type-aware lint (as check:effect-cleanup is), the formatter check, and the type check.
-    HEAVY_CHECK = ('"python3 check_lanes.py && bun run check:nested && vp fmt --check && vp check --no-fmt --no-lint"')
+    HEAVY_CHECK = ('"python3 scripts/check_lanes.py && bun run check:nested && vp fmt --check && vp check --no-fmt --no-lint"')
     NESTED = '"bun scripts/check-design.ts && vp lint --config scripts/lint/x.json src"'
     CHECK_LANES_PY = "import pathlib, sys\nsys.exit(1 if 'BAD_LANE' in pathlib.Path('src/app.ts').read_text() else 0)\n"
 
@@ -464,7 +464,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
             '"sh check-lanes.sh && sh check-format.sh"', self.HEAVY_CHECK).replace(
             '"check:fix": "sh fix-format.sh"', f'"check:fix": "vp check --fix", "check:nested": {self.NESTED}'))
-        self.write("webviews/check_lanes.py", self.CHECK_LANES_PY)
+        self.write("webviews/scripts/check_lanes.py", self.CHECK_LANES_PY)
         self.commit("heavy pieces")
         seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the heavy pieces on origin first")
         self.assertEqual(seeded.returncode, 0, seeded.stderr)
@@ -507,7 +507,7 @@ class WebLintPrePushTests(unittest.TestCase):
         result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
 
         self.assertNotEqual(result.returncode, 0, result.stderr)
-        self.assertIn("python3 check_lanes.py", result.stderr)
+        self.assertIn("python3 scripts/check_lanes.py", result.stderr)
         self.assertNotIn("vp check --no-fmt --no-lint", self.logged(log))
 
     def test_a_build_host_runs_every_piece_niced_and_capped(self):
@@ -560,7 +560,7 @@ class WebLintPrePushTests(unittest.TestCase):
             '"name": "webviews-fixture"', '"name": "webviews-changed"'))  # a base tree cannot share node_modules
         self.commit("red change")
         red = self.git("rev-parse", "HEAD").stdout.strip()
-        allowed = {"python3 check_lanes.py", "bun scripts/check-design.ts", "vp fmt --check",
+        allowed = {"python3 scripts/check_lanes.py", "bun scripts/check-design.ts", "vp fmt --check",
                    "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
                    "app/page.tsx", "eslint --quiet --no-warn-ignored app/page.tsx",
                    "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
@@ -634,18 +634,40 @@ class WebLintPrePushTests(unittest.TestCase):
 
     def test_the_allowlist_is_exact(self):
         lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
         scripts = {"check:effect-cleanup": "vp lint --config scripts/lint/effect-cleanup.json src dev-server",
                    "check:nested": "bun run check:effect-cleanup", "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
                    "check:layers": "python3 ../scripts/cmux-next/check-layers.py", "loop": "bun run loop"}
-        light, rest = lint.light_leaves(
-            ["bun run check:fixed-waits", "bun run check:layers", "vp fmt --check", "bun run check:nested",
-             "vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
-             "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install"], scripts)
+        light, rest = lint.light_leaves(webviews, [
+            "bun run check:fixed-waits", "bun run check:layers", "vp fmt --check", "bun run check:nested",
+            "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
+            "vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
+            "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
+            "vp fmt --check --write", "vp fmt"], scripts)
         self.assertEqual(light, ["bun scripts/check-fixed-waits.ts", "python3 ../scripts/cmux-next/check-layers.py",
-                                 "vp fmt --check"])
+                                 "vp fmt --check", "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py .."])
         self.assertEqual(rest, ["vp lint --config scripts/lint/effect-cleanup.json src dev-server", "vp lint",
                                 "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
-                                "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install"])
+                                "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
+                                "vp fmt --check --write", "vp fmt"])
+
+    def test_python3_and_bun_are_light_only_for_a_guarded_source_check_script(self):
+        # Review of 3811e05: any shell-free `python3 ...` was light, so `python3 -m pip install ..` ran there.
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        for piece in ("python3", "python3 -I", "python3 -m pip install requests", "python3 -m compileall .",
+                      "python3 -c print(1)", "python3 -u scripts/x.py", "python3 -I -m pip install x",
+                      "python3 check.py", "python3 src/check.py", "python3 /tmp/scripts/x.py",
+                      "python3 ../../x/scripts/x.py", "python3 ../web/scripts/x.py", "python3 scripts/x.sh",
+                      "python3 scripts/", "bun", "bun scripts/x.js", "bun -e scripts/x.ts",
+                      "bun ../escape/scripts/x.ts", "bun x.ts", "bun scripts/../x.ts"):
+            with self.subTest(piece=piece):
+                self.assertFalse(lint.is_light(piece, webviews))
+        for piece in ("python3 scripts/check.py", "python3 -I scripts/check.py --root ..",
+                      "python3 ../scripts/cmux-next/check-layers.py", "bun scripts/check-fixed-waits.ts",
+                      "bun scripts/lint/x.ts"):
+            with self.subTest(piece=piece):
+                self.assertTrue(lint.is_light(piece, webviews))
 
     def test_a_light_prefix_cannot_carry_another_command(self):
         lint = load_lint(self.repo)
@@ -653,21 +675,22 @@ class WebLintPrePushTests(unittest.TestCase):
                       "python3 a.py || vp lint", "python3 a.py & vp lint", "python3 a.py\nvp lint",
                       "vp fmt --check > /dev/null; vp check", "python3 'a.py' ; tsc", "bun scripts/a.ts;tsc"):
             with self.subTest(piece=piece):
-                self.assertFalse(lint.is_light(piece))
-                self.assertEqual(lint.light_leaves([piece], {}), ([], [piece]))
+                self.assertFalse(lint.is_light(piece, lint.SCRIPT_PACKAGES[0]))
+                self.assertEqual(lint.light_leaves(lint.SCRIPT_PACKAGES[0], [piece], {}), ([], [piece]))
 
     def test_a_shell_bypass_runs_nothing_heavy_on_a_host_that_runs_no_heavy_checks(self):
         # The reviewer's repro: an allowlisted prefix followed by `; vp lint`. Light pieces run as argument lists,
         # never through a shell, so the second command cannot start.
         env, log = self.heavy_fixture()
         package = (self.repo / "webviews/package.json").read_text().replace(
-            '"python3 check_lanes.py && ', '"python3 check_lanes.py ; vp lint && python3 check_lanes.py && ')
+            '"python3 scripts/check_lanes.py && ',
+            '"python3 scripts/check_lanes.py ; vp lint && python3 scripts/check_lanes.py && ')
         self.write("webviews/package.json", package)
         self.commit("a shell bypass in the check script")
         head = self.git("rev-parse", "HEAD").stdout.strip()
         code, seen = self.spawned(["--base", "HEAD~1", "--head", head], heavy=False)
         self.assertNotIn("vp lint", " ".join(seen))
-        self.assertIn("python3 check_lanes.py", seen)
+        self.assertIn("python3 scripts/check_lanes.py", seen)
 
     def test_light_pieces_spawn_with_no_shell(self):
         self.heavy_fixture()
@@ -827,8 +850,8 @@ class TuiBindingsTests(unittest.TestCase):
         # A package that already has node_modules still runs its light pieces; one with none is left to CI, named.
         self.add_tui_packages()
         self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
-            '"check": "sh check.sh"', '"check": "python3 fmt.py && vp check --no-fmt --no-lint && tsc -p ."'))
-        self.write("cmux-tui/frontends/web/fmt.py", FMT_PY)
+            '"check": "sh check.sh"', '"check": "python3 scripts/fmt.py && vp check --no-fmt --no-lint && tsc -p ."'))
+        self.write("cmux-tui/frontends/web/scripts/fmt.py", FMT_PY)
         self.commit("a heavy frontend check")
         tools = Path(self.env["PATH"].split(os.pathsep)[0])
         for name in ("tsc", "vp"):
@@ -870,8 +893,8 @@ class TuiBindingsTests(unittest.TestCase):
         # shares the checkout's node_modules and its light piece still runs.
         self.add_tui_packages()
         self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
-            '"check": "sh check.sh"', '"check": "python3 fmt.py && vp check --no-fmt --no-lint"'))
-        self.write("cmux-tui/frontends/web/fmt.py", FMT_PY)
+            '"check": "sh check.sh"', '"check": "python3 scripts/fmt.py && vp check --no-fmt --no-lint"'))
+        self.write("cmux-tui/frontends/web/scripts/fmt.py", FMT_PY)
         self.commit("a heavy frontend check")
         (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
         self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")

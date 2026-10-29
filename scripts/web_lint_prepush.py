@@ -50,8 +50,9 @@ Skip once, with a reason that names the evidence (logged in the push output):
 
 Hosts that run no heavy checks: a shared agent host or a laptop sets CMUX_LOCAL_HEAVY_CHECKS=0.
 There the hook installs nothing, builds nothing, compares nothing against a base, and runs only
-an allowlist of light commands (LIGHT_COMMANDS: the formatter's --check, python3 source checks,
-bun source-check scripts, ESLint on changed web/ files). It resolves `bun run NAME` to NAME's
+an allowlist: `vp fmt --check` exactly (LIGHT_COMMANDS), source-check scripts run as
+`python3 [-I] PATH.py` or `bun PATH.ts` from a scripts/ folder the hook guards (light_script;
+no -m, -c or bare interpreter), and ESLint on changed web/ files. It resolves `bun run NAME` to NAME's
 pieces and runs only the allowlisted ones. Everything else is skipped with a named note: the
 type-aware lint and type check (tsgolint, about 9 GB and 5 GB on webviews), every unknown command,
 and a package with no node_modules. CI's `web lint` job and the PR's fast gates run them, or
@@ -67,6 +68,7 @@ import contextlib
 import hashlib
 import json
 import os
+import posixpath
 import shlex
 import shutil
 import subprocess
@@ -83,8 +85,11 @@ MIN_SKIP_REASON = 20
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
 # The only check pieces such a host runs, by their leading words: the formatter's check (Oxfmt, no type
 # information), the python3 source checks, and bun running a source-check script from the package's scripts/.
-LIGHT_COMMANDS = (("vp", "fmt", "--check"), ("python3",))
-LIGHT_BUN_SCRIPT_DIR = "scripts/"
+# Exactly these argument lists, and source-check scripts (light_script): `python3 [-I] SCRIPT.py ARGS` or
+# `bun SCRIPT.ts ARGS`, where SCRIPT lies in a `scripts/` folder the hook already guards for this package (one of its
+# `executed` paths: a push that changes it is never linted by the hook). No `-m`, `-c`, other flags or bare tool.
+LIGHT_COMMANDS = (("vp", "fmt", "--check"),)
+LIGHT_SCRIPT_TOOLS = {"python3": (".py", ("-I",)), "bun": (".ts", ())}
 # `bun run NAME`: a piece that runs another script of the same package.json; resolved, never run as a whole.
 SCRIPT_RUNNER = ("bun", "run")
 # Characters that make a piece more than one plain command: such a piece is never light.
@@ -322,19 +327,36 @@ def light_argv(piece: str) -> list[str] | None:
         return None
 
 
-def is_light(piece: str) -> bool:
-    """PIECE is on the allowlist a host that runs no heavy checks runs (LIGHT_COMMANDS), as one plain command."""
-    argv = light_argv(piece)
-    if argv is None:
+def light_script(package: ScriptPackage, argv: list[str]) -> bool:
+    """ARGV runs a source-check script: `python3 [-I] PATH.py ARGS` or `bun PATH.ts ARGS`, PATH (relative to the
+    package) inside a `scripts/` folder under one of the package's `executed` paths."""
+    tool = LIGHT_SCRIPT_TOOLS.get(argv[0]) if argv else None
+    if tool is None:
         return False
-    words = tuple(argv)
-    if any(words[:len(prefix)] == prefix for prefix in LIGHT_COMMANDS):
-        return True
-    return (len(words) >= 2 and words[0] == "bun" and words[1].startswith(LIGHT_BUN_SCRIPT_DIR)
-            and words[1].endswith(".ts") and ".." not in words[1])
+    suffix, flags = tool
+    rest = argv[1:]
+    while rest and rest[0] in flags:
+        rest = rest[1:]
+    if not rest or rest[0].startswith("-") or not rest[0].endswith(suffix):
+        return False
+    if rest[0].startswith("/"):
+        return False
+    path = posixpath.normpath(posixpath.join(package.directory, rest[0]))
+    return (not path.startswith("../") and "scripts" in path.split("/")[:-1]
+            and under(path, package.executed))
 
 
-def light_leaves(pieces: list[str], scripts: dict[str, str], depth: int = 0) -> tuple[list[str], list[str]]:
+def is_light(piece: str, package: ScriptPackage) -> bool:
+    """PIECE is on the allowlist a host that runs no heavy checks runs, as one plain command: an exact
+    LIGHT_COMMANDS list or a guarded source-check script (light_script)."""
+    argv = light_argv(piece)
+    if not argv:
+        return False
+    return tuple(argv) in LIGHT_COMMANDS or light_script(package, argv)
+
+
+def light_leaves(package: ScriptPackage, pieces: list[str], scripts: dict[str, str],
+                 depth: int = 0) -> tuple[list[str], list[str]]:
     """(the allowlisted commands PIECES come to, the rest): `bun run NAME` is replaced by NAME's own pieces; an
     unknown or too deep NAME is in the rest, whole."""
     light, rest = [], []
@@ -343,17 +365,17 @@ def light_leaves(pieces: list[str], scripts: dict[str, str], depth: int = 0) -> 
         if tuple(words[:2]) == SCRIPT_RUNNER and len(words) == 3:
             body = scripts.get(words[2])
             if isinstance(body, str) and depth < MAX_SCRIPT_DEPTH:
-                inner = light_leaves([p.strip() for p in body.split("&&") if p.strip()], scripts, depth + 1)
+                inner = light_leaves(package, [p.strip() for p in body.split("&&") if p.strip()], scripts, depth + 1)
                 light += inner[0]
                 rest += inner[1]
                 continue
-        (light if is_light(piece) else rest).append(piece)
+        (light if is_light(piece, package) else rest).append(piece)
     return light, rest
 
 
 def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, read=None) -> list[str]:
     """The allowlisted commands package SCRIPT comes to, saying which pieces this host leaves to CI."""
-    light, rest = light_leaves(check_pieces(repo, package, script, read), package_scripts(repo, package, read))
+    light, rest = light_leaves(package, check_pieces(repo, package, script, read), package_scripts(repo, package, read))
     if rest:
         print(f"{mode}: {package.directory}: not run on this host ({LOCAL_HEAVY_ENV}=0): {', '.join(rest)}. "
               "CI's `web lint` job and the pull request's fast gates run them; to run them before the push, "
