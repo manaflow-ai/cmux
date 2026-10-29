@@ -2931,4 +2931,88 @@ mod tests {
             .unwrap()
             .unwrap();
     }
+
+    /// The SSH bridge reads every message as a line: a peer's line that
+    /// starts with 0xFF (what a frame header starts with) crosses byte for
+    /// byte, ends at its first LF, and the JSON line behind it arrives
+    /// whole and in order, in both directions.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_line_that_starts_with_0xff_crosses_the_ssh_bridge_as_line_data() {
+        // 0xFF, then bytes a frame reader would take as a 16-byte header,
+        // with an LF inside them: a line reader ends the line there.
+        let app_bytes: Vec<u8> = [
+            &b"\xff\x01\x02\x03\n"[..],
+            b"\xff\x00\xffbinary-looking tail\n",
+            b"{\"id\":1,\"cmd\":\"identify\"}\n",
+        ]
+        .concat();
+        let daemon_bytes: Vec<u8> =
+            [&b"\xff\x10\x00\x00\x00\n"[..], b"{\"id\":1,\"ok\":true,\"data\":{\"protocol\":6}}\n"]
+                .concat();
+
+        let directory = tempdir().unwrap();
+        let mux_path = directory.path().join("mux.sock");
+        let bridge_path = directory.path().join("bridge.sock");
+        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
+        let bridge_listener = tokio::net::UnixListener::bind(&bridge_path).unwrap();
+
+        // The remote host's daemon: reads the app's three lines, then answers.
+        let daemon = {
+            let app_bytes = app_bytes.clone();
+            let daemon_bytes = daemon_bytes.clone();
+            tokio::spawn(async move {
+                let (mut socket, _) = mux_listener.accept().await.unwrap();
+                let mut received = vec![0_u8; app_bytes.len()];
+                socket.read_exact(&mut received).await.unwrap();
+                assert_eq!(received, app_bytes, "the daemon gets the app's bytes unchanged");
+                socket.write_all(&daemon_bytes).await.unwrap();
+                // Hold the socket until the client closes its side.
+                let mut rest = Vec::new();
+                let _ = socket.read_to_end(&mut rest).await;
+                assert!(rest.is_empty(), "no extra bytes after the three lines: {rest:?}");
+            })
+        };
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let remote = tokio::spawn({
+            let daemon_mux = daemon_mux.clone();
+            async move {
+                let incoming = daemon_mux.accept().await.unwrap().unwrap();
+                assert_eq!(incoming.service, Service::MuxControl);
+                DaemonServices::serve_mux_control_with_budget(
+                    Some(mux_path),
+                    incoming.stream,
+                    MuxUploadBudget::new(),
+                )
+                .await
+            }
+        });
+        let (bridge_shutdown, bridge_stop) = oneshot::channel();
+        let bridge = tokio::spawn({
+            let client_mux = client_mux.clone();
+            async move {
+                crate::bridge::serve_mux_bridge(client_mux, &bridge_listener, bridge_stop).await;
+            }
+        });
+
+        let mut app = tokio::net::UnixStream::connect(&bridge_path).await.unwrap();
+        app.write_all(&app_bytes).await.unwrap();
+        let mut received = vec![0_u8; daemon_bytes.len()];
+        tokio::time::timeout(std::time::Duration::from_secs(20), app.read_exact(&mut received))
+            .await
+            .expect("the daemon's lines did not cross the bridge")
+            .unwrap();
+        assert_eq!(received, daemon_bytes, "the app gets the daemon's bytes unchanged");
+
+        drop(app);
+        let _ = bridge_shutdown.send(());
+        bridge.await.unwrap();
+        daemon.await.unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), remote).await;
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+    }
 }
