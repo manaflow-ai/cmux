@@ -39,12 +39,18 @@ tip="${line%%[[:space:]]*}"
 
 # The tip's nightly.yml runs on nightly-next (push or dispatch), newest first: id, status,
 # conclusion, attempt.
+# A run, only when every field this reads has its JSON type (a null renders as the word "null",
+# which no pattern on the text can tell apart); anything else is a jq error, and nothing is sent.
+typed_run='.workflow_runs[] | if (.id | type) == "number" and (.event | type) == "string" and (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then . else error("a run of an unexpected shape") end'
 tip_runs() {
   gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
-    --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
+    --jq "$typed_run"' | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
     | sort -rn
 }
-runs="$(tip_runs)"
+if ! runs="$(set -o pipefail; tip_runs)"; then
+  echo "::warning title=nightly-next tick::the tip ${tip:0:12}'s runs could not be read; nothing is re-run this tick"
+  exit 0
+fi
 # Every line must be "id status conclusion attempt"; a run of any other shape is unread, and nothing
 # is sent this tick.
 if [[ -n "$runs" ]] && grep -Evq '^[0-9]+ [a-z_]+ [a-z_-]+ [0-9]+$' <<<"$runs"; then
@@ -67,7 +73,7 @@ fi
 if (( attempt >= max_attempts )); then
   # Out of attempts: a fresh run of the tip. Read the tip's runs again right before the dispatch,
   # so a replacement that started meanwhile is never doubled.
-  if [[ "$(tip_runs | head -n1)" != "$id completed cancelled $attempt" ]]; then
+  if ! again="$(set -o pipefail; tip_runs)" || [[ "$(head -n1 <<<"$again")" != "$id completed cancelled $attempt" ]]; then
     echo "nightly-next tip ${tip:0:12}: its runs changed since they were read; not dispatched"
     exit 0
   fi

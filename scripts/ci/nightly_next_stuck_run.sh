@@ -73,19 +73,23 @@ trap 'rm -rf "$scratch"' EXIT
 # main's promotion dispatches. Only `queued` and `in_progress` runs can be stuck on a label; each
 # listing is read whole, page by page.
 promote='select((.display_title // "") | startswith("Promote nightly-next to"))'
+# A run's line, built only from fields of the right JSON type: jq would render a null as the word
+# "null", which a pattern on the text cannot tell from a real value. Any other shape is a jq error,
+# which fails the listing and cancels nothing.
+typed_run='if (.id | type) == "number" and (.event | type) == "string" and (.head_sha | type) == "string" and (.run_attempt | type) == "number" and (.status | type) == "string" then . else error("a run of an unexpected shape") end'
 : >"$scratch/runs"
 for status in queued in_progress; do
   if ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&status=$status&per_page=100" \
-         --jq '.workflow_runs[] | "\(.id) \(.event) \(.head_sha) \(.run_attempt)"' >>"$scratch/runs" \
+         --jq ".workflow_runs[] | $typed_run | \"\\(.id) \\(.event) \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs" \
      || ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=main&event=workflow_dispatch&status=$status&per_page=100" \
-         --jq ".workflow_runs[] | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
+         --jq ".workflow_runs[] | $typed_run | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
     warn "the unfinished nightly runs could not be listed; no run is cancelled this tick"
     exit 0
   fi
 done
 sort -u -o "$scratch/runs" "$scratch/runs"
 # Every line must be "id event sha attempt"; any other shape is an unread listing.
-if grep -Evq '^[0-9]+ (push|workflow_dispatch|promote|[a-z_]+) [0-9a-f]{40} [0-9]+$' "$scratch/runs"; then
+if grep -Evq '^[0-9]+ [a-z_]+ [0-9a-f]{40} [0-9]+$' "$scratch/runs"; then
   warn "the unfinished nightly runs came back in an unexpected shape; no run is cancelled this tick"
   exit 0
 fi
@@ -117,7 +121,7 @@ stuck_filter='
 # is not; fails when any read fails (the caller then leaves the run alone).
 stuck() {
   local state deployments
-  state="$(gh api "repos/$repo/actions/runs/$1" --jq '"\(.status) \(.run_attempt)"')" || return 1
+  state="$(gh api "repos/$repo/actions/runs/$1" --jq "$typed_run | \"\\(.status) \\(.run_attempt)\"")" || return 1
   [[ "$state" =~ ^[a-z_]+\ [0-9]+$ ]] || return 1
   case "${state% *}" in queued | in_progress) ;; *) return 0 ;; esac
   # Pending deployments must come back as an array: null, an object or anything else is unread.

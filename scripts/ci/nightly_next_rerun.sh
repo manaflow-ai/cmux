@@ -58,7 +58,7 @@ fi
 # meanwhile: re-read it right before the re-run, and send the re-run with no wrapper
 # retries (gh_budget_wait.sh), so a stale decision is never sent. A refused re-run fails
 # this step; the next tick decides again from fresh state.
-now="$(gh api "repos/$repo/actions/runs/$id" --jq '"\(.status) \(.conclusion // "-") \(.run_attempt)"')"
+now="$(gh api "repos/$repo/actions/runs/$id" --jq 'if (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then "\(.status) \(.conclusion // "-") \(.run_attempt)" else error("a run of an unexpected shape") end')"
 if [[ "$now" != "completed cancelled $attempt" ]]; then
   echo "$what changed to '$now' since it was read; not re-run"
   exit 0

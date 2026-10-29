@@ -82,6 +82,8 @@ if "/workflows/nightly.yml/runs?" in path:
         page = {"workflow_runs": chosen[start:start + size]}
         result = subprocess.run(["jq", "-r", jq], input=json.dumps(page), capture_output=True, text=True)
         sys.stdout.write(result.stdout)
+        if result.returncode:  # gh --jq fails on a jq error, as the real one does
+            sys.exit(result.returncode)
     sys.exit(0)
 parts = path.split("?")[0].split("/")
 run_id = parts[5]
@@ -276,12 +278,23 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
 
     def test_a_run_listing_of_an_unexpected_shape_cancels_nothing(self):
-        for bad in (dict(run(7), head_sha=None), dict(run(7), id=None), dict(run(7), run_attempt=None)):
+        # jq renders a null as the word "null": each field's JSON type is checked before it is
+        # formatted, so a null event, sha, id or attempt fails the listing instead of reading as text.
+        for bad in (dict(run(7), event=None), dict(run(7), head_sha=None), dict(run(7), id=None),
+                    dict(run(7), run_attempt=None), dict(run(7), event=3), dict(run(7), id="7")):
             with self.subTest(bad=bad):
                 result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[bad])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.writes(calls), [])
-                self.assertIn("unexpected shape", result.stdout)
+                self.assertFalse(any("/jobs" in call for call in calls), calls)
+                self.assertRegex(result.stdout, "could not be listed|unexpected shape")
+        # The same for a promotion on main.
+        bad = run(4, event="workflow_dispatch", sha="a" * 40, title=f"Promote nightly-next to tick:{TIP}")
+        result, calls = self.run_script({4: [STUCK_DECIDE]}, main_runs=[dict(bad, head_sha=None)])
+        self.assertEqual(self.writes(calls), [])
+        # A run read on its own with a null status is unread too.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], STATE_LATER={7: None})
+        self.assertEqual(self.writes(calls), [])
 
     def test_a_cancel_that_does_not_settle_is_force_cancelled(self):
         result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], AFTER_CANCEL="in_progress",
