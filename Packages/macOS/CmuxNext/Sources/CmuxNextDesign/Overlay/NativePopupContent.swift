@@ -145,7 +145,10 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             slider.isContinuous = true
             slider.isEnabled = row.disabled != true
             slider.setAccessibilityLabel(row.label)
-            slider.widthAnchor.constraint(equalToConstant: 120).isActive = true
+            let preferredWidth = slider.widthAnchor.constraint(equalToConstant: 120)
+            preferredWidth.priority = .defaultHigh
+            preferredWidth.isActive = true
+            slider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             bind(slider) { [weak self] sender in
                 guard let slider = sender as? NSSlider else { return }
                 let step = row.step ?? 0
