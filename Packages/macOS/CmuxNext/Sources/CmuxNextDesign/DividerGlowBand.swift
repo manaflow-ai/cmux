@@ -7,7 +7,9 @@ public import QuartzCore
 ///
 /// One instance per divider. It is a pair of plain layers (no timers, no display link): a state
 /// change fades the band's opacity once through `Motion.feedback`, which ends on its own and
-/// is instant under Reduce Motion, calm mode or animation speed off. There is no pulse or loop.
+/// is instant under Reduce Motion, calm mode or animation speed off. Going out is always instant: a
+/// pane divider's Chromium hole closes with the state change, so a fading halo there would be cut
+/// off mid-fade (fading out is optional; opening never waits). There is no pulse or loop.
 @MainActor
 public final class DividerGlowBand {
     /// How lit the band is.
@@ -95,10 +97,19 @@ public final class DividerGlowBand {
         CATransaction.commit()
     }
 
-    /// Lights or dims the band: one fade on `Motion.feedback`, instant when motion is off.
+    /// Lights or dims the band: one fade on `Motion.feedback` (instant when motion is off); back to
+    /// rest at once.
     public func set(_ state: State) {
         guard state != self.state else { return }
         self.state = state
+        if state == .rest {
+            layer.removeAnimation(forKey: "opacity")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = 0
+            CATransaction.commit()
+            return
+        }
         Motion.feedback.set(layer, "opacity", to: Self.opacity(state), fade: .hover)
     }
 }

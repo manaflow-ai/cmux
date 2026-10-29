@@ -74,6 +74,17 @@ struct DividerGlowBandTests {
         #expect(view.glow.state == .rest, "Escape ends the drag and its band")
     }
 
+    /// Going out is instant, so a pane divider's Chromium hole, which closes with the state change,
+    /// never cuts off a halo mid-fade.
+    @Test func backToRestPutsTheBandOutAtOnce() {
+        let band = DividerGlowBand()
+        band.set(.dragging)
+        band.set(.rest)
+        #expect(band.layer.opacity == 0)
+        #expect(band.layer.animation(forKey: "opacity") == nil)
+        #expect(band.extent.isNull)
+    }
+
     @Test func bandOpacityIsZeroAtRestAndFullWhileDragging() {
         #expect(DividerGlowBand.opacity(.rest) == 0)
         #expect(DividerGlowBand.opacity(.hovered) > 0 && DividerGlowBand.opacity(.hovered) < 1)

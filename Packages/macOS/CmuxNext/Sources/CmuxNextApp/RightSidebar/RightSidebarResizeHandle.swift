@@ -79,6 +79,12 @@ final class RightSidebarResizeHandle: NSView {
         hover?.refresh()
     }
 
+    /// Removed mid-drag: the release never arrives here, so the drag (and its band) ends now.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil { isDragging = false }
+    }
+
     private func applyLineTheme() {
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
         glow.applyTheme(self)

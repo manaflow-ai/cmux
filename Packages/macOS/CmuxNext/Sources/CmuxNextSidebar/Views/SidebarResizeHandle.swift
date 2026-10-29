@@ -120,6 +120,12 @@ final class SidebarResizeHandle: NSView {
         pointerHover?.refresh()
     }
 
+    /// Removed mid-drag: the release never arrives here, so the drag (and its band) ends now.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil { isDragging = false }
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
         pointerHover?.refresh()

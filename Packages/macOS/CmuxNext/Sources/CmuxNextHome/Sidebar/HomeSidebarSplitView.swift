@@ -33,6 +33,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private let list: HomeSidebarView
     /// The accent band on the divider while it is dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
+    /// The divider's grab area for hover (NSSplitView keeps no hover of its own); moved with it.
+    private var hoverArea: NSTrackingArea?
+    private var isDividerHovered = false
+    private var isDividerDragging = false
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
         didSet { followLoneConversationTunable() }
@@ -115,6 +119,45 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     private func placeGlow() {
         glow.place(along: dividerRect, vertical: true)
+        updateHoverArea()
+    }
+
+    private var grabRect: NSRect { dividerRect.insetBy(dx: -Self.grab, dy: 0) }
+
+    private func updateHoverArea() {
+        let rect = list.isHidden ? .zero : grabRect
+        if let hoverArea {
+            if hoverArea.rect == rect { return }
+            removeTrackingArea(hoverArea)
+        }
+        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override public func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // AppKit rebuilds areas here; ours is re-added at the divider's current place.
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        hoverArea = nil
+        updateHoverArea()
+    }
+
+    override public func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { return super.mouseEntered(with: event) }
+        isDividerHovered = true
+        updateGlow()
+    }
+
+    override public func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { return super.mouseExited(with: event) }
+        isDividerHovered = false
+        updateGlow()
+    }
+
+    private func updateGlow() {
+        glow.applyTheme(self)
+        glow.set(isDividerDragging ? .dragging : isDividerHovered && !list.isHidden ? .hovered : .rest)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -130,12 +173,19 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         }
         // NSSplitView tracks the drag inside `mouseDown` and returns on the release: the band is
         // lit for exactly that span, so nothing is left to turn it off.
-        let onDivider = !list.isHidden && dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point)
+        let onDivider = !list.isHidden && grabRect.contains(point)
         if onDivider {
-            glow.applyTheme(self)
-            glow.set(.dragging)
+            isDividerDragging = true
+            updateGlow()
         }
-        defer { if onDivider { glow.set(.rest) } }
+        defer {
+            if onDivider {
+                isDividerDragging = false
+                // Where the release left the pointer: still over the divider keeps the hover band.
+                if let window { isDividerHovered = grabRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) }
+                updateGlow()
+            }
+        }
         super.mouseDown(with: event)
     }
 
