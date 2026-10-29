@@ -70,6 +70,12 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
         #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp failed"}"#) == .failed)
+        // ssh never reached the peer, whichever step reports it: offline, not broken (Leo's toast).
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","error":"ssh: Could not resolve hostname h: nodename nor servname provided"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        // ssh reached it and something there failed: still a failure.
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Bootstrap failed: 125"}"#) == .failed)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
         // --keep-newer left a later or own build alone.
@@ -239,7 +245,37 @@ import Testing
 
         #expect(fixture.calls.count == 2)
         #expect(clock.sleeps == [.seconds(120)])
-        #expect(events.withLock { $0 } == [.updating, .retrying, .updating, .updated(build: Self.local)])
+        #expect(events.withLock { $0 } == [.updating, .offline, .updating, .updated(build: Self.local)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// Leo's toast "Couldn't update <machine>: acpmux exited without a status": the local daemon
+    /// restarted while a `host update` ran, and a signal ended the CLI before it printed a reply.
+    /// That says nothing about the peer: no failure shows or is recorded, the policy asks again
+    /// after its backoff, and the retry updates it.
+    @Test func aRunCutShortByASignalIsAskedAgainQuietly() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.killed("huge-blue", 1)
+        try fixture.killed("huge-blue", 2)
+        try fixture.reply("huge-blue", 3, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let reply = await source.hostUpdate("huge-blue", binaries: fixture.root, whileBusy: true)
+        #expect(reply.outcome == .interrupted)
+
+        let events = Mutex<[DaemonUpdateEvent]>([])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event) } }, directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 3)
+        #expect(clock.sleeps == [.seconds(120)])
+        #expect(events.withLock { $0.map(\.state) } == [.updating, .retrying, .updating, .updated(build: Self.local)])
+        #expect(events.withLock { $0.allSatisfy { !$0.notify } }, "a notice for a run cut short")
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
@@ -498,6 +534,7 @@ nonisolated private final class StandInAcpmux: Sendable {
         staged=$(ls "$6" 2>/dev/null | tr '\\n' ' ')
         printf '%s\\t%s\\n' "$*" "$staged" >> "$dir/calls.log"
         sleep 0.05
+        if [ -f "$dir/replies/$4.$n.killed" ]; then rmdir "$dir/running"; kill -KILL $$; fi
         if [ -f "$dir/replies/$4.$n" ]; then cat "$dir/replies/$4.$n"; else cat "$dir/replies/$4"; fi
         rmdir "$dir/running"
         """
@@ -513,6 +550,11 @@ nonisolated private final class StandInAcpmux: Sendable {
     func reply(_ peer: String, _ run: Int?, _ json: String) throws {
         let name = run.map { "\(peer).\($0)" } ?? peer
         try json.write(to: root.appendingPathComponent("replies/\(name)"), atomically: true, encoding: .utf8)
+    }
+
+    /// The peer's `run`-th run ends by SIGKILL before it prints anything.
+    func killed(_ peer: String, _ run: Int) throws {
+        try Data().write(to: root.appendingPathComponent("replies/\(peer).\(run).killed"))
     }
 
     var calls: [Call] {

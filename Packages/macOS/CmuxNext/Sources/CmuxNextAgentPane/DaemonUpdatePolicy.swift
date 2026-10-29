@@ -18,7 +18,8 @@ import os
 ///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
 ///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
 ///   again with backoff (2 minutes, doubling, at most 30 minutes apart) and is left for the next
-///   launch after 6 hours;
+///   launch after 6 hours; an unreachable one shows as offline, never as a failure, and is asked
+///   again at once when it connects (its next offer), also after those 6 hours;
 /// - one target at a time across every source, urgent targets first;
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
@@ -143,6 +144,8 @@ public actor DaemonUpdatePolicy {
         var due: Duration
         var backoff: Backoff
         var firstBusy: Duration?
+        /// Its last answer was ``DaemonUpdateOutcome/unreachable``: its board line says offline.
+        var offline = false
     }
 
     /// Queues `target` and returns at once; the queue drains in the background, one target at a
@@ -197,6 +200,12 @@ public actor DaemonUpdatePolicy {
         let now = elapsed()
         if let index = queue.firstIndex(where: { $0.target.id == target.id }) {
             queue[index].target = target
+            // Offered again while it waits out an offline backoff: a source offers only connected
+            // machines, so it is back. Its turn comes now.
+            if queue[index].offline, queue[index].due > now {
+                queue[index].due = now
+                sleeper?.cancel()
+            }
             if urgent, !queue[index].urgent {
                 queue[index].urgent = true
                 queue[index].due = min(queue[index].due, now)
@@ -326,7 +335,11 @@ public actor DaemonUpdatePolicy {
             Self.logger.info("\(target.displayName, privacy: .public) runs \(current.hash, privacy: .public)\(current.dirty ? " with local changes" : ", newer than this app's build", privacy: .public); left alone")
             return await dropped(pending, asked: clearLine)
         }
-        guard current != nil || urgent else { return await dropped(pending, asked: clearLine) }
+        guard current != nil || urgent else {
+            // Still offline: its line stays until it connects and is offered again.
+            if pending.offline, !clearLine { return nil }
+            return await dropped(pending, asked: clearLine)
+        }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
         // does not wait for an idle moment.
         let asked = elapsed()
@@ -336,20 +349,27 @@ public actor DaemonUpdatePolicy {
         retried.remove(target.id)
         let outcome = await target.update(to: local, whileBusy: whileBusy)
         Self.logger.info("\(Self.logLine(target.displayName, to: local.hash, whileBusy: whileBusy, outcome), privacy: .public)")
-        if outcome == .busy {
+        if outcome == .busy || outcome == .unreachable {
             var again = pending
             let now = elapsed()
             let since = again.firstBusy ?? now
             again.firstBusy = since
+            again.offline = outcome == .unreachable
             let delay = again.backoff.next()
             guard now + delay - since <= deps.giveUpAfter else {
+                // Not settled: its next offer, once it connects, updates it in this run. Its line stays.
+                if again.offline {
+                    Self.logger.info("\(target.displayName, privacy: .public) stayed offline; updated when it connects")
+                    await deps.report(DaemonUpdateEvent(target, .offline))
+                    return nil
+                }
                 Self.logger.info("\(target.displayName, privacy: .public) stayed busy; left for the next launch")
                 settled[target.id] = local.hash
                 // Not "will try again": no retry comes in this run.
                 await deps.report(DaemonUpdateEvent(target, .cleared))
                 return nil
             }
-            await deps.report(DaemonUpdateEvent(target, .retrying))
+            await deps.report(DaemonUpdateEvent(target, again.offline ? .offline : .retrying))
             // The first update while busy runs at the cap, not after a backoff that passes it.
             let cap = since + deps.updateBusyAfter
             again.due = now < cap ? min(now + delay, cap) : now + delay
@@ -395,7 +415,7 @@ public actor DaemonUpdatePolicy {
         return "\(name) to \(hash)\(whileBusy ? " while busy" : ""): \(said)"
     }
 
-    /// What the ledger keeps for `outcome`: every final outcome. `busy`, `needsBinary`,
+    /// What the ledger keeps for `outcome`: every final outcome. `busy`, `unreachable`, `needsBinary`,
     /// `handledElsewhere` and `held` are not final: the next launch asks again.
     nonisolated static func recorded(_ outcome: DaemonUpdateOutcome) -> String? {
         switch outcome {
@@ -404,7 +424,7 @@ public actor DaemonUpdatePolicy {
         case .rolledBack: "rolledBack"
         case .unsupported: "unsupported"
         case .failed: "failed"
-        case .busy, .needsBinary, .handledElsewhere, .held: nil
+        case .busy, .unreachable, .needsBinary, .handledElsewhere, .held: nil
         }
     }
 
@@ -417,6 +437,7 @@ public actor DaemonUpdatePolicy {
         case .updated(let reported): DaemonUpdateEvent(target, .updated(build: reported ?? build), build: build)
         case .current: DaemonUpdateEvent(target, .updated(build: build), build: build)
         case .busy: DaemonUpdateEvent(target, .retrying)
+        case .unreachable: DaemonUpdateEvent(target, .offline)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
         case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
         case .handledElsewhere, .held: DaemonUpdateEvent(target, .cleared)

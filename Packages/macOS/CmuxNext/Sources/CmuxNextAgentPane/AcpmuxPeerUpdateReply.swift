@@ -27,8 +27,13 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         /// Not final: asked again later. Also `failed` with reason `updateRunning` (another update
         /// holds the host's lock; nothing changed) reads as ``busy``. Every other `failed` reason
         /// (`unsupportedPlatform`, `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written
-        /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way.
+        /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way,
+        /// unless its error is ssh's own word that it never connected (``sshNeverConnected(_:)``):
+        /// nothing ran on the peer, so that is ``unreachable`` too.
         case unreachable
+        /// The CLI run was cut short by a signal before it printed a reply (the local daemon
+        /// restarted under it, or it was killed): no answer about the peer. Not final: asked again.
+        case interrupted
         case failed
     }
 
@@ -75,10 +80,20 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
             case "cloudMachine": outcome = .cloudMachine
             case "unreachable": outcome = .unreachable
             case "updateRunning": outcome = .busy
-            default: outcome = .failed
+            default: outcome = error.map(Self.sshNeverConnected) == true ? .unreachable : .failed
             }
         default: outcome = .failed
         }
+    }
+
+    /// Whether `error` is ssh failing before it reached the peer (`ssh: connect to host H port 22:
+    /// Operation timed out`, `Could not resolve hostname`, no banner): nothing ran there, so the
+    /// peer is offline, not broken. Read from the text since an ssh step after the CLI's probe
+    /// (a push, a restart) reports its own reason with the same ssh words.
+    static func sshNeverConnected(_ error: String) -> Bool {
+        let text = error.lowercased()
+        return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
+            .contains { text.contains($0) }
     }
 
     /// The reply for `peer` in `output`: `--json` prints `{"updated": [ROW...], "peers": [...]}`
