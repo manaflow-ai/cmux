@@ -28,6 +28,7 @@ test("the standard inline-summary floor follows the effective page scale", () =>
   const scaledCap = 800 / 1.25;
   expect(scaledFloor).toBe(528);
   expect(scaledFloor).toBeLessThan(scaledCap);
+  expect(inlineChatFloor("wide", 1.25)).toBe(640);
 });
 
 test("summary room measurement reruns when the effective page scale changes", () => {

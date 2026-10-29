@@ -17,7 +17,7 @@ const CHAT_MIN_WIDTH = 660;
 export const inlineChatFloor = (chatWidth: Parameters<typeof chatColumnOf>[0], scale: number = uiScale()) =>
   chatWidth === "standard"
     ? CHAT_MIN_WIDTH / scale
-    : chatColumnOf(chatWidth === "wide" ? "standard" : "wide").max;
+    : chatColumnOf(chatWidth === "wide" ? "standard" : "wide", undefined, scale).max;
 
 const PANEL_KEY = "cmux.acpmux.summaryPanel";
 let panelHidden: boolean | undefined;
@@ -86,9 +86,8 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       // The summary takes 300px from the same flex row as the transcript. At a width where that
       // would erase the active mode's extra measure, keep it as a popover. The preceding mode's
       // cap is the floor for each wider mode.
-      setRoom(
-        available >= inlineChatFloor(chatWidth, scale) / chatColumnOf(chatWidth, undefined, scale).share + SUMMARY_COLUMN_WIDTH,
-      );
+      const column = chatColumnOf(chatWidth, undefined, scale);
+      setRoom(available >= inlineChatFloor(chatWidth, scale) / column.share + SUMMARY_COLUMN_WIDTH);
     };
     measure();
     const frame = requestAnimationFrame(measure);
