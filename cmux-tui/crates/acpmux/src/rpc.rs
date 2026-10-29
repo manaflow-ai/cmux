@@ -288,10 +288,15 @@ pub mod method {
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
+    pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
+    /// its `gh` login; never a credential (`github_broker.rs`).
+    pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
@@ -307,6 +312,11 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// Explicit person-only controls for the daemon-owned embedded tailnet.
+    pub const MUX_TAILNET_START: &str = "_acpmux/tailnet/start";
+    pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
+    pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
+    pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,
@@ -494,6 +504,12 @@ pub mod method {
     /// Ctrl-B: move a chat's running work to the background, `{sessionId,
     /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
     pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Background tasks the daemon owns (`hub/bg_tasks.rs`): start one for a chat, list a
+    /// chat's, read one's output, stop one.
+    pub const MUX_BG_START: &str = "_acpmux/bg/start";
+    pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
+    pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
+    pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
@@ -518,6 +534,9 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
+    /// (`protocol/peer_state.rs`).
+    pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

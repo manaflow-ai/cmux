@@ -108,10 +108,13 @@ jobs:
       # benchmark mini cmux11s, which nightlies must never reach (a153,
       # 2026-10-20). See docs/ci-runners.md.
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ''
       linux_arm64_runner: ''
-      windows_runner: windows-2025
+      # Windows legs (include_windows) take the builder's Blacksmith default
+      # (WINDOWS_RUNNER, else blacksmith-4vcpu-windows-2025), never a
+      # GitHub-hosted image (user, 2026-10-28: Blacksmith for everything).
+      windows_runner: ''
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}

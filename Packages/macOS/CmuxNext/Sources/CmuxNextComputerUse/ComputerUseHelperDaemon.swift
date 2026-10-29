@@ -15,6 +15,8 @@ protocol ComputerUseHelperLaunching: AnyObject {
     /// Launches a new instance of `app` (never activated); its pid, or nil.
     func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t?
     func terminate(_ pid: pid_t)
+    /// Whether the process `pid` still exists (signal 0, nothing is sent).
+    func isRunning(_ pid: pid_t) -> Bool
     /// Calls `onExit` once, on the main actor, when `pid` exits; the returned
     /// closure cancels the watch (`ComputerUseHelperExitWatch`).
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void
@@ -292,6 +294,20 @@ public final class ComputerUseHelperDaemon {
         state = .off
         // The start joins the settings transition, which owns its task.
         _ = request(enabled: true)
+    }
+
+    /// The helper's state after checking that a `.running` helper's process
+    /// still exists. A reader whose request found no listener calls this: a
+    /// helper that is gone while the state still says `.running` (its exit
+    /// event never came) is handled as the exit it was, so it starts again
+    /// (`.off` while the restart runs, `.failed` past the restart budget)
+    /// instead of every request saying the helper did not answer.
+    public func confirmRunning() -> State {
+        if case .running(let pid) = state, !launcher.isRunning(pid) {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) is gone, but no exit event came")
+            helperExited(pid)
+        }
+        return state
     }
 
     /// Restarts the legacy helper. The caller checks the current setting and policy.

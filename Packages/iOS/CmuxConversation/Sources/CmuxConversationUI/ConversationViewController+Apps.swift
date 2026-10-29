@@ -351,7 +351,7 @@ extension ConversationViewController {
         // (and any input view) above every app window, so the menu stays
         // above it instead.
         if keyboardProgress > 0 {
-            overlay.keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
+            overlay.keyboardTop = keyboardDock.guide.layoutFrame.minY
         }
         overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
         view.addSubview(overlay)

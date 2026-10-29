@@ -184,6 +184,11 @@ export type PromptContentPart =
 /// acpmux names it, so an edit cannot keep or drop it by id yet.
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
+/// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
+/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
+/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
+export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -234,6 +239,9 @@ export type AcpmuxRow = {
   started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
+  /// its main loop's, acpmux hub/turn_usage.rs).
+  tokens?: TurnTokenSplit;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
@@ -320,6 +328,10 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`.
   steer?: "waiting" | "landed";
+  /// Several other sessions' messages that wait for the agent, drawn as one card
+  /// (conversation/WaitingMessagesCard.tsx, waitingMessages.ts): when it reads them (`step`, steers
+  /// it has not read; `turn`, queued behind the running turn) and the rows, oldest first.
+  waiting?: { delivery: "step" | "turn" | "chat"; rows: readonly AcpmuxRow[] };
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.
@@ -708,6 +720,10 @@ export type AcpmuxSnapshot = {
   /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
   /// call or the client missed the turn's start.
   turnTokens?: number;
+  /// The turn's output (`turnTokens`) beside what its calls read, when every call this turn named
+  /// its input and output (`inputTokens`, `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`,
+  /// claude_stdio/inbound.rs); unset otherwise.
+  turnTokenSplit?: TurnTokenSplit;
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;
@@ -726,6 +742,9 @@ export type AcpmuxSnapshot = {
   /// The latest prompts withdrawn from the queue (acpmux `queue_removed`), newest last: they left it
   /// without running, so no row comes for them (VirtualTranscript keeps no room for one).
   queueWithdrawn?: readonly string[];
+  /// The rows of the steers the agent has not read yet (direct.ts `waitingSteers`), oldest first, only
+  /// while two or more wait: the transcript draws other sessions' among them as one card.
+  waitingSteers?: readonly string[];
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1016,6 +1035,8 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 /// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
 /// its received card after the running turn, until acpmux starts it.
 export const QUEUED_MESSAGE = "queuedMessage";
+/// The row kind of several other sessions' waiting messages drawn as one card (conversation/waitingMessages.ts).
+export const WAITING_MESSAGES = "waitingMessages";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -1030,6 +1051,7 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "turnSummary" &&
   (!next ||
+    next.kind === WAITING_MESSAGES ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`), as one key.
@@ -1073,7 +1095,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
-  if (row.kind === WORKFLOW_CARD) return finish(86);
+  // WorkflowCard: head, metadata, latest line, progress bar and focus line.
+  if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
@@ -1318,6 +1341,17 @@ function measuredRowHeight(
   // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
+  // Several waiting messages as one card (conversation/WaitingMessagesCard.tsx): its 26px head in
+  // `.cv-waiting`'s 2px margins and the message gap; opened, each message under it as its own row
+  // draws it, less the gap the row frame gives a row (`.acpmux-row`), which the card has once.
+  if (row.kind === WAITING_MESSAGES && row.waiting) {
+    const head = finish(2 + 26 + 2 + MESSAGE_GAP);
+    if (!messageOpened(sessionId, row.id)) return head;
+    return row.waiting.rows.reduce(
+      (height, member) => height + measuredRowHeight(member, width, cache, false, false, sessionId) - MESSAGE_GAP,
+      head,
+    );
+  }
   if (row.incoming?.kind === "message") {
     // In Minimal Mode a closed message is its line alone, images too; one the person opened
     // (incomingOpened.ts) is its whole card, uncut.
@@ -1388,7 +1422,7 @@ export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edg
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
-  rows: AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
