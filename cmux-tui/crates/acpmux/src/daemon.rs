@@ -586,12 +586,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
         tracing::warn!("websocket listeners did not drain before the shutdown deadline");
     }
-    if let Some(mut task) = ws_task {
-        if tokio::time::timeout_at(drain_deadline, &mut task).await.is_err() {
-            task.abort();
-            let _ = task.await;
-            tracing::warn!("websocket clients did not drain before the shutdown deadline");
-        }
+    if let Some(mut task) = ws_task
+        && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
+    {
+        task.abort();
+        let _ = task.await;
+        tracing::warn!("websocket clients did not drain before the shutdown deadline");
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
