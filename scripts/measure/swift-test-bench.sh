@@ -39,6 +39,10 @@ main() {
   # --- Arguments (checked before anything else runs) ----------------------
   local usage="usage: swift-test-bench.sh PACKAGE FILTER [source=SHA] [restore_from=SHA restore=PATH[,PATH...]]"
   [[ $# -ge 2 ]] || { echo "$usage" >&2; exit 2; }
+  local a
+  for a in "$@"; do
+    [[ "$a" != *$'\n'* && "$a" != *$'\r'* ]] || { echo "swift-test-bench.sh: an argument has a line break" >&2; exit 2; }
+  done
   local package=$1 filter=$2
   shift 2
   if ! [[ "$package" =~ ^(Packages|cmux-next-ios)/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] ||

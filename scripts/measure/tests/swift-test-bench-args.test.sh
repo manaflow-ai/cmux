@@ -57,6 +57,8 @@ expect refused $K Suite restore_from=$sha restore=../Package.swift
 expect refused $K Suite restore_from=$sha restore=Sources/../../x
 expect refused $K Suite restore_from=$sha restore=/etc/passwd
 expect refused $K Suite restore_from=$sha restore=Sources/
+expect refused $K Suite restore_from=$sha restore=$'Sources/A.swift\n../evil'
+expect refused $K $'Suite\nOther'
 
 [[ $fail -eq 0 ]] && echo "swift-test-bench args: ok"
 exit $fail
