@@ -317,8 +317,20 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
       fi
       ;;
     2) die 2 "the line was damaged; copy it again from cmux" ;;
-    3) die 3 "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)" ;;
-    4) die 4 "cannot reach $origin: check this machine's outbound HTTPS, then paste a new line" ;;
+    3)
+      # acpmux's own reason (an enrollment that cannot authorize a
+      # replacement, say), already redacted; a revocation says it above.
+      grep -q 'revoked:' "$tmp/join.err" || cat "$tmp/join.err" >&2
+      die 3 "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)"
+      ;;
+    4)
+      # A resume needs its original line, and one with no token asked the
+      # pending hub, not $origin.
+      if [ "$resume" = 1 ]; then
+        die 4 "the hub could not be reached; rerun the same line once this machine's outbound HTTPS works"
+      fi
+      die 4 "cannot reach $origin: check this machine's outbound HTTPS, then paste a new line"
+      ;;
     5)
       store="$(status_json | sed -n 's/.*"credentialPath":"\([^"]*\)".*/\1/p')"
       die 5 "could not store the machine credential in ${store:-$HOME/.acpmux}: free disk / fix permissions, then paste a new line"
