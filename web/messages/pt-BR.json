@@ -3010,7 +3010,7 @@
       "nextMachines": "Máquinas: tamanhos, planos, redimensionamento, pausa, snapshots e exclusão.",
       "nextWorkspaces": "Espaços de trabalho e agentes: terminais duráveis, agentes, notificações e o que vem instalado.",
       "nextNetworking": "Arquivos e rede: envio de arquivos, variáveis de ambiente, portas, desktop e URLs públicas.",
-      "nextCli": "Referência da CLI do Cloud: todos os verbos do cmux vm.",
+      "nextCli": "Referência da CLI do Cloud: ações NEXT oferecidas, segredos e comandos de repasse.",
       "nextTroubleshooting": "Segurança e solução de problemas: como o acesso funciona e como corrigir erros comuns."
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify imprime os registros DNS a adicionar: um registro TXT de propriedade, os registros de roteamento e a delegação do certificado. Adicione-os e execute verify de novo. Após a verificação, você pode publicar no domínio ou em um subdomínio um nível abaixo dele."
     },
     "cloudCli": {
-      "title": "Referência da CLI do Cloud",
-      "metaTitle": "Referência da CLI do cmux Cloud",
-      "metaDescription": "Referência de todos os comandos cmux vm e cmux cloud: ciclo de vida, espaços de trabalho, arquivos, ambiente, domínios e VPN.",
-      "intro": "cmux vm e cmux cloud são o mesmo comando. A CLI se comunica com o app cmux em execução, que guarda sua sessão. Adicione --json a qualquer verbo para obter saída legível por máquina. Todo verbo tem uma página --help.",
+      "title": "Referência da CLI do Cloud (NEXT)",
+      "metaTitle": "Referência da CLI do Cloud (NEXT)",
+      "metaDescription": "Visão das ações oferecidas pelo cmux NEXT Cloud, armazenamento de segredos, comandos de repasse, destinos explícitos e limites das imagens.",
+      "intro": "Estas são as ações do Cloud oferecidas pela CLI do cmux NEXT. Um comando oferecido ainda pode estar indisponível em uma imagem de máquina específica. A imagem verificada em 2026-10-29 ainda não oferece suporte a abas de chat nativas dos agentes, abertura de abas do navegador para servidores de desenvolvimento, encaminhamento local de portas, forks ou pausa automática por inatividade.",
       "exitCodes": "Códigos de saída: 0 em caso de sucesso, 1 em caso de erro e 2 para um comando desconhecido. cmux vm run retorna o código de saída remoto.",
       "authTitle": "Iniciar sessão",
       "authDesc": "Inicie a sessão, verifique sua conta e escolha uma equipe.",
@@ -3170,7 +3170,19 @@
       "accountsDesc": "Envie contas de agentes para a sua equipe e verifique o roteamento de modelos.",
       "preflightTitle": "Checklist para scripts",
       "preflightDesc": "Antes que um script crie ou use máquinas, execute estas verificações somente leitura. Elas confirmam que você iniciou sessão, mostram suas máquinas e os limites do plano e mostram qual máquina um diretório usa.",
-      "coderouterLink": "Referência completa dos comandos do CodeRouter"
+      "coderouterLink": "Referência completa dos comandos do CodeRouter",
+      "nextTitle": "Referência da CLI do Cloud (NEXT)",
+      "nextIntro": "Estas são as ações do Cloud oferecidas pela CLI do cmux NEXT. Um comando oferecido ainda pode estar indisponível em uma imagem de máquina específica. A imagem verificada em 2026-10-29 ainda não oferece suporte a abas de chat nativas dos agentes, abertura de abas do navegador para servidores de desenvolvimento, encaminhamento local de portas, forks ou pausa automática por inatividade.",
+      "nextTargets": "Copie o destino {machineTarget} de list-machines e passe --target explicitamente nos comandos de máquina, mesmo com apenas uma máquina. Use --help para consultar a sintaxe dos comandos e cmux action describe com o ID da ação para ver os argumentos e os campos retornados.",
+      "nextCatalog": "Ações oferecidas",
+      "nextCatalogBody": "Esta lista é gerada a partir do catálogo de ações do NEXT e exclui ações exclusivas da interface gráfica. Ela lista os nomes dos comandos disponíveis, sem garantir que todas as máquinas ofereçam suporte a eles.",
+      "nextCommand": "Comando",
+      "nextAction": "ID da ação",
+      "nextSecrets": "Segredos neste Mac",
+      "nextSecretsBody": "secret set lê o valor por um prompt com entrada oculta ou por stdin e o armazena nas Chaves deste Mac. Nunca coloque o valor de um segredo nos argumentos de um comando. set e rm aceitam --repo OWNER/NAME; ls lista os nomes e escopos armazenados. A entrega exige uma configuração de máquina totalmente aplicada que declare os nomes dos segredos. A aplicação de uma configuração e a entrega de segredos ainda não foram verificadas de ponta a ponta na imagem conferida em 2026-10-29.",
+      "nextHandoff": "Repasse e movimentação de chats",
+      "nextHandoffBody": "hand-off-machine retorna texto sobre uma máquina; ele não move um chat. move e bring-back movem abas de chat entre este Mac e uma máquina Cloud. Eles exigem suporte compatível a chats; não os use como alternativa para uma imagem sem abas de chat de agentes. Execute o agente em um terminal remoto.",
+      "nextHelp": "Início rápido e limitações atuais"
     },
     "cloudTroubleshooting": {
       "title": "Segurança e solução de problemas no Cloud",

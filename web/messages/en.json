@@ -4550,7 +4550,7 @@
       "nextMachines": "Machines: sizes, plans, resize, pause, snapshots, and delete.",
       "nextWorkspaces": "Workspaces and Agents: durable terminals, agents, notifications, and what is installed.",
       "nextNetworking": "Files and Networking: upload files, environment variables, ports, desktop, and public URLs.",
-      "nextCli": "Cloud CLI Reference: every cmux vm verb.",
+      "nextCli": "Cloud CLI reference: offered NEXT actions, secrets and hand-off commands.",
       "nextTroubleshooting": "Security and Troubleshooting: how access works and how to fix common errors."
     },
     "cloudMachines": {
@@ -4684,10 +4684,10 @@
       "customDomainDesc": "cmux cloud domains verify prints the DNS records to add: a TXT record for ownership, the routing records, and the certificate delegation. Add them, then run verify again. After verification you can publish on the domain or on a subdomain one level below it."
     },
     "cloudCli": {
-      "title": "Cloud CLI Reference",
-      "metaTitle": "cmux Cloud CLI Reference",
-      "metaDescription": "Reference for every cmux vm and cmux cloud command: lifecycle, workspaces, files, environment, domains, and VPN.",
-      "intro": "cmux vm and cmux cloud are the same command. The CLI talks to the running cmux app, which holds your sign-in. Add --json to any verb for machine-readable output. Every verb has a --help page.",
+      "title": "Cloud CLI reference (NEXT)",
+      "metaTitle": "Cloud CLI reference (NEXT)",
+      "metaDescription": "The offered cmux NEXT Cloud action snapshot, plus secret storage and hand-off commands, explicit machine targets and current image limitations.",
+      "intro": "These are the Cloud actions offered by the cmux NEXT CLI. An offered command can still be unavailable on a particular machine image. The image checked on 2026-10-29 does not yet support native agent chat tabs, opening dev-server browser tabs, local port forwarding, forks or automatic idle pause.",
       "exitCodes": "Exit codes: 0 on success, 1 on error, and 2 for an unknown command. cmux vm run returns the remote exit code.",
       "authTitle": "Sign in",
       "authDesc": "Sign in, check your account, and choose a team.",
@@ -4711,7 +4711,19 @@
       "accountsDesc": "Upload agent accounts for your team and check model routing.",
       "preflightTitle": "Scripting checklist",
       "preflightDesc": "Before a script creates or uses machines, run these read-only checks. They confirm that you are signed in, show your machines and plan limits, and show which machine a directory uses.",
-      "coderouterLink": "Full CodeRouter command reference"
+      "coderouterLink": "Full CodeRouter command reference",
+      "nextTitle": "Cloud CLI reference (NEXT)",
+      "nextIntro": "These are the Cloud actions offered by the cmux NEXT CLI. An offered command can still be unavailable on a particular machine image. The image checked on 2026-10-29 does not yet support native agent chat tabs, opening dev-server browser tabs, local port forwarding, forks or automatic idle pause.",
+      "nextTargets": "Copy the {machineTarget} target from list-machines and pass --target explicitly for machine commands, even with one machine. Use --help for command syntax and cmux action describe with the action ID for arguments and return fields.",
+      "nextCatalog": "Offered actions",
+      "nextCatalogBody": "This list is generated from the NEXT action catalog and excludes GUI-only actions. It lists available command names, not a guarantee that every machine supports them.",
+      "nextCommand": "Command",
+      "nextAction": "Action ID",
+      "nextSecrets": "Secrets on this Mac",
+      "nextSecretsBody": "secret set reads the value from a hidden prompt or stdin and stores it in this Mac's Keychain. Never put a secret value in command arguments. set and rm accept --repo OWNER/NAME; ls lists stored names and scopes. Delivery requires a finished machine config that declares the secret names. Applying a config and delivering secrets have not yet been verified end to end on the image checked on 2026-10-29.",
+      "nextHandoff": "Hand-off and chat moves",
+      "nextHandoffBody": "hand-off-machine returns text about a machine; it does not move a chat. move and bring-back move chat tabs between this Mac and a Cloud machine. They require compatible chat support; do not use them as the workaround for an image without agent chat tabs. Run the agent in a remote terminal instead.",
+      "nextHelp": "Quickstart and current limitations"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Security and Troubleshooting",

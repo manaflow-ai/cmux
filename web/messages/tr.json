@@ -3008,7 +3008,7 @@
       "nextMachines": "Makineler: boyutlar, planlar, yeniden boyutlandırma, duraklatma, anlık görüntüler ve silme.",
       "nextWorkspaces": "Çalışma Alanları ve Aracılar: kalıcı terminaller, aracılar, bildirimler ve kurulu yazılımlar.",
       "nextNetworking": "Dosyalar ve Ağ: dosya yükleme, ortam değişkenleri, bağlantı noktaları, masaüstü ve genel URL'ler.",
-      "nextCli": "Cloud CLI Referansı: tüm cmux vm fiilleri.",
+      "nextCli": "Cloud CLI başvuru kaynağı: sunulan NEXT eylemleri, gizli bilgiler ve devir komutları.",
       "nextTroubleshooting": "Güvenlik ve Sorun Giderme: erişimin nasıl çalıştığı ve yaygın hataların nasıl düzeltileceği."
     },
     "cloudMachines": {
@@ -3141,10 +3141,10 @@
       "customDomainDesc": "cmux cloud domains verify eklemeniz gereken DNS kayıtlarını yazdırır: sahiplik için bir TXT kaydı, yönlendirme kayıtları ve sertifika yetkilendirmesi. Bunları ekleyin, ardından verify komutunu yeniden çalıştırın. Doğrulamadan sonra alan adında veya onun bir seviye altındaki bir alt alan adında yayımlayabilirsiniz."
     },
     "cloudCli": {
-      "title": "Cloud CLI Referansı",
-      "metaTitle": "cmux Cloud CLI Referansı",
-      "metaDescription": "Tüm cmux vm ve cmux cloud komutları için referans: yaşam döngüsü, çalışma alanları, dosyalar, ortam, alan adları ve VPN.",
-      "intro": "cmux vm ve cmux cloud aynı komuttur. CLI, oturum bilginizi tutan çalışan cmux uygulamasıyla konuşur. Makinece okunabilir çıktı için herhangi bir fiile --json ekleyin. Her fiilin bir --help sayfası vardır.",
+      "title": "Cloud CLI başvuru kaynağı (NEXT)",
+      "metaTitle": "Cloud CLI başvuru kaynağı (NEXT)",
+      "metaDescription": "Sunulan cmux NEXT Cloud eylemleri, gizli bilgi saklama ve devir komutları, açık makine hedefleri ve mevcut imaj sınırlamaları.",
+      "intro": "Bunlar cmux NEXT CLI tarafından sunulan Cloud eylemleridir. Sunulan bir komut, belirli bir makine imajında yine de kullanılamayabilir. 2026-10-29 tarihinde kontrol edilen imaj; yerleşik ajan sohbet sekmelerini, geliştirme sunucusu için tarayıcı sekmesi açmayı, yerel port yönlendirmeyi, çatallamayı veya boştayken otomatik duraklatmayı henüz desteklemiyor.",
       "exitCodes": "Çıkış kodları: başarıda 0, hatada 1 ve bilinmeyen bir komut için 2. cmux vm run uzak çıkış kodunu döndürür.",
       "authTitle": "Oturum açma",
       "authDesc": "Oturum açın, hesabınızı kontrol edin ve bir ekip seçin.",
@@ -3168,7 +3168,19 @@
       "accountsDesc": "Ekibiniz için aracı hesapları yükleyin ve model yönlendirmesini kontrol edin.",
       "preflightTitle": "Betik kontrol listesi",
       "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir.",
-      "coderouterLink": "Tam CodeRouter komut referansı"
+      "coderouterLink": "Tam CodeRouter komut referansı",
+      "nextTitle": "Cloud CLI başvuru kaynağı (NEXT)",
+      "nextIntro": "Bunlar cmux NEXT CLI tarafından sunulan Cloud eylemleridir. Sunulan bir komut, belirli bir makine imajında yine de kullanılamayabilir. 2026-10-29 tarihinde kontrol edilen imaj; yerleşik ajan sohbet sekmelerini, geliştirme sunucusu için tarayıcı sekmesi açmayı, yerel port yönlendirmeyi, çatallamayı veya boştayken otomatik duraklatmayı henüz desteklemiyor.",
+      "nextTargets": "list-machines sonucundan {machineTarget} hedefini kopyalayın ve tek makineniz olsa bile makine komutlarında --target seçeneğini açıkça belirtin. Komut sözdizimi için --help, argümanlar ve döndürülen alanlar için eylem kimliğiyle birlikte cmux action describe kullanın.",
+      "nextCatalog": "Sunulan eylemler",
+      "nextCatalogBody": "Bu liste NEXT eylem kataloğundan oluşturulur ve yalnızca GUI üzerinden kullanılabilen eylemleri içermez. Kullanılabilir komut adlarını listeler; her makinenin bunları desteklediğini garanti etmez.",
+      "nextCommand": "Komut",
+      "nextAction": "Eylem kimliği",
+      "nextSecrets": "Bu Mac’teki gizli bilgiler",
+      "nextSecretsBody": "secret set, değeri gizli giriş isteminden veya stdin üzerinden okur ve bu Mac’in Anahtar Zinciri’nde saklar. Gizli bir değeri asla komut argümanlarına koymayın. set ve rm, --repo OWNER/NAME seçeneğini kabul eder; ls, saklanan adları ve kapsamları listeler. Aktarım, gizli bilgi adlarını bildiren tamamlanmış bir makine yapılandırması gerektirir. Yapılandırmanın uygulanması ve gizli bilgilerin aktarılması, 2026-10-29 tarihinde kontrol edilen imajda henüz uçtan uca doğrulanmadı.",
+      "nextHandoff": "Devir bilgisi ve sohbet taşıma",
+      "nextHandoffBody": "hand-off-machine, bir makine hakkında metin döndürür; sohbet taşımaz. move ve bring-back, sohbet sekmelerini bu Mac ile bir Cloud makinesi arasında taşır. Uyumlu sohbet desteği gerektirirler; ajan sohbet sekmeleri olmayan bir imaj için geçici çözüm olarak kullanmayın. Bunun yerine ajanı uzak bir terminalde çalıştırın.",
+      "nextHelp": "Hızlı başlangıç ve mevcut sınırlamalar"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Güvenliği ve Sorun Giderme",

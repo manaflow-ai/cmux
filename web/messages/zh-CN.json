@@ -3010,7 +3010,7 @@
       "nextMachines": "机器：规格、套餐、调整规格、暂停、快照和删除。",
       "nextWorkspaces": "工作区与代理：持久化终端、代理、通知以及预装内容。",
       "nextNetworking": "文件与网络：上传文件、环境变量、端口、桌面和公开 URL。",
-      "nextCli": "Cloud CLI 参考：所有 cmux vm 子命令。",
+      "nextCli": "Cloud CLI 参考：NEXT 提供的操作、密钥和交接命令。",
       "nextTroubleshooting": "安全与故障排除：访问机制以及常见错误的解决方法。"
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify 会输出需要添加的 DNS 记录：用于验证所有权的 TXT 记录、路由记录以及证书委派记录。添加后再次运行 verify。验证通过后，你可以在该域名或其下一级子域名上发布。"
     },
     "cloudCli": {
-      "title": "Cloud CLI 参考",
-      "metaTitle": "cmux Cloud CLI 参考",
-      "metaDescription": "所有 cmux vm 和 cmux cloud 命令的参考：生命周期、工作区、文件、环境变量、域名和 VPN。",
-      "intro": "cmux vm 和 cmux cloud 是同一个命令。CLI 与正在运行的 cmux 应用通信，登录状态由应用保存。为任意子命令添加 --json 即可获得机器可读的输出。每个子命令都有 --help 页面。",
+      "title": "Cloud CLI 参考（NEXT）",
+      "metaTitle": "Cloud CLI 参考（NEXT）",
+      "metaDescription": "cmux NEXT Cloud 提供的操作快照，以及密钥存储和交接命令、明确指定机器目标的方法和当前镜像限制。",
+      "intro": "以下是 cmux NEXT CLI 提供的 Cloud 操作。某个命令即使已提供，也可能无法在特定机器镜像上使用。2026-10-29 检查的镜像尚不支持原生智能体聊天标签页、打开开发服务器浏览器标签页、本地端口转发、派生机器或空闲时自动暂停。",
       "exitCodes": "退出码：成功为 0，出错为 1，未知命令为 2。cmux vm run 会返回远程命令的退出码。",
       "authTitle": "登录",
       "authDesc": "登录、查看账户并选择团队。",
@@ -3170,7 +3170,19 @@
       "accountsDesc": "为团队上传代理账户并检查模型路由。",
       "preflightTitle": "脚本检查清单",
       "preflightDesc": "在脚本创建或使用机器之前，请先运行以下只读检查。它们会确认你已登录，显示你的机器和套餐限制，并显示某个目录使用的是哪台机器。",
-      "coderouterLink": "完整的 CodeRouter 命令参考"
+      "coderouterLink": "完整的 CodeRouter 命令参考",
+      "nextTitle": "Cloud CLI 参考（NEXT）",
+      "nextIntro": "以下是 cmux NEXT CLI 提供的 Cloud 操作。某个命令即使已提供，也可能无法在特定机器镜像上使用。2026-10-29 检查的镜像尚不支持原生智能体聊天标签页、打开开发服务器浏览器标签页、本地端口转发、派生机器或空闲时自动暂停。",
+      "nextTargets": "从 list-machines 复制 {machineTarget} 格式的 target，并在机器命令中明确传入 --target，即使只有一台机器也如此。使用 --help 查看命令语法，使用 cmux action describe 加操作 ID 查看参数和返回字段。",
+      "nextCatalog": "提供的操作",
+      "nextCatalogBody": "此列表由 NEXT 操作目录生成，不包含仅限 GUI 的操作。它列出可用的命令名称，并不保证每台机器都支持这些命令。",
+      "nextCommand": "命令",
+      "nextAction": "操作 ID",
+      "nextSecrets": "此 Mac 上的密钥",
+      "nextSecretsBody": "secret set 从隐藏输入提示或 stdin 读取值，并将其存储在此 Mac 的钥匙串中。切勿将密钥值放入命令参数。set 和 rm 接受 --repo OWNER/NAME；ls 列出已存储的名称和作用域。分发密钥前，必须已完成应用声明了密钥名称的机器配置。在 2026-10-29 检查的镜像上，应用配置并分发密钥的完整流程尚未经过端到端验证。",
+      "nextHandoff": "交接与移动聊天",
+      "nextHandoffBody": "hand-off-machine 返回描述机器的文本，不会移动聊天。move 和 bring-back 在此 Mac 与 Cloud 机器之间移动聊天标签页。它们需要兼容的聊天功能支持；请勿将其用作不支持智能体聊天标签页的镜像的变通方案，而应在远程终端中运行智能体。",
+      "nextHelp": "快速入门与当前限制"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 安全与故障排除",

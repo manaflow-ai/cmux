@@ -3012,7 +3012,7 @@
       "nextMachines": "Machines : tailles, forfaits, redimensionnement, pause, snapshots et suppression.",
       "nextWorkspaces": "Espaces de travail et agents : terminaux persistants, agents, notifications et logiciels installés.",
       "nextNetworking": "Fichiers et réseau : envoi de fichiers, variables d'environnement, ports, bureau et URL publiques.",
-      "nextCli": "Référence CLI Cloud : chaque verbe de cmux vm.",
+      "nextCli": "Référence de la CLI Cloud : actions NEXT proposées, secrets et commandes de transmission.",
       "nextTroubleshooting": "Sécurité et dépannage : fonctionnement de l'accès et résolution des erreurs courantes."
     },
     "cloudMachines": {
@@ -3145,10 +3145,10 @@
       "customDomainDesc": "cmux cloud domains verify affiche les enregistrements DNS à ajouter : un enregistrement TXT pour prouver la propriété, les enregistrements de routage et la délégation de certificat. Ajoutez-les, puis relancez verify. Une fois la vérification faite, vous pouvez publier sur le domaine ou sur un sous-domaine d'un niveau inférieur."
     },
     "cloudCli": {
-      "title": "Référence CLI Cloud",
-      "metaTitle": "Référence CLI cmux Cloud",
-      "metaDescription": "Référence de toutes les commandes cmux vm et cmux cloud : cycle de vie, espaces de travail, fichiers, environnement, domaines et VPN.",
-      "intro": "cmux vm et cmux cloud sont la même commande. Le CLI communique avec l'app cmux en cours d'exécution, qui conserve votre connexion. Ajoutez --json à n'importe quel verbe pour obtenir une sortie lisible par une machine. Chaque verbe a une page --help.",
+      "title": "Référence de la CLI Cloud (NEXT)",
+      "metaTitle": "Référence de la CLI Cloud (NEXT)",
+      "metaDescription": "Aperçu des actions proposées par cmux NEXT Cloud, stockage des secrets, commandes de transmission, cibles explicites et limites des images.",
+      "intro": "Voici les actions Cloud proposées par la CLI de cmux NEXT. Une commande proposée peut néanmoins être indisponible sur une image de machine donnée. L’image vérifiée le 2026-10-29 ne prend pas encore en charge les onglets de chat natifs des agents, l’ouverture d’onglets de navigateur pour les serveurs de développement, la redirection locale de ports, les forks ni la pause automatique en cas d’inactivité.",
       "exitCodes": "Codes de sortie : 0 en cas de succès, 1 en cas d'erreur et 2 pour une commande inconnue. cmux vm run renvoie le code de sortie distant.",
       "authTitle": "Connexion",
       "authDesc": "Connectez-vous, vérifiez votre compte et choisissez une équipe.",
@@ -3172,7 +3172,19 @@
       "accountsDesc": "Envoyer des comptes d'agents pour votre équipe et vérifier le routage des modèles.",
       "preflightTitle": "Liste de contrôle pour les scripts",
       "preflightDesc": "Avant qu'un script crée ou utilise des machines, exécutez ces vérifications en lecture seule. Elles confirment que vous êtes connecté, affichent vos machines et vos limites de forfait, et indiquent quelle machine un répertoire utilise.",
-      "coderouterLink": "Référence complète des commandes CodeRouter"
+      "coderouterLink": "Référence complète des commandes CodeRouter",
+      "nextTitle": "Référence de la CLI Cloud (NEXT)",
+      "nextIntro": "Voici les actions Cloud proposées par la CLI de cmux NEXT. Une commande proposée peut néanmoins être indisponible sur une image de machine donnée. L’image vérifiée le 2026-10-29 ne prend pas encore en charge les onglets de chat natifs des agents, l’ouverture d’onglets de navigateur pour les serveurs de développement, la redirection locale de ports, les forks ni la pause automatique en cas d’inactivité.",
+      "nextTargets": "Copiez la cible {machineTarget} depuis list-machines et passez explicitement --target aux commandes de machine, même si vous n’avez qu’une machine. Utilisez --help pour la syntaxe des commandes et cmux action describe avec l’identifiant de l’action pour les arguments et les champs renvoyés.",
+      "nextCatalog": "Actions proposées",
+      "nextCatalogBody": "Cette liste est générée à partir du catalogue d’actions NEXT et exclut les actions réservées à l’interface graphique. Elle répertorie les noms de commandes disponibles, sans garantir que chaque machine les prend en charge.",
+      "nextCommand": "Commande",
+      "nextAction": "Identifiant de l’action",
+      "nextSecrets": "Secrets sur ce Mac",
+      "nextSecretsBody": "secret set lit la valeur via une invite à saisie masquée ou stdin et la conserve dans le Trousseau de ce Mac. Ne placez jamais la valeur d’un secret dans les arguments d’une commande. set et rm acceptent --repo OWNER/NAME ; ls répertorie les noms et les portées enregistrés. L’envoi nécessite une configuration de machine entièrement appliquée qui déclare les noms des secrets. L’application d’une configuration et l’envoi de secrets n’ont pas encore été vérifiés de bout en bout sur l’image contrôlée le 2026-10-29.",
+      "nextHandoff": "Transmission et déplacement de chats",
+      "nextHandoffBody": "hand-off-machine renvoie du texte décrivant une machine ; cette commande ne déplace pas de chat. move et bring-back déplacent les onglets de chat entre ce Mac et une machine Cloud. Ils nécessitent une prise en charge compatible des chats ; ne les utilisez pas pour contourner l’absence d’onglets de chat d’agents dans une image. Exécutez plutôt l’agent dans un terminal distant.",
+      "nextHelp": "Démarrage rapide et limitations actuelles"
     },
     "cloudTroubleshooting": {
       "title": "Sécurité et dépannage Cloud",
