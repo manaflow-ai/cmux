@@ -4,5 +4,30 @@ import { Chart, Controls, ExportButtons, Shell, Table, useTableData, type Props 
 export function Inline({ fixture }: Props) {
   const api = useTableData(fixture);
   const [view, setView] = useState<"chart" | "table">("chart");
-  return <Shell title="Visualize this table" description="Switch between the source and its chart without leaving the reply." controls={<Controls api={api} />}><section className="tc-card tc-inline"><div className="tc-view-toggle" role="group" aria-label="Preview view"><button type="button" aria-pressed={view === "chart"} onClick={() => setView("chart")}>Show chart</button><button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>Show source</button></div>{view === "chart" ? <div className="tc-chart-pane"><Chart rows={api.rows} series={api.series} kind={api.kind} /></div> : <Table rows={api.rows} />}</section><ExportButtons rows={api.rows} /></Shell>;
+  return (
+    <Shell
+      title="Visualize this table"
+      description="Switch between the source and its chart without leaving the reply."
+      controls={<Controls api={api} />}
+    >
+      <section className="tc-card tc-inline">
+        <div className="tc-view-toggle" role="group" aria-label="Preview view">
+          <button type="button" aria-pressed={view === "chart"} onClick={() => setView("chart")}>
+            Show chart
+          </button>
+          <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>
+            Show source
+          </button>
+        </div>
+        {view === "chart" ? (
+          <div className="tc-chart-pane">
+            <Chart rows={api.rows} series={api.series} kind={api.kind} />
+          </div>
+        ) : (
+          <Table rows={api.rows} />
+        )}
+      </section>
+      <ExportButtons rows={api.rows} />
+    </Shell>
+  );
 }
