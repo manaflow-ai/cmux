@@ -308,8 +308,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // Start one mesh before Hub starts its saved peers. It forwards only to
+    // the WebSocket listener bound above, whose existing tokens remain mandatory.
+    let wireguard = if config.transport.wireguard {
+        let websocket =
+            ws_listener.as_ref().context("WireGuard needs a WebSocket listener")?.0.local_addr()?;
+        crate::wireguard::Transport::start(&config, &home(), websocket).await?
+    } else {
+        None
+    };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
-    let hub = Hub::new_loading(config, store, mailbox);
+    let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -440,9 +449,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
-        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
+        tokio::spawn(crate::server::serve_ws_until(
+            hub.clone(),
+            l,
+            token,
+            auth,
+            ws_shutdown.clone(),
+        ))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -543,7 +559,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         {
             let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = next_signal(term.as_mut()) => {},
+                // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
+                // handoff: a stopped service causes one immediate retry, then normal backoff.
+                _ = next_signal(term.as_mut()) => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
@@ -564,6 +584,30 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
+    // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
+    // shutdown and interactive interrupt use a normal WebSocket close.
+    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        ws_shutdown.restart();
+    } else {
+        ws_shutdown.normal_shutdown();
+    }
+    let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
+    if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
+        tracing::warn!("websocket listeners did not drain before the shutdown deadline");
+    }
+    if let Some(mut task) = ws_task
+        && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
+    {
+        task.abort();
+        let _ = task.await;
+        tracing::warn!("websocket clients did not drain before the shutdown deadline");
+    }
+    // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
+    if let Some(transport) = wireguard
+        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
+    {
+        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
+    }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
@@ -576,9 +620,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
-    if let Some(t) = ws_task {
-        t.abort();
-    }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
