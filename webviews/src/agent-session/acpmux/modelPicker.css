@@ -310,6 +310,13 @@
 }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span { opacity: 0; }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle::after { opacity: 1; }
+/* A note (an empty search says what to do) wraps and grows past one row; it is never cut off. */
+.ui-menu-item.acpmux-quick-item.acpmux-quick-note {
+  height: auto;
+  min-height: var(--ui-row-height);
+  padding-block: var(--ds-space-1);
+  white-space: normal;
+}
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);
@@ -355,8 +362,8 @@
 .acpmux-quick-railed {
   display: flex;
   flex-direction: column;
-  width: min(480px, var(--available-width, calc(100vw - 24px)));
-  max-width: min(480px, var(--available-width, calc(100vw - 24px)));
+  width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
+  max-width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
   padding: 0;
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);
@@ -413,6 +420,17 @@
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
+.acpmux-quick-rail-add { justify-content: center; color: var(--agent-muted); }
+.acpmux-quick-rail-add-icon {
+  display: grid;
+  width: 16px;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: var(--text-control);
+  line-height: 1;
+}
 .acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
 .acpmux-quick-placement-top .acpmux-quick-rail {
   flex: none;
@@ -446,6 +464,32 @@
   padding-inline-start: 12px;
   color: var(--agent-muted);
   white-space: nowrap;
+}
+
+/* A searched row never cuts its name: two "OpenAI: GPT-6.1 Sol …" rows must read apart (Lawrence,
+   via Leo 2026-10-28: "search feels confusing here in the model picker"). A long name wraps, and the
+   row grows past one line only then. Rows that would still read the same show their model id under
+   the name. */
+.ui-menu-item.acpmux-quick-item.acpmux-quick-found {
+  height: auto;
+  min-height: var(--ui-row-height);
+  padding-block: 4px;
+}
+.acpmux-quick-found .acpmux-menu-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.acpmux-quick-found .acpmux-quick-value { flex: none; }
+.acpmux-quick-twin {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-quick-id {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  overflow-wrap: anywhere;
 }
 
 /* The compact menu's chip is a quiet label: the model, then its effort in secondary ink. */
@@ -516,4 +560,95 @@
 :root[data-reduce-transparency] .acpmux-mp-rail-viewport {
   -webkit-mask-image: none;
   mask-image: none;
+}
+
+/* Model names and effort segments are sibling menu items: each has its own hit target and
+   keyboard focus, and an effort selection lands the model and level together. */
+.acpmux-quick-model-effort {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  padding-block: var(--ds-space-1);
+}
+.acpmux-quick-model-effort > .acpmux-quick-item {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.acpmux-quick-efforts {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: 6px;
+}
+.acpmux-quick-efforts > [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+}
+.ui-menu-item.acpmux-quick-effort-segment,
+.acpmux-quick-width-probe-segment {
+  display: flex;
+  flex: 1 0 auto;
+  justify-content: center;
+  min-height: var(--ui-row-height);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ui-row-radius);
+  color: var(--agent-muted);
+  font-size: var(--text-content);
+}
+.acpmux-quick-effort-segment .ui-menu-check {
+  display: none;
+}
+.acpmux-quick-effort-segment[data-highlighted] {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-quick-effort-segment:has([data-selected]) {
+  color: var(--agent-text);
+  background: var(--acpmux-menu-hover);
+  font-weight: 600;
+}
+[data-effort-look="spaced"] .acpmux-quick-efforts {
+  border: 0;
+}
+[data-effort-look="spaced"] .acpmux-quick-efforts > [role="group"] {
+  gap: 4px;
+}
+[data-effort-look="spaced"] .acpmux-quick-effort-segment {
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+[data-effort-look="underline"] .acpmux-quick-efforts {
+  border: 0;
+}
+[data-effort-look="underline"] .acpmux-quick-effort-segment:has([data-selected]) {
+  background: none;
+  box-shadow: inset 0 -2px var(--agent-text);
+}
+.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-efforts) .acpmux-quick-rail { flex-basis: 28%; }
+.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-efforts) .acpmux-quick-rail {
+  flex-basis: 76px;
+}
+.acpmux-quick-width-probe {
+  display: inline-flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  max-height: 0;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.acpmux-quick-width-probe-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+}
+.acpmux-quick-width-probe-efforts {
+  display: inline-flex;
+  gap: var(--ds-space-1);
 }
