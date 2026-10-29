@@ -156,8 +156,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            # The hooks scripts/ci/glaeda-signing-hooks.txt lists, the one list, read at this run's own commit (no checkout
-            # yet, and a commit's file never changes): a new glaeda hook is trusted by adding its line there, never here.
             hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
               "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
             hook="${GLAEDA_HOOK_SHA256:-}"
@@ -166,7 +164,7 @@ jobs:
               while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
             fi
             if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists at ${GITHUB_SHA:-?}; this run's Blacksmith job signs instead."
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
               exit 1
             fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
