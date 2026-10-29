@@ -244,6 +244,89 @@ test.each(["footer", "actions"] as const)(
   },
 );
 
+function collidingAuxiliaryModel(location: "actions" | "rail" | "footer") {
+  const model = comboboxDescription({ suggestions: ["alpha", "beta"] });
+  const auxiliary = { id: "beta", label: "Delete", keepOpen: true };
+  if (location === "actions") model.rows[0]!.actions = [auxiliary];
+  else model[location] = [{ ...auxiliary, kind: "action" }];
+  return model;
+}
+
+test.each(["actions", "rail", "footer"] as const)(
+  "native auxiliary %s ID cannot submit a suggestion with the same value",
+  async (location) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const submitted: string[] = [];
+    const picked: string[] = [];
+    const model = collidingAuxiliaryModel(location);
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Combobox
+            inline
+            label="Projects"
+            suggestions={["alpha", "beta"]}
+            onQuery={() => {}}
+            onSubmit={(value) => submitted.push(value)}
+            onCancel={() => {}}
+            native={{ model, onEvent: (event) => event.type === "pick" && picked.push(event.id!) }}
+          />
+        </UiProvider>,
+      );
+    });
+    const sent = shown[0]!;
+    expect(sent.rows.every((row) => row.id !== "beta")).toBe(true);
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: "beta" });
+    });
+    expect(picked).toEqual(["beta"]);
+    expect(submitted).toEqual([]);
+    expect(listeners.size).toBe(1);
+    const suggestion = sent.rows.find((row) => row.value === "beta")!;
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: suggestion.id });
+    });
+    expect(submitted).toEqual(["beta"]);
+    expect(listeners.size).toBe(0);
+  },
+);
+
+test.each(["actions", "rail"] as const)(
+  "page Enter ignores auxiliary %s keepOpen when its ID matches the submitted value",
+  async (location) => {
+    const container = installDom();
+    const { host, listeners } = nativeHost();
+    const submitted: string[] = [];
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Combobox
+            inline
+            defaultValue="beta"
+            label="Projects"
+            suggestions={["alpha", "beta"]}
+            onQuery={() => {}}
+            onSubmit={(value) => submitted.push(value)}
+            onCancel={() => {}}
+            native={{ model: collidingAuxiliaryModel(location) }}
+          />
+        </UiProvider>,
+      );
+    });
+    const field = container.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(submitted).toEqual(["beta"]);
+    expect(listeners.size).toBe(0);
+  },
+);
+
 test.each([
   { key: "ArrowDown", ctrlKey: false },
   { key: "ArrowUp", ctrlKey: false },
