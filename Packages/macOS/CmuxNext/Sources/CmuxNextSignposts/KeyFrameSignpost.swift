@@ -122,7 +122,7 @@ public final class KeyFrameSignpost {
         let outcome: CommitBoundary.Outcome = activity == .afterWaiting ? .missed : .committed
         let endNanos = signposter.clock.nowNanos()
         // An index loop, not `for key in pending`: a Debug build runs the array's `IndexingIterator` unspecialized in
-        // libswiftCore, whose read coroutine heap-allocates its frame on the macOS 27 runtime, once per key.
+        // libswiftCore, whose read coroutine heap-allocates its frame, once per key.
         var index = 0
         while index < pending.count {
             let key = pending[index]

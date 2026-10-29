@@ -172,7 +172,7 @@ struct TraceRingStorage {
         let count = UInt64(layout.chunkCount)
         let cursor = word(TraceRingOffsets.chunkCursor)
         // A counted loop, not `for _ in 0 ..< claimTries`: a Debug build runs a range's `IndexingIterator`
-        // unspecialized in libswiftCore, whose read coroutine heap-allocates its frame on the macOS 27 runtime,
+        // unspecialized in libswiftCore, whose read coroutine heap-allocates its frame,
         // and a write must not allocate in any build (KeyFrameSignpostAllocationTests).
         var tries = 0
         while tries < TraceRing.claimTries {

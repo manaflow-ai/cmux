@@ -392,7 +392,7 @@ public final class MainTurnMeter {
         }
         guard turn.unattributedNanos > 0 else { return }
         // An index loop, not `for index in 1..<count`: a Debug build runs a range's `IndexingIterator` unspecialized
-        // in libswiftCore, whose read coroutine heap-allocates its frame on the macOS 27 runtime, once per step.
+        // in libswiftCore, whose read coroutine heap-allocates its frame, once per step.
         var smallest = 0
         var index = 1
         while index < counters.topUnattributed.count {

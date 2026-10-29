@@ -223,7 +223,7 @@ struct HistogramTests {
         let (metrics, store) = Self.attachedStore()
         let ids: [HistogramID] = [.keyFrame(.view), .mainTurn, .smoothnessDroppedPercent(.motion), .stabilityUncleanExit,
                                   .memory(.renderer), .chromium(.allCases[0])]
-        // An index loop: a `for` over a range allocates in a Debug build on the macOS 27 runtime (its iterator's read
+        // An index loop: a `for` over a range allocates in a Debug build (its iterator's read
         // coroutine frame), which would be counted against the record path.
         func records() {
             var index = 0

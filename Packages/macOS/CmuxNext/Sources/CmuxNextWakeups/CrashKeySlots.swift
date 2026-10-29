@@ -297,7 +297,7 @@ public final class CrashKeySlots: Sendable {
     public func noteHung(_ thread: HungThread) -> Bool {
         guard thread.port != 0 else { return false }
         // Index loops, as in ``Snapshot/hungThreadCount``: a `for` over a range runs libswiftCore's unspecialized
-        // `IndexingIterator` in a Debug build, whose read coroutine heap-allocates its frame on the macOS 27 runtime.
+        // `IndexingIterator` in a Debug build, whose read coroutine heap-allocates its frame.
         var index = 0
         while index < Self.hungThreadCapacity {
             let slot = hungSlot(index)

@@ -327,7 +327,7 @@ import Testing
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         // Warm up: the first turns fill the top-turn slots.
         for _ in 0..<16 { oneTurn(turns, clock: clock, read: read) }
-        // An index loop: a `for` over a range allocates in a Debug build on the macOS 27 runtime (its iterator's read
+        // An index loop: a `for` over a range allocates in a Debug build (its iterator's read
         // coroutine frame), which would be counted against the meter.
         let measured = try #require(TurnMallocProbe.allocations {
             var turn = 0

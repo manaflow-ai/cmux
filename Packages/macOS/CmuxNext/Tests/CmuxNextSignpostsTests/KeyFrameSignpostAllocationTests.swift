@@ -100,7 +100,7 @@ struct KeyFrameSignpostAllocationTests {
     /// `count` key-downs through ``KeyFrameSignpost``, both targets, with and without a timestamp, ended by the
     /// observer's callout as one, two or three keys per turn, committed and missed.
     // The drivers below loop on an index, not `for`: a Debug build runs a range's `IndexingIterator` unspecialized in
-    // libswiftCore, whose read coroutine heap-allocates its frame on the macOS 27 runtime, so the counted loop would add
+    // libswiftCore, whose read coroutine heap-allocates its frame, so the counted loop would add
     // allocations of its own.
     private func keyDowns(_ keyFrames: KeyFrameSignpost, count: Int) {
         var index = 0
