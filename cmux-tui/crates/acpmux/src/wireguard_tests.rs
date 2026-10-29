@@ -173,14 +173,12 @@ fn session_streams_are_multiplexed_and_keep_websocket_authorization() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            call(&mut web, 1, "initialize").await["result"]["_meta"]["acpmux"]["origin"],
-            "web"
-        );
-        assert_eq!(
-            call(&mut peer, 1, "initialize").await["result"]["_meta"]["acpmux"]["origin"],
-            "peer"
-        );
+        let web_hello = call(&mut web, 1, "initialize").await;
+        assert_eq!(web_hello["result"]["_meta"]["acpmux"]["origin"], "remote");
+        assert_eq!(web_hello["result"]["_meta"]["acpmux"]["auth"], "listenerToken");
+        let peer_hello = call(&mut peer, 1, "initialize").await;
+        assert_eq!(peer_hello["result"]["_meta"]["acpmux"]["origin"], "peer");
+        assert_eq!(peer_hello["result"]["_meta"]["acpmux"]["auth"], "peerToken");
         let web_calls = async {
             for id in 2..10 {
                 assert!(call(&mut web, id, "session/list").await["result"].is_object());

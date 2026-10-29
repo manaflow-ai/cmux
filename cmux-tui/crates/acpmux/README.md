@@ -71,8 +71,9 @@ Provision application credentials through the existing authorized path. The peer
 token changes when its daemon starts. Direct WireGuard is tried before the saved
 peer URL when a listener credential is configured; that URL remains the fallback.
 
-This first Labs version reads interface and peer routes at daemon startup. Static
-changes require a daemon restart. Its WebSocket listener must bind loopback or a
+This first Labs version reads the Labs flag, interface and peer routes at daemon
+startup. Changes, including disabling the transport or removing an allowed key,
+require a daemon restart. Its WebSocket listener must bind loopback or a
 wildcard address, and each endpoint must resolve to the UDP listener's address
 family. Discovery, hole punching and relays are separate components.
 
