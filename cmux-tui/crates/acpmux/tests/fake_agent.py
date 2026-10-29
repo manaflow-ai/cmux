@@ -1524,8 +1524,9 @@ def main():
                     hold = os.environ.get("FAKE_OPTION_HOLD")
                     if hold and os.path.exists(hold):
                         import time as pause  # main() binds `time` locally
-                        with open(hold + ".held", "w") as f:
+                        with open(hold + ".held.tmp", "w") as f:
                             f.write(f"{v}\n")
+                        os.replace(hold + ".held.tmp", hold + ".held")
                         until = pause.monotonic() + 30
                         while os.path.exists(hold) and pause.monotonic() < until:
                             pause.sleep(0.05)
