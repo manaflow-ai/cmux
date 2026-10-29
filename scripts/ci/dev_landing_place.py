@@ -232,21 +232,39 @@ def record_hosts(runners: Sequence[Mapping[str, Any]], labels: set[str]) -> list
                    if runner.get("name") and runner.get("status") == "online" and labels & labels_of(runner)})
 
 
+def waitable_hosts(runners: Sequence[Mapping[str, Any]], labels: set[str], busy: set[str]) -> list[str]:
+    """The hosts worth waiting for: a runner there carries one of `labels` and its static label (a pick could
+    claim it once free), and none of those is idle, or another DEV compile holds the host's lock (`busy`). A
+    host whose only runners are unpinned slots is never waited for: freeing it gives no pick to claim, so the
+    compile takes the shared label at once."""
+    pinnable: dict[str, bool] = {}
+    for runner in runners:
+        name = str(runner.get("name") or "")
+        names = labels_of(runner)
+        if not name or runner.get("status") != "online" or not (labels & names) or static_label(name) not in names:
+            continue
+        host = host_of(name)
+        pinnable[host] = pinnable.get(host, False) or not runner.get("busy")
+    return sorted(host for host, idle in pinnable.items() if host in busy or not idle)
+
+
 def choose_daily(roots: Sequence[str], slots: Sequence[tuple[str, bool]], side_label: str, fresh_label: str,
                  distance_of: Callable[[str], tuple[str, int | None]],
                  busy: set[str] = frozenset()) -> tuple[tuple[int, int, str] | None, dict[str, str] | None]:
     """(the best host-specific pick's (distance, kind, name) and placement) for a DEV daily, or (None, None).
 
-    A slot with its static label is pinned to its host; an unpinned one is host-specific only while it is the
-    one free slot not on a busy host. kind 0 is a slot, 1 a root runner: a slot first at equal distance.
+    A pick claims a host only when its label can land on exactly one runner: a slot with its static label, or
+    an unpinned slot while it is the one free slot of them all (`slots`, busy hosts included: GitHub can hand
+    the shared label to any of them). kind 0 is a slot, 1 a root runner: a slot first at equal distance.
     A root runner is pinned as [its pool's root label, its static label], as the landing compile pins it: the
     owned-pool rescue watches a job queued on a glaeda-root-* label, so a runner taken between this read and
     the job's start has the rescue's fallback. runner_label is the first label (the job's CMUX_NEXT_RUNNER)."""
     root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
-    open_slots = [(name, pinned) for name, pinned in slots if host_of(name) not in busy]
     scored = []
-    for name, pinned in open_slots:
-        if pinned or len(open_slots) == 1:
+    for name, pinned in slots:
+        if host_of(name) in busy:
+            continue
+        if pinned or len(slots) == 1:
             holder, distance = distance_of(host_of(name))
             if distance is not None:
                 runs_on = [fresh_label, static_label(name)] if pinned else fresh_label
@@ -366,7 +384,7 @@ def place_daily(env: Mapping[str, str], side_label: str, fresh_label: str,
         roots, sides = free_runners(runners, side_label, taken)
         slots = free_slots(runners, fresh_label, taken)
         key, picked = choose_daily(roots, slots, side_label, fresh_label, distance_of, busy)
-        known = [(distance, host) for host in record_hosts(runners, {fresh_label, root_label})
+        known = [(distance, host) for host in waitable_hosts(runners, {fresh_label, root_label}, busy)
                  for _, distance in [distance_of(host)] if distance is not None]
         nearest = min(known) if known else None
         better_busy = nearest is not None and (key is None or key[0] - nearest[0] >= wait_gap)

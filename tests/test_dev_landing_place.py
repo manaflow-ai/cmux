@@ -249,6 +249,24 @@ class DailyPickerTests(unittest.TestCase):
         result, _ = self.daily(runners, self.records(cmux8s=1, cmux11s=4))
         self.assertEqual(json.loads(result["runs_on"]), [ROOT_LABEL, place.static_label("cmux8s-glaeda")])
 
+    def test_idle_unpinned_slots_take_the_shared_label_at_once(self):
+        # Neither unpinned slot can be claimed and neither host is busy: nothing to wait for.
+        runners = [slot("cmux8s-glaeda-2", pinned=False), slot("cmux11s-glaeda-2", pinned=False)]
+        result, reads = self.daily(runners, self.records(cmux8s=1, cmux11s=9))
+        self.assertEqual((json.loads(result["runs_on"]), result["host"], reads), (FRESH, "", 1))
+
+    def test_a_locked_host_does_not_make_the_other_unpinned_slot_unique(self):
+        # Two idle unpinned slots; another DEV compile holds cmux11s's lock. GitHub can still hand the shared
+        # label to cmux11s's slot, so it claims no host, and the pinned root on warm cmux8s wins.
+        runners = [slot("cmux8s-glaeda-2", pinned=False), slot("cmux11s-glaeda-2", pinned=False),
+                   root_runner("cmux8s-glaeda"), runner("cmux11s-glaeda-3", SIDE, busy=True)]
+        result, reads = self.daily(runners, self.records(cmux8s=1, cmux11s=9), compiling={"cmux11s-glaeda-3"})
+        self.assertEqual((json.loads(result["runs_on"]), reads), ([ROOT_LABEL, place.static_label("cmux8s-glaeda")], 1))
+        # Without the root, the shared label at once, with no host claimed.
+        result, reads = self.daily(runners[:2] + runners[3:], self.records(cmux8s=1, cmux11s=9),
+                                   compiling={"cmux11s-glaeda-3"})
+        self.assertEqual((json.loads(result["runs_on"]), result["host"], reads), (FRESH, "", 1))
+
     def test_it_waits_for_a_busy_warm_host_then_takes_it(self):
         def runners(read):
             return [slot("cmux8s-glaeda-2", busy=read < 4), slot("cmux11s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)]
