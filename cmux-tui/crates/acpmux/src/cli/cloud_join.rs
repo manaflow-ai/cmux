@@ -2,10 +2,11 @@
 //! placed in argv, the environment, a URL, or a diagnostic message.
 
 use anyhow::{Context, Result, anyhow};
-use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+
+mod recovery;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 pub const DEFAULT_HUB: &str = "https://cmux-platform-development.debussy.workers.dev";
@@ -35,6 +36,8 @@ pub struct MachineCredential {
     pub revoked: bool,
     #[serde(rename = "wgPublicKey")]
     pub wg_public_key: String,
+    #[serde(default)]
+    pub credential_generation: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -103,7 +106,7 @@ fn local_name(name: Option<String>) -> String {
 
 fn save(record: &MachineCredential) -> Result<()> {
     crate::config::private_state_dir(&state_dir())?;
-    crate::config::write_atomic(&credential_path(), &serde_json::to_vec_pretty(record)?)
+    recovery::write_durable(&credential_path(), &serde_json::to_vec_pretty(record)?, true)
 }
 
 fn configure_mesh_relay(hub: &str) -> Result<()> {
@@ -113,7 +116,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
     });
-    config.save()
+    config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
 
 fn mesh_relay_configured() -> bool {
@@ -197,7 +200,7 @@ pub(crate) fn credential_present() -> Result<bool> {
 
 pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
-    if replace {
+    if replace || join_incomplete()? {
         return Ok(false);
     }
     // No released build created pre-marker credentials. Even branch-only local
@@ -236,175 +239,13 @@ pub async fn join_with_token(
     name: Option<String>,
     replace: bool,
     json_out: bool,
-    token: String,
+    token: Option<String>,
 ) -> Result<()> {
-    if already_joined(replace, json_out)? {
-        return Ok(());
-    }
-    let hub = origin(hub).map_err(|_| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Usage,
-            "join.malformed",
-            "hub origin is malformed",
-        )
-        .with_exit(2)
-    })?;
-    let name = local_name(name);
-    if name.is_empty() || name.len() > 63 || name.chars().any(char::is_control) {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Usage,
-            "join.malformed",
-            "machine name must contain 1 to 63 non-control bytes",
-        )
-        .with_exit(2)
-        .into());
-    }
-    let hostname = crate::pairing::machine_name();
-    let wg_public_key = crate::cli::mesh_node_key::load_or_create()
-        .map_err(|_| {
-            crate::cli::errors::AppError::new(
-                crate::cli::errors::Code::Runtime,
-                "join.store",
-                "node key unavailable",
-            )
-            .with_exit(5)
-        })?
-        .public_key_b64();
-    let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
-    let response = http_client().map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?.post(format!("{hub}/v1/machines/join-tokens/redeem"))
-        .json(&json!({"token": token, "platform": platform, "hostname": hostname, "name": name, "wgPublicKey": wg_public_key}))
-        .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
-    let status = response.status();
-    let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
-    if !status.is_success() {
-        let code = body.get("code").and_then(Value::as_str).unwrap_or_default();
-        let exit = if matches!(status.as_u16(), 404 | 409 | 410)
-            || matches!(code, "join.expired" | "join.used" | "join.malformed")
-        {
-            3
-        } else {
-            4
-        };
-        let safe_code = match code {
-            "join.expired" => "join.expired",
-            "join.used" => "join.used",
-            "join.malformed" => "join.malformed",
-            _ => "join.failed",
-        };
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            safe_code,
-            "machine join failed",
-        )
-        .with_exit(exit)
-        .into());
-    }
-    let credential = body.get("credential").and_then(Value::as_str).ok_or_else(|| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-    })?;
-    if !credential.starts_with("cmm_")
-        || credential[4..].is_empty()
-        || credential[4..].bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
-    {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-        .into());
-    }
-    let machine_id = body.get("machineId").and_then(Value::as_str).ok_or_else(|| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-    })?;
-    let team_id = body.get("teamId").and_then(Value::as_str).ok_or_else(|| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-    })?;
-    if machine_id.is_empty()
-        || team_id.is_empty()
-        || machine_id.contains("cmj_")
-        || machine_id.contains("cmm_")
-        || team_id.contains("cmj_")
-        || team_id.contains("cmm_")
-    {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-        .into());
-    }
-    let returned_key = body.get("wgPublicKey").and_then(Value::as_str).unwrap_or(&wg_public_key);
-    let key_ok = returned_key == wg_public_key
-        && returned_key.len() == 44
-        && returned_key.ends_with('=')
-        && base64::engine::general_purpose::STANDARD
-            .decode(returned_key)
-            .map(|bytes| bytes.len() == 32)
-            .unwrap_or(false);
-    if !key_ok {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.hub",
-            "hub returned an invalid response",
-        )
-        .with_exit(4)
-        .into());
-    }
-    let record = MachineCredential {
-        credential: credential.to_owned(),
-        machine_id: machine_id.to_owned(),
-        team_id: team_id.to_owned(),
-        name,
-        hub_origin: hub.clone(),
-        last_heartbeat: None,
-        revoked: false,
-        wg_public_key: returned_key.to_owned(),
-    };
-    save(&record).map_err(|_| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.store",
-            "join token was used but the credential could not be saved; fix local storage, revoke this machine in the machine list, then run machine add again for a fresh token",
-        )
-        .with_exit(5)
-    })?;
-    configure_mesh_relay(&hub).map_err(|_e| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Runtime,
-            "join.store",
-            "mesh relay configuration failed",
-        )
-        .with_exit(5)
-    })?;
-    eprintln!(
-        "Existing Computer Use helpers may remain ungated until they exit; close them normally and use updated builds before enabling remote access."
-    );
-    if json_out {
-        crate::cli::output::print_json(
-            &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":hub}),
-        );
-    } else {
-        println!("joined {} ({})", record.name, record.machine_id);
-    }
-    Ok(())
+    recovery::join(hub, name, replace, json_out, token).await
+}
+
+pub(crate) fn join_incomplete() -> Result<bool> {
+    Ok(recovery::pending_origin()?.is_some())
 }
 
 /// Update only the credential that made the request. A late response from an old
@@ -427,7 +268,8 @@ pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) ->
 }
 
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
-    let fallback_hub = origin(hub)?;
+    let pending_origin = recovery::pending_origin()?;
+    let fallback_hub = pending_origin.clone().unwrap_or(origin(hub)?);
     let record = load()?.unwrap_or(MachineCredential {
         credential: String::new(),
         machine_id: String::new(),
@@ -437,6 +279,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
         last_heartbeat: None,
         revoked: false,
         wg_public_key: String::new(),
+        credential_generation: 0,
     });
     let daemon = tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -445,13 +288,17 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
     let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::BUILD, "channel":null});
+    out["joinIncomplete"] = json!(pending_origin.is_some());
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
     out["lastRefusal"] = consent_status()["lastRefusal"].clone();
     if !record.credential.is_empty() {
         // GET is read-only: doctor must never replace the daemon's live sessions.
         if let Ok(res) = http_client()?
-            .get(format!("{}/v1/mesh/sessions", origin(Some(record.hub_origin.clone()))?))
+            .get(format!(
+                "{}/v1/machines/credentials/self",
+                origin(Some(record.hub_origin.clone()))?
+            ))
             .bearer_auth(&record.credential)
             .send()
             .await
@@ -465,6 +312,8 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     }
     if json_out {
         crate::cli::output::print_json(&out);
+    } else if out["joinIncomplete"] == true {
+        println!("join incomplete, rerun join");
     } else if out["revoked"] == true {
         println!("revoked: run machine add again");
     } else {
