@@ -5,7 +5,7 @@
  * here.
  *
  *   cmux-vm  workers/cmux-vm/migrations   database cmux-prod, schema cmux_vm (the cmux VM API Worker)
- *   backend  backend/db/migrations        database cmux-next, schema public  (the cmux-next API Worker)
+ *   backend  backend/db/migrations        database cmux-next-deprecated (Postgres), schema public  (the cmux-next API Worker)
  */
 import { join } from "node:path"
 

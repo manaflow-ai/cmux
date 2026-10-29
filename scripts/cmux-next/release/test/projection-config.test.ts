@@ -45,8 +45,8 @@ describe("projection switches in wrangler.jsonc", () => {
     expect(doc.env.production!.triggers?.crons ?? []).not.toContain("7 * * * *")
   })
 
-  // Development is cut over to Vitess first (vitess-migration-DESIGN.md 4): MySQL is the primary and
-  // serves reads; Postgres stays the write shadow for rollback until the contract step.
+  // Development is cut over to Vitess ahead of staging (the slice 3 flip of vitess-migration-DESIGN.md 4):
+  // MySQL is the primary and serves reads; Postgres stays the best-effort write shadow until the contract step.
   it("development reads and writes cmux-next-vitess, with Postgres as the write shadow", () => {
     const vars = doc.env.development!.vars ?? {}
     expect([vars.PROJECTION_PRIMARY, vars.PROJECTION_READS, vars.PROJECTION_SHADOW]).toEqual(["mysql", "mysql", "postgres"])

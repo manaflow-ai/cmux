@@ -65,7 +65,8 @@
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-development" }],
       // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader), the primary since the
       // development cutover (vitess-migration-DESIGN.md 4). HYPERDRIVE/HYPERDRIVE_RO: Postgres cmux-next-deprecated development,
-      // the write shadow kept for rollback until the contract step removes it.
+      // the best-effort write shadow until the contract step removes it. Nothing repairs it from MySQL: before a rollback to
+      // Postgres, check projection.shadow.failed/dead stayed 0 since the flip, or copy the missed rows back first.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }, { "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }, { "binding": "PS_MYSQL_RO", "id": "fe1e9fd2a3844fbfabcb12110832c394" }]
     },
     "staging": {

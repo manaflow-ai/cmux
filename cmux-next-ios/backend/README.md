@@ -27,8 +27,8 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 | Env | Worker | URL | Database |
 | --- | --- | --- | --- |
-| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | `cmux/cmux-next-vitess` branch `development`, Hyperdrive `cmux-next-vitess-development` (`60893ba4eaef437a91a77da71730ea9b`, shared with `cmux-api-development`) |
-| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | `cmux/cmux-next-vitess` branch `main`, Hyperdrive `cmux-next-vitess-production` (`0533eedddc1e4195adf0d42a4c325fce`, shared with `cmux-api`). Accepts only the production Stack project |
+| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | `cmux/cmux-next-vitess` branch `development`, Hyperdrive `cmux-next-vitess-development` (`60893ba4eaef437a91a77da71730ea9b`, caching disabled, shared with `cmux-api-development`) |
+| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | `cmux/cmux-next-vitess` branch `main`, Hyperdrive `cmux-next-vitess-production` (`0533eedddc1e4195adf0d42a4c325fce`, caching disabled, shared with `cmux-api`). Accepts only the production Stack project |
 
 The Postgres databases `cmux/cmux-mobile-dev` and `cmux/cmux-mobile-prod` and their
 Hyperdrive configs (`e4fd2e88…`, `11158756…`) are retired: no Worker binds them and their
