@@ -95,7 +95,7 @@ async function composer(
   typed: string,
   onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
   importSandboxed = false,
-  onImportFile?: (file: File) => Promise<unknown>,
+  onImportFile?: (file: File) => Promise<void>,
   upload?: (files: File[]) => Promise<{ paths: string[] }>,
 ) {
   const sent: Sent[] = [];
@@ -113,7 +113,7 @@ async function composer(
         chips={Chips}
         onSend={(text, _attachments, steer) => {
           sent.push({ text, steer });
-          sentAttachments.push(_attachments.map((attachment) => attachment.name));
+          sentAttachments.push((_attachments ?? []).map((attachment) => attachment.name));
           return true;
         }}
         onStop={() => {}}
@@ -220,15 +220,9 @@ test("a cmux-owned command with an invalid target keeps its draft and explains t
 
 test("a Sandboxed chat refuses /import before the picker and ignores a late file", async () => {
   const imported: File[] = [];
-  const { field, sent } = await composer(
-    chat(),
-    "/import",
-    undefined,
-    true,
-    async (file) => {
-      imported.push(file);
-    },
-  );
+  const { field, sent } = await composer(chat(), "/import", undefined, true, async (file) => {
+    imported.push(file);
+  });
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
   input.click = () => {
