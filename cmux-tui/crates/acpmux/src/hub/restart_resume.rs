@@ -34,6 +34,7 @@ use std::sync::Arc;
 const MAX_QUOTE_CHARS: usize = 4_000;
 /// Longest prefix of one unfinished tool's input shown in a restart prompt.
 const MAX_TOOL_INPUT_CHARS: usize = 300;
+const MAX_TOOL_FIELD_CHARS: usize = 200;
 /// Maximum unfinished calls listed in a restart prompt.
 const MAX_UNFINISHED_TOOLS: usize = 32;
 
@@ -48,6 +49,11 @@ struct UnfinishedTool {
 /// The fields useful to a person resuming a cut turn. Tool updates are JSON-RPC notifications,
 /// so the session update is nested under `params.update` in the journal record.
 fn tool_update(record: &EventRecord) -> Option<&Value> {
+    if record.msg.pointer("/params/_meta/acpmux/subagent").is_some()
+        || record.msg.pointer("/_meta/acpmux/subagent").is_some()
+    {
+        return None;
+    }
     record.msg.pointer("/params/update").filter(|update| {
         matches!(
             update.get("sessionUpdate").and_then(Value::as_str),
@@ -59,18 +65,38 @@ fn tool_update(record: &EventRecord) -> Option<&Value> {
 fn input_prefix(update: &Value) -> Option<String> {
     update.get("rawInput").and_then(|raw| {
         (!raw.is_null()).then(|| {
-            serde_json::to_string(raw)
-                .unwrap_or_default()
-                .chars()
-                .take(MAX_TOOL_INPUT_CHARS)
-                .collect()
+            let mut bytes = Vec::with_capacity(MAX_TOOL_INPUT_CHARS);
+            let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_INPUT_CHARS };
+            let _ = serde_json::to_writer(&mut writer, raw);
+            String::from_utf8_lossy(&bytes).into_owned()
         })
     })
 }
 
+struct BoundedJsonWriter<'a> {
+    bytes: &'a mut Vec<u8>,
+    limit: usize,
+}
+
+impl std::io::Write for BoundedJsonWriter<'_> {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        let remaining = self.limit.saturating_sub(self.bytes.len());
+        self.bytes.extend_from_slice(&input[..input.len().min(remaining)]);
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn bounded_text(value: &str) -> String {
+    value.chars().take(MAX_TOOL_FIELD_CHARS).collect()
+}
+
 fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
     if let Some(name) = update.get("title").and_then(Value::as_str).filter(|n| !n.is_empty()) {
-        existing.name = name.to_owned();
+        existing.name = bounded_text(name);
     }
     if let Some(input) = input_prefix(update) {
         existing.input = Some(input);
@@ -103,9 +129,12 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
                     .or_else(|| {
                         update.get("kind").and_then(Value::as_str).filter(|name| !name.is_empty())
                     })
-                    .unwrap_or("tool")
-                    .to_owned();
-                open.push(UnfinishedTool { name, id: id.to_owned(), input: input_prefix(update) });
+                    .unwrap_or("tool");
+                open.push(UnfinishedTool {
+                    name: bounded_text(name),
+                    id: bounded_text(id),
+                    input: input_prefix(update),
+                });
             } else {
                 *omitted = true;
             }
@@ -189,7 +218,8 @@ impl Hub {
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
-            let needs_record = match head.kind {
+            let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
+            let needs_record = match kind {
                 "turn_started"
                 | "user_message"
                 | "turn_control"
@@ -228,7 +258,12 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
-                "tool_call" | "tool_call_update" if started => {
+                "tool_call"
+                | "tool_call_update"
+                | "tool_call.replay"
+                | "tool_call_update.replay"
+                    if started =>
+                {
                     if let Some(update) = tool_update(&e) {
                         note_unfinished_tool(&mut unfinished, &mut omitted_tools, update);
                     }
@@ -408,5 +443,53 @@ mod tests {
         let text = continue_text(&[], &open, usize::from(omitted));
         assert!(text.contains("Tool calls started but not finished:"), "{text}");
         assert!(text.contains("additional unfinished tool calls omitted"), "{text}");
+    }
+
+    #[test]
+    fn child_tool_updates_are_ignored_and_metadata_is_bounded() {
+        let child = EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "in".into(),
+            kind: "tool_call".into(),
+            msg: json!({"params": {"_meta": {"acpmux": {"subagent": {"id": "child"}}}, "update": {"sessionUpdate": "tool_call", "toolCallId": "child-call", "status": "in_progress"}}}),
+            host_seq: None,
+        };
+        assert!(tool_update(&child).is_none());
+
+        let mut open = Vec::new();
+        let mut omitted = false;
+        let huge = "x".repeat(MAX_TOOL_FIELD_CHARS + 100);
+        note_unfinished_tool(
+            &mut open,
+            &mut omitted,
+            &json!({"toolCallId": huge, "title": huge, "status": "in_progress", "rawInput": {"body": "x".repeat(10_000)}}),
+        );
+        assert_eq!(open[0].id.chars().count(), MAX_TOOL_FIELD_CHARS);
+        assert_eq!(open[0].name.chars().count(), MAX_TOOL_FIELD_CHARS);
+        assert!(open[0].input.as_ref().unwrap().len() <= MAX_TOOL_INPUT_CHARS);
+    }
+
+    #[test]
+    fn replayed_terminal_tool_update_closes_the_call() {
+        let update = |kind, status| EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "in".into(),
+            kind: kind.into(),
+            msg: json!({"params": {"update": {"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": status}}}),
+            host_seq: None,
+        };
+        let records = vec![
+            EventRecord {
+                kind: "tool_call".into(),
+                msg: json!({"params": {"update": {"sessionUpdate": "tool_call", "toolCallId": "call-1", "status": "in_progress"}}}),
+                ..update("tool_call", "in_progress")
+            },
+            update("tool_call_update.replay", "completed"),
+        ];
+        let (tools, omitted) = unfinished_tools(&records);
+        assert!(tools.is_empty());
+        assert_eq!(omitted, 0);
     }
 }
