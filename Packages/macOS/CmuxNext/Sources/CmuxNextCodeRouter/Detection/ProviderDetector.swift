@@ -42,16 +42,14 @@ public struct ProviderDetector: Sendable {
     /// A provider whose only credential is an API key: the environment, or
     /// a key saved in cmux's Keychain item.
     func detectAPIKey(_ provider: AIProvider) -> ProviderDetection {
-        let environmentKeys = provider.apiKeyEnvironmentKeys.compactMap { key -> (String, String)? in
-            guard let value = environment.value(key) else { return nil }
-            return (key, value)
-        }
-        var sources = environmentKeys.map { DetectionSource.environment($0.0) }
+        var sources = provider.apiKeyEnvironmentKeys.filter { environment.value($0) != nil }.map(DetectionSource.environment)
         if environment.savedKeys.contains(provider) { sources.append(.cmuxKeychain) }
         // Presence alone used to make a typo in the shell look ready until the
         // first prompt. Mark it unknown so Accounts can offer a replacement key
-        // before the user starts a chat. The resolver remains authoritative.
-        let malformed = environmentKeys.contains { !CredentialResolver.looksLikeKey($0.1) }
+        // before the user starts a chat. Only the key Connect would send is
+        // judged, by Connect's own format rule (`CredentialResolver`).
+        let malformed = CredentialResolver.environmentKey(provider, in: environment)
+            .map { !CredentialResolver.isWellFormedKey($0.value, for: provider) } ?? false
         let status: LocalAuthStatus = malformed ? .unknown : (sources.isEmpty ? .missing : .signedIn)
         return ProviderDetection(provider: provider, status: status, sources: sources)
     }
