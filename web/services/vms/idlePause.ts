@@ -329,7 +329,7 @@ def daemon_sockets():
             out.append(f.read().strip())
     except Exception:
         pass
-    # The supervisor starts `cmux-tui server start --session cloud`; cmux-tui puts the
+    # The supervisor starts "cmux-tui server start --session cloud"; cmux-tui puts the
     # session socket in cmux-tui-<uid> under the runtime dir, else /tmp.
     uid = os.environ.get("CMUX_IDLE_DAEMON_UID", "")
     if uid.isdigit():
