@@ -20,6 +20,7 @@
 //! on one daemon each have an a12; only the asker's own is named.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Who a session is on an approval card.
 const LABEL_TAG: &str = "mux.label";
@@ -253,11 +254,11 @@ impl Hub {
         if let Some(label) = target_label {
             headline.push_str(" · ");
             headline.push_str(&label);
-            display["targetLabel"] = Value::String(label);
+            display.set("targetLabel", Value::String(label));
         }
-        display["headline"] = Value::String(headline);
+        display.set("headline", Value::String(headline));
         if let Some(preview) = input.get(spoken.text).and_then(Value::as_str).map(one_line) {
-            display["preview"] = Value::String(preview);
+            display.set("preview", Value::String(preview));
         }
         Some(display)
     }

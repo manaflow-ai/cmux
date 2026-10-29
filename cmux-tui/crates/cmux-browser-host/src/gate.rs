@@ -12,6 +12,7 @@ use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -550,7 +551,7 @@ impl Gate {
             let mut call =
                 json!({"targetId": params["targetId"], "method": method, "args": [handle]});
             if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
-                call["frameId"] = frame.clone();
+                call.set("frameId", frame.clone());
             }
             self.driver.call("frame.observe", &call)
         };

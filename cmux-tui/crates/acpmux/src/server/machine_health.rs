@@ -18,6 +18,7 @@
 //! characters, a `since` only when it is a valid RFC 3339 time, and a
 //! `severity` only when it is `warning` or `critical` (the disk floors).
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
@@ -97,10 +98,10 @@ fn entry(v: &Value) -> Option<Value> {
     }
     let mut out = json!({"check": check, "detail": detail});
     if let Some(ms) = v.get("since").and_then(Value::as_str).and_then(rfc3339_ms) {
-        out["since"] = json!(super::iso(ms));
+        out.set("since", json!(super::iso(ms)));
     }
     if let Some(level @ ("warning" | "critical")) = v.get("severity").and_then(Value::as_str) {
-        out["severity"] = json!(level);
+        out.set("severity", json!(level));
     }
     Some(out)
 }
@@ -108,7 +109,7 @@ fn entry(v: &Value) -> Option<Value> {
 fn loop_problem(detail: &str, since: Option<String>) -> Value {
     let mut p = json!({"check": "loop", "detail": detail});
     if let Some(at) = since {
-        p["since"] = json!(at);
+        p.set("since", json!(at));
     }
     p
 }

@@ -40,6 +40,8 @@
 //! numeric surface from the first `vt-state`. `send` also counts as shared
 //! sizing activity for this view.
 
+use cmux_json::JsonSet as _;
+
 mod reader;
 mod writer;
 
@@ -420,10 +422,10 @@ impl Handshake<'_> {
             "id": 3, "cmd": ATTACH, "mode": "bytes", "cols": size.cols, "rows": size.rows
         });
         match target {
-            AttachTarget::Surface(surface) => attach["surface"] = json!(surface),
+            AttachTarget::Surface(surface) => attach.set("surface", json!(surface)),
             AttachTarget::Terminal { id, generation } => {
-                attach["expected_terminal_id"] = json!(id.as_str());
-                attach["expected_generation"] = json!(generation);
+                attach.set("expected_terminal_id", json!(id.as_str()));
+                attach.set("expected_generation", json!(generation));
             }
         }
         self.connection.send(&attach)?;

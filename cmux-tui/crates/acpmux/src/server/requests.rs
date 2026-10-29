@@ -3,6 +3,7 @@
 use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 
 mod briefs;
 mod composer;
@@ -322,13 +323,13 @@ async fn dispatch_brief(
             );
         }
         let original = params.clone();
-        params["forwarded"] = json!(true);
-        params["host"] = json!(peer_name);
-        params["briefId"] = json!(id);
-        params["_meta"]["acpmux"]["dispatchSource"] = json!({
+        params.set("forwarded", json!(true));
+        params.set("host", json!(peer_name));
+        params.set("briefId", json!(id));
+        params.set_path(&["_meta", "acpmux", "dispatchSource"], json!({
             "from": conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()),
             "host": crate::host_pressure::host_name(),
-        });
+        }));
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
         let result = match peer.request(method::MUX_DISPATCH, params).await {
             Ok(result) => result,
@@ -398,7 +399,7 @@ async fn dispatch_brief(
         }
     }
     if let Some(cwd) = pick("cwd") {
-        new_params["cwd"] = json!(cwd);
+        new_params.set("cwd", json!(cwd));
     }
     let requested_approve_all = new_params
         .pointer("/_meta/acpmux/policy")
@@ -472,15 +473,15 @@ async fn dispatch_brief(
     let session = hub.resolve(&sid)?;
     let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
     if let Some(key) = idempotency {
-        record["idempotencyKey"] = json!(key);
+        record.set("idempotencyKey", json!(key));
     }
     if let Some(caller) = conn.caller() {
-        record["fromSession"] = json!(caller); // its result card's chat (`hub/tasks.rs`)
+        record.set("fromSession", json!(caller)); // its result card's chat (`hub/tasks.rs`)
     }
     let row = hub.briefs.put(record);
     let mut prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        prompt["_meta"]["acpmux"]["via"] = via;
+        prompt.set_path(&["_meta", "acpmux", "via"], via);
     }
     let task_hub = hub.clone();
     let task_conn = conn.clone();
