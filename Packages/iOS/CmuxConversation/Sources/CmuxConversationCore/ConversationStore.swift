@@ -561,7 +561,7 @@ public final class ConversationStore {
         // lands while the missing pages are being fetched.
         let retained = rebase && hasLoadedNewest
             ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
-        let overlap = retained?.values.compactMap(\.seq).max()
+        let overlap = retained?.values.compactMap(\.seq).min()
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
@@ -571,8 +571,9 @@ public final class ConversationStore {
                     try Task.checkCancellation()
                     var pages = [page]
                     // More than one page may have arrived while disconnected.
-                    // Merge only once the fetched window meets the kept one;
-                    // otherwise the transcript would contain a hidden gap.
+                    // Refresh the entire retained window: missed edits/unsends
+                    // can affect its oldest row, and live arrivals during an
+                    // earlier cancelled recovery need not be contiguous.
                     while let overlap, page.hasMore {
                         guard let first = page.messages.compactMap(\.seq).min() else {
                             throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
@@ -600,8 +601,12 @@ public final class ConversationStore {
         guard let newest = pages.first else { return }
         var inserted: [String] = []
         if let retained {
+            let oldestRetained = retained.values.compactMap(\.seq).min()
             for page in pages.reversed() {
                 for message in page.messages {
+                    // The last fetched page may extend before the kept window.
+                    // Leave that history to its existing pager and scroll path.
+                    if let oldestRetained, let seq = message.seq, seq < oldestRetained { continue }
                     // Current state changed after this fetch began: it wins
                     // over the snapshot, including a send acknowledged live.
                     if let current = self.message(id: message.id), current != retained[message.id] { continue }
@@ -612,8 +617,12 @@ public final class ConversationStore {
             // The pager belongs to the oldest kept message, not the newest
             // fetched page. In particular, an in-flight older page still owns
             // its loading/retrying state and may land normally after this.
-            if retained.values.allSatisfy({ $0.seq == nil }), older == .idle {
-                older = newest.hasMore ? .idle : .exhausted
+            if oldestRetained == nil {
+                switch older {
+                case .idle, .exhausted:
+                    older = newest.hasMore ? .idle : .exhausted
+                case .loading, .retrying: break
+                }
             }
         } else if !hasLoadedNewest {
             let pending = messages.filter { $0.seq == nil }

@@ -197,6 +197,72 @@ import Testing
         backend.releaseSend()
     }
 
+    @Test func reconnectDuringCatchUpDoesNotSkipTheGapBeforeALiveArrival() async throws {
+        let backend = ScriptedBackend(total: 50)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        // New live traffic is visible while history is held. A second
+        // reconnect must not mistake that isolated row for a complete tail.
+        store.apply(.message(backend.makeMessage(seq: 100, sender: "lc"), eventSeq: 1))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { merged }
+        #expect(store.messages.compactMap(\.seq) == Array(31...100))
+    }
+
+    @Test func reconnectAfterEmptyHistoryRestoresOlderPaging() async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.older == .exhausted)
+        backend.total = 80
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m80") != nil }
+        #expect(store.older == .idle)
+        store.loadOlder()
+        try await waitUntil { store.message(id: "m41") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(41...80))
+    }
+
+    @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        for oldest in [61, 41, 21] {
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        var edited = backend.makeMessage(seq: 25, sender: "lc")
+        edited.text = "Edited while disconnected"
+        backend.setHistoryMessage(edited)
+        var unsent = backend.makeMessage(seq: 26, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 105
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m105") != nil }
+        #expect(store.message(id: "m25")?.text == edited.text)
+        #expect(store.message(id: "m26")?.unsentAt == unsent.unsentAt)
+        // The overlap page must not load unseen history above the old window.
+        #expect(store.messages.compactMap(\.seq) == Array(21...105))
+    }
+
     @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30)
@@ -364,6 +430,9 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _total: Int
     private var _failNextHistory = 0
+    private var _nextHistoryGate: PreparationGate?
+    private var _historyCount = 0
+    private var _historyMessages: [String: ConversationMessage] = [:]
     private var _failNextSend = false
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -377,6 +446,11 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
 
     var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
     var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
+    var nextHistoryGate: PreparationGate? { get { lock.withLock { _nextHistoryGate } } set { lock.withLock { _nextHistoryGate = newValue } } }
+    var historyCount: Int { lock.withLock { _historyCount } }
+    func setHistoryMessage(_ message: ConversationMessage) {
+        lock.withLock { _historyMessages[message.id] = message }
+    }
     var failNextSend: Bool { get { lock.withLock { _failNextSend } } set { lock.withLock { _failNextSend = newValue } } }
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
@@ -412,6 +486,11 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
+        let (gate, historyMessages) = lock.withLock { () -> (PreparationGate?, [String: ConversationMessage]) in
+            _historyCount += 1
+            defer { _nextHistoryGate = nil }
+            return (_nextHistoryGate, _historyMessages)
+        }
         let shouldFail = lock.withLock { () -> Bool in
             guard _failNextHistory > 0 else { return false }
             _failNextHistory -= 1
@@ -421,10 +500,12 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         let upper = (beforeSeq ?? (total + 1)) - 1
         let lower = max(1, upper - limit + 1)
         guard upper >= 1 else { return ConversationHistoryPage(messages: [], hasMore: false) }
-        return ConversationHistoryPage(
-            messages: (lower...upper).map { makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
+        let page = ConversationHistoryPage(
+            messages: (lower...upper).map { historyMessages["m\($0)"] ?? makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
             hasMore: lower > 1
         )
+        if let gate { await gate.wait() }
+        return page
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {

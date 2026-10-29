@@ -5,7 +5,7 @@ import Foundation
 public enum ConversationBackendEvent: Sendable {
     /// The session is (re)established. `lagged` means events were missed and
     /// cannot be replayed; the store must fetch from the newest page back to
-    /// the kept transcript and merge the missing history.
+    /// the oldest kept message, refreshing retained rows and missing history.
     case connected(info: ConversationInfo, meID: String, lagged: Bool)
     /// A created or changed message, at a per-conversation event sequence.
     /// Duplicates are possible; the store dedupes on `eventSeq`.
