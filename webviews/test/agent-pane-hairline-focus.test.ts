@@ -92,7 +92,11 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
       });
     }, id);
   }
-  const rims = async (page: Page, id: string) => (await shadows(page, id)).filter(({ inset }) => inset);
+  // The ring is the inset layer with a spread. Since #24593 (2026-10-23) a glass card on every window
+  // also draws the glass's light rim, a top and a bottom line with no spread (composerStates.css,
+  // --acpmux-composer-rim); those are not a ring, and focus leaves them as they rest (checked below).
+  const isRing = ({ inset, spread }: { inset: boolean; spread: number }) => inset && spread !== 0;
+  const rims = async (page: Page, id: string) => (await shadows(page, id)).filter(isRing);
   const outline = (page: Page, id: string) =>
     page.evaluate((id) => getComputedStyle(document.getElementById(id)!).outlineStyle, id);
 
@@ -104,7 +108,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
       test(`${box} at ${scale}x: focus is the resting hairline a step brighter, no ring`, async () => {
         const page = await open(scale);
         const rest = await shadows(page, box);
-        const restRims = rest.filter(({ inset }) => inset);
+        const restRims = rest.filter(isRing);
         expect(restRims.length, `${box} draws one rim`).toBe(1);
         expect(restRims[0].spread * scale, `${box} rim in device px`).toBe(1);
         expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(REST, 2);
@@ -114,10 +118,10 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         // The same layers: no ring or glow added, the drop shadow unchanged.
         expect(focused.length, `${box} focused adds no shadow`).toBe(rest.length);
         expect(
-          focused.filter(({ inset }) => !inset),
-          `${box} drop shadow`,
-        ).toEqual(rest.filter(({ inset }) => !inset));
-        const rim = focused.filter(({ inset }) => inset);
+          focused.filter((layer) => !isRing(layer)),
+          `${box} drop shadow and glass light rim`,
+        ).toEqual(rest.filter((layer) => !isRing(layer)));
+        const rim = focused.filter(isRing);
         expect(rim.length, `${box} focused draws one rim`).toBe(1);
         expect(rim[0].spread, `${box} focused rim keeps its width`).toBe(restRims[0].spread);
         expect(rim[0].alpha, `${box} focused rim brightens a step`).toBeCloseTo(FOCUSED, 2);
@@ -227,20 +231,32 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     await page.close();
   });
 
-  test("keyboard focus changes what a solid Send, Stop, the prompt editor's Send and a plain button paint; solid ones take the hover step", async () => {
+  // The composer's ready Send and Stop are plain glyphs since #23763 (Leo 2026-10-21: "no solid
+  // discs"): keyboard focus paints their hover pill. The prompt editor's Send keeps a text-color
+  // fill, so focus there takes its hover step (the base 12% over the fill).
+  test("keyboard focus changes what Send, Stop, the prompt editor's Send and a plain button paint; glyphs take their hover pill, a solid fill its hover step", async () => {
     const page = await open(2);
     // Read end states, never a hover or focus transition's first frame.
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
     const ids = ["send-ready", "stop", "edit-send", "plain"];
+    const glyphs = ["send-ready", "stop"];
     const rest: Record<string, number[]> = {};
     for (const id of ids) rest[id] = await paint(page, id);
-    await page.hover("#stop");
-    const hover = { stop: await paint(page, "stop") };
+    const hover: Record<string, number[]> = {};
+    for (const id of glyphs) {
+      await page.hover(`#${id}`);
+      hover[id] = await paint(page, id);
+    }
     await page.mouse.move(0, 0);
-    // The base color, Stop's ink.
+    // The base color (--acpmux-base, the focus pill's 12%), resolved where the controls are.
     const base = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.background = "var(--acpmux-base, Canvas)";
+      document.getElementById("solid-bar")!.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")!;
-      context.fillStyle = getComputedStyle(document.getElementById("stop")!).color;
+      context.fillStyle = color;
       context.fillRect(0, 0, 1, 1);
       return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
     });
@@ -256,20 +272,18 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         distance(focused, rest[id]),
         `${id} focused paints visibly different (rest ${rest[id].join(",")}, focused ${focused.join(",")})`,
       ).toBeGreaterThanOrEqual(8);
-      if (id === "plain") continue;
-      // The solid ones take the hover step: the base 12% over the fill.
-      const step = rest[id].map((value, index) => value * 0.88 + base[index] * 0.12);
-      expect(
-        distance(focused, step),
-        `${id} focused takes the hover step (step ${step.join(",")}, focused ${focused.join(",")})`,
-      ).toBeLessThanOrEqual(3);
-      // Stop's hover paints that step too. (A ready Send's hover in the composer bar does not:
-      // composerLocation.css's fill rule outranks composerStates.css's hover rule.)
-      if (id === "stop")
+      if (glyphs.includes(id)) {
         expect(
-          distance(focused, hover.stop),
-          `${id} focused matches its hover (${hover.stop.join(",")})`,
+          distance(focused, hover[id]),
+          `${id} focused paints its hover pill (hover ${hover[id].join(",")}, focused ${focused.join(",")})`,
         ).toBeLessThanOrEqual(3);
+      } else if (id === "edit-send") {
+        const step = rest[id].map((value, index) => value * 0.88 + base[index] * 0.12);
+        expect(
+          distance(focused, step),
+          `${id} focused takes the hover step (step ${step.join(",")}, focused ${focused.join(",")})`,
+        ).toBeLessThanOrEqual(3);
+      }
     }
     await page.close();
   });

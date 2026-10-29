@@ -70,17 +70,26 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
     /// Set for an RFB (VNC) compatibility host: its TCP port
     /// (`via=vnc&port=<n>`, section 12). Nil for a `cmux.rd/1` host.
     public var vncPort: UInt16?
+    /// A Cloud machine's desktop (`via=cloud`): `host` is the machine id, and the app reaches
+    /// the machine's VNC server only over its own Cloud tunnel (Open Desktop's native viewer).
+    public var cloudDesktop: Bool
+    /// A Cloud desktop shown by the machine's `cmux-rd` host (H.264 over the machine's daemon
+    /// link, `via=cloud-rd`) instead of its VNC server.
+    public var cloudRd: Bool
 
     /// The default VNC port.
     public static let defaultVNCPort: UInt16 = 5900
 
-    /// Nil when `host` is not a valid machine name or `vncPort` is 0.
-    public init?(host: String, target: Target = .display(1), mode: RemoteControlMode = .view, vncPort: UInt16? = nil) {
-        guard Self.isValidHost(host), vncPort != 0 else { return nil }
+    /// Nil when `host` is not a valid machine name, `vncPort` is 0, or a Cloud desktop names a port.
+    public init?(host: String, target: Target = .display(1), mode: RemoteControlMode = .view, vncPort: UInt16? = nil,
+                 cloudDesktop: Bool = false, cloudRd: Bool = false) {
+        guard Self.isValidHost(host), vncPort != 0, !(cloudDesktop && vncPort != nil), !cloudRd || cloudDesktop else { return nil }
         self.host = host
         self.target = target
         self.mode = mode
         self.vncPort = vncPort
+        self.cloudDesktop = cloudDesktop
+        self.cloudRd = cloudRd
     }
 
     /// Parses a record URL; nil for any other URL, an invalid field, or a
@@ -113,9 +122,14 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
             mode = .view
         }
         var vncPort: UInt16?
+        var cloudDesktop = false, cloudRd = false
         switch fields["via"] {
         case nil, "rd":
             guard fields["port"] == nil else { return nil }
+        case "cloud", "cloud-rd":
+            guard fields["port"] == nil else { return nil }
+            cloudDesktop = true
+            cloudRd = fields["via"] == "cloud-rd"
         case "vnc":
             if let raw = fields["port"] {
                 guard (1...5).contains(raw.count), raw.utf8.allSatisfy({ (0x30...0x39).contains($0) }),
@@ -127,7 +141,7 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
         default:
             return nil
         }
-        self.init(host: host, target: target, mode: mode, vncPort: vncPort)
+        self.init(host: host, target: target, mode: mode, vncPort: vncPort, cloudDesktop: cloudDesktop, cloudRd: cloudRd)
     }
 
     /// The record URL, fields in a fixed order.
@@ -143,6 +157,8 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
         if let vncPort {
             components.queryItems?.append(URLQueryItem(name: "via", value: "vnc"))
             components.queryItems?.append(URLQueryItem(name: "port", value: String(vncPort)))
+        } else if cloudDesktop {
+            components.queryItems?.append(URLQueryItem(name: "via", value: cloudRd ? "cloud-rd" : "cloud"))
         }
         // A scheme, a host, no path and query items always form a URL; /dev/null stands in otherwise.
         return components.url ?? URL(fileURLWithPath: "/dev/null")

@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { TeamId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Enterprise SSO, slice 2c-1: email domain ownership (spec/enterprise.md 3.4).
@@ -11,7 +12,7 @@ import { TeamId } from "./schemas.ts"
  */
 export const EmailDomain = Schema.String.check(
   Schema.isMaxLength(253),
-  Schema.isPattern(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)
+  isPattern(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)
 ).annotate({ identifier: "EmailDomain", description: "A lowercase DNS name such as acme.com." })
 
 export const TeamDomain = Schema.Struct({
@@ -94,8 +95,8 @@ export const DomainList = def({
   mcp: { expose: "never", group: "team" }
 })
 
-const ConnectionId = Schema.String.check(Schema.isPattern(/^ssoc_[a-z0-9]{20}$/)).annotate({ identifier: "SsoConnectionId" })
-const HttpsUrl = Schema.String.check(Schema.isMaxLength(500), Schema.isPattern(/^https:\/\/[^\s]+$/))
+const ConnectionId = Schema.String.check(isPattern(/^ssoc_[a-z0-9]{20}$/)).annotate({ identifier: "SsoConnectionId" })
+const HttpsUrl = Schema.String.check(Schema.isMaxLength(500), isPattern(/^https:\/\/[^\s]+$/))
 
 /**
  * An enterprise SSO connection (spec/enterprise.md 3.2, WorkOS-shaped).

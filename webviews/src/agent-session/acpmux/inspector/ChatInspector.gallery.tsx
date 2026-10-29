@@ -43,6 +43,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Gallery-only: panel width used by narrow workflow layout states.
+  panelWidth?: number;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -98,6 +100,7 @@ function GalleryInspector({
   header = "title",
   tones,
   ceiling,
+  panelWidth = 320,
   ...props
 }: Props) {
   return (
@@ -105,7 +108,7 @@ function GalleryInspector({
       {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
-        width={320}
+        width={panelWidth}
         placement={placement}
         chrome={chrome}
         // The head draws only with a close: as in the chat pane.
@@ -278,6 +281,24 @@ const summary = {
   ],
 };
 
+// Icon-bearing section heads belong to the Environment rows' text column. The ordinary
+// section titles intentionally start at the icon column instead.
+const checkTopBlockAlignment: Play = async (ctx) => {
+  const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
+  const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
+  await ctx.waitFor(() => ctx.document.querySelector(environment));
+  const labelLeft = rect(environment).left;
+  for (const section of ["context", "connectors"]) {
+    const title = rect(`[data-section="${section}"] .acpmux-chat-inspector-section__title`);
+    if (Math.abs(title.left - labelLeft) > 0.5)
+      throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
+  }
+  const iconLeft = rect('[data-section="environment"] .acpmux-chat-inspector-row > svg').left;
+  const heading = rect('[data-section="changes"] .acpmux-chat-inspector-section__title');
+  if (Math.abs(heading.left - iconLeft) > 0.5)
+    throw new Error("The heading-only Changes section moved from the icon column");
+};
+
 const full: Props = {
   summary,
   machineName: "Studio",
@@ -328,19 +349,52 @@ const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 /// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
 /// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
 /// (inspector/WorkflowTasks.tsx). The workflow's node leaves Subagents for Background tasks.
-const workflowProps = (stage: WorkflowFixtureStage): Props => {
+const workflowProps = (
+  stage: WorkflowFixtureStage,
+  workflowAgentRowVariant?: Props["workflowAgentRowVariant"],
+  panelWidth = 320,
+  modelOverride?: string,
+): Props => {
   const nodes = workflowFixture(stage);
+  const workflowList = createWorkflowAdapter()(nodes, "gallery-chat").map((workflow) =>
+    modelOverride
+      ? {
+          ...workflow,
+          agents: workflow.agents.map((agent) =>
+            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+          ),
+        }
+      : workflow,
+  );
   return {
     summary,
     machineName: "Studio",
     repository: "manaflow-ai/cmux",
     agents: nodes,
-    workflows: createWorkflowAdapter()(nodes, "gallery-chat"),
+    workflows: workflowList,
     onStopWorkflow: async () => undefined,
     onOpenSubagent: () => undefined,
+    onOpenWorkflowAgent: () => undefined,
+    workflowAgentRowVariant,
+    panelWidth,
     onSaveEnvironment: () => undefined,
     remoteControl: { on: true, set: () => undefined },
   };
+};
+
+const assertNarrowWorkflowLayout: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
+  const panel = ctx.find({ selector: ".acpmux-chat-inspector" }).getBoundingClientRect();
+  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
+  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
+  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
+  const time = ctx
+    .find({ selector: ".acpmux-workflow-agent .acpmux-chat-inspector-task__time" })
+    .getBoundingClientRect();
+  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
+  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
 };
 /// Opens the workflow's `n`th phase (from 1).
 const openPhase =
@@ -530,9 +584,10 @@ export default componentEntry<Props>({
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
+      play: checkTopBlockAlignment,
     },
     "workflow-running": {
-      note: "Labs: a Claude workflow running, read from the subagent fold. Background tasks heads with it: its name, 13s and Stop; 1 running · 2 queued · 3 done · 185k tokens; what it does; Brainstorm 3 done and Critique 1 running · 2 queued, a dot per agent (done filled, running the accent, queued an outline). Critique has a running agent, so it is open: Model: Opus 5.5, punchy with a spinner, playful and descriptive Queued. Up next: Judge.",
+      note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
       props: workflowProps("running"),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
@@ -542,6 +597,32 @@ export default componentEntry<Props>({
       note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
+    },
+    "workflow-agent-row-compact": {
+      note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
+      props: workflowProps("running", "compact"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-detail": {
+      note: "Chosen workflow agent row: name, model and action each have their own line so the name remains readable at narrow widths; state and elapsed time stay aligned on the right.",
+      props: workflowProps("running", "detail"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-grid": {
+      note: "Alternative (gallery only): a grid workflow agent row gives state, name, model and elapsed time fixed columns, with the action spanning below.",
+      props: workflowProps("running", "grid"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-narrow": {
+      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
+      play: assertNarrowWorkflowLayout,
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",

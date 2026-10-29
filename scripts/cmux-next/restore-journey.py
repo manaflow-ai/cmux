@@ -69,6 +69,8 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
             from 100%), at another frame;
+  window 3: rj-w3 (the new workspace Open Space in New Window opens on a new space rj-room-<run>,
+            renamed, a terminal with a marker line), at a third frame;
   agents:   rj-chats (agent chats with the test agent as a Claude Code harness, a non-default
             model picked, and as a Codex harness: two turns and an unsent draft each) and
             rj-tagents (terminal tabs running `claude` and `codex` stand-ins,
@@ -118,7 +120,7 @@ parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
-parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud,agents")
+parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,w3,cloud,agents")
 parser.add_argument("--agents-per-kind", type=int, default=2,
                     help="the agents part: chats per harness (Claude, Codex) and terminal agents per CLI (claude, codex)")
 parser.add_argument("--break-cloud", choices=["moved_chat", "move_retry", "bring_back_retry", "grant", "dismissed"],
@@ -516,12 +518,20 @@ def acpmux_socket_of(home):
 
 
 def acpmux_home():
-    """The app's acpmux home: <account home>/.acpmux/builds/<build key> (the account's real home,
-    not a slot HOME; build_names.py has the app's rule), or, for a build from before per-build
+    """The app's acpmux home: <the app's HOME>/.acpmux/builds/<build key> (a slot's home on a capture
+    slot), else <account home>/.acpmux/builds/<build key> (build_names.py has the app's rule), or, for a build from before per-build
     isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
     apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
-    homes = [APP.names()["acpmux_home"]] if APP.names() else []
+    homes = []
+    # A capture slot launches the app with the slot's home as HOME (capture-host since hq#4961): its
+    # acpmux home is under that home, by the same build key.
+    if APP.bundle and APP.env.get("HOME"):
+        try:
+            homes.append(build_names.of_app(APP.bundle, APP.env["HOME"])["acpmux_home"])
+        except ValueError:
+            pass
+    homes += [APP.names()["acpmux_home"]] if APP.names() else []
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
@@ -1289,9 +1299,45 @@ def seed_w2(base):
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[1]})
 
 
+def seed_w3():
+    """A third window on its own space, as a person makes one: a new space, then Open Space in New
+    Window, which opens a window on the space with a new workspace there (rj-w3). (Its sidebar stays:
+    `toggleSidebar` acts on the key window, and a no-activate slot has none; MultiWindowRestoreTests
+    covers a hidden sidebar.)"""
+    answer = cli("room", "create", "--name", f"rj-room-{RUN}")
+    room = answer.get("value", answer) if isinstance(answer, dict) else {}
+    room_id = room.get("id") or room.get("room_id") or (room.get("room") or {}).get("id")
+    if not room_id:
+        say(f"  w3: no room: {json.dumps(answer)[:160]}")
+        return
+    # The app learns of the room through the daemon's personal-changed event: wait for the action to accept it.
+    wait(lambda: not (action("space.openInNewWindow", args={"space": room_id}) or {}).get("error"), 15, 1)
+    def space_window():
+        report = rpc("debug.windows")
+        for entry in (report or {}).get("windows", []) if isinstance(report, dict) else []:
+            if entry.get("profile") == room_id and entry.get("open") is not False:
+                return entry
+        return None
+    entry = wait(space_window, 20)
+    topo = topology() or {}
+    window = entry and next((w for w in topo.get("windows", []) if w.get("key") == entry.get("id") and w.get("workspace")), None)
+    if not window:
+        say(f"  w3: no window on the space: {json.dumps(rpc('debug.windows'))[:300]}")
+        return
+    ws_id = window["workspace"]
+    cli("workspace", ws_id, "rename", "rj-w3")
+    workspace = next((w for w in topo.get("workspaces", []) if w.get("id") == ws_id), {})
+    term = next((t.get("terminal") for s_ in workspace.get("screens", []) for p in s_.get("panes", []) for t in p.get("tabs", [])
+                 if t.get("kind") == "terminal" and t.get("terminal")), None)
+    if term:
+        write(term, f"echo rj-w3-marker-{RUN}\n")
+    rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
+    say(f"  w3: window {window.get('key')} workspace {ws_id} terminal {term}")
+
+
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
 # the Dock), so a restore that keeps a window on screen has no reason to move them.
-FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560]]
+FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560], [520, 120, 760, 520]]
 
 
 def seed_cloud():
@@ -1323,13 +1369,17 @@ def cleanup_earlier():
     for ws in rj_workspaces(topology()):
         cli("workspace", ws["id"], "close")
     wait(lambda: not rj_workspaces(topology()), 20)
+    rooms = cli("room", "list", quiet=True)
+    for room in (rooms.get("value", rooms) if isinstance(rooms, dict) else rooms) or []:
+        if isinstance(room, dict) and str(room.get("name", "")).startswith("rj-room-"):
+            cli("room", room.get("id"), "delete")
 
 
 def seed(base):
     say("seeding")
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
-                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud),
+                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("w3", seed_w3), ("cloud", seed_cloud),
                       ("agents", seed_chats), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
@@ -1508,6 +1558,7 @@ def snapshot(label):
         items[f"{p}.full_screen"] = shown.get("full_screen")
         items[f"{p}.sidebar_width"] = shown.get("sidebar_width")
         items[f"{p}.sidebar_hidden"] = shown.get("sidebar_hidden")
+        items[f"{p}.space"] = shown.get("profile")
         # Which display a window comes back on means something only with two to pick from; a
         # capture slot has one 1080p display, so there the row reads n/a.
         if isinstance(displays, int) and displays >= 2:
@@ -1824,8 +1875,10 @@ def seeded(before):
                      for t in TAGENTS],
                    (f"{AGENTS_N} chats per harness", len(CHATS) == AGENTS_N * len(CHAT_PROFILES)),
                    (f"{AGENTS_N} terminal agents per CLI", len(TAGENTS) == AGENTS_N * len(CLI_AGENTS))],
-        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
+        "w2": [("second window", before.get("windows.count") == (2 if "w3" in SKIP else 3)), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
+        "w3": [("third window, on its own space", before.get("window[rj-w3].space") not in (None, "default")),
+               ("third window shows rj-w3", before.get("window[rj-w3].selected_workspace") == "rj-w3")],
         "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
