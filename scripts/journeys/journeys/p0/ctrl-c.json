@@ -1,0 +1,45 @@
+{
+  "id": "ctrl-c",
+  "priority": "P0",
+  "title": "Ctrl+C interrupts the foreground job; the prompt returns within 1 s",
+  "why": "Dogfood v1 shipped with Ctrl+C broken: the PTY child had no controlling tty, so the line discipline never sent SIGINT (fix 66d9960c10f, test 6a4a6a0f242). Permanent journey for that bug.",
+  "source": "dogfood bug v1 (Lawrence), everyday terminal use",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "via": "key"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo before-${nonce}-$((6*7))", "enter": true, "mark": "before"},
+    {"do": "expect", "title": "the shell answers", "since": "before", "timeout": 10,
+     "all": [{"daemon_line": "before-${nonce}-42"}]},
+
+    {"do": "type", "text": "sleep 100", "enter": true},
+    {"do": "expect", "title": "sleep 100 runs in the foreground of the terminal's tty", "timeout": 10,
+     "all": [{"process_present": {"match": "^sleep 100$", "bind": "sleep", "foreground": true}}]},
+    {"do": "key", "key": "c", "modifiers": ["control"], "mark": "ctrl-c-sleep"},
+    {"do": "expect", "title": "Ctrl+C ends sleep and the prompt returns", "since": "ctrl-c-sleep", "within": 1.0, "timeout": 5,
+     "all": [
+       {"process_gone": "sleep"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+
+    {"do": "type", "text": "cat", "enter": true},
+    {"do": "expect", "title": "cat with no input waits in the foreground", "timeout": 10,
+     "all": [{"process_present": {"match": "^cat$", "bind": "cat", "foreground": true}}]},
+    {"do": "key", "key": "c", "modifiers": ["control"], "mark": "ctrl-c-cat"},
+    {"do": "expect", "title": "Ctrl+C ends cat and the prompt returns", "since": "ctrl-c-cat", "within": 1.0, "timeout": 5,
+     "all": [
+       {"process_gone": "cat"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+
+    {"do": "type", "text": "echo after-${nonce}-$((6*7))", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "the shell takes input again", "since": "after", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "after-${nonce}-42"},
+       {"app_text_line": "after-${nonce}-42"},
+       {"frame_text": "after-${nonce}-42"}
+     ]}
+  ]
+}

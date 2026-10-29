@@ -344,20 +344,26 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         cwd: args.cwd.clone(),
         ..Record::default()
     };
-    let (mut target, bytes) =
-        match up_to_finish(args, &mut source, records, &mut record, begun.field("manifest"), &vm_kind) {
-            Ok(copied) => copied,
-            Err(failed) => {
-                // No finish was sent: the target cannot have the chat.
-                drop_receive(&record);
-                return Err(match give_back(args, records, &mut record) {
-                    Ok(()) => failed.with_transfer(&record.transfer_id),
-                    Err(stuck) => {
-                        Failed { error: format!("{}; {}", failed.error, stuck.error), ..stuck }
-                    }
-                });
-            }
-        };
+    let (mut target, bytes) = match up_to_finish(
+        args,
+        &mut source,
+        records,
+        &mut record,
+        begun.field("manifest"),
+        &vm_kind,
+    ) {
+        Ok(copied) => copied,
+        Err(failed) => {
+            // No finish was sent: the target cannot have the chat.
+            drop_receive(&record);
+            return Err(match give_back(args, records, &mut record) {
+                Ok(()) => failed.with_transfer(&record.transfer_id),
+                Err(stuck) => {
+                    Failed { error: format!("{}; {}", failed.error, stuck.error), ..stuck }
+                }
+            });
+        }
+    };
     let receive_id = record.receive_id.clone().unwrap_or_default();
     let mut finish = json!({"receive_id": receive_id});
     if let Some(kind) = &vm_kind {

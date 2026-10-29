@@ -233,13 +233,15 @@ public struct CmuxNextApp {
         let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
         let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
         let featureHello = environment.daemonFeatureHello, terminalStreams = Self.terminalStreams(features)
+        let wireUpgrades = Self.wireUpgrades(features)
         let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
             let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
                                                   resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                   terminalEnvironmentProvider: terminalEnvironmentProvider,
                                                   resolvesShellIntegration: resolvesShellIntegration,
                                                   echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
-                                                  featureHello: featureHello, terminalStreams: terminalStreams)
+                                                  featureHello: featureHello, terminalStreams: terminalStreams,
+                                                  wireUpgrades: wireUpgrades)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
                 launchCaches.safeMode.readsLaunchCaches ? LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory) : .missing
@@ -290,14 +292,6 @@ public struct CmuxNextApp {
         watchdog.startupStep("main.launch_order")
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps,
                                 budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
-        // Main-actor jobs by task priority (decision-gated; feature mainExecutorHook, default off).
-        order.mainWork.installMainExecutorHook(requested: MainExecutorHook.isRequested(feature: features.isEnabled(.mainExecutorHook),
-                                                                                      environment: ProcessInfo.processInfo.environment))
-        // Main-actor jobs wait behind pending input; installed as `debug.mainJobGate` says (AppServices.settings).
-        // Classed main work (post(class:), MainNotificationObserver) waits behind the same input.
-        if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
-            (app as? CmuxApplication)?.jobGate = MainJobGateSwitch(pending: pending, holding: order.mainWork)
-        }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered
         #if DEBUG || CMUX_BENCH_HOOKS
         mainJobs?.freeze(after: order.startup)
@@ -332,5 +326,15 @@ public struct CmuxNextApp {
     nonisolated static func terminalStreams(_ features: FeatureList) -> TerminalStreamsDevice? {
         guard features.isEnabled(.terminalStreams) else { return nil }
         return { await DaemonTerminalIO.sizingDevice.value }
+    }
+
+    /// The framed IPC the local daemon connection asks for while feature `ipcFrames` is on:
+    /// REQUEST frames from this build's method table and schema identity, and, with
+    /// `terminalStreams`, the stream grant, so a terminal view's keys go as INPUT frames on its stream. Off
+    /// asks for nothing and the connection keeps JSON lines.
+    nonisolated static func wireUpgrades(_ features: FeatureList) -> DaemonWireUpgrades {
+        guard features.isEnabled(.ipcFrames) else { return .none }
+        return DaemonWireUpgrades(frames: DaemonFrameSchema(table: .schema, identity: .built),
+                                  streams: features.isEnabled(.terminalStreams))
     }
 }

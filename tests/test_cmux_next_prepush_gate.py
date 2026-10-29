@@ -70,11 +70,13 @@ struct Fresh {
 }
 """
 NEW_WITH_UNOWNED = """import Foundation
-final class Owner {}
 final class Fresh {
     unowned let owner: Owner
     init(owner: Owner) { self.owner = owner }
 }
+
+// One file, one type (guardrails multi-type-file): a small private helper may stay.
+private final class Owner {}
 """
 # A try! and nothing else: no blocking read for the guardrails (main-blocking) to refuse on their own.
 NEW_WITH_TRY_ONLY = """import Foundation

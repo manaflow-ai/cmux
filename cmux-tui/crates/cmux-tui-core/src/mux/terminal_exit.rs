@@ -56,16 +56,6 @@ impl Mux {
         self.session_shutdown.begin();
     }
 
-    /// A holder of this session ended without its terminal's exit: lost, or
-    /// replaced on its still-running shell. Counted for `oracle-state`
-    /// `childExits.holder` where the owner logs it, so the count is this
-    /// owner's own and never depends on the loss log's rotation or on other
-    /// sessions sharing its directory. Nothing when the oracle is compiled out.
-    pub(crate) fn note_holder_exit(&self) {
-        #[cfg(any(debug_assertions, feature = "oracle"))]
-        self.oracle_holder_exits.fetch_add(1, Ordering::Relaxed);
-    }
-
     /// Log that this owner got termination signal `signal` from `sender_pid`
     /// (cx-0tgl LA): `"event":"daemon_signal"` in `terminal-losses.jsonl`,
     /// with the sender's name and parent. Best effort.
@@ -230,9 +220,6 @@ impl Mux {
                 panic_log,
             );
             loss.log();
-            if loss.is_loss() {
-                self.note_holder_exit();
-            }
             loss
         });
         // cx-6so.49: whether this loss may respawn, checked before the locks.

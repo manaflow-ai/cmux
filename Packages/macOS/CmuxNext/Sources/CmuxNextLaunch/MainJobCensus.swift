@@ -22,6 +22,12 @@ import CoreFoundation
 /// Debug and bench-hooks builds only; armed only by ``environmentKey``, so the startup benches measure a launch
 /// without it. Recording stops at startup completion (``freeze(after:)``), and every buffer is preallocated.
 ///
+/// `CMUX_NEXT_MAIN_JOB_CENSUS=input` arms the input window instead (sequence-manager-DESIGN.md 2.7, step S6): a
+/// continuous ring that is never frozen and has no turn observers. At each key or click dispatch the app notes the
+/// event (``MainJobRing/noteInputDispatch(eventNanos:dispatchNanos:)``), and `debug.main_jobs.input` reports the main
+/// jobs that ran between each event's arrival and its dispatch, by enqueue site (``MainJobInputReport``). Its rig
+/// (``storm(tasks:interval:work:duration:)``) makes a storm of main-actor awaits to measure under.
+///
 /// ```swift
 /// let census = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: start)
 /// census?.freeze(after: order.startup)
@@ -35,6 +41,11 @@ public final class MainJobCensus {
     public nonisolated static let environmentKey = "CMUX_NEXT_MAIN_JOB_CENSUS"
     /// The jobs the ring keeps (about 1 MB).
     public nonisolated static let jobCapacity = 8_192
+    /// ``environmentKey``'s value that arms the input window.
+    public nonisolated static let inputWindowValue = "input"
+    /// The input window's ring: the main jobs queued and not run yet that it tracks (about 3 MB; the window's own
+    /// preallocated storage is about 16 MB more).
+    public nonisolated static let inputJobCapacity = 16_384
 
     /// One StartupScheduler task that ran on the main thread.
     public struct TaskSpan: Sendable, Equatable {
@@ -64,6 +75,8 @@ public final class MainJobCensus {
 
     /// What the ring's install found.
     public let hook: MainJobRing.HookState
+    /// Armed with ``inputWindowValue``: the input window, not the launch's census.
+    public var isInputWindow: Bool { ring.continuous }
     public private(set) var frozen = false
     private let ring: MainJobRing
     private let processStartNanos: UInt64
@@ -71,8 +84,12 @@ public final class MainJobCensus {
     private var observers: [MainRunLoopObserver] = []
 
     /// The census `environment` asks for, its ring installed and its observers on the main run loop; nil when
-    /// ``environmentKey`` is not `1`. Call first thing in `main`, while the process has one thread.
+    /// ``environmentKey`` is neither `1` nor ``inputWindowValue``. Call first thing in `main`, while the process has one thread.
     public static func armed(environment: [String: String], processStartNanos: UInt64) -> MainJobCensus? {
+        if environment[environmentKey] == inputWindowValue {
+            let ring = MainJobRing(capacity: inputJobCapacity, continuous: true)
+            return MainJobCensus(ring: ring, hook: ring.install(), processStartNanos: processStartNanos)
+        }
         guard environment[environmentKey] == "1" else { return nil }
         let ring = MainJobRing(capacity: jobCapacity)
         let census = MainJobCensus(ring: ring, hook: ring.install(), processStartNanos: processStartNanos)
@@ -127,9 +144,44 @@ public final class MainJobCensus {
         observers = []
     }
 
-    /// Freezes the census when `startup` completes.
+    /// Freezes the census when `startup` completes; the input window records on.
     public func freeze(after startup: StartupScheduler) {
+        guard !isInputWindow else { return }
         startup.whenComplete { [weak self] _ in self?.freeze() }
+    }
+
+    /// The input window now (``isInputWindow``), copied on the main thread; ``MainJobInputReport`` names its sites.
+    public func inputWindow() -> MainJobRing.InputWindow { ring.readInputWindow() }
+
+    /// Empties the input window.
+    public func resetInputWindow() { ring.resetInputWindow() }
+
+    /// The rig's storm of main-actor awaits: `tasks` main-actor tasks that each, for `duration`, await an off-main call
+    /// that waits `interval`, then spend `work` on the main thread. Each turn of a task is one unposted main-actor job,
+    /// the await's resume enqueued from the pool, the kind that stays FIFO on the main queue (sequence-manager-DESIGN.md
+    /// 2.7). Returns the jobs a second it asks for.
+    @discardableResult
+    public func storm(tasks: Int, interval: Duration, work: Duration, duration: Duration) -> Double {
+        let end = ContinuousClock.now + duration
+        for _ in 0 ..< max(0, tasks) {
+            // main-hop-allow: the census rig's storm is unposted main-actor work on purpose (Debug and bench builds only); a class would remove what it measures
+            Task(priority: .userInitiated) { @MainActor in
+                while ContinuousClock.now < end {
+                    await Self.offMain(waiting: interval)
+                    let busy = ContinuousClock.now + work
+                    while ContinuousClock.now < busy {}
+                }
+            }
+        }
+        let seconds = Double(interval.components.seconds) + Double(interval.components.attoseconds) / 1e18
+        return seconds > 0 ? Double(max(0, tasks)) / seconds : 0
+    }
+
+    /// One await that leaves the main actor, waits `interval` on the pool, and resumes on the caller's actor.
+    @concurrent
+    nonisolated static func offMain(waiting interval: Duration) async {
+        // wakeup-allow: the census rig's storm paces its awaits (Debug and bench builds, only for `debug.main_jobs.input storm`, ends after its duration); it runs on the pool (@concurrent), never on main
+        try? await Task.sleep(for: interval)
     }
 
     /// What the census holds now, with the StartupScheduler's main tasks (``mainTasks(_:)``).

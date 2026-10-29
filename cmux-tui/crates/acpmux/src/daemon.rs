@@ -520,7 +520,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     hub.supervise("daemon.notify", Fatal, ShutdownBehavior::Skip, notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
-    hub.supervise("daemon.cloud_handoff", Fatal, ShutdownBehavior::Skip, cloud_handoff::handoff_loop(hub.clone()));
+    hub.supervise(
+        "daemon.cloud_handoff",
+        Fatal,
+        ShutdownBehavior::Skip,
+        cloud_handoff::handoff_loop(hub.clone()),
+    );
 
     let shutdown = async {
         #[cfg(unix)]

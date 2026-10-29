@@ -301,10 +301,6 @@ impl Mux {
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
-            #[cfg(any(debug_assertions, feature = "oracle"))]
-            oracle_switches: OnceLock::new(),
-            #[cfg(any(debug_assertions, feature = "oracle"))]
-            oracle_holder_exits: AtomicU64::new(0),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]

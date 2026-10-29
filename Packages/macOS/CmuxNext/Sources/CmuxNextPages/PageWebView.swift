@@ -101,9 +101,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false {
         didSet {
             loadState.set(loading: !loaded && !isDiscarded, page: self)
-            #if DEBUG || CMUX_BENCH_HOOKS
-            if loaded != oldValue { router.oracleStateChanged?() }
-            #endif
         }
     }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.

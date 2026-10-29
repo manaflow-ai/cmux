@@ -124,7 +124,11 @@ pub fn lane(summary: &Value) -> Value {
         // Its own turn's start, else since its subagents work on past the last one.
         Some("working") => (
             "working",
-            summary.field("turn").field("startedAt").as_u64().or(summary.field("subagentsWorkingSince").as_u64()),
+            summary
+                .field("turn")
+                .field("startedAt")
+                .as_u64()
+                .or(summary.field("subagentsWorkingSince").as_u64()),
         ),
         Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
         Some("failed") => ("failed", ended),

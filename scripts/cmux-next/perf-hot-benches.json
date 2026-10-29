@@ -273,9 +273,9 @@
         "key.scroll_frame"
       ]
     },
-    "main-job-gate": {
-      "what": "every main-actor job enqueue through the MainJobGate hook (swift_task_enqueueMainExecutor_hook, p04-input-021): the pass-through is one relaxed load of the pending-input state and the original call, budget 0.2 us per job; while input is pending or dispatching it records the job (MainJobGateDiagnostics.recordEnqueue: a 16-frame backtrace_async and one ring push, no lock, allocation or system call), budget 2 us per recorded job",
-      "bench": "swift test --filter 'MainJobGateHookTests|MainJobGateDiagnosticsTests' (order unchanged, concurrent producers lose no record), then the debug.input action hops and scripts/cmux-next/input-turn-hops.py under STRESS, on macOS 26 and 27",
+    "input-turn-hops": {
+      "what": "the input-turn hop recorder's Swift-lane producer (InputTurnHopRecorder.recordEnqueue, p04-input-022): a 16-frame backtrace_async and one ring push, no lock, allocation or system call; budget 2 us per recorded job. No hook calls it in the app since sequence-manager S6 deleted the MainJobGate",
+      "bench": "swift test --filter 'InputTurnHopRecorderTests' (concurrent producers lose no record), then the debug.input action hops and scripts/cmux-next/input-turn-hops.py under STRESS, on macOS 26 and 27",
       "owner": "Performance Lead"
     },
     "input-latency-mark": {

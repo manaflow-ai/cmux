@@ -117,7 +117,7 @@ extension CEFRuntime {
             childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
         case .helperExit(let exit): childExited(exit) // a helper of the Chromium Host (CEFRuntime+Crashes)
         case .pageDragEnter(let browser, let pathsJSON):
-            if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
+            if let tab = tabsByBrowser[browser], let entered = tab.pageEvents?.filesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
             // The tab's agent file offer first, then cmux's host picker or the person's panel (`CEFRuntime+FileDialogs`).
             answerFileDialog(dialogID, browser: browser,
@@ -249,7 +249,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.onGesture = { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             tab.automaticDownloads.userGesture()
-            tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
+            tab.pageEvents?.userInput?(ProcessInfo.processInfo.systemUptime)
         }
         startInput()
         tabsByBrowser[browser] = tab

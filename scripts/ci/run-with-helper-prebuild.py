@@ -7,11 +7,6 @@ import signal
 import subprocess
 import time
 
-# The Release build's PGO setup, shared with scripts/cmux-next/check-release-compile.sh
-# (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052).
-PGO_RELEASE_ENV = Path(__file__).resolve().parents[1] / "cmux-next" / "pgo" / "release-env.sh"
-PGO_VARIABLES = ("CMUX_PGO_PROFDATA", "CMUX_PGO_COMPANIONS")
-
 
 def signal_group(pgid, sig):
     """Signal a process group; False when no member can take the signal.
@@ -42,32 +37,7 @@ def stop_group(process):
     process.wait()
 
 
-def pgo_release(configuration, environ, script=PGO_RELEASE_ENV):
-    """The build's environment and extra xcodebuild settings: PGO for a Release build, when the switch is on.
-
-    Only release-env.sh sets the variables Package.swift reads, so an ambient value never reaches the build.
-    """
-    env = {name: value for name, value in environ.items() if name not in PGO_VARIABLES}
-    if configuration != "Release":
-        return env, []
-    result = subprocess.run(["bash", str(script), "--print"], env=dict(environ), stdout=subprocess.PIPE,
-                            text=True, check=False)
-    if result.returncode:
-        raise SystemExit(f"run-with-helper-prebuild: {script.name} exited {result.returncode}")
-    settings = []
-    for line in result.stdout.splitlines():
-        kind, _, assignment = line.partition(" ")
-        name, sep, value = assignment.partition("=")
-        if kind == "export" and sep and name in PGO_VARIABLES:
-            env[name] = value
-        elif kind == "setting" and sep:
-            settings.append(assignment)
-        else:
-            raise SystemExit(f"run-with-helper-prebuild: unexpected line from {script.name}: {line!r}")
-    return env, settings
-
-
-def run(helper_command, build_command, log_path, helper_timeout=600, build_env=None):
+def run(helper_command, build_command, log_path, helper_timeout=600):
     helper = build = None
     cancelled = 0
 
@@ -83,7 +53,7 @@ def run(helper_command, build_command, log_path, helper_timeout=600, build_env=N
                                           start_new_session=True)
             except OSError as error:
                 print(f"::warning::Optional helper prebuild could not start: {error}", flush=True)
-            build = subprocess.Popen(build_command, start_new_session=True, env=build_env)
+            build = subprocess.Popen(build_command, start_new_session=True)
             deadline = time.monotonic() + helper_timeout
             while build.poll() is None and not cancelled:
                 if helper is not None and helper.poll() is not None:
@@ -122,12 +92,9 @@ def main():
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a build command is required")
-    # The command ends with xcodebuild's arguments, so the PGO settings (LLVM_LTO) go last.
-    build_env, pgo_settings = pgo_release(args.configuration, os.environ)
     helper = Path(__file__).with_name("prebuild-app-helpers.sh")
     return run(["nice", "-n", "10", str(helper), "--derived-data", args.derived_data,
-                "--configuration", args.configuration, "--archs", args.archs], command + pgo_settings,
-               args.log, build_env=build_env)
+                "--configuration", args.configuration, "--archs", args.archs], command, args.log)
 
 
 if __name__ == "__main__":

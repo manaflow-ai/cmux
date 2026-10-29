@@ -49,6 +49,10 @@ final class InputVerificationService {
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }
         observeWindowGeometry(services.appEvents, journal: journal, monitor: monitor)
+        // Something takes the keys after every action (plans/cmux-next/focus-invariant.md); key-window and
+        // activation changes reach the monitor as focus reductions (`observeFocus`). In every build, so an on-demand
+        // `debug.desync` report names the last action; the check it notes runs only where checks run by themselves.
+        services.registry.willRunObservers.append { [weak monitor] id, origin in monitor?.noteAction(id.rawValue, origin: origin.rawValue) }
         // M1: a mirror write outside daemon apply and the intent overlay is
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
@@ -111,8 +115,9 @@ final class InputVerificationService {
     /// asks the monitor to check once they settle.
     func observeFocus(of controller: WindowController) {
         let journal = InputJournal.shared
-        let monitor = self.monitor
-        let services = self.services
+        // `services` and `monitor` are read when an observer runs, never captured here: the launch window installs its
+        // observers before the `InputVerification.start` post (afterFirstFrame) sets them, and a nil captured then
+        // dropped that window's settles for the whole session.
         var sinceCheckpoint = Int.max - 1
         // The notification and location-trail observers act on the settled
         // keyboard target: each runs only when what it reads changed. The
@@ -121,7 +126,8 @@ final class InputVerificationService {
         // once the page hides).
         var notified: FocusState.SettleKey?
         var trailed: TrailSettleKey?
-        controller.focus.settledObserver = { [weak services, weak controller] state in
+        controller.focus.settledObserver = { [weak self, weak controller] state in
+            let services = self?.services
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
             guard let controller else { return }
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
@@ -141,10 +147,10 @@ final class InputVerificationService {
                 services?.locationTrail.focusDidSettle(state, in: controller)
             }
         }
-        controller.focus.observer = { [weak state = controller.state, weak focus = controller.focus] observation in
+        controller.focus.observer = { [weak self, weak state = controller.state, weak focus = controller.focus] observation in
             // A no-op reduction (a responder report of the focus the window
             // already has) changes nothing the monitor checks.
-            if case .reduced(_, _, _, false) = observation {} else { monitor?.noteChange() }
+            if case .reduced(_, _, _, false) = observation {} else { self?.monitor?.noteChange() }
             guard journal.isEnabled else { return }
             let window = state?.id
             switch observation {

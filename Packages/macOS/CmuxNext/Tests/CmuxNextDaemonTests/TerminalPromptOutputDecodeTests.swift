@@ -46,4 +46,20 @@ import Testing
         #expect(mirror.terminalLastOutputMs["term_7"] == nil)
         #expect(touched == [.terminal("term_7")], "dropping them is a change")
     }
+
+    /// `extra.shell_idle.since_ms` (the terminal's own shell idle at its prompt) reaches the mirror, and a record
+    /// that keeps the prompt but drops it (input typed, a nested shell) clears it: that alone is a change.
+    @Test func aTerminalUpsertCarriesItsIdleShellAndDropsIt() throws {
+        let idle = try delta(#"{"prompt":{"since_ms":"1700000000000"},"shell_idle":{"since_ms":"1700000000000"}}"#)
+        #expect(idle == [.terminal("term_7", nil, promptSinceMs: 1_700_000_000_000, shellIdleSinceMs: 1_700_000_000_000)])
+        var mirror = SessionStateMirror()
+        mirror.apply(idle[0])
+        #expect(mirror.terminalShellIdleSinceMs["term_7"] == 1_700_000_000_000)
+
+        var touched: Set<SessionStateMirror.Touched> = []
+        mirror.apply(try delta(#"{"prompt":{"since_ms":"1700000000000"}}"#)[0], touched: &touched)
+        #expect(mirror.terminalShellIdleSinceMs["term_7"] == nil)
+        #expect(mirror.terminalPromptSinceMs["term_7"] == 1_700_000_000_000)
+        #expect(touched == [.terminal("term_7")], "dropping the idle shell is a change")
+    }
 }

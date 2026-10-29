@@ -110,11 +110,26 @@ impl PtyTerminalRuntime {
         &self,
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        self.observe_terminal_output_replayed(bytes, false)
+    }
+
+    /// [`Self::observe_terminal_output`] of output that may be a restarted
+    /// daemon's replay of a holder's ring (`replayed`): its prompt marks are
+    /// old, so the shell is not idle until a prompt after it. Noted in the
+    /// same metadata lock as the marks, so no publication sees them idle.
+    pub(super) fn observe_terminal_output_replayed(
+        &self,
+        bytes: &[u8],
+        replayed: bool,
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().recover_poison();
         if !bytes.is_empty() {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        if replayed {
+            metadata.activity.note_replayed_output();
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 

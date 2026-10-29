@@ -56,7 +56,11 @@ impl ClientRegistry {
     /// `starter_exit`). With `require_no_clients`, only while no client but
     /// `own_plugin` (the daemon's own plugin) is connected. False when another
     /// handoff runs (or such a client is connected and `require_no_clients`).
-    pub(super) fn begin_owner_shutdown(&self, require_no_clients: bool, own_plugin: Option<u32>) -> bool {
+    pub(super) fn begin_owner_shutdown(
+        &self,
+        require_no_clients: bool,
+        own_plugin: Option<u32>,
+    ) -> bool {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.daemon_handoff.is_some()
             || (require_no_clients

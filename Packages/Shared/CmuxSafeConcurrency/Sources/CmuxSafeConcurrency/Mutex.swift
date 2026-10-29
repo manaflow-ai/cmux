@@ -6,35 +6,19 @@
 /// value is reachable only inside `withLock`.
 public struct Mutex<Value: ~Copyable>: ~Copyable {
     @usableFromInline let storage: MutexStorage<Value>
-    #if DEBUG
-    /// Its place in the lock order, checked on each lock (``MutexRank``); nil: unranked.
-    @usableFromInline let rank: MutexRank?
-    #endif
 
     /// Makes a mutex that holds `initialValue`.
-    ///
-    /// - Parameter rank: Its place in the process's lock order (``MutexRank``): in Debug builds a `withLock`
-    ///   that takes it while this thread holds a ranked mutex at the same or a later order stops the process,
-    ///   naming both locks. Nil (the default) checks nothing. Release builds drop it.
-    public init(_ initialValue: consuming sending Value, rank: MutexRank? = nil) {
+    public init(_ initialValue: consuming sending Value) {
         storage = MutexStorage(initialValue)
-        #if DEBUG
-        self.rank = rank
-        #endif
     }
 
     /// Runs `body` with exclusive access to the value and returns its result. Do not call `withLock` on
     /// the same mutex from inside `body`: the lock is not recursive, and doing so stops the process
-    /// (on Apple platforms always, elsewhere in Debug). A ranked mutex taken out of order stops the process
-    /// in Debug (``MutexRank``).
+    /// (on Apple platforms always, elsewhere in Debug).
     @inlinable
     public borrowing func withLock<Result: ~Copyable, E: Error>(
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result {
-        #if DEBUG
-        rank?.willLock()
-        defer { rank?.didUnlock() }
-        #endif
         storage.lock()
         defer { storage.unlock() }
         return try body(&storage.value.pointee)
@@ -47,10 +31,6 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         observedBy observer: Observer,
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result {
-        #if DEBUG
-        rank?.willLock()
-        defer { rank?.didUnlock() }
-        #endif
         let report: Observer.Report? = storage.tryLock() ? nil : storage.lockContended(observedBy: observer)
         defer {
             storage.unlock()
@@ -66,10 +46,6 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result? {
         guard storage.tryLock() else { return nil }
-        #if DEBUG
-        rank?.didTryLock()
-        defer { rank?.didUnlock() }
-        #endif
         defer { storage.unlock() }
         return try body(&storage.value.pointee)
     }

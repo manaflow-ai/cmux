@@ -1,6 +1,0 @@
-# Written by scripts/cmux-next/oracle/corpus_store.py (tests/oracle/corpus-store.json), not committed.
-/tla/*
-!/tla/README.md
-/config/
-/terminal/
-/.corpus-store.lock

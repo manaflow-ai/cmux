@@ -183,8 +183,12 @@ impl ActionTool {
     fn description(&self) -> String {
         let title =
             self.descriptor.field("title").as_str().unwrap_or(&self.id).trim_end_matches('…');
-        let own =
-            self.descriptor.field("description").as_str().map(str::trim).filter(|own| !own.is_empty());
+        let own = self
+            .descriptor
+            .field("description")
+            .as_str()
+            .map(str::trim)
+            .filter(|own| !own.is_empty());
         let mut text = own.map(|own| format!("{own}\n\n")).unwrap_or_default();
         text.push_str(&format!(
             "{title}. cmux app action `{}` (CLI: `cmux {}`). Runs in the cmux app and waits \

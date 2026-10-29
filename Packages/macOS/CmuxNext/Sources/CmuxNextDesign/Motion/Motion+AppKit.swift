@@ -363,7 +363,7 @@ extension MotionGate {
     /// Every infinite loop made here runs through a ``LoopHost`` (``LoopVisibility``, or a host that
     /// gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare `layer.add`: a
     /// loop in a hidden or occluded view costs the render server frames nobody sees (p03-rendering.md,
-    /// R6). `LoopRegistrationTests` checks every `repeatCount = .infinity` in CmuxNext's sources.
+    /// R6).
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")

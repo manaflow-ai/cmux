@@ -59,8 +59,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
-    /// Told after each step this view maps, and each live chunk its lane takes (nil in Release).
-    private let screenChanged: (@Sendable () -> Void)?
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -74,8 +72,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// go while a recording runs (`debug.burst`, or a trace recording's `burst` category).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
-    /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
-    /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
     /// `keyStamps`: takes the daemon's stages of each key echo; only for a daemon on this Mac, whose
     /// clock they are on.
     /// `connection`: the machine connection each attach streams on, or reaches its endpoint from.
@@ -83,7 +79,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
-         hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
+         hangWatch: (any HangWatchScoping)? = nil,
          keyStamps: (any TerminalKeyStampSink)? = nil,
          streamFocus: TerminalStreamFocus? = nil,
          connection: @escaping @Sendable () async throws -> DaemonConnection) {
@@ -139,11 +135,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
         self.surface = surface
-        self.screenChanged = screenChanged
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                screenChanged?()
                 // Each mark checks for a recording itself; with none, it drops an ended one's echo matching.
                 if let burstTrace {
                     switch event {
@@ -188,7 +182,18 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// The session's input drains on the attach input queue, which the attach socket's writer targets: a key
     /// is reduced and written to the socket there, one thread hop from the main thread.
     func inputDrain() -> TerminalInputDrain {
-        Self.inputDrain(on: inputQueue, driver: driver, creating: creatingInput)
+        Self.inputDrain(on: inputQueue, driver: driver, creating: creatingInput, sentByID: Self.journalByID(surface: surface))
+    }
+
+    /// Bytes sent by terminal id reach the PTY without passing the attachment: the input journal counts them as
+    /// that terminal's input too, as the attachment's own observer does (its byte counts judge where keys went).
+    private static func journalByID(surface: UInt64) -> (@Sendable (Int) -> Void)? {
+        guard InputJournal.shared.isEnabled else { return nil }
+        return { count in
+            var record = InputJournalEntry.Attach(surface: String(surface), event: "input", phase: "creating", droppedBytes: 0)
+            record.bytes = count
+            InputJournal.shared.append(window: nil, .attach(record))
+        }
     }
 
     /// Hands every lane record to `driver` on `queue`. The driver reduces a key and appends it to the socket's
@@ -201,7 +206,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// lane resumes, so no record passes it. A key's bytes carry its latency slot's flow to the link;
     /// by id they go without it.
     static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
-                                                     creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
+                                                     creating: (any CreatingTerminalInputSending)?,
+                                                     sentByID: (@Sendable (Int) -> Void)? = nil) -> TerminalInputDrain {
         TerminalInputDrain(queue: queue) { record, resume in
             switch record {
             case .bytes(let data), .keyBytes(let data, _):
@@ -211,9 +217,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 }
                 // The drain's closure is nonisolated: the send never touches the main thread.
                 Task { @concurrent in
-                    let sentByID = await creating.write(data)
+                    let byID = await creating.write(data)
                     queue.async {
-                        if !sentByID { driver.input(data) }
+                        if byID { sentByID?(data.count) } else { driver.input(data) }
                         resume()
                     }
                 }
@@ -229,14 +235,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Live output goes from the attach link's reader thread straight to `lane` (``TerminalAttachDriver/setOutputSink(_:)``),
-    /// with the marks the stream's output step makes: the burst trace's first output and the oracle's screen change.
+    /// with the mark the stream's output step makes: the burst trace's first output.
     func setOutputLane(_ lane: TerminalEchoLane?) {
         driver.setOutputSink(lane.map { lane in
-            TerminalEchoSink { [burstTrace, surface, screenChanged] data, flow, wake in
+            TerminalEchoSink { [burstTrace, surface] data, flow, wake in
                 burstTrace?.output(surface: surface)
-                let full = lane.enqueue(data, flow: flow, wake: wake)
-                screenChanged?()
-                return full
+                return lane.enqueue(data, flow: flow, wake: wake)
             }
         })
     }

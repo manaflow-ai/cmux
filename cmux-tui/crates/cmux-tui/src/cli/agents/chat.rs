@@ -383,7 +383,8 @@ fn send(
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
     (receipt.field("action") == "chat.send" && receipt.field("result").field("state") == "failed")
-        || (receipt.field("action") == "chat.new" && receipt.field("result").field("prompt").field("state") == "failed")
+        || (receipt.field("action") == "chat.new"
+            && receipt.field("result").field("prompt").field("state") == "failed")
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {

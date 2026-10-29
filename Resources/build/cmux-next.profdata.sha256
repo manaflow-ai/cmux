@@ -1,6 +1,0 @@
-# The cmux-next Swift PGO profile that Release builds may use (plans/cmux-next/chrome-parity/p08-startup.md,
-# section F, task 052). One line in `sha256sum` format, `<sha256>  cmux-next.profdata`, as
-# run-scenarios.py --stage profile writes it (task 050); the refresh script (054) replaces that line and
-# uploads the profile to $CI_CACHE_R2_PUBLIC_URL/pgo/cmux-next/<sha256>.profdata.
-# scripts/cmux-next/pgo/fetch-profdata.sh reads the first line that is not a comment. With no such line no
-# profile is pinned, and every Release build compiles without -profile-use.

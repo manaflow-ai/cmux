@@ -4,6 +4,7 @@ public import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
+import Darwin
 import GhosttyNextKit
 import IOSurface
 import os
@@ -27,6 +28,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
+    /// When this view was made (`CLOCK_UPTIME_RAW` nanoseconds): a late key's log says how new its terminal was.
+    public let createdNanos: UInt64 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
     /// userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object for every callback.
     @safe let bridge: Unmanaged<SurfaceBridge>
@@ -158,6 +161,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     var textInputStage: TextInputStage?
     /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
     var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
+    /// The input methods' turn for a key: nil is AppKit's (`interpretKeyEvents`, the selected input
+    /// source); a test replays a recorded input method's calls (setMarkedText, insertText, doCommand).
+    var inputMethod: (@MainActor (TerminalSurfaceView, NSEvent) -> Void)?
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.
@@ -670,3 +676,5 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
 extension TerminalSurfaceView: ParkingObserver {
     public func parkingDidChange() { syncPlacement() }
 }
+
+extension TerminalSurfaceView: InputCreationStamped {}

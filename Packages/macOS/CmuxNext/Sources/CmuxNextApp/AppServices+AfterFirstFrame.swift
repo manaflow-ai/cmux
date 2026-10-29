@@ -1,8 +1,10 @@
 import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
+import CmuxNextFeatures
 import CmuxNextKeepAwake
 import CmuxNextLaunch
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -48,12 +50,21 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
-    /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
-    /// startup completes. The warm-up makes no WebKit page when a shown agent tab made its view
-    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). No WebKit
+    /// view is made by these before startup completes. The warm-up makes no WebKit page when a shown agent tab made
+    /// its view or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs); each outcome
+    /// leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
-        LaterTabWarmups(host: self).posts().post(on: startup)
+        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
+                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) },
+                                     agentPageWarmup: { [weak self] in
+                                         if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
+                                     },
+                                     spareProbe: { [weak self] in self?.newTabSpares.prewarm() },
+                                     spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
+                                     pagePreload: { [weak self] in self?.pagePreloads.start() },
+                                     agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
+                                     rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
     }
 
     /// The platform services. Now, before the windows build and the restore mounts a page:
@@ -63,11 +74,10 @@ extension AppServices {
     /// (`hotKeys` false: an agent- or bench-launched build never takes the person's system-wide keys), the
     /// border and glass follows after the first frame; the rest after startup.
     func startPlatformServices(settings: SettingsController, on startup: StartupScheduler, hotKeys: Bool) {
-        seedGlass()
-        notifications.preferences = settings.snapshot.notifications
-        notifications.followChiefPet(settings)
-        updater.follow(settings, on: mainWork)
-        startHibernation(settings: settings)
+        LaunchStart.glass.runNow(on: startup) { seedGlass() }
+        LaunchStart.notificationPreferences.runNow(on: startup) { notifications.preferences = settings.snapshot.notifications; notifications.followChiefPet(settings) }
+        LaunchStart.updaterSettings.runNow(on: startup) { updater.follow(settings, on: mainWork) }
+        LaunchStart.hibernation.runNow(on: startup) { startHibernation(settings: settings) }
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").
         typealias Start = @MainActor @Sendable () -> Void
@@ -99,5 +109,13 @@ extension AppServices {
                                     notifications: notificationsStart, macScreenSettings: macScreenSettingsStart, deviceHub: deviceHubStart,
                                     computerUseHelper: computerUseHelperStart, hibernationMeasurements: hibernationMeasurementsStart,
                                     apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
+    }
+
+    /// Runs one launch start by its class (p06-scheduler-049, `LaunchStart`): a first-frame start now, in its launch-turn
+    /// signpost; another as an afterStartup post on ``launchStartup`` with feature `launchStartDeferral`, else now.
+    /// With no launch scheduler (a test's services) it runs now and reads no feature.
+    func runLaunchStart(_ start: LaunchStart, _ work: @escaping @MainActor @Sendable () -> Void) {
+        guard let launchStartup else { return work() }
+        start.run(on: launchStartup, deferring: start.startClass == .afterReveal && features.isEnabled(.launchStartDeferral), work)
     }
 }

@@ -5,6 +5,7 @@ import CmuxNextFocusUI
 import CmuxNextPages
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextInput
 import CmuxNextLaunch
 
 // Typing into a screen before it can take keys (spec app-screens.md section
@@ -252,8 +253,10 @@ extension LaunchPictureKeys {
         guard let controller = router.services?.windows.controller(for: id), let shell = controller.window else { return false }
         if router.launchPictureKeys.showsPicture(window: id), !decidesKeys(controller.focus.state.resolved) { return false }
         for event in events {
-            router.dispatchingSynthetic(event) {
-                if !router.interceptKeyDown(event, in: shell) { shell.sendEvent(event) }
+            router.heldKeys.replay(event, heldBy: .launchPicture, keyWindow: shell) { send in
+                router.dispatchingSynthetic(event) {
+                    if !router.interceptKeyDown(event, in: shell) { send.window(shell, event) }
+                }
             }
         }
         return true
@@ -264,7 +267,9 @@ extension LaunchPictureKeys {
     private static func deliverKeys(_ events: [NSEvent], to target: Target, router: KeyRouter) -> Bool {
         guard let surface = liveSurface(of: target, router: router) else { return false }
         for event in events {
-            router.dispatchingSynthetic(event) { surface.keyDown(with: event) }
+            router.heldKeys.replay(event, heldBy: .launchPicture, keyWindow: surface.window) { send in
+                router.dispatchingSynthetic(event) { send.view(surface, event) }
+            }
         }
         return true
     }

@@ -486,7 +486,8 @@ impl Hub {
         )
         .map_err(|e| transfer_error("schema", format!("invalid session metadata: {e}")))?;
         if bundle_meta.id != id
-            || manifest.field("session").field("harness").as_str() != Some(bundle_meta.harness.as_str())
+            || manifest.field("session").field("harness").as_str()
+                != Some(bundle_meta.harness.as_str())
             || (bundle_meta.harness == "cmux-harness"
                 && manifest.field("session").field("agentSessionId").as_str()
                     != bundle_meta.agent_session_id.as_deref())

@@ -849,12 +849,11 @@ impl Hub {
         if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
-        *self.load_plan.lock_or_recover() =
-            log_load::LoadPlan {
-                waiting: waiting.collect(),
-                adopting: hosted.clone(),
-                hosted: hosted.clone(),
-            };
+        *self.load_plan.lock_or_recover() = log_load::LoadPlan {
+            waiting: waiting.collect(),
+            adopting: hosted.clone(),
+            hosted: hosted.clone(),
+        };
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock_or_recover();
