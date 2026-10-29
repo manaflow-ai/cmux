@@ -58,7 +58,7 @@ extension AppControl {
                 throw ControlError(code: "labs_off", message: Self.vmText(.labsOff))
             }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
-            return (services.cloud, Self.vmBaseURL(services.cloud.configuration.backend, environment: ProcessInfo.processInfo.environment))
+            return (services.cloud, Self.vmBaseURL(services.cloud.configuration.backend))
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
@@ -73,11 +73,8 @@ extension AppControl {
     }
 
     /// The cmux VM API for this build's Cloud: production's for production, staging's for a
-    /// development stack; `CMUX_VM_BASE_URL` (an https URL) overrides either.
-    nonisolated static func vmBaseURL(_ backend: CloudConfiguration.Backend, environment: [String: String]) -> URL {
-        if let raw = environment["CMUX_VM_BASE_URL"], let url = URL(string: raw), url.scheme == "https", url.host != nil {
-            return url
-        }
+    /// development stack. There is no override: the app sends its Stack session only there.
+    nonisolated static func vmBaseURL(_ backend: CloudConfiguration.Backend) -> URL {
         switch backend {
         case .production: return URL(string: "https://vm.cmux.dev")!
         case .development, .localOnly: return URL(string: "https://vm-staging.cmux.dev")!
@@ -90,9 +87,23 @@ extension AppControl {
             "name": params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } ?? "cmux vm token",
             "scopes": ["vm:read", "vm:write", "vm:exec"],
         ]
-        if let ttl = params["ttlSeconds"]?.intValue { body["ttlSeconds"] = ttl }
-        if let vms = params["maxVms"]?.intValue { body["maxVms"] = vms }
-        if let usd = params["maxUsdPerHour"]?.doubleValue { body["maxUsdPerHour"] = usd }
+        // A limit that is present must be valid: a bad one is refused, never
+        // dropped (the server's default would be larger).
+        func invalid(_ name: String) -> ControlError {
+            ControlError(code: "invalid_params", message: "\(name) is out of range")
+        }
+        if let raw = params["ttlSeconds"] {
+            guard let ttl = raw.intValue, (60...86_400).contains(ttl) else { throw invalid("ttlSeconds") }
+            body["ttlSeconds"] = ttl
+        }
+        if let raw = params["maxVms"] {
+            guard let vms = raw.intValue, (1...20).contains(vms) else { throw invalid("maxVms") }
+            body["maxVms"] = vms
+        }
+        if let raw = params["maxUsdPerHour"] {
+            guard let usd = raw.doubleValue, usd.isFinite, usd > 0, usd <= 50 else { throw invalid("maxUsdPerHour") }
+            body["maxUsdPerHour"] = usd
+        }
         return body
     }
 
