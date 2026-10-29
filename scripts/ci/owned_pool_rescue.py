@@ -2933,25 +2933,42 @@ class OpenHeadStarted(Aborted):
 
 
 # The placement jobs a run must finish before its Mac jobs exist (path routing, the macOS placement, the head
-# preflight, ci.yml's picker). They run on Linux in seconds and a full re-run repeats them, so they are the only
+# preflight, ci.yml's `changes` picker: dep-fleet's ruling). They run on Linux in seconds and a full re-run repeats them, so they are the only
 # finished jobs an open-head failover allows (unstarted_failover()); any other job that ran keeps OPEN_HEAD_RULE.
 PLACEMENT_JOBS = frozenset({
-    PICKER_JOB, E2E_PICKER_JOB, "cmux-next path routing", "cmux-next macOS placement",
-    "cmux-next push head preflight", "cmux NEXT DEV landing placement", "cmux NEXT DEV compile placement",
+    PICKER_JOB, "cmux-next path routing", "cmux-next macOS placement",
+    "cmux-next push head preflight",
 })
 
 
+# The workflows the open-head failover never touches, named explicitly (dep-fleet's ruling): nightly, DEV and
+# promote builds and their sign, verify and publish runs. A path with "nightly" in it is excluded as well.
+NEVER_FAILOVER_PATHS = frozenset({
+    NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH,
+    ".github/workflows/cmux-next-dev-daily-dispatch.yml", ".github/workflows/release.yml",
+    ".github/workflows/nightly-sign.yml", ".github/workflows/nightly-next-train.yml",
+    ".github/workflows/nightly-next-tick.yml", ".github/workflows/nightly-next-canary.yml",
+    ".github/workflows/nightly-next-launch-smoke.yml", ".github/workflows/nightly-next-rollback.yml",
+    ".github/workflows/nightly-next-verdict.yml", ".github/workflows/nightly-next-feed-watch.yml",
+})
+
+
+def never_fails_over(path: str) -> bool:
+    """A nightly, DEV or promote workflow (NEVER_FAILOVER_PATHS, or any path naming nightly)."""
+    return path in NEVER_FAILOVER_PATHS or "nightly" in path.rsplit("/", 1)[-1]
+
+
 def job_started(job: Mapping[str, Any]) -> bool:
-    """A job a cancel or a full re-run would lose: one running, or one a runner took (any label, any attempt it was
-    carried from), except a finished placement job (PLACEMENT_JOBS). A job GitHub skipped never ran."""
-    if job.get("status") == "in_progress":
-        return True
-    if job.get("status") == "completed" and job.get("conclusion") == "skipped":
+    """Whether a cancel could lose this job (dep-fleet's ruling): every job must be queued or waiting with no runner
+    assigned, except a PLACEMENT_JOBS job finished with conclusion success. A job GitHub skipped never ran and was
+    never assigned a runner. Anything else, a runner assigned, running, or finished any other way, is started."""
+    status, conclusion = job.get("status"), job.get("conclusion")
+    assigned = bool(job.get("runner_name") or job.get("runner_id"))
+    if status in ("queued", "waiting", "pending", "requested") and not assigned:
         return False
-    if not job.get("runner_name") and job.get("status") != "completed":
+    if status == "completed" and conclusion == "skipped" and not assigned:
         return False
-    return not (job.get("status") == "completed" and job.get("conclusion") == "success"
-                and str(job.get("name") or "") in PLACEMENT_JOBS)
+    return not (status == "completed" and conclusion == "success" and str(job.get("name") or "") in PLACEMENT_JOBS)
 
 
 def job_key(job: Mapping[str, Any]) -> Any:
@@ -2996,7 +3013,7 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       has waited less is looked at again once it has waited that long (one bounded sleep), not given up on.
     """
     if not target.pr_number or target.nightly or target.main or target.e2e or target.push_branch \
-            or target.path in FEED_TIMEOUT_PATHS:
+            or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path):
         return ""
     reader = getattr(api, "pool_snapshot", None)
     if reader is None:
@@ -3040,6 +3057,25 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
             return ""
         sleep(UNSTARTED_STALL_SECONDS - waited)
     return ""
+
+
+def failover_receipt(api: GitHub, target: Target, why: str, sleep: Callable[[float], None],
+                     log: Callable[[str], None]) -> None:
+    """The re-dispatch receipt of an open-head failover: what was cancelled and why, as a notice annotation on the
+    rescue's run and a line in its log (and step summary). Never raises: a failed read only shortens it."""
+    try:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    except Exception:  # noqa: BLE001 - the receipt never stops the failover
+        jobs = []
+    queued = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs
+                    if not job_started(job) and job.get("status") != "completed")
+    placed = sorted(str(job.get("name")) for job in jobs if str(job.get("name") or "") in PLACEMENT_JOBS
+                    and job.get("conclusion") == "success")
+    line = (f"run {target.run_id} attempt {target.attempt} of PR #{target.pr_number} at {target.head_sha[:12]}: "
+            f"cancelled and re-run in full because {why}. Queued jobs cancelled: {', '.join(queued) or 'none'}; "
+            f"placement jobs repeated: {', '.join(placed) or 'none'}")
+    log(f"{OPEN_HEAD_FAILOVER} receipt: {line}")
+    print(f"::notice title=Open-head failover::{line}", flush=True)
 
 
 def open_head_guard(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
@@ -3145,6 +3181,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if not failover:
             return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
         log(f"{OPEN_HEAD_FAILOVER}: {failover}; cancelling run {target.run_id} to re-run every job at its head")
+        failover_receipt(api, target, failover, sleep, log)
         # Every job again: the placement runs again and checks the routes afresh (a re-run of failed jobs would
         # keep its old outputs).
         failed_only = False

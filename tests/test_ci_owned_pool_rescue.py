@@ -9,6 +9,7 @@ import datetime as dt
 import importlib.util
 import io
 import json
+import re
 import sys
 import tempfile
 import types
@@ -5809,6 +5810,39 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         with self.assertRaises(Exception):
             rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, every_job=True)
         self.assertFalse(any(line.startswith(rescue.CANCEL_SETTLED) for line in lines), lines)
+
+    def test_the_placement_list_holds_only_placement_jobs(self):
+        # dep-fleet's ruling: the exempt jobs only place or preflight; one that builds, tests or signs never joins.
+        forbidden = re.compile(r"build|compile|test|sign|notar|publish|archive|bundle|package|export|smoke|canary",
+                               re.IGNORECASE)
+        self.assertTrue(rescue.PLACEMENT_JOBS)
+        for name in rescue.PLACEMENT_JOBS:
+            self.assertIsNone(forbidden.search(name), name)
+
+    def test_a_placement_job_counts_only_when_it_succeeded(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            placement = job("cmux-next macOS placement", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
+                            runner="bs")
+            placement["conclusion"] = conclusion
+            self.assertTrue(rescue.job_started(placement), conclusion)
+        assigned = job("cmux-next daemon tests", labels=[SESSION])
+        assigned["runner_id"] = 7
+        self.assertTrue(rescue.job_started(assigned), "a runner assigned is started")
+
+    def test_every_nightly_dev_and_promote_workflow_is_excluded_by_name(self):
+        for path in rescue.NEVER_FAILOVER_PATHS | {".github/workflows/nightly-next-future.yml"}:
+            self.assertTrue(rescue.never_fails_over(path), path)
+        self.assertFalse(rescue.never_fails_over(rescue.CMUX_NEXT_WORKFLOW_PATH))
+
+    def test_the_failover_leaves_a_receipt(self):
+        clock, api, target = self.world(self.gates)
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as out:
+            result, lines = self.run_rescue(api, clock, target)
+        receipt = [line for line in lines if "receipt" in line]
+        self.assertTrue(receipt, lines)
+        self.assertIn("cmux-next daemon tests on " + SESSION, receipt[0])
+        self.assertIn("cmux-next macOS placement", receipt[0])
+        self.assertIn("::notice title=Open-head failover::", out.getvalue())
 
     def test_nightly_dev_and_dispatch_targets_never_fail_over(self):
         for extra in ({"path": DEV_DAILY}, {"path": rescue.NIGHTLY_WORKFLOW_PATH, "nightly": True},
