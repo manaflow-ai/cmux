@@ -248,7 +248,6 @@ for (const harnessId of ["codex", "codex-sr"]) {
             id: "model",
             name: "Model",
             category: "model",
-            type: "select",
             currentValue: "gpt-6.1-sol",
             options: [{ value: "gpt-6.1-terra", name: "Terra" }],
           },
