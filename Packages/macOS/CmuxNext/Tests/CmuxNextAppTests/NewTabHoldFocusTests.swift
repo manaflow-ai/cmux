@@ -223,12 +223,14 @@ struct NewTabHoldFocusTests {
             router.keyRecorder = { _, _ in scopes.append(ActionRunScope.current); return false }
             defer { router.keyRecorder = nil }
 
-            // A settle inside a script's run.
-            ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            // A settle inside a script's run that may change the view (`focus: true`): the drain can run there, so on the
+            // base the held key runs inside that run, with its origin.
+            ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: true)) {
                 router.focusDidSettle(controller.focus.state, in: window)
             }
             try await PasswordManagerRouteTests.until({ !scopes.isEmpty }, within: .seconds(2), report: { "the held key never ran: \(input.log)" })
             #expect(scopes.allSatisfy { $0 == nil }, "a held key ran inside another action's run: \(scopes)")
+            #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard")
         }
     }
 }
