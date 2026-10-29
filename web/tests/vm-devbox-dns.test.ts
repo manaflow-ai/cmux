@@ -38,6 +38,7 @@ def reply(query, rcode, answers=0, tc=False):
 calls = []
 ` + body, script, ...args]);
   expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
   return result.stdout.trim().split("\n");
 }
 
@@ -96,6 +97,16 @@ print(dns.rcode(dead.resolve(q("github.com"))))
 r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 3), doh_exchange=lambda *a: calls.append("doh"))
 print(dns.rcode(r.resolve(q("missing.example"))), calls)
 `)).toEqual(["3 []"]);
+  });
+
+  test("tries IPv4 platform resolvers before IPv6 when IPv6 is unavailable", async () => {
+    expect(await python(String.raw`
+def exchange(server, query, timeout, tcp):
+    calls.append(server)
+    return None if ":" in server else reply(query, 3)
+r = dns.Resolver(upstreams=lambda: dns.DEFAULT_UPSTREAMS, exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
+print(dns.rcode(r.resolve(q("missing.example"))), calls)
+`)).toEqual(["3 ['8.8.8.8']"]);
   });
 
   test("a new resolver set drops answers cached under the old one", async () => {
@@ -186,18 +197,51 @@ print("after rewrite", dns.rcode(r.resolve(q("api.openai.com"))))
 `)).toEqual(["same write 0", "a day later 2", "after rewrite 2"]);
   });
 
-  test("a hung exchange cannot hold a query past its budget", async () => {
+  test("queued exchanges are cancelled when their caller times out", async () => {
     expect(await python(String.raw`
-import time
-def hang(*args):
-    time.sleep(30)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=hang, doh_exchange=hang)
-start = time.monotonic()
-out = r.resolve(q("github.com"))
-print(dns.rcode(out), time.monotonic() - start < dns.QUERY_BUDGET + 0.5, flush=True)
-import os; os._exit(0)  # the hung workers would hold interpreter exit for 30 s
-`)).toEqual(["2 True"]);
+import concurrent.futures, threading
+started = threading.Event()
+release = threading.Event()
+def occupy():
+    started.set()
+    release.wait()
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+    dns._POOL = pool
+    running = pool.submit(occupy)
+    assert started.wait(10)
+    try:
+        print(dns.bounded(lambda: calls.append("abandoned"), 0.001))
+    finally:
+        release.set()
+    running.result(timeout=10)
+    pool.submit(lambda: None).result(timeout=10)
+print(calls)
+`)).toEqual(["None", "[]"]);
   });
+
+  test("a blocked exchange cannot hold a query indefinitely", async () => {
+    expect(await python(String.raw`
+import threading
+release = threading.Event()
+def hang(*args):
+    release.wait()
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=hang, doh_exchange=hang)
+result = []
+done = threading.Event()
+def resolve():
+    try:
+        result.append(r.resolve(q("github.com")))
+    finally:
+        done.set()
+thread = threading.Thread(target=resolve, daemon=True)
+thread.start()
+completed = done.wait(15)  # Failure watchdog; the injected clock test checks the budget.
+release.set()
+thread.join(timeout=15)
+assert completed and not thread.is_alive()
+print(dns.rcode(result[0]))
+`)).toEqual(["2"]);
+  }, 35_000);
 
   test("a reply for another question is discarded", async () => {
     expect(await python(String.raw`
