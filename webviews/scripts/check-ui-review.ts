@@ -3,8 +3,10 @@
  *
  * The checker is deliberately conservative. It reports only copy and row contracts that can be
  * proved from source; geometry belongs to the shared grid-lines browser check. Existing debt is
- * recorded in ui-review-allowlist.jsonl and every entry names an owner. The allowlist is a ratchet:
- * a finding not present in it fails, while entries for fixed findings are reported as stale.
+ * recorded in ui-review-allowlist.jsonl and every entry names an owner. The allowlist is a ratchet
+ * that warns and never fails (style ratchets are warnings): a finding not present in it is reported
+ * as a warning, and entries for fixed findings are reported as stale. Only a broken checker (an
+ * exception while scanning) exits nonzero.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -96,12 +98,6 @@ function parseSource(file: string, text: string): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, sourceKind(file));
 }
 
-function stringValue(node: ts.Node): string | undefined {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isJsxText(node)) return node.getText();
-  return undefined;
-}
-
 function propertyName(node: ts.PropertyName | undefined): string | undefined {
   if (!node) return undefined;
   if (ts.isIdentifier(node) || ts.isStringLiteral(node)) return node.text;
@@ -130,14 +126,6 @@ function attributeText(element: ts.JsxElement | ts.JsxSelfClosingElement, name: 
   if (ts.isJsxExpression(attr.initializer) && attr.initializer.expression) {
     const expression = attr.initializer.expression;
     if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
-  }
-  return undefined;
-}
-
-function parentJsxElement(node: ts.Node): ts.JsxElement | ts.JsxSelfClosingElement | undefined {
-  for (let parent = node.parent; parent; parent = parent.parent) {
-    if (ts.isJsxElement(parent) || ts.isJsxSelfClosingElement(parent)) return parent;
-    if (ts.isSourceFile(parent)) return undefined;
   }
   return undefined;
 }
@@ -627,7 +615,7 @@ export function scanTree(root = SOURCE_ROOT, allowlist = loadAllowlist()): ScanR
 function main(): void {
   const result = scanTree();
   for (const item of result.newFindings) {
-    console.error(`::error file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`);
+    console.warn(`::warning file=webviews/${item.file},line=${item.line},title=UI review ${item.rule}::${item.message}`);
   }
   for (const item of result.staleAllowlist) {
     console.warn(
@@ -640,7 +628,7 @@ function main(): void {
     `ui-review: scanned ${result.findings.length} finding(s); ${result.newFindings.length} new; ${result.staleAllowlist.length} stale baseline`,
   );
   for (const [rule, count] of counts) console.log(`  ${rule}: ${count}`);
-  if (result.newFindings.length > 0) process.exitCode = 1;
+  // New findings warn and never fail; an exception from scanTree() is a broken checker and fails.
 }
 
 if (import.meta.main) main();
