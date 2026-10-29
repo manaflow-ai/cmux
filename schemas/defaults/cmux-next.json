@@ -1790,7 +1790,7 @@
     "tunable-source.CmuxNextApp/Control/DebugWindowSnapshot.swift:visibleWebViews": "6872a8889cfbc94ffaf420d6f190f7a1d1cf0f2413ed22156f3332ff2118dd76",
     "tunable-source.CmuxNextApp/Control/DebugWindowSnapshot.swift:window": "97e540c0583eda3f17f790880dfdd62cb6b5ebe085cc0c8a08678c65a7ca6bda",
     "tunable-source.CmuxNextApp/Control/DebugWindowsControl.swift:methods": "1d6e72244d77995c52b7cf6292aba699ebb3494c1a2207ac9062917b4729f89f",
-    "tunable-source.CmuxNextApp/Control/DebugWindowsControl.swift:restoreFields": "cac4c9c71b9d840166c2aa75a3ecdac1bf78269cf2ea932eccc7383ae05a256c",
+    "tunable-source.CmuxNextApp/Control/DebugWindowsControl.swift:restoreFields": "ed3fd9980e8d4fe471c08dd3421569d64c7c4e930dc8acd0ab00ad1d067029d6",
     "tunable-source.CmuxNextApp/Control/ErrorJournalControl.swift:json": "19c7f416cec1c2be71ebd5458b7633acd1d83ad0a3a2fda87658f47c63634aad",
     "tunable-source.CmuxNextApp/Control/ExtensionControl.swift:report": "b160fdeb4d998d8a39048ae6d837368fbb776ef242581fee5c60b6cc4e9a4665",
     "tunable-source.CmuxNextApp/Control/GhosttyDiagnosticsControl.swift:json": "d85b776a823674a43e29d33c08f9a8a14d81a6e517df98330e0175c7e1add91b",
