@@ -369,10 +369,7 @@ fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {
         ),
         (
             "the alias's opt-out",
-            [
-                ("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("hosts")),
-                ("CMUX_ENABLE_FEATURES", unset),
-            ],
+            [("CMUX_TUI_TERMINAL_HOST_MODEL", Path::new("hosts")), ("CMUX_ENABLE_FEATURES", unset)],
             false,
         ),
         (
@@ -1255,3 +1252,6 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+#[path = "holder_terminals/shell_idle.rs"]
+mod shell_idle;
