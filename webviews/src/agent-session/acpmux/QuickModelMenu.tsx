@@ -5,19 +5,36 @@ import { isModelRouterKind } from "./routerKinds";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { useOpenSide } from "../../ui/openSide";
-import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
+import {
+  useNativePopup,
+  type NativePopupDescription,
+  type NativePopupEvent,
+  type NativePopupRow,
+} from "../../ui/nativePopup";
 import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenuFallback } from "./QuickModelMenuFallback";
 
 import { usePopupHost } from "../../ui/UiProvider";
 import { searchGroups, twinRows, type QuickMenu, type QuickModel } from "./QuickModelMenuFallback";
 export { searchGroups, twinRows } from "./QuickModelMenuFallback";
-export type { QuickMenu, QuickMenuExtras, QuickModel, QuickFamily, QuickFamilies, QuickSearchField, QuickProviderLook, QuickSearchGroups, QuickSearchGroup } from "./QuickModelMenuFallback";
+export type {
+  QuickMenu,
+  QuickMenuExtras,
+  QuickModel,
+  QuickFamily,
+  QuickFamilies,
+  QuickSearchField,
+  QuickProviderLook,
+  QuickSearchGroups,
+  QuickSearchGroup,
+} from "./QuickModelMenuFallback";
 
 const LONG_LIST = 8;
 const FILTER_ROWS = 9;
-const rowValue = (model: Pick<QuickModel, "family" | "id">) => JSON.stringify([model.family, model.id]);
-const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) => !!model.offers?.some((offer) => offer.id === current);
+const rowValue = (model: Pick<QuickModel, "family" | "id">) =>
+  JSON.stringify([model.family, model.id]);
+const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
+  !!model.offers?.some((offer) => offer.id === current);
 type QuickProps = React.ComponentProps<typeof QuickModelMenuFallback>;
 
 /** The browser gallery mounts its explicit fallback; an app host mounts only native descriptors. */
@@ -29,11 +46,21 @@ export function QuickModelMenu(props: QuickProps) {
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
 function NativeQuickModelMenu({
-  open, onOpenChange, trigger, chip, menu, onMore, children,
+  open,
+  onOpenChange,
+  trigger,
+  chip,
+  menu,
+  onMore,
+  children,
 }: QuickProps) {
   const t = useT();
   const newTab = useContext(OnNewTab);
-  const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
+  const {
+    open: sideOpen,
+    setOpen: setSideOpen,
+    side,
+  } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, auth, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
@@ -48,7 +75,8 @@ function NativeQuickModelMenu({
     setWasOpen(open);
     if (open) {
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
-      setQuery(""); setMoreFor(undefined);
+      setQuery("");
+      setMoreFor(undefined);
     }
   }
   const search = menu.search;
@@ -58,34 +86,55 @@ function NativeQuickModelMenu({
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
   const look = menu.searchField ?? "always";
-  const listed = look !== "long" ? 0 : families ? (shown ? shown.models.length + shown.more.length : 0) : (search?.find("").length ?? 0);
-  const showField = !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
+  const listed =
+    look !== "long"
+      ? 0
+      : families
+        ? shown
+          ? shown.models.length + shown.more.length
+          : 0
+        : (search?.find("").length ?? 0);
+  const showField =
+    !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groupLook = menu.searchGroups ?? "harness";
   const groups = useMemo(
-    () => (found && families && groupLook === "harness" ? searchGroups(found, families.list) : undefined),
+    () =>
+      found && families && groupLook === "harness" ? searchGroups(found, families.list) : undefined,
     [found, families, groupLook],
   );
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
-    : (found ?? (!families ? models.map((model) => ({ ...model, family: "" })) : (shown?.models ?? [])));
+    : (found ??
+      (!families ? models.map((model) => ({ ...model, family: "" })) : (shown?.models ?? [])));
   const railTabs = useMemo(() => {
     if (!families || !groups?.length) return families?.list ?? [];
     const matched = new Set(groups.map((group) => group.id));
     return families.list.filter((family) => matched.has(family.id));
   }, [families, groups]);
-  const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
+  const twins = useMemo(
+    () => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])),
+    [groups, found],
+  );
   const providerLook = menu.providers ?? "row";
-  const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
-  const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
-  const runningRow = onChatTab ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current)) : undefined;
+  const currentValue = families
+    ? rowValue({ family: families.current ?? "", id: current ?? "" })
+    : (current ?? "");
+  const valueOf = (model: Pick<QuickModel, "family" | "id">) =>
+    families ? rowValue(model) : model.id;
+  const runningRow = onChatTab
+    ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current))
+    : undefined;
   const runningProvider = runningRow?.offers?.find((offer) => offer.id === current)?.provider;
   // Identifiers are short, stable across updates, and distinct even when a provider offer also
   // appears in the primary list. The native host requires uniqueness across the entire tree.
   const ids = useRef(new Map<string, string>());
   const idFor = (key: string) => {
     let id = ids.current.get(key);
-    if (!id) { id = `row-${ids.current.size}`; ids.current.set(key, id); }
+    if (!id) {
+      id = `row-${ids.current.size}`;
+      ids.current.set(key, id);
+    }
     return id;
   };
   const actions = new Map<string, (event: NativePopupEvent) => void>();
@@ -98,97 +147,348 @@ function NativeQuickModelMenu({
     else if (!families) menu.onModel(row.id);
     else families.onPick(row);
   };
-  const action = (key: string, label: string, run: (event: NativePopupEvent) => void, extra: Partial<NativePopupRow> = {}): NativePopupRow => {
+  const action = (
+    key: string,
+    label: string,
+    run: (event: NativePopupEvent) => void,
+    extra: Partial<NativePopupRow> = {},
+  ): NativePopupRow => {
     const id = idFor(key);
     if (!extra.disabled) actions.set(id, run);
     return { id, kind: "action", label, ...extra };
   };
-  const closeThen = (run: () => void) => () => { onOpenChange(false); run(); };
-  const providerRows = (choice: QuickModel, scope: string): NativePopupRow[] => (choice.offers ?? []).map((offer) =>
-    action(`${scope}:offer:${rowValue(offer)}`, offer.provider, () => pickRow(offer), { checked: valueOf(offer) === currentValue, disabled: offer.disabled }),
-  );
-  const modelRows = (choices: readonly QuickModel[], scope: string, numbered = false): NativePopupRow[] => choices.flatMap((choice, index) => {
-    const key = `${scope}:${rowValue(choice)}`;
-    const detail = [groups ? undefined : choice.harness, choice.hint ?? choice.provider, choice.tag, twins.has(choice) ? choice.id : undefined].filter(Boolean).join(" · ");
-    const row = action(key, choice.name, () => pickRow(choice), {
-      checked: valueOf(choice) === currentValue, disabled: choice.disabled,
-      ...(detail ? { description: detail } : {}),
-      ...(!newTab && !query && numbered && index < FILTER_ROWS && valueOf(choice) !== currentValue ? { shortcut: String(index + 1) } : {}),
+  const closeThen = (run: () => void) => () => {
+    onOpenChange(false);
+    run();
+  };
+  const providerRows = (choice: QuickModel, scope: string): NativePopupRow[] =>
+    (choice.offers ?? []).map((offer) =>
+      action(`${scope}:offer:${rowValue(offer)}`, offer.provider, () => pickRow(offer), {
+        checked: valueOf(offer) === currentValue,
+        disabled: offer.disabled,
+      }),
+    );
+  const modelRows = (
+    choices: readonly QuickModel[],
+    scope: string,
+    numbered = false,
+  ): NativePopupRow[] =>
+    choices.flatMap((choice, index) => {
+      const key = `${scope}:${rowValue(choice)}`;
+      const detail = [
+        groups ? undefined : choice.harness,
+        choice.hint ?? choice.provider,
+        choice.tag,
+        twins.has(choice) ? choice.id : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const row = action(key, choice.name, () => pickRow(choice), {
+        checked: valueOf(choice) === currentValue,
+        disabled: choice.disabled,
+        ...(detail ? { description: detail } : {}),
+        ...(!newTab && !query && numbered && index < FILTER_ROWS && valueOf(choice) !== currentValue
+          ? { shortcut: String(index + 1) }
+          : {}),
+      });
+      if (choice.offers?.length && providerLook === "submenu")
+        return [{ ...row, kind: "submenu", children: providerRows(choice, key) }];
+      if (choice.offers?.length && providerLook === "expanded")
+        return [{ ...row, kind: "section" }, ...providerRows(choice, key)];
+      return [row];
     });
-    if (choice.offers?.length && providerLook === "submenu") return [{ ...row, kind: "submenu", children: providerRows(choice, key) }];
-    if (choice.offers?.length && providerLook === "expanded") return [{ ...row, kind: "section" }, ...providerRows(choice, key)];
-    return [row];
-  });
   const visibleRows: NativePopupRow[] = groups
-    ? groups.flatMap((group) => [{ kind: "section" as const, id: idFor(`group:${group.id}`), label: group.name }, ...modelRows(group.rows, `group:${group.id}`)])
+    ? groups.flatMap((group) => [
+        { kind: "section" as const, id: idFor(`group:${group.id}`), label: group.name },
+        ...modelRows(group.rows, `group:${group.id}`),
+      ])
     : modelRows(rows, "models", true);
-  if (!visibleRows.length) visibleRows.push({ kind: "text", id: "empty", label: query ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query }) : (shown?.note ?? t("picker.noMatches")) });
-  if (!query && shown?.note && shown.logIn) visibleRows.push(action("login", t("harness.logIn"), closeThen(shown.logIn)));
-  if (forkTab) visibleRows.splice(0, visibleRows.length, action("fork", t("picker.forkTo", { harness: forkTab.name }), closeThen(() => families?.onFork?.(forkTab.id)), { disabled: !families?.forkReady }));
+  if (!visibleRows.length)
+    visibleRows.push({
+      kind: "text",
+      id: "empty",
+      label: query
+        ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
+        : (shown?.note ?? t("picker.noMatches")),
+    });
+  if (!query && shown?.note && shown.logIn)
+    visibleRows.push(action("login", t("harness.logIn"), closeThen(shown.logIn)));
+  if (forkTab)
+    visibleRows.splice(
+      0,
+      visibleRows.length,
+      action(
+        "fork",
+        t("picker.forkTo", { harness: forkTab.name }),
+        closeThen(() => families?.onFork?.(forkTab.id)),
+        { disabled: !families?.forkReady },
+      ),
+    );
   if (!query && !forkTab && inlineMore && shown?.more.length) {
-    visibleRows.push(action("more-toggle", t("picker.moreModels"), () => setMoreFor(moreShown ? undefined : tab), { keepOpen: true }));
+    visibleRows.push(
+      action("more-toggle", t("picker.moreModels"), () => setMoreFor(moreShown ? undefined : tab), {
+        keepOpen: true,
+      }),
+    );
     if (moreShown) visibleRows.push(...modelRows(shown.more, "more"));
   }
-  if (!query && !forkTab && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length)) visibleRows.push(action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)));
+  if (
+    !query &&
+    !forkTab &&
+    inlineMore &&
+    families?.onAddHarness &&
+    (moreShown || !shown?.more.length)
+  )
+    visibleRows.push(
+      action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)),
+    );
   if (!query && onChatTab && effort && levels.length > 1) {
     const selected = levels.findIndex((choice) => choice.id === effort.current);
     const recommended = levels.findIndex((choice) => choice.recommended);
     const children = effort.slider
-      ? [action("effort-slider", t("effort.title"), (event) => {
-          const index = Number(event.value);
-          if (event.value !== undefined && Number.isInteger(index) && levels[index]) effort.onPick(levels[index].id);
-        }, { kind: "slider", value: String(selected >= 0 ? selected : Math.max(0, recommended)), minimum: 0, maximum: levels.length - 1, step: 1, keepOpen: true })]
-      : levels.map((choice) => action(`effort:${choice.id}`, choice.name, closeThen(() => effort.onPick(choice.id)), { checked: choice.id === effort.current }));
-    visibleRows.push({ kind: "submenu", id: "effort", label: t("effort.title"), value: level?.name, children });
+      ? [
+          action(
+            "effort-slider",
+            t("effort.title"),
+            (event) => {
+              const index = Number(event.value);
+              if (event.value !== undefined && Number.isInteger(index) && levels[index])
+                effort.onPick(levels[index].id);
+            },
+            {
+              kind: "slider",
+              value: String(selected >= 0 ? selected : Math.max(0, recommended)),
+              minimum: 0,
+              maximum: levels.length - 1,
+              step: 1,
+              keepOpen: true,
+            },
+          ),
+        ]
+      : levels.map((choice) =>
+          action(
+            `effort:${choice.id}`,
+            choice.name,
+            closeThen(() => effort.onPick(choice.id)),
+            { checked: choice.id === effort.current },
+          ),
+        );
+    visibleRows.push({
+      kind: "submenu",
+      id: "effort",
+      label: t("effort.title"),
+      value: level?.name,
+      children,
+    });
   }
-  if (!query && runningRow?.offers?.length && providerLook === "row") visibleRows.push({ kind: "submenu", id: "model-providers", label: t("picker.provider"), value: runningProvider, children: providerRows({ ...runningRow, family: families?.current ?? "" }, "running-provider") });
-  if (!query && !forkTab && !inlineMore && families && (shown?.more.length || families.onAddHarness)) visibleRows.push({ kind: "submenu", id: "more-models", label: t("picker.moreModels"), children: [...modelRows(shown?.more ?? [], "more"), ...(families.onAddHarness ? [action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness))] : [])] });
-  if (!query && !families) visibleRows.push(action("more-full", t("picker.moreModels"), closeThen(() => onMore())));
+  if (!query && runningRow?.offers?.length && providerLook === "row")
+    visibleRows.push({
+      kind: "submenu",
+      id: "model-providers",
+      label: t("picker.provider"),
+      value: runningProvider,
+      children: providerRows(
+        { ...runningRow, family: families?.current ?? "" },
+        "running-provider",
+      ),
+    });
+  if (
+    !query &&
+    !forkTab &&
+    !inlineMore &&
+    families &&
+    (shown?.more.length || families.onAddHarness)
+  )
+    visibleRows.push({
+      kind: "submenu",
+      id: "more-models",
+      label: t("picker.moreModels"),
+      children: [
+        ...modelRows(shown?.more ?? [], "more"),
+        ...(families.onAddHarness
+          ? [action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness))]
+          : []),
+      ],
+    });
+  if (!query && !families)
+    visibleRows.push(
+      action(
+        "more-full",
+        t("picker.moreModels"),
+        closeThen(() => onMore()),
+      ),
+    );
   if (!query && onChatTab && account) {
     const list = accounts.list;
-    const choices = list?.accounts.filter((choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || isModelRouterKind(choice.kind) || choice.id === list.active) ?? [];
+    const choices =
+      list?.accounts.filter(
+        (choice) =>
+          choice.kind === "direct-subscription" ||
+          choice.kind === "direct-api-key" ||
+          isModelRouterKind(choice.kind) ||
+          choice.id === list.active,
+      ) ?? [];
     const accountRows: NativePopupRow[] = [];
-    if (accounts.switchFailed) accountRows.push({ kind: "text", id: "provider-refused", label: t("picker.accountSwitchFailed") });
-    if (!list) accountRows.push({ kind: "text", id: "provider-status", label: accounts.failed ? t("picker.accountFailed") : "…" });
+    if (accounts.switchFailed)
+      accountRows.push({
+        kind: "text",
+        id: "provider-refused",
+        label: t("picker.accountSwitchFailed"),
+      });
+    if (!list)
+      accountRows.push({
+        kind: "text",
+        id: "provider-status",
+        label: accounts.failed ? t("picker.accountFailed") : "…",
+      });
     else {
-      const pickAccount = (id: string | null) => closeThen(() => { if ((list.active ?? null) !== id) accounts.pick(id); });
-      accountRows.push(action("provider-default", t("picker.harnessLogin"), pickAccount(null), { checked: !list.active, disabled: list.scope !== "chat" && !!list.active }));
+      const pickAccount = (id: string | null) =>
+        closeThen(() => {
+          if ((list.active ?? null) !== id) accounts.pick(id);
+        });
+      accountRows.push(
+        action("provider-default", t("picker.harnessLogin"), pickAccount(null), {
+          checked: !list.active,
+          disabled: list.scope !== "chat" && !!list.active,
+        }),
+      );
       const direct = choices.filter((choice) => !isModelRouterKind(choice.kind));
       const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
-      const routes = (items: typeof choices) => items.map((choice) => action(`provider:${choice.id}`, choice.name, pickAccount(choice.id), { checked: choice.id === list.active }));
+      const routes = (items: typeof choices) =>
+        items.map((choice) =>
+          action(`provider:${choice.id}`, choice.name, pickAccount(choice.id), {
+            checked: choice.id === list.active,
+          }),
+        );
       if (menu.routeLayout === "grouped") {
         accountRows.push(...routes(direct));
-        if (routers.length) accountRows.push({ kind: "section", id: "provider-group", label: t("picker.provider") }, ...routes(routers));
+        if (routers.length)
+          accountRows.push(
+            { kind: "section", id: "provider-group", label: t("picker.provider") },
+            ...routes(routers),
+          );
       } else accountRows.push(...routes(choices));
-      if (!choices.length) accountRows.push({ kind: "text", id: "provider-hint", label: t("picker.accountHint") });
+      if (!choices.length)
+        accountRows.push({ kind: "text", id: "provider-hint", label: t("picker.accountHint") });
     }
-    const accountValue = accounts.switchFailed ? t("picker.accountSwitchFailed") : list ? (list.accounts.find((choice) => choice.id === list.active)?.name ?? t("picker.harnessLogin")) : undefined;
-    if (menu.routeLayout === "inline") visibleRows.push({ kind: "section", id: "providers", label: t("picker.provider") }, ...accountRows);
-    else visibleRows.push({ kind: "submenu", id: "providers", label: t("picker.provider"), value: accountValue, children: accountRows });
+    const accountValue = accounts.switchFailed
+      ? t("picker.accountSwitchFailed")
+      : list
+        ? (list.accounts.find((choice) => choice.id === list.active)?.name ??
+          t("picker.harnessLogin"))
+        : undefined;
+    if (menu.routeLayout === "inline")
+      visibleRows.push(
+        { kind: "section", id: "providers", label: t("picker.provider") },
+        ...accountRows,
+      );
+    else
+      visibleRows.push({
+        kind: "submenu",
+        id: "providers",
+        label: t("picker.provider"),
+        value: accountValue,
+        children: accountRows,
+      });
   }
   const authLabel = auth && authText(auth.verdict, t);
   if (!query && authLabel) {
     visibleRows.push({ kind: "text", id: "auth-status", label: authLabel });
-    if (canSessionLogin(auth.verdict) && auth.onLogin) visibleRows.push(action("auth-login", t("harness.logIn"), closeThen(auth.onLogin)));
-    if (auth.onRefresh) visibleRows.push(action("auth-refresh", t("harnesses.checkAgain"), closeThen(auth.onRefresh)));
+    if (canSessionLogin(auth.verdict) && auth.onLogin)
+      visibleRows.push(action("auth-login", t("harness.logIn"), closeThen(auth.onLogin)));
+    if (auth.onRefresh)
+      visibleRows.push(
+        action("auth-refresh", t("harnesses.checkAgain"), closeThen(auth.onRefresh)),
+      );
   }
-  if (!query && onChatTab && fast) visibleRows.push(action("fast", t("picker.fastMode"), (event) => fast.onChange(event.value === undefined ? !fast.checked : event.value === "true"), { kind: "toggle", checked: fast.checked, keepOpen: true }));
-  const rail = families && railTabs.map((family) => action(`family:${family.id}`, family.name, () => {
-    if (family.launch && !family.note) { onOpenChange(false); families.onLaunch?.(family.id); }
-    else { setTab(family.id); setQuery(""); setMoreFor(undefined); }
-  }, { ...(family.mark ? { icon: family.mark } : {}), checked: family.id === tab, keepOpen: true, disabled: family.launch && families.forkReady === false }));
+  if (!query && onChatTab && fast)
+    visibleRows.push(
+      action(
+        "fast",
+        t("picker.fastMode"),
+        (event) =>
+          fast.onChange(event.value === undefined ? !fast.checked : event.value === "true"),
+        { kind: "toggle", checked: fast.checked, keepOpen: true },
+      ),
+    );
+  const rail =
+    families &&
+    railTabs.map((family) =>
+      action(
+        `family:${family.id}`,
+        family.name,
+        () => {
+          if (family.launch && !family.note) {
+            onOpenChange(false);
+            families.onLaunch?.(family.id);
+          } else {
+            setTab(family.id);
+            setQuery("");
+            setMoreFor(undefined);
+          }
+        },
+        {
+          ...(family.mark ? { icon: family.mark } : {}),
+          checked: family.id === tab,
+          keepOpen: true,
+          disabled: family.launch && families.forkReady === false,
+        },
+      ),
+    );
   const model: NativePopupDescription = {
-    side, align: "start", width: families ? 310 : 280, rows: visibleRows,
+    side,
+    align: "start",
+    width: families ? 310 : 280,
+    rows: visibleRows,
     ...(rail ? { rail, railWidth: 44 } : {}),
-    ...(showField ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}),
-    ...(menu.update ? { footer: [action("update", t("harness.update"), closeThen(menu.update.run), { description: menu.update.text })] } : {}),
+    ...(showField
+      ? { search: { id: "query", value: query, placeholder: t("picker.search") } }
+      : {}),
+    ...(menu.update
+      ? {
+          footer: [
+            action("update", t("harness.update"), closeThen(menu.update.run), {
+              description: menu.update.text,
+            }),
+          ],
+        }
+      : {}),
   };
   const onEvent = (event: NativePopupEvent) => {
-    if (event.type === "search" && event.id === "query") { setQuery(event.value ?? ""); return; }
+    if (event.type === "search" && event.id === "query") {
+      setQuery(event.value ?? "");
+      return;
+    }
     if (event.type === "pick" || event.type === "change") actions.get(event.id ?? "")?.(event);
   };
-  useNativePopup({ open, model, anchor: () => trigger.current, onEvent, onDismiss: () => onOpenChange(false) });
-  return <button type="button" ref={trigger} className="acpmux-picker-button" data-menu={chip["data-menu"]} aria-label={chip.label} title={chip.title} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); onOpenChange(true); } }}>{children}</button>;
+  useNativePopup({
+    open,
+    model,
+    anchor: () => trigger.current,
+    onEvent,
+    onDismiss: () => onOpenChange(false),
+  });
+  return (
+    <button
+      type="button"
+      ref={trigger}
+      className="acpmux-picker-button"
+      data-menu={chip["data-menu"]}
+      aria-label={chip.label}
+      title={chip.title}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onClick={() => onOpenChange(!open)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          onOpenChange(true);
+        }
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function useAccountList(open: boolean, account: QuickMenu["account"]) {
@@ -224,7 +524,9 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
       old
         ? {
             ...old,
-            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
+            ...(routeId
+              ? { active: routeId, scope: "chat" }
+              : { active: undefined, scope: undefined }),
           }
         : old,
     );

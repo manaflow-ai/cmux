@@ -20,7 +20,12 @@ import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
-import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
+import {
+  CHAT_COLUMN,
+  MODEL_PICKER_MIN_HEIGHT,
+  pickerHeightBounds,
+  type ModelPickerProps,
+} from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { groupVariants } from "./modelVariants";
@@ -30,7 +35,13 @@ import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
-import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
+import { usePopupHost } from "../../ui/UiProvider";
+import {
+  useNativePopup,
+  type NativePopupDescription,
+  type NativePopupEvent,
+  type NativePopupRow,
+} from "../../ui/nativePopup";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
@@ -93,14 +104,18 @@ type ModelChoice = {
 /// bracketed note becomes its `tag`.
 function groupChoices(choices: readonly ModelChoice[], model: string | undefined): ModelChoice[] {
   return groupVariants(choices, model).map(({ model: grouped, name, tag, offers }): ModelChoice => {
-    const choice = grouped.unavailable ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped) : grouped;
+    const choice = grouped.unavailable
+      ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped)
+      : grouped;
     const provider = offers.find((offer) => offer.model === choice)?.provider;
     return {
       ...choice,
       name,
       ...(tag ? { tag } : {}),
       ...(provider ? { provider } : {}),
-      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+      ...(offers.length > 1
+        ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) }
+        : {}),
     };
   });
 }
@@ -121,7 +136,10 @@ function quickSections(
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(entry: HarnessChoice | undefined): {
+  latest: ModelChoice[];
+  older: ModelChoice[];
+} {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
@@ -156,7 +174,10 @@ function shownSections(
   const sections = sectionsFor(entry);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
-  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+  return {
+    latest: [...sections.latest, runs],
+    older: sections.older.filter((choice) => choice !== runs),
+  };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -233,7 +254,8 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       continue;
     }
     existing.ids.push(entry.id);
-    if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
+    if (entry.acpmuxHarness && !existing.acpmuxHarness)
+      existing.acpmuxHarness = entry.acpmuxHarness;
     existing.pickable ||= entry.pickable;
     const known = new Set(existing.models.map((model) => model.id));
     for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
@@ -253,7 +275,12 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
-      ? { offers: model.offers.map((offer) => ({ ...quickRow(family, offer), provider: offer.provider })) }
+      ? {
+          offers: model.offers.map((offer) => ({
+            ...quickRow(family, offer),
+            provider: offer.provider,
+          })),
+        }
       : {}),
   };
 }
@@ -274,14 +301,18 @@ function railByHarness(
     if (seen.has(family.id)) return [];
     seen.add(family.id);
     const folded = profiles[family.id] ?? [];
-    const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
+    const named = folded.map((profile) => ({
+      ...profile,
+      name: launchName(family.name, profile.name, profile.id),
+    }));
     // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
     // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
     const names = ensureDistinctLaunchNames(
       distinguishLaunchNames(distinguishLaunchNames(named, launchSuffix), readableLaunchId),
     );
     const currentName =
-      names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
+      names.find((profile) => profile.id === family.id)?.name ??
+      launchName(family.name, family.name, family.id);
     const alternate = launchSuffix(family.id) && family.id !== running;
     const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
@@ -297,7 +328,16 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
-        return [{ id: profile.id, name: profile.name, mark: family.mark, models: [], more: [], launch: true }];
+        return [
+          {
+            id: profile.id,
+            name: profile.name,
+            mark: family.mark,
+            models: [],
+            more: [],
+            launch: true,
+          },
+        ];
       }),
     ];
   });
@@ -309,7 +349,8 @@ function distinguishLaunchNames(
 ): PickerProfile[] {
   return profiles.map((profile) => {
     const suffix = suffixFor(profile.id);
-    return suffix && profiles.some((other) => other.id !== profile.id && other.name === profile.name)
+    return suffix &&
+      profiles.some((other) => other.id !== profile.id && other.name === profile.name)
       ? { ...profile, name: `${profile.name} (${suffix})` }
       : profile;
   });
@@ -391,6 +432,7 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
+  const nativeHost = usePopupHost()?.native;
   const {
     catalog,
     harness,
@@ -413,7 +455,10 @@ export function ModelPicker(props: ModelPickerProps) {
     fork,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
-  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
+  const loginFor = useCallback(
+    (entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id],
+    [signedOut],
+  );
   const t = useT();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
@@ -496,7 +541,10 @@ export function ModelPicker(props: ModelPickerProps) {
     ? undefined
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
   // A typed query searches every harness; without one, the rail's tab picks the list.
-  const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
+  const vocabulary = useMemo(
+    () => effortWords(harnesses.flatMap((entry) => entry.models)),
+    [harnesses],
+  );
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
@@ -511,14 +559,25 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+          for (const model of choicesFor(entry))
+            if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [
+    favorites,
+    harnesses,
+    olderOpen,
+    parsed,
+    searching,
+    selected,
+    starredView,
+    runsHere,
+    loginFor,
+  ]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
@@ -553,7 +612,8 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     // A host event is authoritative: let its fetching, updated, or error state replace
     // the local promise state from the previous click.
-    if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
+    if (catalogRefresh?.status && catalogRefresh.status !== "idle")
+      setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   // Opens on the side that has room for the picker's floor, not only for what it measures before its
   // models load: above the chip, else below it (Leo: the menu stays inside the page). On New Tab,
@@ -589,7 +649,12 @@ export function ModelPicker(props: ModelPickerProps) {
     const ResizeObserverImpl = globalThis.ResizeObserver;
     if (typeof matchMedia !== "function" || typeof ResizeObserverImpl !== "function") return;
     const quantize = () => {
-      quantizePickerRail(rail, container, viewport, matchMedia.call(globalThis, "(max-width: 407px)").matches);
+      quantizePickerRail(
+        rail,
+        container,
+        viewport,
+        matchMedia.call(globalThis, "(max-width: 407px)").matches,
+      );
     };
     quantize();
     const observer = new ResizeObserverImpl(quantize);
@@ -655,9 +720,10 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive(
       Math.max(
         0,
-        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined).latest.findIndex(
-          (model) => model.id === props.model,
-        ),
+        shownSections(
+          current,
+          current?.ids.includes(harness ?? "") ? props.model : undefined,
+        ).latest.findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
@@ -677,7 +743,7 @@ export function ModelPicker(props: ModelPickerProps) {
       setAddChosen(false);
     }
   };
-  useEscapeCloses(open, close);
+  useEscapeCloses(open && !nativeHost, close);
 
   useLayoutEffect(() => {
     // The anchor's first render is hidden while it measures. Browsers cannot focus search
@@ -687,13 +753,17 @@ export function ModelPicker(props: ModelPickerProps) {
   // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
   // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
   // viewport, so a pointer hover (always over a visible row) never scrolls.
-  const activeRowId = visible[active] ? modelRowId(visible[active].id) : onAddRow ? addRowId : undefined;
+  const activeRowId = visible[active]
+    ? modelRowId(visible[active].id)
+    : onAddRow
+      ? addRowId
+      : undefined;
   useLayoutEffect(() => {
     if (!open || !activeRowId) return;
     menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
   }, [open, activeRowId]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || nativeHost) return;
     const away = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
@@ -706,7 +776,7 @@ export function ModelPicker(props: ModelPickerProps) {
       document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
-  }, [close, open]);
+  }, [close, open, nativeHost]);
   useEffect(
     () =>
       registerPicker(modelText, () =>
@@ -785,7 +855,10 @@ export function ModelPicker(props: ModelPickerProps) {
     const groupOf = new Map<ModelChoice, ModelChoice>();
     for (const entry of new Set(found.map((match) => match.entry))) {
       const matches = found.filter((match) => match.entry === entry).map((match) => match.model);
-      for (const group of groupChoices(matches, entry.ids.includes(harness ?? "") ? props.model : undefined))
+      for (const group of groupChoices(
+        matches,
+        entry.ids.includes(harness ?? "") ? props.model : undefined,
+      ))
         for (const member of group.offers ?? [group])
           groupOf.set(
             matches.find((match) => match.id === member.id)!,
@@ -799,7 +872,9 @@ export function ModelPicker(props: ModelPickerProps) {
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
       // The harness travels on its own: the menu heads each harness's matches with its name.
-      const hint = [model.provider, effort, typed.fast ? fastText : undefined].filter(Boolean).join(" · ");
+      const hint = [model.provider, effort, typed.fast ? fastText : undefined]
+        .filter(Boolean)
+        .join(" · ");
       const row = quickRow(entry.id, model);
       return [
         {
@@ -834,7 +909,8 @@ export function ModelPicker(props: ModelPickerProps) {
           entry.ids.includes(harness ?? "") ? props.model : undefined,
         ).map((model) => row(entry, model)),
       );
-    if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
+    if (starred.length)
+      list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
       const { shown, more } = signedOutHere
@@ -852,7 +928,12 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    const rail = railByHarness(
+      list,
+      harness ?? current?.id,
+      props.profiles,
+      (id) => signedOut?.[id] !== undefined,
+    );
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
@@ -992,7 +1073,13 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const move = (step: number) => {
     // Moving down past the last row opens the More models fold, so keys reach every model.
-    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1 && active !== addRow) {
+    if (
+      step > 0 &&
+      !olderOpen &&
+      olderCount > 0 &&
+      active >= visible.length - 1 &&
+      active !== addRow
+    ) {
       setOlderOpen(true);
       setActive(visible.length);
       return;
@@ -1042,7 +1129,8 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   // The chip draws one harness: the one a switch to another harness is starting, else the running
   // one. Browsing another harness in the open menu changes neither its mark nor its name.
-  const switchingTo = switching && !current?.ids.includes(switching.harness) ? switching : undefined;
+  const switchingTo =
+    switching && !current?.ids.includes(switching.harness) ? switching : undefined;
   // A folder profile draws its own mark (its icon or family), as its rail tab does, not its id's.
   // A switch draws its target's mark: the one it names, else that harness's own.
   const switchingMark = switchingTo
@@ -1057,7 +1145,8 @@ export function ModelPicker(props: ModelPickerProps) {
   // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
   const chipName = switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness);
   const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
-  const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
+  const chipFamily =
+    rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
   const chipTitle = rowChip?.title ?? chipLabel;
   const sessionAuthText = authText(props.sessionAuth, t);
   const sessionAuthChip = authChipText(props.sessionAuth, t);
@@ -1088,7 +1177,9 @@ export function ModelPicker(props: ModelPickerProps) {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
-    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
+    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn]
+      .filter(Boolean)
+      .join(" · ");
   };
   const chipFace = (
     <>
@@ -1128,22 +1219,47 @@ export function ModelPicker(props: ModelPickerProps) {
   const nativeRows: NativePopupRow[] = [];
   const nativeIds = useRef(new Map<string, string>());
   const nativeModelId = (model: ModelChoice) => {
-    const key = JSON.stringify([owners.get(model)?.id, model.id]);
+    return nativeId(JSON.stringify([owners.get(model)?.id, model.id]));
+  };
+  const nativeId = (key: string) => {
     let id = nativeIds.current.get(key);
-    if (!id) { id = `model-${nativeIds.current.size}`; nativeIds.current.set(key, id); }
+    if (!id) {
+      id = `model-${nativeIds.current.size}`;
+      nativeIds.current.set(key, id);
+    }
     return id;
   };
   if (selectedOther && selected && loginFor(selected) !== undefined) {
-    nativeRows.push({ kind: "text", id: "signed-out", label: t("harnesses.signedOut"), disabled: true });
+    nativeRows.push({
+      kind: "text",
+      id: "signed-out",
+      label: t("harnesses.signedOut"),
+      disabled: true,
+    });
     if (onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
   } else if (selectedOther && selected && blockedProfile(selected)) {
-    nativeRows.push({ kind: "text", id: "blocked", label: selected.folder?.diagnostic ?? unavailableText, disabled: true });
+    nativeRows.push({
+      kind: "text",
+      id: "blocked",
+      label: selected.folder?.diagnostic ?? unavailableText,
+      disabled: true,
+    });
   } else if (selectedOther && selected?.folder?.state === "needs-enable") {
     nativeRows.push({ kind: "action", id: "enable", label: t("harness.enable") });
   } else if (selectedOther && selected?.folder && visible.length === 0 && !query) {
     nativeRows.push({ kind: "action", id: "new-chat", label: t("picker.newChat") });
   } else if (visible.length === 0) {
-    nativeRows.push({ kind: "text", id: "empty", label: starredView && !query ? t("picker.starredEmpty") : !query && selected && selected.models.length === 0 ? t("picker.noModels") : noMatchesText, disabled: true });
+    nativeRows.push({
+      kind: "text",
+      id: "empty",
+      label:
+        starredView && !query
+          ? t("picker.starredEmpty")
+          : !query && selected && selected.models.length === 0
+            ? t("picker.noModels")
+            : noMatchesText,
+      disabled: true,
+    });
   } else {
     for (const [index, model] of visible.entries()) {
       const owner = owners.get(model);
@@ -1151,55 +1267,145 @@ export function ModelPicker(props: ModelPickerProps) {
         kind: "action",
         id: nativeModelId(model),
         label: model.name,
-        ...(searching && (parsed.effort || parsed.fast) ? { value: [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined].filter(Boolean).join(" · ") } : {}),
+        ...(searching && (parsed.effort || parsed.fast)
+          ? {
+              value: [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                .filter(Boolean)
+                .join(" · "),
+            }
+          : {}),
         ...(model.unavailable ? { disabled: true, disabledReason: unavailableText } : {}),
         checked: model.id === props.model && owner?.ids.includes(harness ?? ""),
         shortcut: !searching && index < 9 ? String(index + 1) : undefined,
-        actions: [{ id: `favorite:${nativeModelId(model)}`, label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"), keepOpen: true }],
+        actions: [
+          {
+            id: `favorite:${nativeModelId(model)}`,
+            label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"),
+            keepOpen: true,
+          },
+        ],
       });
     }
   }
-  if (olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0)) nativeRows.push({ kind: "action", id: "more-models", label: t("picker.moreModels"), value: String(olderCount), keepOpen: true });
+  if (olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0))
+    nativeRows.push({
+      kind: "action",
+      id: "more-models",
+      label: t("picker.moreModels"),
+      value: String(olderCount),
+      keepOpen: true,
+    });
   if (onAddAgent) nativeRows.push({ kind: "action", id: "add-harness", label: addHarnessText });
-  const nativeRail: NativePopupRow[] | undefined = harnessFixed ? undefined : [
-    { kind: "action", id: `harness:${STARRED}`, label: starredText, checked: starredView, keepOpen: true },
-    ...railHarnesses.map((entry) => ({ kind: "action" as const, id: `harness:${entry.id}`, label: entry.name, ...(entry.mark ? { icon: entry.mark } : {}), checked: entry.id === selectedHarness, keepOpen: true, disabled: !entry.pickable || blockedProfile(entry) })),
-  ];
+  const nativeRail: NativePopupRow[] | undefined = harnessFixed
+    ? undefined
+    : [
+        {
+          kind: "action",
+          id: nativeId(`harness:${STARRED}`),
+          label: starredText,
+          checked: starredView,
+          keepOpen: true,
+        },
+        ...railHarnesses.map((entry) => ({
+          kind: "action" as const,
+          id: nativeId(`harness:${entry.id}`),
+          label: entry.name,
+          ...(entry.mark ? { icon: entry.mark } : {}),
+          checked: entry.id === selectedHarness,
+          keepOpen: true,
+          disabled: !entry.pickable || blockedProfile(entry),
+        })),
+      ];
   if (sessionAuthText) {
     nativeRows.push({ kind: "text", id: "auth-status", label: sessionAuthText });
-    if (canSessionLogin(props.sessionAuth) && props.onSessionLogin) nativeRows.push({ kind: "action", id: "auth-login", label: t("harness.logIn") });
-    if (props.onSessionAuthRefresh) nativeRows.push({ kind: "action", id: "auth-refresh", label: t("harnesses.checkAgain") });
+    if (canSessionLogin(props.sessionAuth) && props.onSessionLogin)
+      nativeRows.push({ kind: "action", id: "auth-login", label: t("harness.logIn") });
+    if (props.onSessionAuthRefresh)
+      nativeRows.push({ kind: "action", id: "auth-refresh", label: t("harnesses.checkAgain") });
   }
   const footer: NativePopupRow[] = [];
-  if (catalogRefresh) footer.push({ kind: "action", id: "refresh-catalog", label: t("picker.refreshCatalog"), description: refreshTitle, disabled: refreshStatus === "fetching", keepOpen: true });
-  if (update) footer.push({ kind: "action", id: "update", label: t("harness.update"), description: updateText }, { kind: "action", id: "skip-update", label: t("harness.skipVersion"), keepOpen: true });
-  if (fastMode) footer.push({ kind: "toggle", id: "fast", label: fastMode.name, checked: fastModeIsOn(fastMode), keepOpen: true });
+  if (catalogRefresh)
+    footer.push({
+      kind: "action",
+      id: "refresh-catalog",
+      label: t("picker.refreshCatalog"),
+      description: refreshTitle,
+      disabled: refreshStatus === "fetching",
+      keepOpen: true,
+    });
+  if (update)
+    footer.push(
+      { kind: "action", id: "update", label: t("harness.update"), description: updateText },
+      { kind: "action", id: "skip-update", label: t("harness.skipVersion"), keepOpen: true },
+    );
+  if (fastMode)
+    footer.push({
+      kind: "toggle",
+      id: "fast",
+      label: fastMode.name,
+      checked: fastModeIsOn(fastMode),
+      keepOpen: true,
+    });
   const nativeModel: NativePopupDescription = {
-    side: newTab ? "bottom" : "top", align: "start", width: 310, title: modelText, rows: nativeRows,
+    side: newTab ? "bottom" : "top",
+    align: "start",
+    width: 310,
+    title: modelText,
+    rows: nativeRows,
     ...(nativeRail ? { rail: nativeRail, railWidth: 44 } : {}),
     search: { id: "query", value: query, placeholder: searchText },
     ...(footer.length ? { footer } : {}),
   };
   const onNativeEvent = (event: NativePopupEvent) => {
     const id = event.id ?? "";
-    if (event.type === "search" && id === "query") { setQuery(event.value ?? ""); setActive(0); setAddChosen(false); return; }
+    if (event.type === "search" && id === "query") {
+      setQuery(event.value ?? "");
+      setActive(0);
+      setAddChosen(false);
+      return;
+    }
     if (event.type !== "pick" && event.type !== "change") return;
-    if (id.startsWith("model:")) { const model = visible.find((candidate) => nativeModelId(candidate) === id); if (model) selectModel(model); }
-    else if (id.startsWith("favorite:")) { const model = visible.find((candidate) => `favorite:${nativeModelId(candidate)}` === id); if (model) toggleFavorite(model.id); }
-    else if (id.startsWith("harness:")) { const next = id.slice("harness:".length); if (next === STARRED) showTab(STARRED, -1); else { const index = railHarnesses.findIndex((entry) => entry.id === next); showTab(next, index); } }
-    else if (id === "more-models") { setOlderOpen((value) => !value); }
-    else if (id === "add-harness") addHarness();
-    else if (id === "login" && selected) { onLogIn?.(selected.acpmuxHarness ?? selected.id, loginFor(selected)!); close(); }
-    else if (id === "enable" && selected) enableProfile(selected);
-    else if (id === "new-chat" && selected) { onHarness?.(selected.id); close(); }
-    else if (id === "update") { update?.update(); close(); }
-    else if (id === "skip-update") update?.skip();
+    const model = visible.find((candidate) => nativeModelId(candidate) === id);
+    const railEntry = railHarnesses.find((entry) => nativeId(`harness:${entry.id}`) === id);
+    if (model) {
+      if (!model.unavailable) selectModel(model);
+    } else if (id.startsWith("favorite:")) {
+      const model = visible.find((candidate) => `favorite:${nativeModelId(candidate)}` === id);
+      if (model) toggleFavorite(model.id);
+    } else if (id === nativeId(`harness:${STARRED}`)) showTab(STARRED, -1);
+    else if (railEntry && railEntry.pickable && !blockedProfile(railEntry))
+      showTab(railEntry.id, railHarnesses.indexOf(railEntry));
+    else if (id === "more-models") {
+      setOlderOpen((value) => !value);
+    } else if (id === "add-harness") addHarness();
+    else if (id === "login" && selected) {
+      onLogIn?.(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
+      close();
+    } else if (id === "enable" && selected) enableProfile(selected);
+    else if (id === "new-chat" && selected) {
+      onHarness?.(selected.id);
+      close();
+    } else if (id === "update") {
+      update?.update();
+      close();
+    } else if (id === "skip-update") update?.skip();
     else if (id === "refresh-catalog") refreshCatalog();
-    else if (id === "auth-login") { props.onSessionLogin?.(); close(); }
-    else if (id === "auth-refresh") { props.onSessionAuthRefresh?.(); close(); }
-    else if (id === "fast") fastMode?.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values));
+    else if (id === "auth-login") {
+      props.onSessionLogin?.();
+      close();
+    } else if (id === "auth-refresh") {
+      props.onSessionAuthRefresh?.();
+      close();
+    } else if (id === "fast")
+      fastMode?.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values));
   };
-  const { available: nativeAvailable } = useNativePopup({ open, model: nativeModel, anchor: () => trigger.current, onEvent: onNativeEvent, onDismiss: () => close(false) });
+  const { available: nativeAvailable } = useNativePopup({
+    open,
+    model: nativeModel,
+    anchor: () => trigger.current,
+    onEvent: onNativeEvent,
+    onDismiss: () => close(false),
+  });
   return (
     <span
       ref={root}
@@ -1243,8 +1449,8 @@ export function ModelPicker(props: ModelPickerProps) {
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
                 current && loginFor(current) === undefined
-                  ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
-                      quickRow("", model),
+                  ? quickSections(current, props.model, (model) => !model.unavailable).shown.map(
+                      (model) => quickRow("", model),
                     )
                   : [],
               current: props.model,
@@ -1305,7 +1511,13 @@ export function ModelPicker(props: ModelPickerProps) {
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
             keyboard={(event) => {
-              if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              if (
+                open &&
+                event.key.length === 1 &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey
+              ) {
                 event.preventDefault();
                 setQuery(event.key);
                 setActive(0);
@@ -1376,7 +1588,9 @@ export function ModelPicker(props: ModelPickerProps) {
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}
                     aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                    aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
+                    aria-disabled={
+                      blockedProfile(entry) || loginFor(entry) !== undefined || undefined
+                    }
                     data-signed-out={loginFor(entry) !== undefined || undefined}
                     disabled={!entry.pickable}
                     data-harness-index={index}
@@ -1423,12 +1637,20 @@ export function ModelPicker(props: ModelPickerProps) {
               <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
+                  <button
+                    type="button"
+                    className="acpmux-mp-auth-action"
+                    onClick={() => props.onSessionLogin?.()}
+                  >
                     {t("harness.logIn")}
                   </button>
                 )}
                 {props.onSessionAuthRefresh && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
+                  <button
+                    type="button"
+                    className="acpmux-mp-auth-action"
+                    onClick={props.onSessionAuthRefresh}
+                  >
                     {t("harnesses.checkAgain")}
                   </button>
                 )}
@@ -1478,7 +1700,9 @@ export function ModelPicker(props: ModelPickerProps) {
               <PickerOptionList
                 id={`${menuId}-models`}
                 className="acpmux-mp-models"
-                aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
+                aria-label={
+                  searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)
+                }
               >
                 {!searching && !starredView && folderProfiles.length > 0 && (
                   <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
@@ -1496,14 +1720,18 @@ export function ModelPicker(props: ModelPickerProps) {
                         }}
                       >
                         <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
-                        {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
+                        {folderNote(entry) && (
+                          <span className="acpmux-quick-value">{folderNote(entry)}</span>
+                        )}
                       </button>
                     ))}
                   </div>
                 )}
                 {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>
-                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                    <div className={emptyNote}>
+                      {t("harness.signedOut", { agent: selected.name })}
+                    </div>
                     {loginFor(selected) && onLogIn && (
                       <button
                         type="button"
@@ -1513,7 +1741,9 @@ export function ModelPicker(props: ModelPickerProps) {
                           close();
                         }}
                       >
-                        <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                        <span className="acpmux-menu-label flex-1 truncate">
+                          {t("harness.logIn")}
+                        </span>
                       </button>
                     )}
                   </>
@@ -1552,13 +1782,18 @@ export function ModelPicker(props: ModelPickerProps) {
                   </div>
                 ) : (
                   visible.map((model, index) => (
-                    <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
+                    <div
+                      className="group relative flex items-center"
+                      key={`${owners.get(model)?.id}:${model.id}`}
+                    >
                       <PickerOption
                         type="button"
                         id={modelRowId(model.id)}
                         data-key={`model:${model.id}`}
                         selected={index === active}
-                        aria-checked={model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")}
+                        aria-checked={
+                          model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")
+                        }
                         className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${model.id === props.model ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
                         onPointerEnter={() => setActive(index)}
                         disabled={Boolean(model.unavailable)}
@@ -1566,9 +1801,15 @@ export function ModelPicker(props: ModelPickerProps) {
                         active={index === active}
                       >
                         {(starredView || searching) && (
-                          <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
+                          <AgentMark
+                            agent={owners.get(model)?.mark ?? owners.get(model)?.id}
+                            size={14}
+                            reserve
+                          />
                         )}
-                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
+                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">
+                          {model.name}
+                        </span>
                         {searching && (parsed.effort || parsed.fast) && (
                           <span className="acpmux-mp-combo flex-none text-detail text-dim">
                             {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
@@ -1576,7 +1817,9 @@ export function ModelPicker(props: ModelPickerProps) {
                               .join(" · ")}
                           </span>
                         )}
-                        {model.unavailable && <span className="flex-none text-detail text-dim">{unavailableText}</span>}
+                        {model.unavailable && (
+                          <span className="flex-none text-detail text-dim">{unavailableText}</span>
+                        )}
                       </PickerOption>
                       <span className="pointer-events-none absolute right-1.5 flex items-center">
                         <button
@@ -1589,11 +1832,12 @@ export function ModelPicker(props: ModelPickerProps) {
                         >
                           <StarGlyph filled={favorites.has(model.id)} size={13} />
                         </button>
-                        {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
-                          <span className="grid size-6 place-items-center text-muted">
-                            <CheckIcon />
-                          </span>
-                        )}
+                        {model.id === props.model &&
+                          owners.get(model)?.ids.includes(harness ?? "") && (
+                            <span className="grid size-6 place-items-center text-muted">
+                              <CheckIcon />
+                            </span>
+                          )}
                       </span>
                     </div>
                   ))
@@ -1605,9 +1849,14 @@ export function ModelPicker(props: ModelPickerProps) {
                     aria-expanded={olderOpen}
                     onClick={() => setOlderOpen((value) => !value)}
                   >
-                    <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.moreModels")}</span>
+                    <span className="acpmux-menu-label min-w-0 flex-1 truncate">
+                      {t("picker.moreModels")}
+                    </span>
                     <span className="flex-none text-detail text-dim">{olderCount}</span>
-                    <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
+                    <span
+                      className={`flex-none ${olderOpen ? "rotate-180" : ""}`}
+                      aria-hidden="true"
+                    >
                       <ChevronIcon />
                     </span>
                   </button>
@@ -1628,7 +1877,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       selected={onAddRow}
                       active={onAddRow}
                     >
-                      <span className="acpmux-menu-label min-w-0 flex-1 truncate">{addHarnessText}</span>
+                      <span className="acpmux-menu-label min-w-0 flex-1 truncate">
+                        {addHarnessText}
+                      </span>
                     </PickerOption>
                   </>
                 )}
@@ -1662,7 +1913,11 @@ export function ModelPicker(props: ModelPickerProps) {
                   type="button"
                   className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
                   aria-pressed={fastModeIsOn(fastMode)}
-                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
+                  onClick={() =>
+                    fastMode.onPick(
+                      nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values),
+                    )
+                  }
                 >
                   <span>{fastMode.name}</span>
                   <span className="text-detail text-dim">
