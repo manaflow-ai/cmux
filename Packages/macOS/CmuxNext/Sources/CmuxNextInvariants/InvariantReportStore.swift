@@ -31,10 +31,10 @@ public struct InvariantReportStore: Sendable {
     public func write(for violation: InvariantViolation, _ make: @escaping @Sendable () -> Data) {
         guard let directory, let url = url(for: violation) else { return }
         runner.postFiles(.bestEffort, shutdown: .continueOnShutdown) {
-            let files = FileManager.default
+            let files = FileManager.checked
             do {
                 try files.createDirectory(at: directory, withIntermediateDirectories: true)
-                try make().write(to: url, options: .atomic)
+                try make().blockingWrite(to: url, options: .atomic)
                 let existing = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                     .filter { $0.pathExtension == "json" }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
