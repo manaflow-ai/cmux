@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+pub const ir_sha256 = "7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -424,6 +424,24 @@ pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
     role: wire.Field([]const u8) = .absent,
+};
+
+pub const ColumnSide = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
 };
 
 pub const ConversationChange = struct {
@@ -7292,6 +7310,7 @@ pub const NewPaneRightRequest = struct {
     pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    side: wire.Field(ColumnSide) = .absent,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -7319,6 +7338,7 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "side", .since = 12, .capability = "column-left-v1" },
                 .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
