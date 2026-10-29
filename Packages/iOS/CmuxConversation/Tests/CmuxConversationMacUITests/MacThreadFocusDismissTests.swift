@@ -25,6 +25,11 @@ extension MacKeyboardSelectionTests {
             for sub in view.subviews { if let hit = find(sub) { return hit } }
             return nil
         }
+        // Off screen nothing runs a layout pass; place the rows as a window would.
+        focus.subviews.forEach { $0.needsLayout = true }
+        focus.layoutSubtreeIfNeeded()
+        func layOut(_ view: NSView) { view.needsLayout = true; view.layoutSubtreeIfNeeded(); view.subviews.forEach(layOut) }
+        layOut(focus)
         return find(focus)
     }
 
@@ -44,6 +49,7 @@ extension MacKeyboardSelectionTests {
         let bubble = row.contentFrame
         // Same height as the bubble, well to its right: blurred backdrop.
         let beside = CGPoint(x: min(row.bounds.width - 20, bubble.maxX + 120), y: bubble.midY)
+        #expect(row.bounds.width > bubble.maxX + 40)
         #expect(!bubble.contains(beside))
         lab.click(try labPoint(beside, from: row, in: lab), count: 1)
         #expect(lab.controller.replyTarget == nil)
