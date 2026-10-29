@@ -387,6 +387,22 @@ import Testing
         #expect(!busy.spinner.isHidden && busy.more.isHidden, "a running change shows the spinner in its place")
     }
 
+    /// A capture showed "lane-v…" with room to spare and a spinner on idle rows once they were in a
+    /// window (the spinner shows itself while it spins).
+    @Test func theRowShowsItsWholeNameAndNoSpinnerWhenIdleInAWindow() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
+        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"))
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        let needed = ceil(try #require(view.name.cell).cellSize.width)
+        #expect(view.name.frame.width >= needed, "the name has room: it is not cut short")
+        #expect(view.spinner.isHiddenOrHasHiddenAncestor, "an idle row shows no spinner in a window")
+        let busy = Self.rowView(Fake.machine("m_2", "gpu-west"), busy: true)
+        window.contentView?.addSubview(busy)
+        #expect(!busy.spinner.isHidden)
+    }
+
     @Test func theMoreButtonOpensTheActionsMenu() {
         var made = 0
         let menu = NSMenu()

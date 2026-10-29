@@ -65,7 +65,7 @@ final class JoinedMachineRowView: NSView {
     }
 
     private let icon = NSImageView()
-    private let name = NSTextField(labelWithString: "")
+    let name = NSTextField(labelWithString: "")
     private let healthMark = NSImageView()
     private let caption = NSTextField(labelWithString: "")
     private let text = NSView()
@@ -101,7 +101,6 @@ final class JoinedMachineRowView: NSView {
             present(menu, button)
             self?.pointerHover?.refresh()
         }
-        spinner.spin(true)
         text.setAccessibilityElement(true)
         text.setAccessibilityRole(.staticText)
         for view in [icon, name, healthMark, caption, more, spinner, add] as [NSView] {
@@ -154,10 +153,12 @@ final class JoinedMachineRowView: NSView {
         spinner.frame = NSRect(x: x + (side - spin) / 2, y: (b.height - spin) / 2, width: spin, height: spin)
         let textX = icon.frame.maxX + inset
         text.frame = NSRect(x: textX, y: 0, width: max(0, x - inset - textX), height: b.height)
-        let nameHeight = ceil(name.intrinsicContentSize.height), captionHeight = ceil(caption.intrinsicContentSize.height)
+        // The cell's size: a truncating label's intrinsic width is not its text's width.
+        let nameSize = name.cell?.cellSize ?? .zero, captionSize = caption.cell?.cellSize ?? .zero
+        let nameHeight = ceil(nameSize.height), captionHeight = ceil(captionSize.height)
         let top = (b.height + nameHeight + captionHeight + 1) / 2
         let dot = snapshot?.health == nil ? 0 : JoinedMachineMetrics.healthSize
-        let nameWidth = min(ceil(name.intrinsicContentSize.width), max(0, text.frame.width - (dot > 0 ? dot + Metrics.space2 : 0)))
+        let nameWidth = min(ceil(nameSize.width), max(0, text.frame.width - (dot > 0 ? dot + Metrics.space2 : 0)))
         name.frame = NSRect(x: 0, y: top - nameHeight, width: nameWidth, height: nameHeight)
         healthMark.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: name.frame.midY - dot / 2, width: dot, height: dot)
         caption.frame = NSRect(x: 0, y: name.frame.minY - 1 - captionHeight, width: text.frame.width, height: captionHeight)
@@ -188,7 +189,8 @@ final class JoinedMachineRowView: NSView {
     /// The more button shows on hover and while its menu is open; a running change shows the spinner.
     private func reveal() {
         let busy = snapshot?.busy ?? false
-        spinner.isHidden = !busy
+        // The spinner shows and hides itself with its spin.
+        spinner.spin(busy)
         more.isHidden = busy
         more.alphaValue = hovered || heldOpen ? 1 : 0
     }
