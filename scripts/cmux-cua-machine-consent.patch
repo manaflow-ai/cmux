@@ -68,7 +68,7 @@ index f9ae8ca5a..d246c4a3e 100644
      #[repr(C)]
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
 new file mode 100644
-index 000000000..45abe1403
+index 000000000..147014baf
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
 @@ -0,0 +1,455 @@
@@ -95,7 +95,7 @@ index 000000000..45abe1403
 +use std::time::Duration;
 +
 +use serde_json::{json, Value};
-+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
++use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 +
 +use crate::machine_consent::{ConsentSource, ConsentStatus, Surface};
 +
@@ -543,10 +543,10 @@ index 8409fa7ec..46633cf08 100644
  pub mod protocol;
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
 new file mode 100644
-index 000000000..552bc035d
+index 000000000..7a842bd17
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
-@@ -0,0 +1,1354 @@
+@@ -0,0 +1,1357 @@
 +//! Machine-join consent at the cmux-cua execution boundary.
 +//!
 +//! A machine joined to a cmux team (acpmux `host join`) gives the team no
@@ -1606,7 +1606,10 @@ index 000000000..552bc035d
 +        assert!(!unjoined.status().consent_required);
 +        let default = default_source().status();
 +        if cfg!(feature = "cmux-host-consent") {
-+            assert_eq!(default, ConsentStatus::UNKNOWN);
++            // No host attached: joined, nothing granted (and, with the host
++            // source, refusals say the host is unverified).
++            assert!(default.consent_required && !default.screen && !default.control);
++            assert_eq!(default.host_unverified, cfg!(unix));
 +        }
 +    }
 +
