@@ -22,6 +22,7 @@ import {
   readIdleProviderState,
   recordIdlePauseAt,
   repairRunningAfterLostIdlePause,
+  restoreIdlePauseBudget,
   resumeAfterLostIdlePause,
 } from "./workflows";
 
@@ -218,6 +219,8 @@ function settleLeftClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number
     console.info("[VM] idle pause claim left by an earlier run", JSON.stringify({ vmId: vm.id, claim, provider: state ?? "unreadable" }));
     if (state === null) return "unknown" as const;
     if (state === "running" && vm.status === "running") {
+      // The pause may have zeroed a Go machine's budget before the provider call failed.
+      yield* restoreIdlePauseBudget(vm, providerVmId);
       yield* recordObservation(vm, providerVmId, null, checkedAt, vmIdleEpochFromRow(vm));
       return "unknown" as const;
     }

@@ -666,8 +666,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   replace; after any other write (Off, activity, the reconciler) it keeps the claim and the
   next run tries again. If that resume woke the machine but its running write lost, the next
   run finds the provider running under a paused row and repairs the row to running through a
-  fenced write, which settles the claim. A person's Pause on a row already marked paused still
-  records their decision.
+  fenced write, which settles the claim. Every recovery that leaves the machine running (that
+  repair, a compensation that finds it already running, a refused pause the next run clears)
+  first gives a Go machine back the runtime budget the idle pause zeroed, as the re-pause race
+  does. A person's Pause on a row already marked paused still records their decision.
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and

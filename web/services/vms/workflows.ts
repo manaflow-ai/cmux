@@ -4219,7 +4219,9 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
     if (state === null) {
       return yield* Effect.fail(new VmProviderOperationError({ provider: vm.provider, operation: `getStatus(${providerVmId})`, cause: new Error("idle pause read-back failed") }));
     }
+    // resumeUntilRunning gives a Go machine its budget back; a machine already running still has the zero the pause set.
     if (state === "paused") yield* resumeUntilRunning(providers, vm, providerVmId);
+    else yield* restoreIdlePauseBudget(vm, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
     if (recorded) {
       if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
@@ -4247,9 +4249,25 @@ export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: st
     if (isPersonsPauseSince(vm, claimEpoch)) return false;
     const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     if (epoch === null) return false;
+    yield* restoreIdlePauseBudget(vm, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
     if (recorded && vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
     return recorded;
+  });
+}
+
+/**
+ * The idle pause zeroes a Go machine's runtime budget before the provider
+ * pause, and Freestyle keeps an exhausted limit with automatic restart off.
+ * Any recovery that leaves the machine running gives the remaining allowance
+ * back first, through the same best-effort path as the re-pause race
+ * (restoreGoRuntimeBudget). Other plans set no budget.
+ */
+export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Effect.Effect<void, never, VmProviderGateway> {
+  return Effect.gen(function* () {
+    if (vm.billingPlanId !== "go") return;
+    const providers = yield* VmProviderGateway;
+    yield* restoreGoRuntimeBudget(providers, vm, providerVmId);
   });
 }
 
