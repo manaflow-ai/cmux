@@ -23,9 +23,10 @@ struct CmxIPLiteral: Equatable, Sendable {
     /// IPv4, standard IPv6 text (never `127.1`, a hex quad or a `%scope`
     /// suffix); nil for anything else.
     init?(_ text: String, family: Family) {
-        // Darwin's inet_pton accepts a `%zone` suffix (`fe80::1%en0`) and drops
-        // it; glibc's refuses it. Refuse it here so the parse is the same strict
-        // one on both. A caller that takes a scoped literal strips the zone first.
+        // Darwin's inet_pton accepts a `%zone` suffix and writes the interface
+        // index into a link-local address's bytes (`fe80::1%en0` becomes
+        // fe80:7::1); glibc's refuses it. Refuse it here so the parse is the same
+        // strict one on both. A caller that takes a scoped literal strips the zone first.
         guard !text.utf8.contains(UInt8(ascii: "%")) else { return nil }
         var parsed = family.zeroBytes
         // SAFETY: inet_pton writes sizeof(struct in_addr) (4) bytes for AF_INET and
