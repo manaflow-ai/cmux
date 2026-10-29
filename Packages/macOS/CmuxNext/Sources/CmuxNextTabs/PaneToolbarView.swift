@@ -336,7 +336,11 @@ public final class PaneToolbarView: NSView {
     }
 
     @objc private func pressNative(_ sender: TitlebarBandButton) {
-        guard nativeItems.indices.contains(sender.tag) else { return }
+        guard sender.isEnabled, nativeItems.indices.contains(sender.tag) else { return }
+        if !nativeItems[sender.tag].menu.isEmpty {
+            sender.performPressMenu()
+            return
+        }
         onNativeTool?(nativeItems[sender.tag].id, nil)
     }
 }

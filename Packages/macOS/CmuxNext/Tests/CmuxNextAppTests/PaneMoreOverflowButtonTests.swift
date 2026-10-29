@@ -22,6 +22,26 @@ import Testing
         #expect(view.moreButton.accessibilityLabel() == view.moreButton.label)
     }
 
+    @Test func nativeToolKeyboardActivationOpensItsMenu() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review",
+                                  menu: [PaneTabRowMenuItem(id: "open", label: "Open")])
+        view.show(more: false, lit: false, nativeItems: [tool])
+        var invoked: [String] = []
+        view.onNativeTool = { id, _ in invoked.append(id) }
+        let button = try #require(view.nativeButtons.first)
+        var shown: NSMenu?
+        button.presentMenu = { menu, _ in shown = menu }
+        // Space sends the button's target/action; it must open the same menu as a pointer press.
+        #expect(button.sendAction(button.action, to: button.target))
+        #expect(shown?.items.map(\.title) == ["Open"])
+        #expect(invoked.isEmpty)
+        let row = try #require(shown?.items.first)
+        let action = try #require(row.action)
+        #expect(NSApplication.shared.sendAction(action, to: row.target, from: row))
+        #expect(invoked == ["review"])
+    }
+
     @Test func aLitMenuDrawsInTheAccent() {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         view.show(more: true, lit: true)
