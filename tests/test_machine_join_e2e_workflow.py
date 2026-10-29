@@ -129,6 +129,10 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertLess(chown, useradd)
         self.assertLess(chmod, useradd)
         self.assertNotRegex(run[:useradd], r"(?m)^\s*chmod ")
+        # An empty home the user owns (no /etc/skel copy), made after the user exists.
+        self.assertIn("--no-create-home", run)
+        self.assertNotIn("--create-home --", run)
+        self.assertLess(useradd, run.index('sudo install -d -o "$user" -g "$user" -m 0700 "$base/home"'))
         self.assertIn('for start in "$base/home" "$base/bin/acpmux"', run)
         self.assertIn("8#022", run)
         self.assertIn("8#1000", run)

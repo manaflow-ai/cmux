@@ -121,9 +121,12 @@ jobs:
           # replace the binary: the base is root's, 0755, before the user exists.
           sudo chown root:root "$base"
           sudo chmod 0755 "$base"
-          sudo useradd --create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
+          # An empty home, not a copy of /etc/skel (hundreds of MB on some runner images): it holds only what
+          # acpmux writes, which the harness scans in full.
+          sudo useradd --no-create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
           uid="$(id -u "$user")"
           echo "uid=$uid" >> "$GITHUB_OUTPUT"
+          sudo install -d -o "$user" -g "$user" -m 0700 "$base/home"
           sudo install -d -o root -g root -m 0755 "$base/bin"
           sudo install -o root -g root -m 0755 cmux-tui/target/debug/acpmux "$base/bin/acpmux"
           # Every ancestor of the home and of the binary: owned by root or the user, no group or other
