@@ -26,7 +26,7 @@
 
 use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
-use crate::store::{EventRecord, RecordHead};
+use crate::store::RecordHead;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -300,6 +300,7 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::EventRecord;
 
     #[test]
     fn the_continuation_quotes_the_cut_prompt_and_its_steers() {
