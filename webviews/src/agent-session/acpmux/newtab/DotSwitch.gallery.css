@@ -1,7 +1,7 @@
 .dot-focus-fixture {
   --acpmux-composer-dim: var(--agent-muted);
   position: relative;
-  height: 200px;
+  height: 100vh;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
