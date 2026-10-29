@@ -39,4 +39,82 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         withExtendedLifetime(drafts) {}
     }
+
+    static func directory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// A relaunch: the page's text before it is handed the tab's kept draft (its empty editor, or
+    /// what the person typed while it loaded) never replaces that draft; once handed it, the page's
+    /// clear still clears.
+    @Test func aKeptDraftSurvivesTheLoadAndAClearStillClears() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+
+        let drafts = AgentUnsentDrafts(file: file)
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(model) { "tab-1" }
+        // (c) The page's empty text before it has the draft is no clear.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        // (a, b) Text typed before the draft reached the page joins it, after it.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed while loading"]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft\n\ntyped while loading")
+        // (d) From then on the page's text is the draft: deleting it clears it.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        withExtendedLifetime(drafts) {}
+    }
+
+    /// (c, d) Once the page was handed the draft (the tab's seed), an empty text is the person's clear.
+    @Test func aClearAfterTheSeedClears() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+
+        let drafts = AgentUnsentDrafts(file: file)
+        let seed = try #require(drafts.seed(for: "tab-1", session: nil))
+        #expect(await seed.take()?.draft == "the saved draft")
+        drafts.typed("the saved draft, edited", for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft, edited")
+        drafts.typed("", for: "tab-1")
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        // A send starts the chat's session: the tab's copy goes (acpmux keeps the chat's draft).
+        drafts.typed("next", for: "tab-1")
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(model) { "tab-1" }
+        _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+    }
+
+    /// A file this run cannot read is set aside, never replaced by an empty or partial one.
+    @Test func anUnreadableFileIsSetAsideNotOverwritten() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let corrupt = Data("{\"tab-1\": \"half a dra".utf8)
+        try corrupt.write(to: file)
+
+        let drafts = AgentUnsentDrafts(file: file)
+        // Nothing written yet: the file is as it was.
+        drafts.typed("", for: "tab-2")
+        #expect(try Data(contentsOf: file) == corrupt)
+        drafts.typed("new text", for: "tab-2")
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let aside = try #require(names.first { $0.contains("unreadable") })
+        #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
+    }
+
+    /// The merge keeps both texts once, and leaves a text that already holds the other as it is.
+    @Test func theMergeKeepsBothOnce() {
+        #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a") == "a\n\nb")
+        #expect(AgentUnsentDrafts.merged(typed: "a and more", kept: "a") == "a and more")
+        #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a\n\nb") == "a\n\nb")
+    }
 }

@@ -7273,6 +7273,12 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  // The host failed before its handshake: the chat view (its error card and composer) takes the
+  // New Tab page's place until a retry answers, then gives it back (`showNewTab`). What was typed
+  // goes along each way (the page's `onLeaveDraft`, `takeDraft`); before, it was dropped both ways.
+  const hostFailedEarly = useRef(false);
+  hostFailedEarly.current = !handshaken && hostError !== undefined;
+  const composerStoodIn = useRef(false);
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
