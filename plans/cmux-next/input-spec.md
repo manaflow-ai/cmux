@@ -93,6 +93,8 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 | W7 | The window that owns the keyboard (itself, its page window, panel or sheet) is `WindowManager.active`, and its context is the published one. |
 | W8 | Every shown pane shows its selected tab, and that tab is in the pane. |
 | W9 | The focused pane presents the targeted tab within a settle (monitor only: a window unsettled at a check and at its confirmation is stuck). |
+| W10 | Keys have a target ([focus-invariant.md](focus-invariant.md)): while cmux is active with a shown window, a window is key; the key cmux window's model targets something that takes keys (not nothing while it has panes, not a tab-less pane beside one with tabs). |
+| W11 | A focus expectation (a target that lands later) lands or is dropped within the creation hold plus a settle (2.2 s), counted from the end of the create's key hold ([focus-invariant.md](focus-invariant.md)). |
 
 A window whose focused pane does not present the targeted tab yet is unsettled: W1-W4 wait, and
 the monitor reports W9 when it stays so.
