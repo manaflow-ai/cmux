@@ -9,7 +9,7 @@
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
 import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
-import { imageSize, MAX_DECODE_PIXELS } from "../../agent-session/acpmux/composer/imageWork";
+import { imageSize, MAX_DECODE_PIXELS, MAX_UNSIZED_DECODE_BYTES } from "../../agent-session/acpmux/composer/imageWork";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 
@@ -298,22 +298,16 @@ async function imageFacts(file: File): Promise<Facts> {
       (size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height))
   )
     return {};
-  if (!size && file.type.toLowerCase() !== "image/heic") return {};
-  const bitmap = await createImageBitmap(
-    file,
-    size
-      ? undefined
-      : {
-          resizeWidth: PREVIEW_EDGE,
-          resizeHeight: PREVIEW_EDGE,
-          resizeQuality: "low",
-        },
-  ).catch(() => undefined);
+  const heic = file.type.toLowerCase() === "image/heic";
+  // Follow the shared unsized-image decode budget. This limits only optional preview work;
+  // the original is still hashed and uploaded in slices, regardless of its byte count.
+  if (!size && (!heic || file.size > MAX_UNSIZED_DECODE_BYTES)) return {};
+  const bitmap = await createImageBitmap(file).catch(() => undefined);
   if (!bitmap) return {};
   const facts = { width: bitmap.width, height: bitmap.height };
   const small = file.size <= PREVIEW_BYTES_LIMIT && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;
   const preview =
-    file.type === "image/gif" || small
+    file.type === "image/gif" || (small && !heic)
       ? undefined
       : await jpeg(bitmap, bitmap.width, bitmap.height, PREVIEW_EDGE, PREVIEW_BYTES_LIMIT).catch(() => undefined);
   bitmap.close();

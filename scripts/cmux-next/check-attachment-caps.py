@@ -60,7 +60,7 @@ RETAINED_BOUNDS = {
     },
     "webviews/src/pages/home-channels/attachmentService.ts": {
         "maxBytes": "Preview encoding budget; original upload is uncapped.",
-        "MAX_ATTACHMENT_BYTES": "Preview/legacy protocol budget; staged original upload is streamed separately.",
+        "MAX_UNSIZED_DECODE_BYTES": "Shared optional image-preview decode budget; original upload is uncapped.",
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",

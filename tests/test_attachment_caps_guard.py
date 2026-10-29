@@ -135,6 +135,11 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             "const MAX_ATTACHMENT_BYTES: u64 = 100000000;",
             1, "cmux-tui/crates/cmux-conversation/src/attachments.rs")
 
+    def test_optional_web_preview_budget_does_not_hide_original_admission(self):
+        self.check_source(
+            "const MAX_UNSIZED_DECODE_BYTES = 40000000; const MAX_ATTACHMENT_BYTES = 100000000;",
+            1, "webviews/src/pages/home-channels/attachmentService.ts")
+
     def test_retained_warm_cache_budget_has_a_reason(self):
         self.check_source("let maximumWarmBytes = 1024\n", 0,
                           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")

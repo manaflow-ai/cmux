@@ -142,23 +142,61 @@ describe("Channels attachments: any file", () => {
     expect(decodes).toBe(0);
   });
 
-  test("keeps a bounded HEIC preview fallback", async () => {
-    let options: unknown;
-    (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async (_file: Blob, next?: unknown) => {
-      options = next;
-      return { width: 720, height: 720, close() {} };
-    };
-    const file = new File([new Uint8Array([1, 2, 3])], "photo.heic", { type: "image/heic" });
-    const client = {
-      call: async (method: string, params: Record<string, unknown>) => {
-        if (method !== "cmux.home.attachmentUpload") throw new Error(`unexpected ${method}`);
-        if (params.op === "begin") return { upload: "u1", needs: ["original"] };
-        if (params.op === "chunk") return null;
-        if (params.op === "commit") return { stored: undefined };
-        throw new Error(`unexpected op ${String(params.op)}`);
-      },
-    };
-    await new AttachmentService(client as never).upload("conversation", file, () => {});
-    expect(options).toMatchObject({ resizeWidth: 720, resizeHeight: 720, resizeQuality: "low" });
+  test("non-square HEIC originals keep their dimensions and always get a compatible preview", async () => {
+    const previousDocument = globalThis.document;
+    try {
+      for (const [byteCount, width, height] of [
+        [100_000, 1600, 900],
+        [600_000, 600, 300],
+      ] as const) {
+        let closed = false;
+        const draws: number[][] = [];
+        (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async (
+          _file: Blob,
+          next?: ImageBitmapOptions,
+        ) => {
+          return {
+            width: next?.resizeWidth ?? width,
+            height: next?.resizeHeight ?? height,
+            close() {
+              closed = true;
+            },
+          };
+        };
+        globalThis.document = {
+          createElement: () => ({
+            width: 0,
+            height: 0,
+            getContext: () => ({ drawImage: (_image: unknown, ...rect: number[]) => draws.push(rect) }),
+            toBlob: (callback: BlobCallback) => callback(new Blob(["jpeg-preview"], { type: "image/jpeg" })),
+          }),
+        } as unknown as Document;
+        const file = new File([new Uint8Array(byteCount)], "photo.heic", { type: "image/heic" });
+        let declared: Record<string, unknown> = {};
+        const original: number[] = [];
+        const client = {
+          call: async (_method: string, params: Record<string, unknown>) => {
+            if (params.op === "begin") {
+              declared = params;
+              return { upload: "u1", needs: ["original", "preview"] };
+            }
+            if (params.op === "chunk") {
+              if (params.piece === "original") original.push(atob(params.data as string).length);
+              return null;
+            }
+            if (params.op === "commit") return { stored: undefined };
+            throw new Error(`unexpected op ${String(params.op)}`);
+          },
+        };
+        await new AttachmentService(client as never).upload("conversation", file, () => {});
+        expect(declared).toMatchObject({ width, height, byte_count: byteCount, mime_type: "image/heic" });
+        expect(declared.preview).toMatchObject({ mime_type: "image/jpeg" });
+        expect(original.reduce((sum, count) => sum + count, 0)).toBe(byteCount);
+        expect(draws[0]).toEqual([0, 0, Math.min(width, 720), Math.round(height * Math.min(1, 720 / width))]);
+        expect(closed).toBe(true);
+      }
+    } finally {
+      globalThis.document = previousDocument;
+    }
   });
 });
