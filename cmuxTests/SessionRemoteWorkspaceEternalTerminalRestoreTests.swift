@@ -53,7 +53,7 @@ struct SessionRemoteWorkspaceEternalTerminalRestoreTests {
             destination: "dev@example.com",
             port: 2222,
             identityFile: "/tmp/id with space",
-            sshOptions: ["ProxyJump=bastion"]
+            sshOptions: []
         )
         snapshot.eternalTerminalOptions = EternalTerminalOptions(serverPort: 2400, terminalPath: "/opt/et/etterminal")
 
@@ -67,9 +67,21 @@ struct SessionRemoteWorkspaceEternalTerminalRestoreTests {
         #expect(command.contains("/opt/et/etterminal"), "\(command)")
         #expect(command.contains("Port=2222"), "\(command)")
         #expect(command.contains(#"IdentityFile="/tmp/id with space""#), "\(command)")
-        #expect(command.contains("ProxyJump=bastion"), "\(command)")
         #expect(command.contains("dev@example.com"), "\(command)")
         #expect(!command.contains("mosh"), "\(command)")
+    }
+
+    @Test("restored explicit SSH route overrides use the SSH fallback")
+    func restoresExplicitRouteThroughSSH() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh, terminalTransport: .et, destination: "dev@example.com",
+            sshOptions: ["ProxyJump=bastion"]
+        )
+        let configuration = try #require(snapshot.workspaceConfiguration(preserveSSHOptions: true))
+        let command = try #require(configuration.terminalStartupCommand)
+        #expect(command.contains("ProxyJump=bastion"))
+        #expect(!command.contains("cmux_et_terminal_path="))
+        #expect(command.contains("exec /bin/sh"))
     }
 
     @Test("restores an ET snapshot without saved options through ET defaults")

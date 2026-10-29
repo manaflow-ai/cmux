@@ -111400,14 +111400,14 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: nakon --transport mora slijediti 'ssh' ili 'mosh'"
+            "state": "translated",
+            "value": "ssh: nakon --transport mora slijediti 'ssh', 'mosh' ili 'et'"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport skal efterfølges af 'ssh' eller 'mosh'"
+            "state": "translated",
+            "value": "ssh: --transport skal efterfølges af 'ssh', 'mosh' eller 'et'"
           }
         },
         "de": {
@@ -111436,8 +111436,8 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport deve essere seguito da 'ssh' o 'mosh'"
+            "state": "translated",
+            "value": "ssh: --transport deve essere seguito da 'ssh', 'mosh' o 'et'"
           }
         },
         "ja": {
@@ -111448,8 +111448,8 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh៖ --transport ត្រូវតែបន្តដោយ 'ssh' ឬ 'mosh'"
+            "state": "translated",
+            "value": "ssh៖ --transport ត្រូវតែបន្តដោយ 'ssh', 'mosh' ឬ 'et'"
           }
         },
         "ko": {
@@ -111460,44 +111460,44 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport må etterfølges av 'ssh' eller 'mosh'"
+            "state": "translated",
+            "value": "ssh: --transport må etterfølges av 'ssh', 'mosh' eller 'et'"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: po --transport należy podać 'ssh' albo 'mosh'"
+            "state": "translated",
+            "value": "ssh: po --transport należy podać 'ssh', 'mosh' albo 'et'"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport deve ser seguido por 'ssh' ou 'mosh'"
+            "state": "translated",
+            "value": "ssh: --transport deve ser seguido por 'ssh', 'mosh' ou 'et'"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: после --transport необходимо указать 'ssh' или 'mosh'"
+            "state": "translated",
+            "value": "ssh: после --transport необходимо указать 'ssh', 'mosh' или 'et'"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport ต้องตามด้วย 'ssh' หรือ 'mosh'"
+            "state": "translated",
+            "value": "ssh: --transport ต้องตามด้วย 'ssh', 'mosh' หรือ 'et'"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: --transport seçeneğini 'ssh' veya 'mosh' izlemelidir"
+            "state": "translated",
+            "value": "ssh: --transport seçeneğini 'ssh', 'mosh' veya 'et' izlemelidir"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ssh: після --transport потрібно вказати 'ssh' або 'mosh'"
+            "state": "translated",
+            "value": "ssh: після --transport потрібно вказати 'ssh', 'mosh' або 'et'"
           }
         },
         "zh-Hans": {
@@ -672534,121 +672534,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* values must be non-empty and free of control characters, --et-terminal-path must be absolute, and repeated tunnels must use compatible port:port, start-end:start-end, or socket pairs"
+            "value": "ssh: Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: يجب ألا تكون قيم --et-* فارغة أو تحتوي على محارف تحكم، ويجب أن يكون --et-terminal-path مسارًا مطلقًا، وأن تستخدم الأنفاق المتكررة أزواج port:port أو start-end:start-end أو مقابس متوافقة"
+            "value": "ssh: استخدم المنافذ 1-65535، وقيمًا غير فارغة وخالية من محارف التحكم، ومسارًا مطلقًا للطرفية، وأزواج أنفاق متوافقة أو نطاقات منافذ متساوية الطول. استخدم صيغة أنفاق SSH لنفق واحد فقط."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-*-Werte dürfen nicht leer sein und keine Steuerzeichen enthalten, --et-terminal-path muss absolut sein, und wiederholte Tunnel müssen kompatible port:port-, start-end:start-end- oder Socket-Paare verwenden"
+            "value": "ssh: Verwenden Sie Ports von 1 bis 65535, nicht leere Werte ohne Steuerzeichen, einen absoluten Terminalpfad und kompatible Tunnelpaare oder gleich lange Portbereiche. Die SSH-Tunnelsyntax ist nur für einen einzelnen Tunnel zulässig."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: los valores --et-* no pueden estar vacíos ni contener caracteres de control, --et-terminal-path debe ser absoluto y los túneles repetidos deben usar pares compatibles port:port, start-end:start-end o de sockets"
+            "value": "ssh: Usa puertos del 1 al 65535, valores no vacíos sin caracteres de control, una ruta absoluta del terminal y pares de túneles compatibles o rangos de puertos de igual longitud. Usa la sintaxis de túnel SSH solo para un túnel individual."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh : les valeurs --et-* ne doivent être ni vides ni contenir de caractères de contrôle, --et-terminal-path doit être absolu et les tunnels répétés doivent utiliser des paires compatibles port:port, start-end:start-end ou de sockets"
+            "value": "ssh: Utilisez des ports de 1 à 65535, des valeurs non vides sans caractères de contrôle, un chemin de terminal absolu et des paires de tunnels compatibles ou des plages de ports de même longueur. La syntaxe de tunnel SSH est réservée à un seul tunnel."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* の値は空や制御文字を含むものにできません。--et-terminal-path は絶対パスにし、繰り返し指定するトンネルには互換性のある port:port、start-end:start-end、またはソケットのペアを使用してください"
+            "value": "ssh: ポートは1〜65535、値は空でなく制御文字を含まないもの、ターミナルのパスは絶対パス、トンネルは互換性のあるペアまたは同じ長さのポート範囲を指定してください。SSHトンネル構文は単一のトンネルにのみ使用できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* 값은 비어 있거나 제어 문자를 포함할 수 없으며, --et-terminal-path는 절대 경로여야 하고 반복 터널은 호환되는 port:port, start-end:start-end 또는 소켓 쌍을 사용해야 합니다"
+            "value": "ssh: 포트는 1-65535, 값은 비어 있지 않고 제어 문자가 없는 값, 터미널 경로는 절대 경로를 사용하세요. 터널은 호환되는 쌍 또는 길이가 같은 포트 범위를 사용하세요. SSH 터널 구문은 단일 터널에만 사용할 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* 的值不能为空或包含控制字符，--et-terminal-path 必须是绝对路径，重复隧道必须使用兼容的 port:port、start-end:start-end 或套接字对"
+            "value": "ssh: 请使用1-65535范围内的端口、不含控制字符的非空值、终端的绝对路径，以及兼容的隧道对或长度相等的端口范围。SSH隧道语法仅可用于单个隧道。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* 的值不能為空或包含控制字元，--et-terminal-path 必須是絕對路徑，重複通道必須使用相容的 port:port、start-end:start-end 或通訊端配對"
+            "value": "ssh: 請使用1-65535範圍內的連接埠、不含控制字元的非空值、終端機的絕對路徑，以及相容的通道配對或長度相等的連接埠範圍。SSH通道語法僅可用於單一通道。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: vrijednosti --et-* ne smiju biti prazne ni sadržavati kontrolne znakove, --et-terminal-path mora biti apsolutna putanja, a ponovljeni tuneli moraju koristiti kompatibilne parove port:port, start-end:start-end ili utičnice"
+            "value": "ssh: Koristite portove 1-65535, neprazne vrijednosti bez kontrolnih znakova, apsolutnu putanju terminala i kompatibilne parove tunela ili raspone portova jednake dužine. SSH sintaksu tunela koristite samo za jedan tunel."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-*-værdier må ikke være tomme eller indeholde kontroltegn, --et-terminal-path skal være absolut, og gentagne tunneler skal bruge kompatible port:port-, start-end:start-end- eller socketpar"
+            "value": "ssh: Brug porte fra 1 til 65535, ikke-tomme værdier uden kontroltegn, en absolut terminalsti og kompatible tunnelpar eller portintervaller af samme længde. SSH-tunnelsyntaks må kun bruges til en enkelt tunnel."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: i valori --et-* non devono essere vuoti né contenere caratteri di controllo, --et-terminal-path deve essere assoluto e i tunnel ripetuti devono usare coppie compatibili port:port, start-end:start-end o socket"
+            "value": "ssh: Usa porte da 1 a 65535, valori non vuoti senza caratteri di controllo, un percorso assoluto del terminale e coppie di tunnel compatibili o intervalli di porte della stessa lunghezza. Usa la sintassi dei tunnel SSH solo per un singolo tunnel."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: តម្លៃ --et-* មិនត្រូវទទេ ឬមានតួអក្សរបញ្ជាទេ, --et-terminal-path ត្រូវជាផ្លូវដាច់ខាត ហើយផ្លូវរូងដដែលៗត្រូវប្រើគូ port:port, start-end:start-end ឬ socket ដែលត្រូវគ្នា"
+            "value": "ssh: ប្រើច្រកពី 1 ដល់ 65535 តម្លៃមិនទទេដែលគ្មានតួអក្សរបញ្ជា ផ្លូវស្ថានីយដាច់ខាត និងគូផ្លូវរូងដែលត្រូវគ្នា ឬជួរច្រកដែលមានប្រវែងស្មើគ្នា។ ប្រើវាក្យសម្ពន្ធផ្លូវរូង SSH សម្រាប់ផ្លូវរូងតែមួយប៉ុណ្ណោះ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-*-verdier må ikke være tomme eller inneholde kontrolltegn, --et-terminal-path må være absolutt, og gjentatte tunneler må bruke kompatible port:port-, start-end:start-end- eller sokkelpar"
+            "value": "ssh: Bruk porter fra 1 til 65535, ikke-tomme verdier uten kontrolltegn, en absolutt terminalsti og kompatible tunnelpar eller portområder med lik lengde. SSH-tunnelsyntaks kan bare brukes for én tunnel."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: wartości --et-* nie mogą być puste ani zawierać znaków sterujących, --et-terminal-path musi być ścieżką bezwzględną, a powtarzane tunele muszą używać zgodnych par port:port, start-end:start-end lub gniazd"
+            "value": "ssh: Użyj portów od 1 do 65535, niepustych wartości bez znaków sterujących, bezwzględnej ścieżki terminala oraz zgodnych par tuneli lub zakresów portów o równej długości. Składni tuneli SSH używaj tylko dla pojedynczego tunelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: os valores --et-* não podem estar vazios nem conter caracteres de controle, --et-terminal-path deve ser absoluto e túneis repetidos devem usar pares compatíveis port:port, start-end:start-end ou sockets"
+            "value": "ssh: Use portas de 1 a 65535, valores não vazios sem caracteres de controle, um caminho absoluto do terminal e pares de túneis compatíveis ou intervalos de portas de mesmo comprimento. Use a sintaxe de túnel SSH apenas para um único túnel."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: значения --et-* не должны быть пустыми или содержать управляющие символы, --et-terminal-path должен быть абсолютным, а повторяющиеся туннели должны использовать совместимые пары port:port, start-end:start-end или сокетов"
+            "value": "ssh: Используйте порты от 1 до 65535, непустые значения без управляющих символов, абсолютный путь терминала и совместимые пары туннелей или диапазоны портов одинаковой длины. Синтаксис туннелей SSH допустим только для одного туннеля."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: ค่า --et-* ต้องไม่ว่างและไม่มีอักขระควบคุม, --et-terminal-path ต้องเป็นพาธสัมบูรณ์ และทันเนลที่ระบุซ้ำต้องใช้คู่ port:port, start-end:start-end หรือซ็อกเก็ตที่เข้ากันได้"
+            "value": "ssh: ใช้พอร์ต 1-65535 ค่าที่ไม่ว่างและไม่มีอักขระควบคุม พาธเทอร์มินัลแบบสัมบูรณ์ และคู่ทันเนลที่เข้ากันได้หรือช่วงพอร์ตที่มีความยาวเท่ากัน ใช้ไวยากรณ์ทันเนล SSH ได้กับทันเนลเดียวเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --et-* değerleri boş olamaz veya kontrol karakterleri içeremez, --et-terminal-path mutlak olmalıdır ve yinelenen tüneller uyumlu port:port, start-end:start-end veya soket çiftleri kullanmalıdır"
+            "value": "ssh: 1-65535 arasındaki bağlantı noktalarını, kontrol karakteri içermeyen boş olmayan değerleri, mutlak bir terminal yolunu ve uyumlu tünel çiftlerini veya eşit uzunlukta bağlantı noktası aralıklarını kullanın. SSH tünel sözdizimini yalnızca tek bir tünel için kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: значення --et-* не можуть бути порожніми або містити керівні символи, --et-terminal-path має бути абсолютним, а повторювані тунелі мають використовувати сумісні пари port:port, start-end:start-end або сокетів"
+            "value": "ssh: Використовуйте порти від 1 до 65535, непорожні значення без керівних символів, абсолютний шлях термінала та сумісні пари тунелів або діапазони портів однакової довжини. Синтаксис тунелів SSH дозволений лише для одного тунелю."
           }
         }
       }
@@ -672909,121 +672909,246 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal options need a port from 1 to 65535 and non-empty values without control characters."
+            "value": "Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتطلب خيارات Eternal Terminal منفذًا من 1 إلى 65535 وقيمًا غير فارغة بدون أحرف تحكم."
+            "value": "استخدم المنافذ 1-65535، وقيمًا غير فارغة وخالية من محارف التحكم، ومسارًا مطلقًا للطرفية، وأزواج أنفاق متوافقة أو نطاقات منافذ متساوية الطول. استخدم صيغة أنفاق SSH لنفق واحد فقط."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal-Terminal-Optionen erfordern einen Port von 1 bis 65535 und nicht leere Werte ohne Steuerzeichen."
+            "value": "Verwenden Sie Ports von 1 bis 65535, nicht leere Werte ohne Steuerzeichen, einen absoluten Terminalpfad und kompatible Tunnelpaare oder gleich lange Portbereiche. Die SSH-Tunnelsyntax ist nur für einen einzelnen Tunnel zulässig."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las opciones de Eternal Terminal requieren un puerto de 1 a 65535 y valores no vacíos sin caracteres de control."
+            "value": "Usa puertos del 1 al 65535, valores no vacíos sin caracteres de control, una ruta absoluta del terminal y pares de túneles compatibles o rangos de puertos de igual longitud. Usa la sintaxis de túnel SSH solo para un túnel individual."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les options d'Eternal Terminal nécessitent un port de 1 à 65535 et des valeurs non vides sans caractères de contrôle."
+            "value": "Utilisez des ports de 1 à 65535, des valeurs non vides sans caractères de contrôle, un chemin de terminal absolu et des paires de tunnels compatibles ou des plages de ports de même longueur. La syntaxe de tunnel SSH est réservée à un seul tunnel."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal のオプションには、1 から 65535 までのポートと、制御文字を含まない空でない値が必要です。"
+            "value": "ポートは1〜65535、値は空でなく制御文字を含まないもの、ターミナルのパスは絶対パス、トンネルは互換性のあるペアまたは同じ長さのポート範囲を指定してください。SSHトンネル構文は単一のトンネルにのみ使用できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal 옵션에는 1~65535 범위의 포트와 제어 문자가 없는 비어 있지 않은 값이 필요합니다."
+            "value": "포트는 1-65535, 값은 비어 있지 않고 제어 문자가 없는 값, 터미널 경로는 절대 경로를 사용하세요. 터널은 호환되는 쌍 또는 길이가 같은 포트 범위를 사용하세요. SSH 터널 구문은 단일 터널에만 사용할 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal 选项需要 1 到 65535 的端口，且值不得为空或包含控制字符。"
+            "value": "请使用1-65535范围内的端口、不含控制字符的非空值、终端的绝对路径，以及兼容的隧道对或长度相等的端口范围。SSH隧道语法仅可用于单个隧道。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal 選項需要 1 到 65535 的連接埠，且值不得為空或包含控制字元。"
+            "value": "請使用1-65535範圍內的連接埠、不含控制字元的非空值、終端機的絕對路徑，以及相容的通道配對或長度相等的連接埠範圍。SSH通道語法僅可用於單一通道。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opcije za Eternal Terminal zahtijevaju port od 1 do 65535 i neprazne vrijednosti bez kontrolnih znakova."
+            "value": "Koristite portove 1-65535, neprazne vrijednosti bez kontrolnih znakova, apsolutnu putanju terminala i kompatibilne parove tunela ili raspone portova jednake dužine. SSH sintaksu tunela koristite samo za jedan tunel."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal-indstillinger kræver en port fra 1 til 65535 og ikke-tomme værdier uden kontroltegn."
+            "value": "Brug porte fra 1 til 65535, ikke-tomme værdier uden kontroltegn, en absolut terminalsti og kompatible tunnelpar eller portintervaller af samme længde. SSH-tunnelsyntaks må kun bruges til en enkelt tunnel."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le opzioni Eternal Terminal richiedono una porta da 1 a 65535 e valori non vuoti senza caratteri di controllo."
+            "value": "Usa porte da 1 a 65535, valori non vuoti senza caratteri di controllo, un percorso assoluto del terminale e coppie di tunnel compatibili o intervalli di porte della stessa lunghezza. Usa la sintassi dei tunnel SSH solo per un singolo tunnel."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជម្រើស Eternal Terminal ត្រូវការច្រកពី 1 ដល់ 65535 និងតម្លៃមិនទទេដែលគ្មានតួអក្សរបញ្ជា។"
+            "value": "ប្រើច្រកពី 1 ដល់ 65535 តម្លៃមិនទទេដែលគ្មានតួអក្សរបញ្ជា ផ្លូវស្ថានីយដាច់ខាត និងគូផ្លូវរូងដែលត្រូវគ្នា ឬជួរច្រកដែលមានប្រវែងស្មើគ្នា។ ប្រើវាក្យសម្ពន្ធផ្លូវរូង SSH សម្រាប់ផ្លូវរូងតែមួយប៉ុណ្ណោះ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal-alternativer krever en port fra 1 til 65535 og ikke-tomme verdier uten kontrolltegn."
+            "value": "Bruk porter fra 1 til 65535, ikke-tomme verdier uten kontrolltegn, en absolutt terminalsti og kompatible tunnelpar eller portområder med lik lengde. SSH-tunnelsyntaks kan bare brukes for én tunnel."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opcje Eternal Terminal wymagają portu od 1 do 65535 i niepustych wartości bez znaków sterujących."
+            "value": "Użyj portów od 1 do 65535, niepustych wartości bez znaków sterujących, bezwzględnej ścieżki terminala oraz zgodnych par tuneli lub zakresów portów o równej długości. Składni tuneli SSH używaj tylko dla pojedynczego tunelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As opções do Eternal Terminal exigem uma porta de 1 a 65535 e valores não vazios sem caracteres de controle."
+            "value": "Use portas de 1 a 65535, valores não vazios sem caracteres de controle, um caminho absoluto do terminal e pares de túneis compatíveis ou intervalos de portas de mesmo comprimento. Use a sintaxe de túnel SSH apenas para um único túnel."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Параметры Eternal Terminal требуют порт от 1 до 65535 и непустые значения без управляющих символов."
+            "value": "Используйте порты от 1 до 65535, непустые значения без управляющих символов, абсолютный путь терминала и совместимые пары туннелей или диапазоны портов одинаковой длины. Синтаксис туннелей SSH допустим только для одного туннеля."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวเลือก Eternal Terminal ต้องใช้พอร์ตตั้งแต่ 1 ถึง 65535 และค่าที่ไม่ว่างซึ่งไม่มีอักขระควบคุม"
+            "value": "ใช้พอร์ต 1-65535 ค่าที่ไม่ว่างและไม่มีอักขระควบคุม พาธเทอร์มินัลแบบสัมบูรณ์ และคู่ทันเนลที่เข้ากันได้หรือช่วงพอร์ตที่มีความยาวเท่ากัน ใช้ไวยากรณ์ทันเนล SSH ได้กับทันเนลเดียวเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eternal Terminal seçenekleri 1 ile 65535 arasında bir bağlantı noktası ve kontrol karakterleri içermeyen, boş olmayan değerler gerektirir."
+            "value": "1-65535 arasındaki bağlantı noktalarını, kontrol karakteri içermeyen boş olmayan değerleri, mutlak bir terminal yolunu ve uyumlu tünel çiftlerini veya eşit uzunlukta bağlantı noktası aralıklarını kullanın. SSH tünel sözdizimini yalnızca tek bir tünel için kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Параметри Eternal Terminal потребують порт від 1 до 65535 і непорожні значення без керівних символів."
+            "value": "Використовуйте порти від 1 до 65535, непорожні значення без керівних символів, абсолютний шлях термінала та сумісні пари тунелів або діапазони портів однакової довжини. Синтаксис тунелів SSH дозволений лише для одного тунелю."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.startupRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] The terminal transport exited with an error. The remote session or command may already be running. Type ssh and press Return to retry over SSH, which may run it again; any other response closes this terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] انتهى نقل الطرفية بخطأ. قد تكون الجلسة أو الأمر البعيد قيد التشغيل بالفعل. اكتب ssh واضغط على Return لإعادة المحاولة عبر SSH، مما قد يشغّله مرة أخرى؛ أي رد آخر يغلق هذه الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Der Terminaltransport wurde mit einem Fehler beendet. Die entfernte Sitzung oder der Befehl läuft möglicherweise bereits. Geben Sie ssh ein und drücken Sie Return, um über SSH erneut zu starten; dies kann den Befehl erneut ausführen. Jede andere Antwort schließt dieses Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El transporte del terminal terminó con un error. La sesión o el comando remoto puede estar ejecutándose. Escribe ssh y pulsa Retorno para reintentar por SSH, lo que puede ejecutarlo de nuevo; cualquier otra respuesta cierra este terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le transport du terminal s’est arrêté avec une erreur. La session ou la commande distante est peut-être déjà en cours. Saisissez ssh puis appuyez sur Retour pour réessayer via SSH, ce qui peut la relancer ; toute autre réponse ferme ce terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ターミナル転送がエラーで終了しました。リモートのセッションまたはコマンドはすでに実行中の可能性があります。sshと入力してReturnを押すとSSHで再試行しますが、再実行される可能性があります。それ以外の応答ではこのターミナルを閉じます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 터미널 전송이 오류로 종료되었습니다. 원격 세션이나 명령이 이미 실행 중일 수 있습니다. ssh를 입력하고 Return을 누르면 SSH로 재시도하며, 다시 실행될 수 있습니다. 다른 응답은 이 터미널을 닫습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 终端传输出错退出。远程会话或命令可能已在运行。输入ssh并按Return可通过SSH重试，这可能会再次运行该命令；其他任何回复都会关闭此终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 終端機傳輸因錯誤而結束。遠端工作階段或命令可能已在執行。輸入ssh並按Return可透過SSH重試，這可能會再次執行該命令；任何其他回覆都會關閉此終端機。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminalski transport je završen greškom. Udaljena sesija ili naredba možda već radi. Upišite ssh i pritisnite Return za ponovni pokušaj preko SSH-a, što je može ponovo pokrenuti; svaki drugi odgovor zatvara ovaj terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminaltransporten sluttede med en fejl. Fjernsessionen eller kommandoen kører muligvis allerede. Skriv ssh, og tryk på Retur for at prøve igen via SSH, hvilket kan starte den igen; alle andre svar lukker denne terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il trasporto del terminale è terminato con un errore. La sessione o il comando remoto potrebbe essere già in esecuzione. Digita ssh e premi Invio per riprovare via SSH, che potrebbe eseguirlo di nuovo; qualsiasi altra risposta chiude questo terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការដឹកជញ្ជូនស្ថានីយបានបញ្ចប់ដោយកំហុស។ សម័យ ឬពាក្យបញ្ជាពីចម្ងាយអាចកំពុងដំណើរការរួចហើយ។ វាយ ssh ហើយចុច Return ដើម្បីព្យាយាមម្ដងទៀតតាម SSH ដែលអាចដំណើរការវាម្ដងទៀត។ ចម្លើយផ្សេងទៀតនឹងបិទស្ថានីយនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminaltransporten ble avsluttet med en feil. Den eksterne økten eller kommandoen kjører kanskje allerede. Skriv ssh og trykk Retur for å prøve igjen via SSH, noe som kan starte den på nytt; alle andre svar lukker denne terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Transport terminala zakończył się błędem. Zdalna sesja lub polecenie może już działać. Wpisz ssh i naciśnij Return, aby ponowić próbę przez SSH, co może uruchomić je ponownie; każda inna odpowiedź zamyka ten terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O transporte do terminal terminou com um erro. A sessão ou o comando remoto pode já estar em execução. Digite ssh e pressione Return para tentar novamente por SSH, o que pode executá-lo outra vez; qualquer outra resposta fecha este terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Терминальный транспорт завершился с ошибкой. Удалённая сессия или команда, возможно, уже выполняется. Введите ssh и нажмите Return для повтора через SSH, который может запустить её снова; любой другой ответ закроет этот терминал."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การรับส่งเทอร์มินัลจบลงพร้อมข้อผิดพลาด เซสชันหรือคำสั่งระยะไกลอาจกำลังทำงานอยู่แล้ว พิมพ์ ssh แล้วกด Return เพื่อลองใหม่ผ่าน SSH ซึ่งอาจเรียกใช้อีกครั้ง คำตอบอื่นจะปิดเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminal aktarımı bir hatayla sonlandı. Uzak oturum veya komut zaten çalışıyor olabilir. SSH üzerinden yeniden denemek için ssh yazıp Return tuşuna basın; bu, komutu yeniden çalıştırabilir. Diğer yanıtlar bu terminali kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Термінальний транспорт завершився з помилкою. Віддалений сеанс або команда, можливо, уже виконується. Введіть ssh і натисніть Return, щоб повторити через SSH, що може запустити її знову; будь-яка інша відповідь закриє цей термінал."
           }
         }
       }

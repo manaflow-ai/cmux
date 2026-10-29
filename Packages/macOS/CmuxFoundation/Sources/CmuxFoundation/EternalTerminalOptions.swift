@@ -67,8 +67,15 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
         )
     }
 
+    /// Validates ET's single SSH form or each independently parsed comma-list pair.
     private static func canJoinTunnels(_ tunnels: [String]) -> Bool {
-        guard tunnels.count > 1 || tunnels.first?.contains(",") == true else { return true }
+        if tunnels.count == 1, let tunnel = tunnels.first, !tunnel.contains(",") {
+            guard let fields = sshTunnelFields(tunnel) else { return false }
+            if fields.count == 4 {
+                return !fields[2].isEmpty && validTunnelPort(Substring(fields[1]))
+                    && validTunnelPort(Substring(fields[3]))
+            }
+        }
         return tunnels.flatMap { $0.split(separator: ",", omittingEmptySubsequences: false) }.allSatisfy { tunnel in
             let sides = tunnel.split(separator: ":", omittingEmptySubsequences: false)
             guard sides.count == 2, sides.allSatisfy({ !$0.isEmpty }) else { return false }
@@ -78,12 +85,12 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
             if !numeric[0] && !numeric[1] { return true }
             if sides[0].hasPrefix("/") || sides[1].hasPrefix("/") {
                 let port = sides[sides[0].hasPrefix("/") ? 1 : 0]
-                return !port.isEmpty && port.allSatisfy(\.isASCIIDigit) && Int(port) != nil
+                return validTunnelPort(port)
             }
             guard numeric.allSatisfy({ $0 }) else { return false }
             let bounds = sides.map { $0.split(separator: "-", omittingEmptySubsequences: false) }
             guard bounds[0].count == bounds[1].count, (1...2).contains(bounds[0].count),
-                  bounds.flatMap({ $0 }).allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) && Int($0) != nil }) else {
+                  bounds.flatMap({ $0 }).allSatisfy({ validTunnelPort($0) }) else {
                 return false
             }
             if bounds[0].count == 1 { return true }
@@ -93,6 +100,33 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
             return source[1] >= source[0] && destination[1] >= destination[0]
                 && source[1] - source[0] == destination[1] - destination[0]
         }
+    }
+
+    /// Splits SSH tunnel syntax without treating bracketed IPv6 colons as separators.
+    private static func sshTunnelFields(_ tunnel: String) -> [String]? {
+        var fields = [String()]
+        var insideBrackets = false
+        for character in tunnel {
+            switch character {
+            case "[":
+                guard !insideBrackets else { return nil }
+                insideBrackets = true
+            case "]":
+                guard insideBrackets else { return nil }
+                insideBrackets = false
+            case ":" where !insideBrackets:
+                fields.append("")
+            default:
+                fields[fields.count - 1].append(character)
+            }
+        }
+        return insideBrackets ? nil : fields
+    }
+
+    /// ET binds TCP ports directly; reject values the socket API cannot represent.
+    private static func validTunnelPort(_ value: Substring) -> Bool {
+        guard !value.isEmpty, value.allSatisfy(\.isASCIIDigit), let port = Int(value) else { return false }
+        return (1...65_535).contains(port)
     }
 
     /// The effective `etserver` port.

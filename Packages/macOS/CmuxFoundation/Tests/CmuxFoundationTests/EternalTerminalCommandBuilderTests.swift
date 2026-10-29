@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
@@ -9,8 +9,9 @@ struct EternalTerminalCommandBuilderTests {
     func localMissingFallsBack() throws {
         try withFakeCommands(installEternalTerminal: false) { directory, environment in
             let result = try run(
-                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", localExecutableName: "cmux-missing-et"),
-                environment: environment
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                environment: environment,
+                missingLocalExecutable: true
             )
 
             #expect(result.status == 0)
@@ -127,6 +128,7 @@ struct EternalTerminalCommandBuilderTests {
 
     @Test("identity paths survive OpenSSH config parsing", arguments: [
         #"/keys/work "2026"/id"#, #"/keys/work\2026/id"#, #"/keys/work \"2026\"/id"#,
+        "/keys/id'backup",
     ])
     func identityPathSurvivesSSHConfig(path: String) throws {
         let options = EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: ["ssh", "-i", path])
@@ -150,6 +152,7 @@ struct EternalTerminalCommandBuilderTests {
             try "printf 'ssh fallback\\n'; rm -- \"$0\"\n".write(to: launcher, atomically: true, encoding: .utf8)
             var environment = environment
             environment["FAKE_ET_STATUS"] = "1"
+            environment["FAKE_ET_RAW_MODE"] = "1"
             environment["FAKE_LAUNCHER_PATH"] = launcher.path
             let result = try run(
                 builder(sshFallbackCommand: "/bin/sh '\(launcher.path)'", sshFallbackLauncherPaths: [launcher.path]),
@@ -163,7 +166,7 @@ struct EternalTerminalCommandBuilderTests {
         }
     }
 
-    @Test("ET errors never automatically replay SSH", arguments: ["", "\n", "no\n"])
+    @Test("ET errors never automatically replay SSH", arguments: ["", "\n", "no\n", "\u{4}"])
     func startupFailureRequiresExplicitRetry(input: String) throws {
         try withFakeCommands { directory, environment in
             var environment = environment
@@ -175,7 +178,7 @@ struct EternalTerminalCommandBuilderTests {
         }
     }
 
-    @Test("success and signal exits never offer SSH replay", arguments: [0, 130, 143])
+    @Test("success and signal exits never offer SSH replay", arguments: [0, 2, 15, 130, 143])
     func completedSessionNeverRetries(status: Int) throws {
         try withFakeCommands { directory, environment in
             var environment = environment
@@ -370,7 +373,7 @@ struct EternalTerminalCommandBuilderTests {
         #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
             "/usr/bin/ssh", "-o", "RemoteCommand=none", "-p", "2222", "-i", "/keys/id",
             "-o", "ControlPath=/tmp/cm-%C", "-o", "RequestTTY=no", "-T",
-        ]) == ["RemoteCommand=none", "Port=2222", "IdentityFile=/keys/id", "ControlPath=/tmp/cm-%C"])
+        ]) == ["RemoteCommand=none", "Port=2222", #"IdentityFile="/keys/id""#, "ControlPath=/tmp/cm-%C"])
         #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
             "/usr/bin/ssh", "-i", "/keys/id with space",
         ]) == [#"IdentityFile="/keys/id with space""#])
@@ -390,8 +393,10 @@ struct EternalTerminalCommandBuilderTests {
         #expect(EternalTerminalOptions(terminalPath: " ") == nil)
         #expect(EternalTerminalOptions(terminalPath: "~/bin/etterminal") == nil)
         #expect(EternalTerminalOptions(terminalPath: "bin/etterminal") == nil)
-        // Repeated tunnels are comma-joined, which ET parses only as port:port.
+        // SSH-style four-field tunnels are single options; ET-style pairs can be joined.
         #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: ["[::1]:8080:[::]:9090"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: [":8080:db.internal:22"]) != nil)
         #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22", "8080:80"]) == nil)
         #expect(EternalTerminalOptions(reverseTunnels: ["9090:90", "x:90"]) == nil)
         #expect(EternalTerminalOptions(tunnels: ["8080:80", "9000-9003:9000-9003"])?.tunnels.count == 2)
@@ -426,14 +431,11 @@ struct EternalTerminalCommandBuilderTests {
         remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"],
         remoteRelayPort: Int? = nil,
         sshFallbackLauncherPaths: [String] = [],
-        localExecutableName: String = "et",
         sessionSSHOptions: [String] = ["RemoteCommand=none", "Port=2222"]
     ) -> EternalTerminalCommandBuilder {
         EternalTerminalCommandBuilder(
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
             sessionSSHOptions: sessionSSHOptions,
-            localEternalTerminalExecutableName: localExecutableName,
-            localServerProbeExecutableName: "nc",
             destination: "user@example.com",
             options: options,
             forwardsSSHAgent: forwardsSSHAgent,
@@ -447,7 +449,8 @@ struct EternalTerminalCommandBuilderTests {
                 remoteMissing: "remote etterminal missing",
                 remoteProbeFailed: "remote probe failed",
                 serverUnreachable: "etserver unreachable",
-                remoteBootstrapInstallFailed: "remote bootstrap install failed"
+                remoteBootstrapInstallFailed: "remote bootstrap install failed",
+                startupRecoveryPrompt: "The remote command may already be running; type ssh to retry."
             )
         )
     }
@@ -512,6 +515,7 @@ struct EternalTerminalCommandBuilderTests {
                 if [ -n "$FAKE_LAUNCHER_PATH" ] && [ -f "$FAKE_LAUNCHER_PATH" ]; then
                   touch "$FAKE_LAUNCHER_RECEIPT"
                 fi
+                if [ "$FAKE_ET_RAW_MODE" = "1" ]; then stty raw -echo <&0; fi
                 exit "${FAKE_ET_STATUS:-0}"
                 """, in: directory)
         }
@@ -571,13 +575,20 @@ struct EternalTerminalCommandBuilderTests {
     private func run(
         _ builder: EternalTerminalCommandBuilder,
         environment: [String: String],
-        terminalInput: String? = nil
+        terminalInput: String? = nil,
+        missingLocalExecutable: Bool = false
     ) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         let standardOutput = Pipe()
         let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", builder.command()]
+        // Substitute fixture executable resolution in the rendered shell,
+        // keeping test-only command injection out of the shipping API.
+        var command = builder.command().replacingOccurrences(of: "/usr/bin/nc", with: "nc")
+        if missingLocalExecutable {
+            command = command.replacingOccurrences(of: "'\\''et'\\''", with: "'\\''cmux-missing-et'\\''")
+        }
+        process.arguments = ["-c", command]
         process.environment = environment
         process.standardOutput = standardOutput
         process.standardError = standardError
