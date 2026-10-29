@@ -190,7 +190,7 @@ import Testing
         let child = try #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         let initial = try #require(host.shownFrame)
         #expect(PopupStyle.standard.cardFrame(inWindow: child.frame).minX >= initial.maxX)
-        let point = page.convert(window.convertFromScreen(CGPoint(x: screen.maxX - 8, y: screen.midY)), from: nil)
+        let point = page.convert(window.convertPoint(fromScreen: CGPoint(x: screen.maxX - 8, y: screen.midY)), from: nil)
         model.revision += 1
         model.anchor = NativePopupAnchor(left: point.x - 100, top: page.bounds.height - point.y,
                                          right: point.x, bottom: page.bounds.height - point.y + 30)

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-@MainActor struct NativePopupContentTests {
+@MainActor @Suite(.serialized) struct NativePopupContentTests {
     @Test func searchDescriptorUpdatesWithoutChangingItsIdentity() throws {
         let content = NativePopupContent()
         var model = Self.model()
@@ -123,7 +123,8 @@ import Testing
         content.update(model)
         let slider = try #require(Self.descendants(of: content).compactMap { $0 as? NSSlider }.first)
         slider.doubleValue = 1
-        #expect(slider.sendAction(slider.action, to: slider.target))
+        let sent = slider.sendAction(slider.action, to: slider.target)
+        #expect(sent)
         #expect(value.flatMap(Double.init) == 1)
     }
 
