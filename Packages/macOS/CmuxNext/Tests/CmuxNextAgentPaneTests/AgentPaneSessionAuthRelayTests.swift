@@ -24,7 +24,7 @@ struct AgentPaneSessionAuthRelayTests {
             #"{"target":{"harness":"codex","host":"gcp-codex-lane-1","routeId":"team-router"},"refresh":false}"#,
         ]
         for params in valid {
-            #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), params)
+            #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), Comment(rawValue: params))
         }
 
         let invalid = [
@@ -50,7 +50,7 @@ struct AgentPaneSessionAuthRelayTests {
             #"{"target":{"harness":"claude"},"refresh":null}"#,
         ]
         for params in invalid {
-            #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), params)
+            #expect(AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), Comment(rawValue: params))
         }
         #expect(AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/session/auth"], modeFields: []))
     }
