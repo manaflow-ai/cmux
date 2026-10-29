@@ -189,6 +189,7 @@
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
+        "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "signer-build": {"Set up Rust": {"plumbing": true},
@@ -220,7 +221,8 @@
         "Generate the recovered Sparkle appcast": {"nightly_only": "signs appcast with Sparkle key"}},
       "verify-recovered-nightly-next": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
-        "Verify recovered DMG artifact": {"nightly_only": "statically verifies the notarized stapled recovered DMG and records its exact digest without launching app code"}
+        "Verify recovered DMG artifact": {"nightly_only": "statically verifies the notarized stapled recovered DMG and records its exact digest without launching app code"},
+        "Launch smoke from a fresh home": {"nightly_only": "launches the recovered notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"}
       },
       "publish-nightly": {
         "Read the live nightly-next feed before the write": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
