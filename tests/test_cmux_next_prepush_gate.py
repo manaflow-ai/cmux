@@ -586,6 +586,13 @@ class PrePushGateTests(unittest.TestCase):
         self.long_lived_branch("perf/chrome-parity", "PerfDebt")
         self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/chrome-parity")
 
+        manual = subprocess.run(["python3", "-I", GATE], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = manual.stdout + manual.stderr
+        self.assertNotEqual(manual.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "a manual run on feat-cmux-next reads what its push will")
+        self.assertNotIn("cut from", output)
+
         refused = self.push()
 
         output = refused.stdout + refused.stderr

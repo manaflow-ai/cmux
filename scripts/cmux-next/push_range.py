@@ -182,18 +182,27 @@ def tracking_ref(repo: Path, remote: str, remote_ref: str) -> str | None:
     return None
 
 
-def upstream_of(repo: Path, local_ref: str | None, remote: str | None) -> str | None:
-    """The configured upstream of local branch LOCAL_REF (`refs/heads/topic` as pre-push stdin names it, or HEAD)
-    when it is a remote-tracking ref of REMOTE (refs/remotes/<remote>/...), else None: a local branch upstream
-    (remote ".") or another remote's branch (a contributor's fork) holds commits REMOTE may not have, a push to a
-    URL names no remote, and a tag, a detached HEAD or a sha has no upstream. (`<ref>@{upstream}` does not take a
-    full ref name, so this reads for-each-ref's %(upstream).)"""
-    if not remote or not local_ref or local_ref.startswith("-") or re.fullmatch(r"[0-9a-f]{40,64}", local_ref):
+def local_branch(repo: Path, local_ref: str | None) -> str | None:
+    """LOCAL_REF as a local branch's full name (`refs/heads/topic` as pre-push stdin names it, or HEAD resolved),
+    else None: a tag, a detached HEAD, a sha or an expression is no branch."""
+    if not local_ref or local_ref.startswith("-") or re.fullmatch(r"[0-9a-f]{40,64}", local_ref):
         return None
     if not local_ref.startswith("refs/heads/"):
         code, local_ref = _git(repo, "rev-parse", "--quiet", "--symbolic-full-name", local_ref)  # HEAD -> refs/heads/x
         if code != 0 or not local_ref.startswith("refs/heads/"):
             return None
+    return local_ref
+
+
+def upstream_of(repo: Path, local_ref: str | None, remote: str | None) -> str | None:
+    """The configured upstream of local branch LOCAL_REF (local_branch()) when it is a remote-tracking ref of REMOTE
+    (refs/remotes/<remote>/...), else None: a local branch upstream (remote ".") or another remote's branch (a
+    contributor's fork) holds commits REMOTE may not have, a push to a URL names no remote, and a tag, a detached
+    HEAD or a sha has no upstream. (`<ref>@{upstream}` does not take a full ref name, so this reads for-each-ref's
+    %(upstream).)"""
+    local_ref = local_branch(repo, local_ref) if remote else None
+    if local_ref is None:
+        return None
     # The pattern also matches refs/heads/<name>/...: keep the row of LOCAL_REF itself.
     code, out = _git(repo, "for-each-ref", "--format=%(refname) %(upstream)", local_ref)
     rows = dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if code == 0 else {}
@@ -300,7 +309,10 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     remote_head = f"refs/remotes/{name}/HEAD" if name else None
     integration = [upstream_ref, *INTEGRATION_REFS]
     # A push onto an integration branch itself is judged over that branch alone (see the module docstring).
-    landing = remote_ref in {f"refs/heads/{ref.split('/', 1)[-1]}" for ref in integration} or (
+    # The pushed ref names one (the hook), or, with no pushed ref (a manual run, the guardrails, the web lint), the
+    # local branch does, so a manual run on feat-cmux-next reads what its push will.
+    branches = {f"refs/heads/{ref.split('/', 1)[-1]}" for ref in integration}
+    landing = (remote_ref in branches if remote_ref else local_branch(repo, local_ref or head) in branches) or (
         tracked_ref is not None and _full_ref(tracked_ref) in {_full_ref(ref) for ref in integration})
     known_refs = {_full_ref(ref) for ref in (upstream_ref, remote_head, tracked_ref) if ref}
     branch_upstream = None if landing else upstream_of(repo, local_ref or head, name)
