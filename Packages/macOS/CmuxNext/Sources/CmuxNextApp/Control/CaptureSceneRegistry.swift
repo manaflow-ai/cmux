@@ -231,7 +231,7 @@ final class CaptureSceneRegistry {
         let chromium = view.debugShowsChromium
         let starting = view.debugChromiumStarting
         let shown = view.debugChromiumPageShown
-        let painted = view.model.hasPainted
+        let painted = view.debugPageHasPainted
         let ready = Self.agentPageCanSettle(attached: attached, loading: loading, chromium: chromium,
                                             chromiumStarting: starting, chromiumShown: shown, painted: painted)
         return (ready, "inWindow=\(attached),loading=\(loading),chromium=\(chromium),starting=\(starting),shown=\(shown),painted=\(painted)")

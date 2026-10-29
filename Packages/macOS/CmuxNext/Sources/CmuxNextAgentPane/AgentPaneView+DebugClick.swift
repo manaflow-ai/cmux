@@ -62,6 +62,9 @@ extension AgentPaneView {
     /// nothing until it does, or until it falls back to WebKit.
     public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
 
+    /// Whether the document has painted, independently of the loading cover's give-up deadline.
+    public var debugPageHasPainted: Bool { model.hasPainted }
+
     /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
     /// hidden or under a clear (alpha 0) ancestor, and with a size.
     public var debugChromiumPageShown: Bool {
