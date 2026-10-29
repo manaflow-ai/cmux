@@ -3775,8 +3775,10 @@ export class AcpmuxDirectClient {
   /// What is ending the running turn, as `event` finds it: a prompt sent now (its `queue_order`
   /// set `interrupting`), or this pane's Stop, pressed before the event. Else unknown.
   private stopAffectsRunningTurn(): boolean {
-    return this.stopAfterSeq !== undefined &&
-      (this.stopTurnId === undefined || this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId);
+    return (
+      this.stopAfterSeq !== undefined &&
+      (this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId)
+    );
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
@@ -4248,7 +4250,7 @@ export class AcpmuxDirectClient {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         // Keep the old cancellation pending for its acknowledgement, but its expired grace
         // cannot hide the controls of a different, identified turn.
-        if (this.stopTurnId !== undefined && startedTurnId !== undefined && startedTurnId !== this.stopTurnId) {
+        if (startedTurnId !== undefined && startedTurnId !== this.stopTurnId) {
           clearTimeout(this.stopTimer);
           this.stopGaveUp = false;
         }
