@@ -109,6 +109,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
+    /// The view has not been placed yet: it opens at the place the last view of this chat kept, or at
+    /// the newest message (HomeProjection+ReadingPlace.swift, #27627).
+    var placesOnOpen = true
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
@@ -156,6 +159,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func stop() {
+        keepReadingPlace()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
@@ -183,6 +187,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
         revealIfLoaded()
         refreshThreadHeader()
+        placeOnOpen()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -268,6 +273,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
+        controller.host.onLaidOut = { [weak self] in self?.placeOnOpen() }
         installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded

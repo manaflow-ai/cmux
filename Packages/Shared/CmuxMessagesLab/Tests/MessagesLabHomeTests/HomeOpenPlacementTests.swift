@@ -110,4 +110,16 @@ import Testing
         #expect(abs(back.y - left.y) < 1, "the row sits at \(back.y), was at \(left.y)")
         #expect(again.controller.store?.state.ui.scroll.pinnedToBottom == false)
     }
+
+    @Test func aKeptPlaceWhoseMessageIsNotLoadedOpensAtTheNewest() async throws {
+        let rig = try await HomeChatRig(history: 300)
+        defer { rig.stop() }
+        close(rig.view, in: rig)
+        rig.store.setScrollAnchor(HomeScrollAnchor(message: MessageID("msg_not_loaded"), offset: 300), for: HomeChatRig.conversation)
+
+        // The kept message is not in the loaded window (older than its pages, or gone): the newest message.
+        let view = try await open(rig)
+        defer { view.stop() }
+        try expectAtNewest(view, "a place whose row is gone")
+    }
 }

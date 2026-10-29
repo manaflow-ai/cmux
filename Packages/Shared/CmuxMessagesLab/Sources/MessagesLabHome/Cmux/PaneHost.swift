@@ -82,6 +82,9 @@ final class HostView: NSView {
     /// (PaneHost+WindowPlace.swift).
     var windowPlaceObserver: NSObjectProtocol?
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    /// cmux: each layout pass, after the transcript and the scroll view took this size (#27627: a
+    /// chat opened at zero size goes to its kept place once it has its pane's).
+    var onLaidOut: () -> Void = {}
     deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
 
     override init(frame: NSRect) {
@@ -169,6 +172,7 @@ final class HostView: NSView {
         refreshWindowPlace()
         CATransaction.commit()
         placeNativeViews()
+        onLaidOut()
     }
 
     /// AppKit views follow the shared geometry (model values).
