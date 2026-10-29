@@ -21,9 +21,7 @@ pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
         loop {
             match super::acquire_lock(&home.join("daemon.lock")) {
                 Ok(lock) => return Some(Started::Acquired(lock)),
-                Err(e)
-                    if e.downcast_ref::<super::LockHeld>().is_some()
-                        || e.to_string().starts_with("another acpmux daemon holds ") => {}
+                Err(e) if e.downcast_ref::<super::LockHeld>().is_some() => {}
                 Err(_) => return None,
             }
             if let Ok(client) = crate::client::Client::connect(socket).await

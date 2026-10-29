@@ -176,9 +176,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
-            let lock_held = e.downcast_ref::<LockHeld>().is_some()
-                || e.to_string().starts_with("another acpmux daemon holds ");
-            if let Some(fd) = opts.ready_fd.filter(|_| lock_held) {
+            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
                 // The app launches `daemon run` directly, without `start_and_connect`.
                 // Its losing launch must report the winner's endpoint once it answers.
                 tracing::info!("another daemon holds the lock; waiting for its socket or exit");
