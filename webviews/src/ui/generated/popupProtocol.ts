@@ -43,7 +43,6 @@ export interface NativePopupAction {
   icon?: string;
   disabled?: boolean;
   keepOpen?: boolean;
-  completion?: string;
 }
 
 export type NativePopupAutoHighlight = "none" | "first" | "always";
