@@ -478,6 +478,9 @@ pub struct Translator {
     /// A cancelled compaction produced its boundary after a later prompt began; the following
     /// zero-turn result belongs to that abandoned compaction, not the later prompt.
     cancelled_compaction_boundary: AtomicBool,
+    /// Whether the current prompt is a local slash command whose zero-turn result must settle
+    /// the new request, not an abandoned prior turn.
+    local_command: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -591,6 +594,7 @@ impl Translator {
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
             cancelled_compaction_boundary: AtomicBool::new(false),
+            local_command: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),

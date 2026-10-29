@@ -680,7 +680,12 @@ impl Translator {
                 // had one, and it ends them all.
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
                 let next_unread = self.prompt_echo.lock().await.is_some();
-                if !abandoned.is_empty() && (cancelled_compaction || next_unread) {
+                if !abandoned.is_empty()
+                    && (cancelled_compaction
+                        || next_unread
+                        || (!self.local_command.load(Ordering::SeqCst)
+                            && !self.turn_output.load(Ordering::SeqCst)))
+                {
                     for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
