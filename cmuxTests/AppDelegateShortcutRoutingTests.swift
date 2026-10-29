@@ -1925,19 +1925,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        for (window, id, manager) in [
+            (firstWindow, firstWindowId, firstManager),
+            (secondWindow, secondWindowId, secondManager)
+        ] {
+            appDelegate.registerMainWindow(
+                window, windowId: id, tabManager: manager,
+                sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+            )
         }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
+        defer {
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         _ = firstManager.addTab(select: true)
@@ -2495,12 +2500,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let targetWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            targetWindow, windowId: windowId, tabManager: manager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
+        defer { closeRegisteredShortcutRoutingWindow(targetWindow, id: windowId) }
 
-        guard let targetWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
+        guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId else {
             XCTFail("Expected test window, manager, workspace, and focused panel")
             return
@@ -2732,14 +2741,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let mainWindow = window(withId: windowId) else {
-            XCTFail("Expected window context")
-            return
-        }
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let mainWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            mainWindow, windowId: windowId, tabManager: manager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState()
+        )
+        defer { closeRegisteredShortcutRoutingWindow(mainWindow, id: windowId) }
 
         // Need at least two workspaces so a digit-1 selection is observable.
         _ = manager.addTab(select: true)
