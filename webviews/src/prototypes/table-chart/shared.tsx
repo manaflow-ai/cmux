@@ -214,7 +214,7 @@ export function Controls({ api, compact = false }: { api: ReturnType<typeof useT
   );
 }
 
-export function ExportButtons({ rows }: { rows: Row[] }) {
+export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; chartVisible?: boolean }) {
   const [status, setStatus] = useState("");
   const csv = [
     "day,sessions,errors,rate",
@@ -253,6 +253,14 @@ export function ExportButtons({ rows }: { rows: Row[] }) {
       ])
         copies[index]!.style.setProperty(property, style.getPropertyValue(property));
     });
+    const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    background.setAttribute("width", "100%");
+    background.setAttribute("height", "100%");
+    background.setAttribute(
+      "fill",
+      getComputedStyle(svg).getPropertyValue("--cmux-surface-background").trim() || "white",
+    );
+    copy.insertBefore(background, copy.firstChild);
     save(new XMLSerializer().serializeToString(copy), "chart.svg", "image/svg+xml");
   };
   return (
@@ -260,7 +268,12 @@ export function ExportButtons({ rows }: { rows: Row[] }) {
       <button type="button" onClick={() => save(csv, "chart-data.csv", "text/csv")}>
         Export CSV
       </button>
-      <button type="button" onClick={exportChart}>
+      <button
+        type="button"
+        disabled={!chartVisible || !rows.length}
+        title={!chartVisible ? "Show the chart to export SVG" : undefined}
+        onClick={exportChart}
+      >
         Export SVG
       </button>
       <span role="status" aria-live="polite">

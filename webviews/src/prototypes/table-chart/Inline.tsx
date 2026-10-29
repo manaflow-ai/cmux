@@ -27,7 +27,7 @@ export function Inline({ fixture }: Props) {
           <Table rows={api.rows} />
         )}
       </section>
-      <ExportButtons rows={api.rows} />
+      <ExportButtons rows={api.rows} chartVisible={view === "chart"} />
     </Shell>
   );
 }
