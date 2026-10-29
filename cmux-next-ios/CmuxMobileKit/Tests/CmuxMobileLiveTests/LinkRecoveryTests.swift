@@ -130,7 +130,9 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         dialer.first.dropSilently()
         let start = ContinuousClock.now
         try await eventually({ dialer.dials >= 2 }, within: .seconds(26))
-        print("LINK_RECOVERY silent_drop_ms=\(milliseconds(ContinuousClock.now - start))")
+        let elapsed = ContinuousClock.now - start
+        print("LINK_RECOVERY silent_drop_ms=\(milliseconds(elapsed))")
+        #expect(elapsed <= LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace + .seconds(1))
     }
 
     private func milliseconds(_ duration: Duration) -> Double {
