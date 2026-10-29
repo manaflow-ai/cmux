@@ -532,6 +532,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
+    tokio::spawn(crate::artifacts_sync::run_background(hub.clone()));
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));

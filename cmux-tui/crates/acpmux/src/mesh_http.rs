@@ -130,7 +130,7 @@ impl HttpHub {
     }
 
     /// A token: the one held while it is good, else a new one from the command.
-    async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
+    pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
         let now = crate::store::now_ms();
         if !fresh
