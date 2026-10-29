@@ -598,8 +598,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tracing::info!("shutting down");
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
+    // A supervisor action under way finishes first, within its own bounds.
     #[cfg(all(unix, feature = "tailnet"))]
-    tailnet.fence();
+    tailnet.fence().await;
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.

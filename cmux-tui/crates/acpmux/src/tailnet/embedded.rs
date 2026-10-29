@@ -765,6 +765,12 @@ impl Controller {
         state: &'static str,
     ) -> Option<(Option<Arc<Node>>, u64)> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        // After the shutdown fence (set under this same mutex) a watch or
+        // listener ending is not a failure: daemon shutdown owns the close,
+        // after the WebSocket drain has sent its close frames.
+        if self.stopping.load(Ordering::Acquire) {
+            return None;
+        }
         let node = match &inner.state {
             LifecycleState::Running(node) => {
                 if let Some(expected) = expected
@@ -1087,6 +1093,14 @@ impl Controller {
     /// Daemon shutdown has begun: no start, resume or listener failure acts.
     pub(super) fn stopping(&self) -> bool {
         self.stopping.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_running_for_test(&self, node: Arc<Node>, dns_name: &str) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.state = LifecycleState::Running(node);
+        inner.snapshot.state = "running";
+        inner.snapshot.dns_name = Some(dns_name.to_owned());
     }
 
     pub(super) fn retirement_pending(&self) -> bool {
@@ -2005,6 +2019,30 @@ mod tests {
             "remote sign-out ran while the opt-in marker could still resume the node"
         );
         assert!(!marker.exists());
+        release_node(node);
+    }
+
+    #[tokio::test]
+    async fn watch_end_after_the_shutdown_fence_leaves_the_node_to_shutdown() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "fenced-watch");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "fenced-watch");
+        controller.set_running_for_test(Arc::clone(&node), "node.example.ts.net");
+        controller.begin_shutdown();
+        // The watcher's terminal callback during the fenced interval.
+        tokio::time::timeout(std::time::Duration::from_secs(1), controller.listener_failed(&node))
+            .await
+            .expect("a fenced watch end queues no retirement");
+        let retained = controller.node().expect("shutdown, not the watcher, closes the node");
+        assert!(Arc::ptr_eq(&retained, &node));
+        release_node(retained);
+        assert!(!controller.retirement_pending());
+        assert!(controller.snapshot().error.is_none());
+        controller.shutdown().await.unwrap();
+        assert!(controller.state_node().is_none());
         release_node(node);
     }
 

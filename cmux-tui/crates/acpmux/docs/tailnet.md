@@ -36,9 +36,10 @@ node. Every remote sign-out (logout, or a close that a queued logout turns into
 one) clears the marker first, so an interrupted or failed sign-out cannot
 silently reconnect on the next launch. The listener service drains connections
 before replacing a node or DNS name, and a listener failure waits for an
-explicit retry. Daemon shutdown fences the service first: the ingress then
-closes through the daemon's WebSocket shutdown (1012 on restart) and is never
-retired as a failed listener.
+explicit retry. Daemon shutdown fences the service first, after any supervisor
+action already under way: from then on nothing starts, replaces or retires a
+listener or node, and the ingress closes through the daemon's WebSocket
+shutdown (1012 on restart) before the node closes.
 Builds with the `tailnet` feature list the four methods in `initialize`'s
 `extensions`; other builds answer them with `not_built`.
 
