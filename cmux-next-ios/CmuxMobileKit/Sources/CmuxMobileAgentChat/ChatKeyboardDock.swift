@@ -408,7 +408,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
             // it settles back).
-            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2 {
+            if !scrollView.isTracking, !scrollView.isDecelerating, positionedInitially, abs(distanceFromBottom) < 2,
+               surface.find?.currentMatch == nil {
                 surface.following = true
             }
             scrollView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
@@ -577,7 +578,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let away = scrolledDistanceFromBottom > 80
         if scrollView.isTracking || scrollView.isDecelerating {
             surface.following = !away
-        } else if !away {
+        } else if !away, surface.find?.currentMatch == nil {
+            // A Find jump that lands near the bottom keeps the reader on its match: only the
+            // person's own scroll resumes following while a match is shown.
             surface.following = true
         }
     }

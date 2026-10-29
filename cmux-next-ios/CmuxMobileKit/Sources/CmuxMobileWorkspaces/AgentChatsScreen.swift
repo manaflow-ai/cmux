@@ -83,6 +83,7 @@ public final class AgentChatsModel {
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
         } catch {
+            guard generation == listGeneration else { return }
             failure = Self.message(error)
         }
     }
