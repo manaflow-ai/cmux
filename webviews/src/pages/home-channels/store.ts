@@ -1054,6 +1054,9 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    // A newest reload with no messages still needs background-run discovery. An empty older
+    // page has no new anchors and must not start an unrelated history scan.
+    if (messages.length === 0 && !newest) return;
     const generation = this.generation;
     const life = this.life;
     const agents = new Set(
