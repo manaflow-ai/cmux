@@ -31,6 +31,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     /// Who emitted the text. Remote origins are clamped to display-only side effects by
     /// the store and surface to hooks as `CMUX_NOTIFICATION_ORIGIN`.
     var origin: TerminalNotificationOrigin = .local
+    /// Non-nil only for rows owned by the durable attention projection.
+    var ownedAttentionSlot: OwnedAttentionSlot?
 
     init(
         id: UUID,
@@ -53,7 +55,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         agentKind: String? = nil,
         agentCategory: String? = nil,
         agentSessionId: String? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        ownedAttentionSlot: OwnedAttentionSlot? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -76,6 +79,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.agentCategory = agentCategory
         self.agentSessionId = agentSessionId
         self.origin = origin
+        self.ownedAttentionSlot = ownedAttentionSlot
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {

@@ -62,6 +62,7 @@ final class NotificationFeedHistoryStore {
         _ notification: TerminalNotification,
         supersededIDs: Set<UUID>
     ) {
+        guard notification.ownedAttentionSlot == nil else { return }
         _ = commit(
             .record(
                 NotificationFeedHistoryRecord(notification: notification).boundedForHistory(),
@@ -75,7 +76,7 @@ final class NotificationFeedHistoryStore {
     /// UUIDs are inserted.
     func reconcileActiveNotifications(_ activeNotifications: [TerminalNotification]) {
         let activeNotifications = Self.retainableActiveNotifications(
-            activeNotifications,
+            activeNotifications.filter { $0.ownedAttentionSlot == nil },
             totalRetentionLimit: totalRetentionLimit
         )
         guard !activeNotifications.isEmpty else { return }

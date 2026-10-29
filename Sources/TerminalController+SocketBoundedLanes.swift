@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxCore
+import CmuxFoundation
 import Foundation
 
 /// A socket command's hop onto the main actor exceeded its deadline.
@@ -25,6 +26,8 @@ enum SocketCommandTaskPolicy {
     /// Whether the connection's peer runs as the same user as cmux, or nil
     /// for an in-process call. The caller cannot set it.
     @TaskLocal static var peerHasSameUID: Bool?
+    /// Unique to one live socket connection; unavailable to in-process calls.
+    @TaskLocal static var connectionID: TaskLocalReference<UUID>?
 }
 
 /// The two execution lanes a socket connection task may hop onto, each kept

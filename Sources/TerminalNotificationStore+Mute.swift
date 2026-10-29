@@ -63,6 +63,7 @@ extension TerminalNotificationStore {
             workspace.isMuted = muted
             changed = true
         }
+        if changed { scheduleOwnedAttentionReconciliation() }
         return changed
     }
 

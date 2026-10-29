@@ -267,7 +267,129 @@ final class TerminalNotificationStore: ObservableObject {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
+            scheduleOwnedAttentionReconciliation()
         }
+    }
+
+    private var ownedAttentionGeneration: Int64?
+    private var ownedAttentionStoreID: UUID?
+    private var ownedAttentionSnapshot: OwnedAttentionSnapshot?
+    private var ownedAttentionReconciliationScheduled = false
+
+    /// Retain committed intent so UI-only changes can be reconciled without
+    /// reading the register on the main actor.
+    func acceptOwnedAttentionSnapshot(_ snapshot: OwnedAttentionSnapshot) throws {
+        if let current = ownedAttentionSnapshot {
+            guard current.storeID == snapshot.storeID else {
+                throw OwnedAttentionProjectionError.identityCollision
+            }
+            // A newer committed snapshot already contains this older state.
+            if snapshot.generation < current.generation {
+                try projectOwnedAttention(current)
+                return
+            }
+        }
+        ownedAttentionSnapshot = snapshot
+        try projectOwnedAttention(snapshot)
+    }
+
+    func scheduleOwnedAttentionReconciliation() {
+        guard ownedAttentionSnapshot != nil, !ownedAttentionReconciliationScheduled else { return }
+        ownedAttentionReconciliationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.ownedAttentionReconciliationScheduled = false
+            guard let snapshot = self.ownedAttentionSnapshot else { return }
+            do {
+                try self.projectOwnedAttention(snapshot)
+            } catch {
+                terminalNotificationLogger.error("Owned attention reconciliation failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private func projectOwnedAttention(_ snapshot: OwnedAttentionSnapshot) throws {
+        let destinations = snapshot.states.values.flatMap(\.destinations)
+        var unavailable = Set<OwnedAttentionTarget>()
+        var muted = Set<OwnedAttentionTarget>()
+        for destination in destinations {
+            let target = OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID)
+            guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: destination.surfaceID),
+                  owner.tabID == destination.workspaceID,
+                  owner.surfaceID == destination.surfaceID else {
+                unavailable.insert(target)
+                continue
+            }
+            if isWorkspaceNotificationsMuted(forTabId: destination.workspaceID) {
+                muted.insert(target)
+            }
+        }
+        _ = try reconcileOwnedAttention(snapshot, unavailable: unavailable, muted: muted)
+    }
+
+    /// Applies a committed projection in one main-actor mutation without the
+    /// ordinary notification delivery pipeline.
+    func reconcileOwnedAttention(
+        _ snapshot: OwnedAttentionSnapshot,
+        unavailable: Set<OwnedAttentionTarget>,
+        muted: Set<OwnedAttentionTarget>
+    ) throws -> [OwnedAttentionSlot: OwnedAttentionProjectionStatus] {
+        if let ownedAttentionStoreID, snapshot.storeID != ownedAttentionStoreID {
+            throw OwnedAttentionProjectionError.identityCollision
+        }
+        if let ownedAttentionGeneration, snapshot.generation < ownedAttentionGeneration {
+            throw OwnedAttentionProjectionError.staleSnapshot
+        }
+        let owned = notifications.filter { $0.ownedAttentionSlot != nil }
+        let foreign = notifications.filter { $0.ownedAttentionSlot == nil }
+        let destinations = snapshot.states.values.flatMap(\.destinations)
+        var foreignWorkspaceUnread = Set<UUID>()
+        var foreignSurfaceUnread = Set<OwnedAttentionTarget>()
+        for row in foreign where !row.isRead {
+            if row.surfaceId == nil && row.panelId == nil { foreignWorkspaceUnread.insert(row.tabId) }
+            for surface in [row.surfaceId, row.panelId].compactMap({ $0 }) {
+                foreignSurfaceUnread.insert(OwnedAttentionTarget(workspaceID: row.tabId, surfaceID: surface))
+            }
+        }
+        let foreignUnread = Set(destinations.compactMap { destination -> OwnedAttentionTarget? in
+            let target = OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID)
+            return foreignWorkspaceUnread.contains(destination.workspaceID) || foreignSurfaceUnread.contains(target) ? target : nil
+        })
+        let plan = OwnedAttentionProjection.plan(states: snapshot.states, unavailable: unavailable, muted: muted, foreignUnread: foreignUnread)
+        let foreignIDs = Set(foreign.map(\.id))
+        var seenSlots = Set<OwnedAttentionSlot>()
+        for row in owned {
+            if let slot = row.ownedAttentionSlot, (!seenSlots.insert(slot).inserted || snapshot.identities[slot] != row.id) {
+                throw OwnedAttentionProjectionError.identityCollision
+            }
+        }
+        try plan.validateIdentities(snapshot.identities, foreignIDs: foreignIDs)
+        let oldBySlot = Dictionary(owned.compactMap { row in row.ownedAttentionSlot.map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
+        let rows = plan.rows.sorted {
+            let a = $0.key, b = $1.key
+            return (a.producerID.uuidString, a.target.workspaceID.uuidString, a.target.surfaceID.uuidString)
+                < (b.producerID.uuidString, b.target.workspaceID.uuidString, b.target.surfaceID.uuidString)
+        }.map { slot, destination in
+            TerminalNotification(
+                id: snapshot.identities[slot]!, tabId: destination.workspaceID, surfaceId: destination.surfaceID,
+                retargetsToLiveSurfaceOwner: false, title: destination.title, subtitle: "", body: destination.body,
+                createdAt: oldBySlot[slot]?.createdAt ?? Date(), isRead: false, paneFlash: false,
+                ownedAttentionSlot: slot
+            )
+        }
+        var rowsBySlot = Dictionary(uniqueKeysWithValues: rows.map { ($0.ownedAttentionSlot!, $0) })
+        var next = notifications.compactMap { row -> TerminalNotification? in
+            guard let slot = row.ownedAttentionSlot else { return row }
+            return rowsBySlot.removeValue(forKey: slot)
+        }
+        for row in rowsBySlot.values.sorted(by: Self.notificationSortPrecedes).reversed() {
+            let index = next.firstIndex { Self.notificationSortPrecedes(row, $0) } ?? next.endIndex
+            next.insert(row, at: index)
+        }
+        if next != notifications { notifications = next }
+        ownedAttentionGeneration = snapshot.generation
+        ownedAttentionStoreID = snapshot.storeID
+        return plan.statuses
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     /// Coalesced, equality-guarded per-workspace unread projection for the
@@ -1643,6 +1765,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
+            guard existing.ownedAttentionSlot == nil else { return false }
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
             if let correlationKey = notification.correlationKey {
                 // Correlated producers (Cursor approvals and other
@@ -3080,6 +3203,13 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         agentAttentionSupersessionSuppressed.removeAll()
+    }
+
+    func resetOwnedAttentionForTesting() {
+        ownedAttentionSnapshot = nil
+        ownedAttentionGeneration = nil
+        ownedAttentionStoreID = nil
+        ownedAttentionReconciliationScheduled = false
     }
 
     func promptToEnableNotificationsForTesting() {

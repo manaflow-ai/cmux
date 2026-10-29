@@ -471,6 +471,9 @@ class TerminalController {
     /// composition owner and ``ControlCommandContext`` conformer. Constructed in
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
+    nonisolated let ownedAttentionLeases = OwnedAttentionLeases()
+    var ownedAttentionRestoreInFlight = false
+    var ownedAttentionRestoreCompleted = false
     nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
     private final class V2BrowserUndefinedSentinel: Sendable {}
@@ -2438,18 +2441,24 @@ class TerminalController {
         )
         let writer = ControlClientAsyncWriter(socket: socket)
 
-        await handleClientLoop(
-            socket: socket,
-            pid: pid,
-            peerHasSameUID: peerHasSameUID,
-            peerAuditToken: peerAuditToken,
-            peerProcessStartTime: peerProcessStartTime,
-            authorizationGeneration: authorizationGeneration,
-            authorizationRevocationSignal: authorizationRevocationSignal,
-            initialSlotHeld: initialSlotHeld,
-            lineReader: lineReader,
-            writer: writer
-        )
+        let connectionID = UUID()
+        await SocketCommandTaskPolicy.$connectionID.withReferencedValue(connectionID) {
+            await handleClientLoop(
+                socket: socket,
+                pid: pid,
+                peerHasSameUID: peerHasSameUID,
+                peerAuditToken: peerAuditToken,
+                peerProcessStartTime: peerProcessStartTime,
+                authorizationGeneration: authorizationGeneration,
+                authorizationRevocationSignal: authorizationRevocationSignal,
+                initialSlotHeld: initialSlotHeld,
+                lineReader: lineReader,
+                writer: writer
+            )
+        }
+        await runSocketWorkerBlockingBody {
+            self.ownedAttentionLeases.release(connection: connectionID)
+        }
 
         // Dispatch source cancellation is asynchronous. Await every borrowed
         // socket source before shutting down and closing the descriptor.

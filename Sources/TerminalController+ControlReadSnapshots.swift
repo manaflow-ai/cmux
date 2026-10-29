@@ -1,5 +1,11 @@
 import CmuxControlSocket
+import CmuxNotifications
+import Darwin
 import Foundation
+
+private enum OwnedAttentionRestoreResult: Sendable {
+    case absent, failed, snapshot(OwnedAttentionSnapshot)
+}
 
 /// Main-actor publication of the read-side control-plane mirror.
 ///
@@ -21,6 +27,7 @@ extension TerminalController {
     /// Reopens opaque-handle discovery after a topology notification.
     func invalidateSocketHandleTopologyRefresh() {
         controlCommandCoordinator.invalidateHandleTopologyRefresh()
+        AppDelegate.shared?.notificationStore?.scheduleOwnedAttentionReconciliation()
     }
 
     /// Refreshes the mirror after workspaces or panes closed outside any socket
@@ -29,6 +36,39 @@ extension TerminalController {
     func externalTopologyDidChange() {
         invalidateSocketHandleTopologyRefresh()
         scheduleSocketReadSnapshotRefresh()
+    }
+
+    /// Load committed attention off-main once restore has established the
+    /// initial topology. A later topology change retries transient failures.
+    func restoreOwnedAttentionIfNeeded() {
+        guard !ownedAttentionRestoreCompleted, !ownedAttentionRestoreInFlight else { return }
+        ownedAttentionRestoreInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result: OwnedAttentionRestoreResult = await self.runSocketWorkerBlockingBody {
+                do {
+                    let url = try Self.ownedAttentionStoreURL()
+                    var info = stat()
+                    if lstat(url.path, &info) != 0 {
+                        return errno == ENOENT ? .absent : .failed
+                    }
+                    return .snapshot(try Self.ownedAttentionRepository.repository().projectionSnapshot())
+                } catch {
+                    return .failed
+                }
+            }
+            self.ownedAttentionRestoreInFlight = false
+            switch result {
+            case .absent:
+                self.ownedAttentionRestoreCompleted = true
+            case .failed:
+                break
+            case let .snapshot(snapshot):
+                if (try? TerminalNotificationStore.shared.acceptOwnedAttentionSnapshot(snapshot)) != nil {
+                    self.ownedAttentionRestoreCompleted = true
+                }
+            }
+        }
     }
 
     private func publishSocketReadSnapshot() {
@@ -61,6 +101,8 @@ extension TerminalController {
         )
         if AppDelegate.shared?.didCompleteInitialSessionRestore == true {
             controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+            restoreOwnedAttentionIfNeeded()
+            AppDelegate.shared?.notificationStore?.scheduleOwnedAttentionReconciliation()
         }
     }
 }

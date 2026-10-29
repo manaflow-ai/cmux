@@ -1,11 +1,41 @@
 import CmuxControlSocket
 import CmuxBrowser
+import CmuxNotifications
 import Foundation
+
+private enum OwnedAttentionSocketOutcome: Sendable {
+    case success(Data, OwnedAttentionSnapshot?)
+    case failure(String)
+}
 
 /// Async socket-dispatch helpers kept separate from the legacy synchronous
 /// dispatcher. Socket connections use these methods; in-process callers retain
 /// the synchronous `handleSocketLine` contract.
 extension TerminalController {
+    /// A bundle-specific directory keeps tagged builds separate from the
+    /// production register.
+    nonisolated static func ownedAttentionStoreURL() throws -> URL {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw OwnedAttentionRepositoryError.storage("application support unavailable")
+        }
+        let bundle = (Bundle.main.bundleIdentifier ?? "com.cmuxterm.app").replacingOccurrences(
+            of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression
+        )
+        return support.appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("owned-attention-\(bundle)", isDirectory: true)
+            .appendingPathComponent("state.sqlite3")
+    }
+
+    /// Open lazily on the socket worker.
+    nonisolated static let ownedAttentionRepository = OwnedAttentionRepositoryProvider {
+        let url = try TerminalController.ownedAttentionStoreURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return try OwnedAttentionRepository.openOrProvision(databaseURL: url)
+    }
+
     /// Processes one authenticated socket line without synchronously waiting
     /// for the main actor. The returned authorization value is connection
     /// local and must be fed into the next line in FIFO order.
@@ -283,6 +313,104 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async throws -> String? {
+        if request.method == "notification.state.info" {
+            guard SocketCommandTaskPolicy.connectionID != nil,
+                  request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+                return v2Error(id: request.id?.foundationObject, code: "not_authorized", message: "Local socket connection required")
+            }
+            guard request.params.isEmpty else {
+                return v2Error(id: request.id?.foundationObject, code: "invalid_params", message: "No parameters are accepted")
+            }
+            let storeID = await runSocketWorkerBlockingBody {
+                try? Self.ownedAttentionRepository.repository().storeIdentity()
+            }
+            guard let storeID else {
+                return v2Error(id: request.id?.foundationObject, code: "store_unavailable", message: "Notification state store unavailable")
+            }
+            return v2Ok(id: request.id?.foundationObject, result: ["store_id": storeID.uuidString])
+        }
+        if request.method == "notification.state.command" {
+            guard let connectionID = SocketCommandTaskPolicy.connectionID?.value,
+                  request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+                return v2Error(id: request.id?.foundationObject, code: "not_authorized", message: "Local socket connection required")
+            }
+            let data: Data
+            let envelope: OwnedAttentionCommandEnvelope
+            do {
+                data = try JSONSerialization.data(withJSONObject: request.params.mapValues(\.foundationObject))
+                guard data.count <= OwnedAttentionCommandHandler.maximumRequestBytes else {
+                    return v2Error(id: request.id?.foundationObject, code: "invalid_params", message: "Request too large")
+                }
+                envelope = try JSONDecoder().decode(OwnedAttentionCommandEnvelope.self, from: data)
+            } catch {
+                return v2Error(id: request.id?.foundationObject, code: "invalid_params", message: "Invalid notification state command")
+            }
+            let destinations: [OwnedAttentionDestination]
+            if case let .set(_, _, _, _, requested) = envelope.command {
+                destinations = requested
+            } else {
+                destinations = []
+            }
+            let authorized = try await v2MainAsync {
+                Set(destinations.compactMap { destination -> OwnedAttentionTarget? in
+                    guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: destination.surfaceID),
+                          owner.tabID == destination.workspaceID,
+                          owner.surfaceID == destination.surfaceID else { return nil }
+                    return OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID)
+                })
+            }
+            let outcome = await runSocketWorkerBlockingBody {
+                do {
+                    let repository = try Self.ownedAttentionRepository.repository()
+                    let handler = OwnedAttentionCommandHandler(repository: repository, expectedStoreID: try repository.storeIdentity()) { _, destination in
+                        authorized.contains(OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID))
+                    }
+                    let execution = try self.ownedAttentionLeases.execute(data, connection: connectionID, repository: repository, handler: handler)
+                    return OwnedAttentionSocketOutcome.success(try JSONEncoder().encode(execution.result), execution.snapshot)
+                } catch OwnedAttentionCommandError.targetDenied {
+                    return .failure("target_denied")
+                } catch OwnedAttentionCommandError.leaseHeld {
+                    return .failure("lease_held")
+                } catch OwnedAttentionCommandError.storeMismatch {
+                    return .failure("store_mismatch")
+                } catch OwnedAttentionRepositoryError.unauthorized {
+                    return .failure("not_authorized")
+                } catch OwnedAttentionStateError.wrongEpoch {
+                    return .failure("wrong_epoch")
+                } catch {
+                    return .failure("state_error")
+                }
+            }
+            switch outcome {
+            case let .failure(code):
+                return v2Error(id: request.id?.foundationObject, code: code, message: "Notification state command failed")
+            case let .success(result, snapshot):
+                if let snapshot {
+                    do {
+                        let accepted = try await v2MainAsync {
+                            (try? TerminalNotificationStore.shared.acceptOwnedAttentionSnapshot(snapshot)) != nil
+                        }
+                        if !accepted {
+                            Task { @MainActor in
+                                try? TerminalNotificationStore.shared.acceptOwnedAttentionSnapshot(snapshot)
+                            }
+                            return v2Error(id: request.id?.foundationObject, code: "projection_pending", message: "State committed; notification projection is pending")
+                        }
+                    } catch {
+                        // A timed-out hop may have been withdrawn before it
+                        // ran. Keep the committed snapshot queued for repair.
+                        Task { @MainActor in
+                            try? TerminalNotificationStore.shared.acceptOwnedAttentionSnapshot(snapshot)
+                        }
+                        return v2Error(id: request.id?.foundationObject, code: "projection_pending", message: "State committed; notification projection is pending")
+                    }
+                }
+                guard let payload = try? JSONSerialization.jsonObject(with: result) else {
+                    return v2Error(id: request.id?.foundationObject, code: "state_error", message: "Cannot encode notification state")
+                }
+                return v2Ok(id: request.id?.foundationObject, result: payload)
+            }
+        }
         if Self.authTeamSocketMethods.contains(request.method) {
             return try await v2AuthTeamResponseAsync(request)
         }

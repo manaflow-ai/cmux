@@ -3,6 +3,10 @@ import Testing
 
 @Suite("ControlCommandExecutionPolicy")
 struct ControlCommandExecutionPolicyTests {
+    @Test func attentionStoreInformationRunsOnTheSocketWorker() {
+        #expect(ControlCommandExecutionPolicy(forMethod: "notification.state.info") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "notification.state.command") == .socketWorker(mainThreadCallable: false))
+    }
     @Test func vmPrefixedMethodsRunOnTheSocketWorker() {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.anything.else").runsOnSocketWorker)

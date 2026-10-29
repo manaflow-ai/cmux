@@ -520,7 +520,8 @@ extension TerminalController: ControlNotificationContext {
             body: notification.body,
             createdAtISO8601: notificationCreatedAtISO8601(notification.createdAt),
             isRead: notification.isRead,
-            tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+            tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId),
+            ownedProducerID: notification.ownedAttentionSlot?.producerID
         )
     }
 

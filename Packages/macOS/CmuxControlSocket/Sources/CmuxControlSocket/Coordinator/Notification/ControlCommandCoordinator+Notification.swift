@@ -178,8 +178,12 @@ extension ControlCommandCoordinator {
 
     /// `notification.list` — every notification, with read state.
     func notificationList() -> ControlCallResult {
-        let items = (context?.controlNotificationList() ?? []).map {
-            notificationPayload($0, opened: nil, includeReadState: true)
+        let items = (context?.controlNotificationList() ?? []).map { snapshot in
+            var payload = notificationPayloadObject(snapshot, opened: nil, includeReadState: true)
+            if let producer = snapshot.ownedProducerID {
+                payload["owned_producer_id"] = .string(producer.uuidString)
+            }
+            return JSONValue.object(payload)
         }
         return .ok(.object(["notifications": .array(items)]))
     }

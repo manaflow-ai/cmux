@@ -574,10 +574,11 @@ extension Workspace {
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
-        let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
+        let panelHasUnreadNotification = panelNotificationSnapshots.contains { !$0.isRead }
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
-            hasVisibleNotificationIndicator(panelId: panelId)
+            panelHasUnreadNotification ||
+            (AppDelegate.shared?.notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id) == panelId)
         let restoredUnreadContributesToWorkspace: Bool? = {
             if let restoredIndicator = restoredUnreadPanelIndicators[panelId] {
                 return restoredIndicator.contributesToWorkspaceUnread
@@ -2549,6 +2550,7 @@ extension Workspace {
     private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
         AppDelegate.shared?.notificationStore?
             .notifications(forTabId: id, surfaceId: surfaceId)
+            .filter { $0.ownedAttentionSlot == nil }
             .map(SessionNotificationSnapshot.init(notification:)) ?? []
     }
 

@@ -2,6 +2,7 @@ import XCTest
 import Bonsplit
 import Darwin
 import CmuxSidebar
+import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,6 +12,95 @@ import CmuxSidebar
 
 @MainActor
 final class TerminalNotificationClearAllTests: XCTestCase {
+    func testOwnedAttentionIsNotPersistedAsPanelUnread() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalStore = appDelegate.notificationStore
+        let originalManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.notificationStore = store
+        appDelegate.tabManager = manager
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalStore
+            appDelegate.tabManager = originalManager
+        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedPanelId)
+        let slot = OwnedAttentionSlot(producerID: UUID(), target: OwnedAttentionTarget(workspaceID: workspace.id, surfaceID: panel))
+        let row = TerminalNotification(id: UUID(), tabId: workspace.id, surfaceId: panel, title: "Waiting", subtitle: "", body: "", createdAt: Date(), isRead: false, paneFlash: false, ownedAttentionSlot: slot)
+        store.replaceNotificationsForTesting([row])
+        store.notificationFeedHistory.reconcileActiveNotifications([row])
+        store.notificationFeedHistory.record(row, supersededIDs: [])
+        store.restoreSessionNotifications([], forTabId: UUID())
+        XCTAssertFalse(store.notificationFeedHistory.notifications.contains { $0.id == row.id })
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.workspaces.first?.panels.first { $0.id == panel })
+        XCTAssertNotEqual(panelSnapshot.hasUnreadIndicator, true)
+        XCTAssertTrue(panelSnapshot.notifications?.isEmpty ?? true)
+        let foreign = TerminalNotification(id: UUID(), tabId: workspace.id, surfaceId: panel, title: "Foreign", subtitle: "", body: "", createdAt: Date(), isRead: false)
+        store.replaceNotificationsForTesting([row, foreign])
+        let mixedSnapshot = manager.sessionSnapshot(includeScrollback: false)
+        let mixedPanel = try XCTUnwrap(mixedSnapshot.workspaces.first?.panels.first { $0.id == panel })
+        XCTAssertEqual(mixedPanel.hasUnreadIndicator, true)
+        XCTAssertEqual(mixedPanel.notifications?.map(\.id), [foreign.id])
+    }
+    func testOwnedAttentionDefersBehindForeignUnreadAndRestoresAfterClear() throws {
+        let store = TerminalNotificationStore.shared
+        store.resetOwnedAttentionForTesting()
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.resetOwnedAttentionForTesting()
+            store.replaceNotificationsForTesting([])
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("owned-attention-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = try OwnedAttentionRepository(databaseURL: directory.appendingPathComponent("state.sqlite3"), create: true)
+        let producer = UUID(), epoch = UUID(), workspace = UUID(), surface = UUID()
+        let secret = Data(repeating: 42, count: 32)
+        let destination = OwnedAttentionDestination(workspaceID: workspace, surfaceID: surface, title: "Waiting", body: "")
+        try repository.register(producer: producer, capability: secret, epoch: epoch)
+        try repository.apply(producer: producer, capability: secret, epoch: epoch, revision: 1, destinations: [destination])
+        let snapshot = try repository.projectionSnapshot()
+        let foreign = TerminalNotification(id: UUID(), tabId: workspace, surfaceId: surface, title: "Other", subtitle: "", body: "", createdAt: Date(), isRead: false)
+        store.replaceNotificationsForTesting([foreign])
+        let deferred = try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])
+        XCTAssertEqual(deferred.values.first, .deferredForeignUnread)
+        XCTAssertEqual(store.notifications, [foreign])
+        store.replaceNotificationsForTesting([])
+        let visible = try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])
+        XCTAssertEqual(visible.values.first, .visible)
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.title, "Waiting")
+        XCTAssertEqual(store.notifications.first?.isRead, false)
+        let unrelatedPanel = TerminalNotification(id: UUID(), tabId: workspace, surfaceId: nil, panelId: UUID(), title: "Other panel", subtitle: "", body: "", createdAt: Date(), isRead: false)
+        store.replaceNotificationsForTesting([unrelatedPanel])
+        let unrelated = try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])
+        XCTAssertEqual(unrelated.values.first, .visible)
+        XCTAssertEqual(store.notifications.count, 2)
+        let slot = try XCTUnwrap(snapshot.identities.keys.first)
+        let identity = try XCTUnwrap(snapshot.identities[slot])
+        let oldOwned = TerminalNotification(id: identity, tabId: workspace, surfaceId: surface, retargetsToLiveSurfaceOwner: false, title: "Waiting", subtitle: "", body: "", createdAt: Date(timeIntervalSince1970: 1), isRead: false, paneFlash: false, ownedAttentionSlot: slot)
+        let newerForeign = TerminalNotification(id: UUID(), tabId: workspace, surfaceId: UUID(), title: "Newer", subtitle: "", body: "", createdAt: Date(), isRead: false)
+        store.replaceNotificationsForTesting([newerForeign, unrelatedPanel, oldOwned])
+        _ = try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])
+        XCTAssertEqual(store.notifications.map(\.id), [newerForeign.id, unrelatedPanel.id, identity])
+        let movedOwned = TerminalNotification(id: identity, tabId: workspace, surfaceId: surface, retargetsToLiveSurfaceOwner: false, title: "Waiting", subtitle: "", body: "", createdAt: Date().addingTimeInterval(60), isRead: false, paneFlash: false, ownedAttentionSlot: slot)
+        store.replaceNotificationsForTesting([newerForeign, movedOwned])
+        _ = try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])
+        XCTAssertEqual(store.notifications.map(\.id), [newerForeign.id, identity])
+        store.replaceNotificationsForTesting([unrelatedPanel])
+        try repository.apply(producer: producer, capability: secret, epoch: epoch, revision: 2, destinations: [])
+        let withdrawn = try repository.projectionSnapshot()
+        _ = try store.reconcileOwnedAttention(withdrawn, unavailable: [], muted: [])
+        XCTAssertEqual(store.notifications, [unrelatedPanel])
+        XCTAssertThrowsError(try store.reconcileOwnedAttention(snapshot, unavailable: [], muted: [])) { error in
+            XCTAssertEqual(error as? OwnedAttentionProjectionError, .staleSnapshot)
+        }
+        XCTAssertEqual(store.notifications, [unrelatedPanel])
+    }
     func testQueuedClearAllRemovesAlreadyDeliveredNotification() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

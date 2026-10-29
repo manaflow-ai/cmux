@@ -15,6 +15,9 @@ private final class NotificationControlCommandContext: ControlCommandContext {
     /// The effects override each create verb handed over; `nil` records an
     /// absent or null key so it stays distinguishable from an explicit patch.
     private(set) var createEffects: [ControlNotificationEffectsPatch?] = []
+    var listedNotifications: [ControlNotificationSnapshot] = []
+
+    func controlNotificationList() -> [ControlNotificationSnapshot] { listedNotifications }
 
     /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreate(
@@ -136,6 +139,26 @@ struct ControlCommandCoordinatorNotificationTests {
         _ params: [String: JSONValue] = [:]
     ) -> ControlRequest {
         ControlRequest(id: .int(1), method: method, params: params)
+    }
+
+    @Test func notificationListReportsAuthoritativeOwnedProducer() throws {
+        let context = NotificationControlCommandContext()
+        let producer = UUID()
+        context.listedNotifications = [ControlNotificationSnapshot(
+            id: context.notificationID, workspaceID: context.workspaceID,
+            surfaceID: context.surfaceID, title: "Waiting", subtitle: "", body: "",
+            createdAtISO8601: "2026-01-01T00:00:00Z", isRead: false,
+            tabTitle: nil, ownedProducerID: producer
+        )]
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = try #require(coordinator.handle(request("notification.list")))
+        guard case .ok(.object(let payload)) = result,
+              case .array(let items) = payload["notifications"],
+              case .object(let item) = items.first else {
+            Issue.record("notification.list did not return the expected item")
+            return
+        }
+        #expect(item["owned_producer_id"] == .string(producer.uuidString))
     }
 
     @Test func createResultsExposeTheCreatedNotificationID() throws {

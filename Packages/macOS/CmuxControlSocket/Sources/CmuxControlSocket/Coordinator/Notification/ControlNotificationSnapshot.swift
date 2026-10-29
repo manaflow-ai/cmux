@@ -33,6 +33,8 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
     /// The workspace's tab title, if the app could resolve one (the legacy
     /// `AppDelegate.tabTitle(for:)` read, written as `tab_title`).
     public let tabTitle: String?
+    /// The producer owning this row, when projected from durable attention.
+    public let ownedProducerID: UUID?
 
     /// Creates a notification snapshot.
     ///
@@ -55,7 +57,8 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
         body: String,
         createdAtISO8601: String,
         isRead: Bool,
-        tabTitle: String?
+        tabTitle: String?,
+        ownedProducerID: UUID? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -66,5 +69,6 @@ public struct ControlNotificationSnapshot: Sendable, Equatable {
         self.createdAtISO8601 = createdAtISO8601
         self.isRead = isRead
         self.tabTitle = tabTitle
+        self.ownedProducerID = ownedProducerID
     }
 }
