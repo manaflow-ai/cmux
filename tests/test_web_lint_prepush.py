@@ -626,6 +626,32 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(tui, ["npm ci --no-audit --no-fund @ typescript", "npm run build @ typescript",
                                "bun install --silent --no-save @ web", "check web"])
 
+    def test_a_host_that_runs_no_heavy_checks_installs_and_builds_nothing(self):
+        # The bindings build is `npm ci` plus tsc: on such a host no npm, no bun install, no build and no tsc runs.
+        # A package that already has node_modules still runs its light pieces; one with none is left to CI, named.
+        self.add_tui_packages()
+        self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
+            '"check": "sh check.sh"', '"check": "sh fmt.sh && vp check --no-fmt --no-lint && tsc -p ."'))
+        self.write("cmux-tui/frontends/web/fmt.sh", 'echo "fmt $(basename "$PWD")" >> "$TOOL_LOG"\n')
+        self.commit("a heavy frontend check")
+        tools = Path(self.env["PATH"].split(os.pathsep)[0])
+        for name in ("tsc", "vp"):
+            (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "$TOOL_LOG"\n')
+            (tools / name).chmod(0o755)
+
+        result, calls = self.lint_all(CMUX_LOCAL_HEAVY_CHECKS="0")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [], "nothing may install, build or check a package that has no node_modules")
+        self.assertIn("cmux-tui/frontends/web: not linted here, it has no node_modules", result.stderr)
+
+        (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
+        result, calls = self.lint_all(CMUX_LOCAL_HEAVY_CHECKS="0")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if not c.endswith("@ webviews")], ["fmt web"])
+        self.assertIn("cmux-tui/bindings/typescript: not built here", result.stderr)
+
     def test_a_current_bindings_build_is_not_rebuilt_and_a_source_change_rebuilds_it(self):
         self.add_tui_packages()
         self.assertEqual(self.lint_all()[0].returncode, 0)

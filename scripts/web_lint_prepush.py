@@ -51,8 +51,10 @@ Skip once, with a reason that names the evidence (logged in the push output):
 Heavy pieces: the type-aware lint and the type check (`vp lint`, `vp check`, tsc, tsgo; see
 config/vite-plus/check.ts, typeAware and typeCheck) start tsgolint, about 9 GB and 5 GB on webviews,
 both at once. A host that must not run builds or heavy checks (a shared agent host, a laptop) sets
-CMUX_LOCAL_HEAVY_CHECKS=0: the other pieces still run there, and the heavy ones are left to CI's
-`web lint` job and the pull request's fast gates, or to `cmux-ci test` on a build box. Wherever they
+CMUX_LOCAL_HEAVY_CHECKS=0: nothing is installed or built there (the tui bindings build is npm ci and
+tsc), the light pieces run against the node_modules a package already has (a package with none is
+skipped, named), and the heavy ones are left to CI's `web lint` job and the pull request's fast
+gates, or to `cmux-ci test` on a build box. Wherever they
 do run outside CI, they run under `nice` with capped Go and Node concurrency and heap (heavy_env).
 """
 from __future__ import annotations
@@ -486,16 +488,43 @@ def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cach
     return command + relative
 
 
+def light_plan(repo: Path, plan: Plan, mode: str) -> Plan:
+    """PLAN for a host that runs no heavy check: no package is installed or built, so one with no node_modules yet
+    is dropped with a note (CI checks it), and a package's local builds are skipped, said once."""
+    kept = Plan(untrusted=plan.untrusted)
+    ci = f"CI's `web lint` job and the pull request's fast gates check it ({LOCAL_HEAVY_ENV}=0: no install or build here)"
+    for package in plan.script_packages:
+        if not (repo / package.directory / "node_modules").is_dir():
+            print(f"{mode}: {package.directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+            continue
+        for build in package.builds:
+            print(f"{mode}: {build.directory}: not built here, so {package.directory} is checked against the "
+                  f"bindings it already has; {ci}.", file=sys.stderr)
+        kept.script_packages.append(package)
+    for directory, files in plan.eslint_files.items():
+        if not (repo / directory / "node_modules").is_dir():
+            print(f"{mode}: {directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
+            continue
+        kept.eslint_files[directory] = files
+    return kept
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
-    stale, failures = prepare_builds(repo, plan.script_packages)
-    if failures:
-        return failures
-    directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
-        installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
-    if installs:
-        return installs
+    if not heavy:
+        # No install or build here either: the bindings build is `npm ci` plus tsc, and installs are the network and
+        # disk churn of a build. Light pieces run against the node_modules a package already has; a package with
+        # none is left to CI, named.
+        plan = light_plan(repo, plan, mode)
+    else:
+        stale, failures = prepare_builds(repo, plan.script_packages)
+        if failures:
+            return failures
+        directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
+            installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
+        if installs:
+            return installs
     if fix:
         for package in plan.script_packages:
             for piece in local_pieces(package, check_pieces(repo, package, "check:fix"), heavy, mode):
