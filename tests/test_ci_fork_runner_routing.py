@@ -274,10 +274,25 @@ def _free_refs(node: tuple, inside: str = "") -> set[str]:
     return set()
 
 
+# The only places a key-holding runs-on may read a repository variable, as exact text. The
+# evaluator below then checks what the whole expression yields; this allowlist is what makes the
+# check complete, since no enumeration of values covers every form (review of #27631).
+ALLOWED_VARIABLE_READS = (
+    re.escape(BOUNDED_LINUX_SELECTOR),
+    r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-[a-z0-9-]+' \|\|",
+)
+VARIABLE_READ = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
+
+
 def runner_label_errors(runs_on: str) -> list[str]:
     """Why a runs-on could put a key on a machine it does not name; [] when it never can."""
     if runs_on == TRUSTED_RUNNER_EXPRESSION:
         return []
+    remainder = runs_on
+    for allowed in ALLOWED_VARIABLE_READS:
+        remainder = re.sub(allowed, "", remainder)
+    if VARIABLE_READ.search(remainder):
+        return [f"{runs_on!r} reads a variable outside the bounded selector"]
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
         return [] if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) else [f"{runs_on!r} is not a Blacksmith label"]
@@ -1352,6 +1367,22 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
                         f"${{{{ {fork}contains(vars.LINUX_RUNNER, 'blacksmith-16vcpu-ubuntu-2404') && "
                         "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        # Second review of #27631: forms a bounded enumeration of values misses.
+                        f"${{{{ {fork}github.event_name == vars.X && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}vars.X != github.event_name && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"merge_group\"]'), github.event_name) && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(fromJSON('[\"merge_group\"]'), github.event_name) && "
+                        "format('{{0}}', vars.LINUX_RUNNER) || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(fromJSON('[\"manaflow-ai/evil\"]'), "
+                        "github.event.pull_request.head.repo.full_name) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(fromJSON(vars.X), github.event_name) && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}fromJSON(vars.X) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER }}}}",
+                        f"${{{{ {fork}!fromJSON(vars.X) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}vars['LINUX_RUNNER'] || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} || vars.LINUX_RUNNER }}}}",
+                        f"${{{{ {fork}github.head_ref || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "ubuntu-24.04"):
             self.assertNotEqual(runner_label_errors(refused), [], refused)
         for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
