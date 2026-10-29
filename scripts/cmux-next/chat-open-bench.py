@@ -52,7 +52,6 @@ import os
 import shutil
 import signal
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -64,6 +63,7 @@ sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
+from chat_open_summary import cell, summarize  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -359,26 +359,6 @@ def measure_case(run, case, sessions, index):
     raise ValueError(case)
 
 
-def summarize(records):
-    values = [r.get("first_content_ms") for r in records if isinstance(r.get("first_content_ms"), (int, float))]
-    images = [r.get("first_image_ms") for r in records if isinstance(r.get("first_image_ms"), (int, float))]
-    empties = [r.get("longest_empty_ms") or 0 for r in records]
-    out = {"n": len(records), "ok": len(values),
-           "first_content_ms": {"median": round(statistics.median(values), 1) if values else None,
-                                "min": min(values) if values else None, "max": max(values) if values else None},
-           "first_image_ms": round(statistics.median(images), 1) if images else None,
-           "longest_empty_ms": round(statistics.median(empties), 1) if empties else None,
-           "flashes": sum(r.get("flashes") or 0 for r in records),
-           "timed_out": sum(1 for r in records if r.get("timed_out"))}
-    marks = {}
-    for record in records:
-        for name, ms in (record.get("marks_ms") or {}).items():
-            if isinstance(ms, (int, float)):
-                marks.setdefault(name, []).append(ms)
-    out["marks_median_ms"] = {name: round(statistics.median(v), 1) for name, v in marks.items()}
-    return out
-
-
 def main():
     root = tempfile.mkdtemp(prefix="chat-open-")
     results = {"host": socket.gethostname(), "ncpu": NCPU, "app": APP,
@@ -392,12 +372,16 @@ def main():
         home, sessions, seeded = seed(root)
         results["seed"] = seeded
         say("chat-open: seeded", json.dumps(seeded))
-        # A worker's earlier run of this tag would otherwise restore its workspaces into this one.
-        wipe_state(APP)
-        run = Run(root, home)
-        run.launch()
-        time.sleep(5)  # test script: let launch work end before the first measured open
         for condition in CONDITIONS:
+            # Every condition starts from the same state: a fresh app with no saved workspaces, so
+            # a later condition's opens (and its restore) don't carry the earlier ones' workspaces.
+            # The wipe also keeps a worker's earlier run of this tag from restoring into this one.
+            if run:
+                run.end()
+            wipe_state(APP)
+            run = Run(root, home)
+            run.launch()
+            time.sleep(5)  # test script: let launch work end before the first measured open
             if condition != "idle":
                 load.start(condition)
                 time.sleep(opts.settle)  # test script: the load reaches steady state
@@ -445,11 +429,17 @@ def main():
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write(table + "\n")
+    failed = [f"{condition} {case}" for condition, cases in results["cases"].items()
+              for case, summary in cases.items() if not summary.get("complete")]
+    if failed:
+        raise SystemExit("chat-open: incomplete measurements (an open with no first content or no empty time): "
+                         + ", ".join(failed))
 
 
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
-             f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content",
+             f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
+             f"FAILED: a case with an open that showed no content or no empty time (no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
@@ -458,10 +448,7 @@ def markdown(results):
             if not s:
                 cells.append("–")
                 continue
-            fc = s["first_content_ms"]["median"]
-            extra = f" (image {s['first_image_ms']})" if case == "restore" and s.get("first_image_ms") is not None else ""
-            cells.append(f"{fc if fc is not None else 'none'}{extra}, empty {s['longest_empty_ms']}, "
-                         f"{s['flashes']} flash{'es' if s['flashes'] != 1 else ''}")
+            cells.append(cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
     return "\n".join(lines)
