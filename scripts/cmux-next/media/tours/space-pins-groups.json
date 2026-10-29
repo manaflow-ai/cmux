@@ -60,13 +60,25 @@
       "wait": 3
     },
     {
-      "title": "A new space, Work: none of the default space's groups",
+      "title": "Make space Work",
       "cmux": [
         "action",
         "run",
         "space.new",
         "--name",
         "Work"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Switch the window to Work: none of the default space's groups",
+      "cmux": [
+        "action",
+        "run",
+        "space.selectByNumber",
+        "--index",
+        "2"
       ],
       "wait": 3
     }
