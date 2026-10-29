@@ -17,8 +17,7 @@ public struct TaskManagerView: View {
         self.table = table
     }
 
-    /// The page as an AppKit view: its `NSHostingView`. Its AppKit callers and tests (which import no SwiftUI)
-    /// use this.
+    /// The page as an AppKit view (its `NSHostingView`), for the page tab's gate, which is AppKit.
     package static func hostingView(model: TaskManagerModel, table: TaskManagerTableState) -> NSView {
         NSHostingView(rootView: TaskManagerView(model: model, table: table))
     }

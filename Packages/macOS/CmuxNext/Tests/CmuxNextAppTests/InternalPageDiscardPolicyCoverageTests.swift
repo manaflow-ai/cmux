@@ -262,15 +262,23 @@ struct InternalPageDiscardPolicyCoverageTests {
         withExtendedLifetime((scrolled.rows, top.rows)) {}
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // The capture fixture (useCaptureFixture) is the page's one sample-source seam, built in these configurations.
     @Test func aRebuiltTaskManagerTableScrollsItsSavedRowToTheTop() async throws {
         let processes = (0..<60).map { ProcessKey(pid: Int32(2000 + $0)) }
         let tabs = processes.map { TabResourceSources(tabID: "tab_\($0.pid)", title: "t\($0.pid)", kind: .terminal, processes: [$0]) }
         let samples = Dictionary(uniqueKeysWithValues: processes.map { ($0, TaskManagerMemorySavedTests.sample($0, memory: 1 << 20)) })
         let source = TaskManagerMemorySavedTests.Source([TaskManagerSampleSet(resources: ResourceSampleSet(tabs: tabs, shared: [], samples: samples))])
-        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-                                     kill: { _ in })
-        let table = TaskManagerTableState(scrollTarget: ProcessKey(pid: 2040))
-        let host = TaskManagerView.hostingView(model: model, table: table)
+        // The real page (TaskManagerPageService.makeView) over the samples, its saved top row restored.
+        let services = Self.services()
+        let service = services.taskManager
+        #expect(service.useCaptureFixture(source))
+        let key = LocalPageTab.makeKey(.taskManager)
+        let host = service.makeView(for: key, in: nil)
+        defer { service.tabClosed(key) }
+        let model = try #require(service.model)
+        let table = try #require(service.tables[key])
+        await service.restoreViewState(ContentViewState(values: ["topRow": ProcessKey(pid: 2040).description]), for: key, content: host)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
@@ -286,4 +294,5 @@ struct InternalPageDiscardPolicyCoverageTests {
         #expect(table.scrollTarget == nil, "the table scrolled")
         #expect(TaskManagerPageService.topRow(in: host, rows: rows) == ProcessKey(pid: 2040))
     }
+    #endif
 }
