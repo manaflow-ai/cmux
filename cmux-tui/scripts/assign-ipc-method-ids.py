@@ -25,10 +25,10 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names, the
-               `static let commandName: DaemonCommandName` names, the
+  clients      sdk for every command; macos for the request types' `static let command`
+               names, the `static let commandName: DaemonCommandName` names, the
                MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
-               lines the Swift app writes, cli for the Q14 names and
+               lines the Swift app writes, cli for the CLI's `"cmd": "<name>"` lines and
                CLI_CALL_HELPER_SENDS, ios for the cases of the
                iOS client's command table (IOS_COMMAND_TABLE)
 
@@ -50,7 +50,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
-CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The iOS cmux-tui client names every command it sends in this enum.
 IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
@@ -433,11 +432,11 @@ SPAWNS_TERMINAL = (
     "move-tab-to-column", "agent-cli-update-job",
 )
 
-# CLI senders outside census Q14 ---------------------------------------------------
+# CLI senders without a "cmd" line --------------------------------------------------
 # Wire names the Rust CLI sends through a call helper that takes the name as
 # an argument (`RemoteMachine::call`, `sync_cli::machine_call`, the move pump's
-# `call` and `call_once`), not on a hand-built `"cmd": "..."` line, so census
-# Q14 does not see them. name -> the CLI file (under crates/cmux-tui/src) that
+# `call` and `call_once`), not on a hand-built `"cmd": "..."` line, so
+# cli_cmd_line_names does not see them. name -> the CLI file (under crates/cmux-tui/src) that
 # sends it; the script refuses an entry whose file stops naming it.
 CLI_SRC = ROOT / "cmux-tui/crates/cmux-tui/src"
 _SYNC_REMOTE = "link/sync_cli/remote.rs"
@@ -495,21 +494,37 @@ def durability_of(name: str) -> str:
 # Sources outside the schema -------------------------------------------------------
 
 
-def census_names(queue: str) -> set[str]:
-    """Wire names of an ipc-census queue (p05-ipc-001)."""
+def grep_names(pattern: str, name: str, *pathspecs: str) -> set[str]:
+    """Group 1 of `name` on each line that `git grep -E PATTERN -- PATHSPECS` prints."""
 
     result = subprocess.run(
-        [sys.executable, str(CENSUS), "--queue", queue],
+        ["git", "grep", "-h", "-E", pattern, "--", *pathspecs],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
-    if result.returncode != 0:
-        raise AssignError(f"ipc-census.py --queue {queue} failed: {result.stderr.strip()}")
-    return {hit["key"] for hit in json.loads(result.stdout)}
+    if result.returncode not in (0, 1):
+        raise AssignError(f"git grep {pattern!r} failed: {result.stderr.strip()}")
+    return {found.group(1) for line in result.stdout.splitlines() if (found := re.search(name, line))}
+
+
+def swift_request_type_names() -> set[str]:
+    """Commands named by a Swift request type's `static let command(Name) = "..."`."""
+
+    return grep_names(
+        r'static (let|var) command(Name)?(: (String|DaemonCommandName))? = "',
+        r'command(?:Name)?(?:: (?:String|DaemonCommandName))? = "([^"]*)"',
+        SWIFT_SOURCES, ":!*.generated.swift",
+    )
+
+
+def cli_cmd_line_names() -> set[str]:
+    """Commands on the Rust CLI's hand-built `"cmd": "<name>"` lines."""
+
+    return grep_names('"cmd"', r'"cmd"\s*:\s*"([^"]+)"', "cmux-tui/crates/cmux-tui/src")
 
 
 # Swift clients that send daemon commands by wire name (`call("name", ...)`),
-# not through a request type with `static let command`, the only form census
-# Q1 sees. The file's literals with the prefix are macos names; a pushed event
+# not through a request type with `static let command`, the only form
+# swift_request_type_names sees. The file's literals with the prefix are macos names; a pushed event
 # name among them names no command and changes nothing.
 MACOS_CALL_SITES: dict[str, str] = {
     f"{SWIFT_SOURCES}/CmuxNextDaemon/AgentSession/AgentSessionAttachClient.swift": "agent-session-",
@@ -557,7 +572,7 @@ def _pascal(name: str) -> str:
 def cli_typed_request_names(commands: Iterable[str]) -> set[str]:
     """Wire names of the generated `<Command>Request` types (cmux_ipc::client) the
     Rust CLI imports. A command the CLI sends through its typed request has no
-    `"cmd"` literal for census Q14 to see, so without this the migrated commands
+    `"cmd"` literal for cli_cmd_line_names to see, so without this the migrated commands
     would lose `cli`, and with it the very types the CLI imports."""
 
     by_type = {f"{_pascal(name)}Request": name for name in commands}
@@ -595,7 +610,7 @@ _RAW_LINE = re.compile(r'"cmd":\s*"([a-z][a-z0-9-]*)"')
 
 def swift_line_commands() -> set[str]:
     """Wire names the Swift app writes as raw `"cmd": "<name>"` lines instead
-    of a request type (LoopbackForwardLine), which ipc-census Q1 does not see."""
+    of a request type (LoopbackForwardLine), which swift_request_type_names does not see."""
 
     listed = subprocess.run(
         ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
@@ -702,10 +717,10 @@ class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
     macos: Callable[[], set[str]] = (
-        lambda: census_names("Q1") | swift_typed_commands() | swift_call_site_names() | swift_line_commands()
+        lambda: swift_request_type_names() | swift_typed_commands() | swift_call_site_names() | swift_line_commands()
     )
     cli: Callable[[], set[str]] = lambda: (
-        census_names("Q14") | cli_call_helper_names() | cli_typed_request_names(_schema_commands())
+        cli_cmd_line_names() | cli_call_helper_names() | cli_typed_request_names(_schema_commands())
     )
     ios: Callable[[], set[str]] = ios_command_names
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands

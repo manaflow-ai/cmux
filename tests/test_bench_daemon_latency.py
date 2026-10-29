@@ -4,8 +4,8 @@
 Covers nearest-rank percentiles and stats rows, rows() flattening for the report, select_ops,
 the unserved/failed classification of daemon errors (an unknown command or v2 operation is a
 skip; a bad enum value inside the params is a failure), the automation storm's window and the
-IPC-16 verdict, Conn.pump(0) reading what is readable, write_q16 against a temporary targets file
-read back through ipc-census.py's Q16 reader, its refusals, and that main writes --out when the
+IPC-16 verdict, Conn.pump(0) reading what is readable, write_q16 against a temporary targets file,
+its refusals, and that main writes --out when the
 daemon never starts. No daemon and no build.
 
 Not on CI (Lawrence 2026-10-23: no new CI tests; lane = "manual"): run
@@ -25,7 +25,6 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parents[1]
 BENCH = SOURCE / "cmux-tui/scripts/bench-daemon-latency.py"
-CENSUS = SOURCE / "scripts/cmux-next/ipc-census.py"
 
 
 def load(name, path):
@@ -305,7 +304,7 @@ class Q16(unittest.TestCase):
         with open(self.targets, encoding="utf-8") as f:
             return json.load(f)
 
-    def test_items_and_run_record_read_back_through_the_census(self):
+    def test_items_and_run_record(self):
         items = bench.write_q16(self.targets, result_with_ops())
         targets = self.read()
         self.assertEqual(targets["runtime"]["Q9"], [])
@@ -320,10 +319,6 @@ class Q16(unittest.TestCase):
         self.assertEqual(run["binary"]["sha256"], "ab" * 32)
         self.assertEqual((run["skipped"], run["failed"]), (["close-tabs"], ["move-tab"]))
         self.assertEqual(run["host"]["hostname"], "aws-m4pro-1")
-        census = load("cmux_next_ipc_census_for_bench", CENSUS)
-        q16 = census.Census(None, targets).q16()
-        self.assertEqual([(hit.file, hit.line, hit.key) for hit in q16.hits],
-                         [(item["file"], item["line"], item["key"]) for item in items])
 
     def test_the_daemon_build_commit_names_the_run(self):
         bench.write_q16(self.targets, result_with_ops(build_commit="0123456"))

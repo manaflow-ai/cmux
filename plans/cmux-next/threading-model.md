@@ -316,7 +316,7 @@ is a per-object part of the name.
 Every `mux-*` thread the daemon and the cmux-tui front end start has a class by its role, as Chromium gives
 every thread a `ThreadType` (`base/threading/platform_thread.h`) and maps it once to a QoS class
 (`ThreadTypeToQoSClass`, `base/threading/platform_thread_apple.mm`). Each starts through `cmux_threads::spawn`
-(registered, declared class set before its body runs), so `ipc-census.py --queue Q8` does not list it. The journal
+(registered, declared class set before its body runs). The journal
 writer and the echo-path threads of task 150 are not in this table.
 
 | Role | Class | Threads | Why |
