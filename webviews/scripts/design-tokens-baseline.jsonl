@@ -85,7 +85,6 @@
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"gap","values":{"6px 16px":1}}
 {"file":"agent-session/acpmux/Inspector.css","kind":"spacing","property":"padding","values":{"10px 16px":1,"4px 10px":1,"3px 16px":1}}
 {"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"height","property":"height","values":{"6px":1,"10px":1}}
-{"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"spacing","property":"gap","values":{"2px":1}}
 {"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"spacing","property":"padding","values":{"2px 8px 6px":1}}
 {"file":"agent-session/acpmux/inspector/ContextSection.css","kind":"spacing","property":"padding-left","values":{"18px":1}}
 {"file":"agent-session/acpmux/inspector/inspector.css","kind":"height","property":"height","values":{"6px":1,"1px":1,"7px":2,"26px":1,"22px":1}}
