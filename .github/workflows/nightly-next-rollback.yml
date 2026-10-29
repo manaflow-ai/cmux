@@ -15,6 +15,7 @@ name: nightly-next rollback
 #     -f reason="what is broken"            # pulls the newest build
 #     -f bad_build=3917159104301            # or: pull this build and everything newer
 #     -f to_build=3917061587901             # or: serve this build again
+#     -f if_newest=3917159104301            # pull nothing unless this is the newest build
 #     -f dry_run=true                       # print the plan, write nothing
 # nightly-next-canary.yml dispatches it with bad_build when the canary
 # enforces and the build it launched failed.
@@ -41,6 +42,11 @@ on:
         type: string
       to_build:
         description: Instead of bad_build, serve this build (digits) and pull everything above it.
+        required: false
+        default: ''
+        type: string
+      if_newest:
+        description: Pull nothing unless this build (digits) is the feed's newest. The launch smoke sets it to its bad_build.
         required: false
         default: ''
         type: string
@@ -88,6 +94,7 @@ jobs:
         env:
           BAD_BUILD: ${{ inputs.bad_build }}
           TO_BUILD: ${{ inputs.to_build }}
+          IF_NEWEST: ${{ inputs.if_newest }}
         run: |
           set -euo pipefail
           mkdir -p rollback
@@ -96,6 +103,7 @@ jobs:
           args=()
           [ -z "$BAD_BUILD" ] || args+=(--bad "$BAD_BUILD")
           [ -z "$TO_BUILD" ] || args+=(--to "$TO_BUILD")
+          [ -z "$IF_NEWEST" ] || args+=(--if-newest "$IF_NEWEST")
           summary="$(python3 scripts/ci/nightly_next_feed_rollback.py plan --feed rollback/live.xml \
             --out "rollback/$NIGHTLY_APPCAST" "${args[@]}")"
           echo "$summary"
