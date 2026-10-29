@@ -594,9 +594,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
   inbound connection on its private address (the app's own link to the daemon port does not count), and CPU use since the previous probe below
   `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
-  is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
-  stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
-  is unknown, and unknown never pauses.
+  is over it). A CPU counter that went back (a reboot) restarts the idle stretch. A probe without
+  a CPU sample, or a `/proc/net/tcp` (or an existing `tcp6`) it cannot read, is unknown; a missing
+  `tcp6` (IPv6 off) is no IPv6 connections. A stored observation without a CPU sample does not
+  carry the stretch. Anything the probe cannot read is unknown, and unknown never pauses.
 - Machines whose cmux-tui predates `subscribe-activity` (every image up to a9b104f3) are decided
   in legacy mode. The probe enters it only when the daemon refuses `subscribe-activity` as an
   unknown variant (acpmux then reads as none when the CLI refuses `acp` as an unknown resource

@@ -285,12 +285,16 @@ function knownProbe(probe: VmIdleProbe | null): KnownVmIdleProbe | string {
   const { daemon, acpmux } = probe;
   if (!daemon) return "daemon";
   if (!acpmux) return "acpmux";
+  // Without a CPU sample a background job could be working unseen.
+  if (!isCpuMs(probe.cpuBusyMs)) return "cpu";
   return { ...probe, daemon, acpmux };
 }
 
 /** The previous observation when it is this machine's and recent enough to vouch for the time since. */
 function carriedObservation(previous: VmIdleObservation | null, providerVmId: string, now: number): VmIdleObservation | null {
   if (previous === null || previous.providerVmId !== providerVmId || previous.observedAt > now) return null;
+  // Without its CPU sample nothing measured the CPU since it, so it vouches for nothing.
+  if (!isCpuMs(previous.cpuBusyMs)) return null;
   return now - previous.observedAt <= VM_IDLE_OBSERVATION_MAX_GAP_MS ? previous : null;
 }
 
@@ -505,8 +509,14 @@ def inbound_connections():
         try:
             with open(os.path.join(proc, "net", table)) as f:
                 lines = f.read().splitlines()[1:]
+        except FileNotFoundError:
+            # No tcp6 table is a kernel without IPv6: no IPv6 connections. No tcp table is unreadable.
+            if table == "tcp6":
+                continue
+            return None
         except Exception:
-            continue
+            # A table that exists but cannot be read could hide a connection in use.
+            return None
         for line in lines:
             p = line.split()
             try:
