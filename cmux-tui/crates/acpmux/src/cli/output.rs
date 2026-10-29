@@ -1125,7 +1125,13 @@ mod prompt_tests {
     /// reader hands them on in that order, but `collect_once` chose between
     /// a ready result and a ready notification at random and could end the
     /// turn with its words still queued. Every reply must carry its words.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    ///
+    /// One worker makes both ready at every turn's select: the client's reader
+    /// reads the two lines in one poll and wakes this task (the notification)
+    /// and then the request task (the result); the worker's LIFO slot runs the
+    /// request task first, so this task finds the result and the words both
+    /// ready. An unbiased select then loses about half of the replies.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn collect_reply_keeps_the_words_that_came_just_before_the_result() {
         let dir = cmux_unix_socket::short_test_dir("acpmux-w");
         let client = chunk_then_result_daemon(&dir).await;
