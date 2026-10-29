@@ -1725,7 +1725,8 @@ def snapshot(label):
             last = {}
 
             def drawn():
-                _, now = view_panes()
+                report, now = view_panes()
+                last["report"] = report
                 shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
                 ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
                 if not ok:
@@ -1738,12 +1739,19 @@ def snapshot(label):
                     settled = last.get("grids") == grids
                 last["grids"] = grids
                 return now if settled else None
-            now = wait(drawn, 20, 0.5) or view_panes()[1]
+            now = wait(drawn, 20, 0.5)
+            report = last.get("report")
+            if not now:
+                # Not settled: read once more, waiting out a report the app does not answer (a
+                # loaded host), so the rows name what the app drew, not a failed read.
+                report, now = wait(lambda: (lambda r: r if rj_rows.report_error(r[0]) is None else None)(view_panes()), 60, 2) \
+                    or view_panes()
+            raw[f"debug.surfaces.{name}"] = report
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
-                RESULTS.append(grid_fits_view(label, pp, v))
+                RESULTS.append(grid_fits_view(label, pp, v, report))
     if "cloud" not in SKIP:
         items.update(cloud_items())
     if "agents" not in SKIP:
