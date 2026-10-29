@@ -4,7 +4,8 @@
 A fixture repository holds a small CmuxNextApp and every kind of path-keyed file (sorted JSON, sorted lines, the
 godfile's Module/Type rows, OWNERS.md, a regex in autofix-areas.sh, globs in a workflow paths filter, a doc). The
 tests rename or delete a file without following it and check that --check names the stale entry, that base debt
-passes, that --from-git repairs a plain rename, and that the gate refuses only what the push's own commits leave.
+passes, that --from-git repairs a plain rename, that the gate refuses only what the push's own commits leave, and
+that the gate credits a pure rename (RenameCredit).
 
   python3 -m pytest scripts/cmux-next/tests/test_follow_renames.py
   python3 -m unittest discover -s scripts/cmux-next/tests -p test_follow_renames.py
@@ -260,6 +261,65 @@ class PrepushGate(unittest.TestCase):
         finally:
             fx.close()
 
+
+class RenameCredit(unittest.TestCase):
+    """The gate credits a pure rename: the scanners read a renamed file at its old path, and the crash data that
+    follow-renames.py --from-git moves with its file needs no new Crash-allow-OK trailer."""
+
+    def test_crash_allowance_that_follows_its_file_needs_no_new_review(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_crash", "prepush-gate.py")
+        fx = Fixture()
+        try:
+            base = fx.git("rev-parse", "HEAD").strip()
+            fx.git("mv", APP + "FixtureSearch", APP + "Moved")
+            fx.commit("move FixtureSearch")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(follow.main(["--repo", str(fx.root), "--from-git", f"{base}..HEAD"]), 0)
+            allow = json.loads(fx.read("scripts/cmux-next/crash-allowlist.json"))["allow"]
+            self.assertEqual(allow[0]["path"], APP + "Moved/FixtureSearchControl.swift")
+            fx.git("add", "-A")
+            fx.git("commit", "-q", "--amend", "--no-edit")
+            moved = fx.git("rev-parse", "HEAD").strip()
+            self.assertEqual(gate.crash_allow_unreviewed(fx.root, base, moved), [])
+            data = json.loads(fx.read("scripts/cmux-next/crash-allowlist.json"))
+            data["allow"][0]["count"] = 2
+            (fx.root / "scripts/cmux-next/crash-allowlist.json").write_text(json.dumps(data, indent=1) + "\n")
+            fx.git("add", "-A")
+            raised = fx.commit("raise")
+            self.assertEqual(len(gate.crash_allow_unreviewed(fx.root, moved, raised)), 1, "a raise still needs review")
+        finally:
+            fx.close()
+
+    def test_a_moved_files_old_findings_are_not_new(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_records", "prepush-gate.py")
+        old = APP + "Handlers/Prompt.swift"
+        new = PKG + "Sources/CmuxNextPalette/Handlers/Prompt.swift"
+        with tempfile.TemporaryDirectory() as tmp:
+            base, head = Path(tmp) / "base", Path(tmp) / "head"
+            for tree, path in ((base, old), (head, new)):
+                (tree / path).parent.mkdir(parents=True)
+                (tree / path).write_text("struct P {\n    var s: [String]? = nil\n    var t: Int? = nil\n}\n")
+            rule = "warning: Implicit Optional Initialization Violation (implicit_optional_initialization)"
+            base_out = f"{base}/{old}:2:9: {rule}\n"
+            head_out = f"{head}/{new}:2:9: {rule}\n{head}/{new}:3:9: {rule}\n"
+            fresh = gate.new_records(base_out, head_out, base, head, {new: old})
+            self.assertEqual(len(fresh), 1, "only the line the move did not bring is new")
+            self.assertTrue(fresh[0].startswith(f"{new}:3:9"), fresh)
+            self.assertEqual(len(gate.new_records(base_out, head_out, base, head)), 2, "without the rename both are new")
+
+    def test_a_row_that_rises_past_what_the_move_brought_still_needs_review(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_crash_rows", "prepush-gate.py")
+        renamed = {PKG + "Sources/CmuxNextPalette/A.swift": APP + "A.swift"}
+        old = {("swift", "unchecked", "CmuxNextApp"): 2}
+        new = {("swift", "unchecked", "CmuxNextApp"): 1, ("swift", "unchecked", "CmuxNextPalette"): 3}
+        rows = {("swift", "unchecked", "CmuxNextPalette"): 3}
+        self.assertEqual(gate.followed_rows(rows, old, new, renamed)[0], rows, "a total that rises is not a move")
+        left, carried = gate.followed_rows({("swift", "unchecked", "CmuxNextPalette"): 1}, old,
+                                           {("swift", "unchecked", "CmuxNextApp"): 1, ("swift", "unchecked", "CmuxNextPalette"): 1},
+                                           renamed)
+        self.assertEqual(left, {})
+        self.assertEqual(carried, {("swift", "unchecked", "CmuxNextApp"): -1, ("swift", "unchecked", "CmuxNextPalette"): 1})
+        self.assertEqual(gate.followed_rows(rows, old, new, {})[0], rows, "no rename across modules, nothing carried")
 
 class CheckFailures(unittest.TestCase):
     def test_an_unknown_rev_exits_2_and_the_gate_does_not_refuse(self) -> None:
