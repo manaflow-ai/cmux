@@ -73,7 +73,7 @@ RULES = [
      r"\.(transition|contentTransition|symbolEffect|matchedGeometryEffect)\(|\b(phaseAnimator|keyframeAnimator)\b|TimelineView\(\.animation"),
     ("window animationBehavior outside a motion gate (use gate.animatesMovement ? .x : .none)",
      r"\banimationBehavior\s*=\s*\.(?!none\b)(?![^\n]*\bMotion\.)"),
-    ("popover animates outside a motion gate", r"\.animates\s*=\s*(?![^\n]*\bMotion\.)"),
+    ("popover animates outside a motion gate", r"\.animates\s*=(?!\s*false\s*(?:;|}|$))(?![^\n]*\bMotion\.)"),
 ]
 # An .animator() change must run inside a Motion gate's animation group: outside one, AppKit
 # animates it on its own 0.25 s default, which no switch reaches. Heuristic: a gate call that
