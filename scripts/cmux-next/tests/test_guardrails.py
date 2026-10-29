@@ -1048,6 +1048,21 @@ class TaskIdTests(unittest.TestCase):
             with self.subTest(before=before):
                 self.assertEqual(self.strip(before), after)
 
+    def test_strip_keeps_a_list_items_continuation_indent(self):
+        # 5892d9fe22f cut ",\n//!   p14-energy-137" and took the next line's indent with it: the item's continuation
+        # line moved to column 0, which clippy's doc_lazy_continuation refuses in cmux-wake/src/maintenance.rs.
+        before = ("//! - On macOS the kqueue waits on a descriptor\n"
+                  "//!   ([`follow_power`], the daemon's own power reading,\n"
+                  "//!   p14-energy-137): a change of the power source wakes the thread like a\n"
+                  "//!   command, with no timer of its own.\n")
+        after = ("//! - On macOS the kqueue waits on a descriptor\n"
+                 "//!   ([`follow_power`], the daemon's own power reading):\n"
+                 "//!   a change of the power source wakes the thread like a\n"
+                 "//!   command, with no timer of its own.\n")
+        self.assertEqual(self.strip(before, "a.rs"), after)
+        block = "/*\n * - the reading,\n *   p14-energy-137): a change\n */\n"
+        self.assertEqual(self.strip(block), "/*\n * - the reading):\n *   a change\n */\n")
+
     def test_strip_changes_only_comments_and_lists_what_needs_a_person(self):
         text = ('let s = "p04-input-053 (p04-input-054)" // the flip is p02-threads-021\n'
                 "// BEGIN tool.py: generated from x.json; do not edit.\n// (p10-stability-039)\n// END tool.py\n")
