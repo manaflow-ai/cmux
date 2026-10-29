@@ -26,11 +26,16 @@ import Testing
         private var made: Set<String> = []
         func make(_ thing: String) { lock.withLock { _ = made.insert(thing) } }
         func has(_ thing: String) -> Bool { lock.withLock { made.contains(thing) } }
+        /// A tree that replaces the mock Mac's own (another layout, or the Mac after a change).
+        private var override: String?
+        func setTree(_ tree: String) { lock.withLock { override = tree } }
+        var tree: String? { lock.withLock { override } }
     }
 
     /// The tree as the mock Mac has it now: after a split, pane 9 (s50) right of pane 1; after a
     /// fork, the copy s41 at the end of pane 1.
     nonisolated static func tree(_ seen: Seen) -> String {
+        if let override = seen.tree { return override }
         var tree = Self.tree
         if seen.has("fork") {
             tree = tree.replacingOccurrences(of: #"{"surface":12,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}}"#,
@@ -61,6 +66,40 @@ import Testing
         {"id":3,"name":"","active_tab":0,"tabs":[
           {"surface":30,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_c"},
           {"surface":40,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_d"}]}]}]}
+    ]}
+    """#
+
+    /// wk1 after the Mac switched screens: screen 5 (panes 1 to 3) is in the background and
+    /// screen 6 (pane 60) is shown.
+    nonisolated static let switchedTree = Self.tree
+        .replacingOccurrences(of: #""screens":[{"id":5,"name":"","active":true"#, with: #""screens":[{"id":5,"name":"","active":false"#)
+        .replacingOccurrences(of: #""terminal_id":"term_d"}]}]}]}"#, with: #""terminal_id":"term_d"}]}]},\#(screenSix)]}"#)
+
+    nonisolated static let screenSix = #"""
+    {"id":6,"name":"two","active":true,"active_pane":60,"zoomed_pane":null,"layout":{"type":"leaf","pane":60},
+     "panes":[{"id":60,"name":"","active_tab":0,"tabs":[{"surface":60,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_s"}]}]}
+    """#
+
+    /// wk1 in viewport columns: a chat dock docked on the left, 90% of the viewport wide (pane 64),
+    /// then three scrolling columns, each two thirds of the viewport wide (panes 61, 62, 63). The
+    /// screen's `layout` is the compatibility chain that squeezes them all into one width.
+    nonisolated static let columnsTree = #"""
+    {"workspaces":[
+      {"id":1,"key":"wk1","name":"main","screens":[{"id":5,"name":"","active":true,"active_pane":61,"zoomed_pane":null,
+        "layout":{"type":"split","split":70,"dir":"right","ratio":0.5,"a":{"type":"leaf","pane":64},
+                  "b":{"type":"split","split":71,"dir":"right","ratio":0.3333,"a":{"type":"leaf","pane":61},
+                       "b":{"type":"split","split":72,"dir":"right","ratio":0.5,"a":{"type":"leaf","pane":62},"b":{"type":"leaf","pane":63}}}},
+        "viewport_base_width":0.9,
+        "columns":[
+          {"id":80,"width":0.9,"layout":{"type":"leaf","pane":64},"dock":{"edge":"left","mode":"docked","role":"agent_chat"}},
+          {"id":81,"width":0.6667,"layout":{"type":"leaf","pane":61}},
+          {"id":82,"width":0.6667,"layout":{"type":"leaf","pane":62}},
+          {"id":83,"width":0.6667,"layout":{"type":"leaf","pane":63}}],
+        "panes":[
+        {"id":64,"name":"","active_tab":0,"tabs":[{"surface":64,"kind":"pty","title":"chat","dead":false,"terminal_id":"term_x"}]},
+        {"id":61,"name":"","active_tab":0,"tabs":[{"surface":61,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_p"}]},
+        {"id":62,"name":"","active_tab":0,"tabs":[{"surface":62,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_q"}]},
+        {"id":63,"name":"","active_tab":0,"tabs":[{"surface":63,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_r"}]}]}]}
     ]}
     """#
 
@@ -212,6 +251,22 @@ import Testing
         #expect(lines[1]["pane"] as? Int == 2 && lines[1].count == 3)
     }
 
+    /// Viewport columns are as wide as the Mac draws them (`columns[].width` of its viewport), not
+    /// the compatibility chain's share of one width: three columns two thirds of a viewport wide
+    /// are each 10.67 by 10 in a 16:10 window, so the first one splits right. The docked chat
+    /// column is never split, as on the Mac.
+    @Test func autoLayoutReadsViewportColumnsAtTheirWidths() async throws {
+        let seen = Seen()
+        seen.setTree(Self.columnsTree.replacingOccurrences(of: "\n", with: ""))
+        let (backend, workspace) = try await connected(seen)
+        // The mock Mac doesn't list the new pane's tab here; only the line sent matters.
+        _ = try? await backend.newPane(from: 62, column: false, in: workspace)
+        let line = try #require(seen.mutations.first)
+        #expect(seen.commands.first == "split")
+        #expect(line["pane"] as? Int == 61)
+        #expect(line["dir"] as? String == "right")
+    }
+
     @Test func autoLayoutPicksTheLargestPaneAndItsLongerSide() {
         // A tall right half (two stacked quarters beside a half): the half splits; a wide half splits down.
         let tall = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 3].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) },
@@ -277,6 +332,26 @@ import Testing
         #expect(seen.commands == ["undo-layout", "undo-layout"])
         #expect(lines[0]["pane"] as? Int == 1 && lines[0]["confirm_close"] == nil)
         #expect(lines[1]["revision"] as? Int == 8 && lines[1]["confirm_close"] as? Bool == true)
+    }
+
+    /// The Mac switches screens while the question is open: the yes still goes to the screen the
+    /// question was about (its pane), never the screen shown now (revisions count per screen).
+    @Test func undoConfirmationStaysOnTheScreenItAskedAbout() async throws {
+        let seen = Seen()
+        let (backend, workspace) = try await connected(seen)
+        let asked = try await backend.undoLayout(in: workspace, confirming: nil)
+        seen.setTree(Self.switchedTree.replacingOccurrences(of: "\n", with: ""))
+        _ = try await backend.sync.listNow()
+        #expect(backend.sync.tree?.workspaces.first?.layout?.activeScreen?.id == 6)
+        guard case .needsConfirmation(let revision, _) = asked else {
+            Issue.record("expected a question, got \(asked)")
+            return
+        }
+        #expect(try await backend.undoLayout(in: workspace, confirming: revision) == .undone)
+        let lines = seen.mutations
+        #expect(seen.commands == ["undo-layout", "undo-layout"])
+        #expect(lines[1]["pane"] as? Int == 1)
+        #expect(lines[1]["revision"] as? Int == 8)
     }
 
     @Test func undoRepliesAreReadStrictly() throws {
