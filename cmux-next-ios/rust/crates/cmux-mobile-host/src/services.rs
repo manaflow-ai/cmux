@@ -611,11 +611,12 @@ fn side_busy(line: &[u8]) -> String {
 }
 
 /// Text and named keys share the input path, preserving their wire order while
-/// bypassing slow workspace queries. Both commands name an existing terminal.
+/// bypassing slow workspace queries. Both commands address a terminal explicitly.
 fn is_terminal_input(line: &[u8]) -> bool {
     serde_json::from_slice::<Value>(line).ok().is_some_and(|v| {
         matches!(v.get("cmd").and_then(Value::as_str), Some("send" | "send-key"))
-            && v.get("surface").and_then(Value::as_u64).is_some()
+            && (v.get("surface").and_then(Value::as_u64).is_some()
+                || v.get("terminal_id").and_then(Value::as_str).is_some())
     })
 }
 

@@ -236,19 +236,19 @@ async fn exercise_selection_then_creation(
     let began = Instant::now();
     if let Some(mutator) = &mutation_channel {
         mutator.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
         )).await.unwrap();
     } else {
         channel.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
         )).await.unwrap();
     }
-    let (first_input, key_at) =
-        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("key forwarded").unwrap();
-    let (second_input, text_at) =
+    let (first_input, first_at) =
         tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("text forwarded").unwrap();
-    assert_eq!(first_input, "input-key", "text overtook the preceding Return key");
-    assert_eq!(second_input, "input");
+    let (second_input, second_at) =
+        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("key forwarded").unwrap();
+    assert_eq!(first_input, "input", "Return overtook text addressed by terminal_id");
+    assert_eq!(second_input, "input-key");
     let mut answers = HashMap::new();
     if let Some(mutator) = &mut mutation_channel {
         while answers.len() < if disconnect_before_reply { 2 } else { 3 } {
@@ -299,7 +299,7 @@ async fn exercise_selection_then_creation(
         .expect("creation forwarded")
         .unwrap();
     assert_eq!(creation, (json!(cwd_b), 1), "creation ran before selection was applied");
-    let input_latency = text_at.max(key_at).duration_since(began);
+    let input_latency = first_at.max(second_at).duration_since(began);
 
     channel.close("eof", "test complete").await;
     if let Some(mutator) = mutation_channel {
