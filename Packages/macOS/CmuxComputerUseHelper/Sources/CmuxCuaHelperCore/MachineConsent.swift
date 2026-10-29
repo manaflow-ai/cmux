@@ -287,11 +287,15 @@ public final class ConsentGate: Sendable {
         throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
     }
 
+    /// acpmux's bridge rule (cua_v2.rs `Helper::request`): the one entry
+    /// with that name has `annotations.readOnlyHint` JSON `true`; a name
+    /// listed twice is never read-only.
     static func readOnlyNames(_ inventory: Data) -> Set<String> {
         let object = try? JSONSerialization.jsonObject(with: inventory)
         let tools = (object as? [[String: Any]]) ?? ((object as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        let listed = Dictionary(tools.compactMap { ($0["name"] as? String).map { ($0, 1) } }, uniquingKeysWith: +)
         return Set(tools.compactMap { tool in
-            guard let name = tool["name"] as? String,
+            guard let name = tool["name"] as? String, listed[name] == 1,
                   let hint = (tool["annotations"] as? [String: Any])?["readOnlyHint"] as? NSNumber,
                   CFGetTypeID(hint) == CFBooleanGetTypeID(), hint.boolValue else { return nil }
             return name

@@ -337,7 +337,8 @@ import Testing
 
     /// acpmux's bridge reads the helper's served `tools/list`: a tool is
     /// screen-only exactly when `annotations.readOnlyHint === true` (a JSON
-    /// boolean); anything else is screen+control. The gate must agree.
+    /// boolean) on the one entry with that name; anything else, including a
+    /// name listed twice, is screen+control. The gate must agree.
     @Test(.timeLimit(.minutes(1))) func theGateObservesExactlyWhenTheServedHintIsJSONTrue() async throws {
         let fixture: [(name: String, entry: String, bridge: ConsentRequirement)] = [
             ("hint_true", #"{"name":"hint_true","annotations":{"readOnlyHint":true}}"#, .observe),
@@ -347,6 +348,8 @@ import Testing
             ("hint_number", #"{"name":"hint_number","annotations":{"readOnlyHint":1}}"#, .act),
             ("hint_null", #"{"name":"hint_null","annotations":{"readOnlyHint":null}}"#, .act),
             ("no_annotations", #"{"name":"no_annotations"}"#, .act),
+            ("listed_twice", #"{"name":"listed_twice","annotations":{"readOnlyHint":true}}"#, .act),
+            ("listed_twice", #"{"name":"listed_twice","annotations":{"readOnlyHint":false}}"#, .act),
         ]
         let inventory = Data(("{\"tools\":[" + fixture.map(\.entry).joined(separator: ",") + "]}").utf8)
         let client = try Client(tools: InventoryTools(inventory: inventory), consent: UnavailableConsent())
@@ -356,9 +359,10 @@ import Testing
         let entries = try #require(served["tools"] as? [[String: Any]])
         let gate = ConsentGate(authority: UnavailableConsent())
         for tool in fixture {
-            let entry = try #require(entries.first { $0["name"] as? String == tool.name })
-            let hint = (entry["annotations"] as? [String: Any])?["readOnlyHint"] as? NSNumber
-            let bridgeObserves = hint.map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+            let matching = entries.filter { $0["name"] as? String == tool.name }
+            let hint = (matching.first?["annotations"] as? [String: Any])?["readOnlyHint"] as? NSNumber
+            let bridgeObserves = matching.count == 1
+                && (hint.map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false)
             #expect(bridgeObserves == (tool.bridge == .observe), "\(tool.name): fixture matches the bridge rule")
             #expect(await gate.requirement(for: tool.name) { servedData } == tool.bridge, "\(tool.name)")
         }
