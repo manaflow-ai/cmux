@@ -587,9 +587,24 @@ test("switching machines clears a picked saved environment", async () => {
   }
 });
 
-for (const target of ["studio", "oldbox", "no-project", "no-project-after-machine"] as const) {
+for (const target of ["studio", "oldbox", "no-project", "no-project-after-machine", "project"] as const) {
   test(`picking ${target} in the headline replaces a saved environment on the same or another machine`, async () => {
-    const snapshot = { ...noChat([]), peers: ["oldbox"], peerKinds: { oldbox: "ssh" as const } };
+    const snapshot = {
+      ...noChat([
+        {
+          sessionId: "remote-A",
+          cwd: "/repo/A",
+          peer: "oldbox",
+          host: "oldbox",
+          harness: "claude",
+          status: "idle",
+          turnCount: 1,
+          updatedAt: 1,
+        },
+      ]),
+      peers: ["oldbox"],
+      peerKinds: { oldbox: "ssh" as const },
+    };
     const asked: unknown[][] = [];
     const savedEnvironments: SavedEnvironmentHost = {
       list: async () => [{ id: "old", name: "Old box", kind: "ssh", host: "oldbox", folder: "/old", updatedAt: 1 }],
@@ -604,12 +619,19 @@ for (const target of ["studio", "oldbox", "no-project", "no-project-after-machin
       onAsk: (...args) => asked.push(args),
     });
     try {
-      if (target === "no-project-after-machine") {
+      if (target === "no-project-after-machine" || target === "project") {
         await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
         const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
           row.textContent?.includes("oldbox"),
         )!;
         await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      }
+      if (target === "project") {
+        await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
+        const project = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+          row.querySelector('[data-path="/repo/A"]'),
+        )!;
+        await act(async () => project.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       }
       const computer = [
         ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
@@ -620,7 +642,7 @@ for (const target of ["studio", "oldbox", "no-project", "no-project-after-machin
       )!;
       await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("oldbox");
-      if (target.startsWith("no-project")) {
+      if (target.startsWith("no-project") || target === "project") {
         await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
       } else {
         await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
@@ -628,13 +650,17 @@ for (const target of ["studio", "oldbox", "no-project", "no-project-after-machin
       const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
         target.startsWith("no-project")
           ? row.textContent?.includes("Do not work in a project")
-          : row.textContent?.includes(target),
+          : target === "project"
+            ? row.querySelector('[data-path="/repo/A"]')
+            : row.textContent?.includes(target),
       )!;
       await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector(".nt-location")?.textContent).not.toContain("Old box");
-      expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe(
-        target === "studio" ? "studio" : "oldbox",
-      );
+      if (target === "project") expect(parts().headline).toContain("in A?");
+      else
+        expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe(
+          target === "studio" ? "studio" : "oldbox",
+        );
       const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
       const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
       await act(async () => {
@@ -643,8 +669,8 @@ for (const target of ["studio", "oldbox", "no-project", "no-project-after-machin
       });
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
       expect(asked[0]?.[6]).toEqual(target === "studio" ? undefined : { peer: "oldbox" });
-      expect(asked[0]?.[2]).toBeUndefined();
-      expect(asked[0]?.[4]).toBe(true);
+      expect(asked[0]?.[2]).toBe(target === "project" ? "/repo/A" : undefined);
+      expect(asked[0]?.[4]).toBe(target === "project" ? undefined : true);
     } finally {
       await act(async () => root.unmount());
     }
@@ -989,4 +1015,47 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
       (widget) => !["greeting", "weather", "machines", "clock", "timer", "warmGreeting", "quote"].includes(widget),
     ),
   );
+});
+
+test("the regular composer preserves a known folder when its machine changes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  const projects: unknown[][] = [];
+  const computers: string[] = [];
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      <ComposerContext
+        summary={{ sessionId: "", cwd: "/local" }}
+        sessions={[
+          {
+            sessionId: "remote",
+            cwd: "/srv/app",
+            peer: "devbox",
+            host: "devbox",
+            harness: "claude",
+            status: "idle",
+            turnCount: 1,
+            updatedAt: 1,
+          },
+        ]}
+        peers={["devbox"]}
+        peerKinds={{ devbox: "ssh" }}
+        environments
+        onProject={(...args) => projects.push(args)}
+        onComputer={(id) => computers.push(id)}
+      />,
+    ),
+  );
+  try {
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!.click());
+    const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.textContent?.includes("devbox"),
+    )!;
+    await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(projects).toEqual([["/srv/app", "devbox"]]);
+    expect(computers).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

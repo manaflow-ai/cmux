@@ -41,14 +41,15 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
   const nt = useNt();
   const t = useT();
   const look = experimentArm(newTabHeadline);
-  const project = projectName(props.folder);
+  const folder = props.savedEnvironmentSelected ? undefined : props.folder;
+  const project = projectName(folder);
   const machine = props.machineName?.trim();
   const selectedMachine = props.machines?.find((candidate) => candidate.id === props.machineId);
   const chooser = (
     <ProjectChooser
       projects={props.projects}
-      {...(props.folder ? { current: props.folder } : {})}
-      {...(props.folder && props.machineId !== "local" ? { currentPeer: props.machineId } : {})}
+      {...(folder ? { current: folder } : {})}
+      {...(folder && props.machineId !== "local" ? { currentPeer: props.machineId } : {})}
       noProject={props.noProject}
       {...(project ? { currentLabel: project } : {})}
       icon={<FolderIcon />}
