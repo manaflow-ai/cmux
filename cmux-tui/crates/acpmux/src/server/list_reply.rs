@@ -20,14 +20,15 @@ use std::sync::atomic::Ordering;
 const REBUILDS: usize = 1;
 
 tokio::task_local! {
-    /// The request's id, and whether its reply was sent here.
-    static REPLY: RefCell<(Value, bool)>;
+    /// The request's id, and whether its reply was sent here: then whether it went whole.
+    static REPLY: RefCell<(Value, Option<bool>)>;
 }
 
-/// Runs request `id`, whose list reply may be sent here: then the bool is true.
-pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, bool) {
+/// Runs request `id`, whose list reply may be sent here: then the option is set, true if the
+/// reply went whole (not as its too-large error).
+pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Option<bool>) {
     let run = async move { (request.await, REPLY.with(|r| r.borrow().1)) };
-    REPLY.scope(RefCell::new((id, false)), run).await
+    REPLY.scope(RefCell::new((id, None)), run).await
 }
 
 /// `limit`, `cursor`, `peer` and `status` all absent, null or empty: the whole list.
@@ -64,8 +65,8 @@ async fn reply(
         let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().1 = true);
+        if let Some(whole) = conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
+            REPLY.with(|r| r.borrow_mut().1 = Some(whole));
             break;
         }
     }

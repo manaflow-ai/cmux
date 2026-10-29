@@ -2772,13 +2772,37 @@ jobs:
           rm -rf tree assets/tree
           cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          # A companion is up to ~100 MB: 120 s with no retry timed out at 37 of
-          # 40 MB (run 40376958903). curl retries timeouts and 5xx, never a 404,
-          # so the source.json absence check below still fails at once.
-          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 10 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          # Reads go straight to R2, as this step's uploads do, not through
+          # files.cmux.com: the edge reset a ~100 MB companion read mid-transfer
+          # (curl exit 92, run 40670486094), a transfer error curl's --retry
+          # never retries, and it has served 4-35 KB/s (#26752). The R2
+          # downloader signs each attempt afresh and retries a dropped, stalled
+          # or 5xx read (four attempts, each cut at 120 s; R2 reads 100 MB in
+          # seconds). It writes the file whole or not at all, and a 404 exits 22
+          # at once, with no retry.
+          fetch() {
+            [[ "$1" == https://files.cmux.com/* ]] || { echo "fetch: $1 is not a files.cmux.com object" >&2; return 2; }
+            CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries --key "${1#https://files.cmux.com/}" --download-to "$2"
+          }
+          # An object whose absence is an answer (source.json decides whether
+          # this is a first publication): a 404 reads as absent at once. Any
+          # other failure, after fetch's retries, fails the step rather than
+          # passing for absent.
+          fetch_optional() {
+            local status=0 errors
+            errors="$(fetch "$1" "$2" 2>&1 >/dev/null)" || status=$?
+            case "$status" in
+              0) return 0 ;;
+              22) return 1 ;;
+            esac
+            printf '%s\n' "$errors" >&2
+            echo "could not read $1 (exit $status); see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
+            exit "$status"
+          }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
-          if fetch "$base/source.json" tree/source.json 2>/dev/null; then
+          if fetch_optional "$base/source.json" tree/source.json; then
             source_args=(--source-file tree/source.json)
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
@@ -2839,7 +2863,7 @@ jobs:
             fi
           done
           completion_args=()
-          if fetch "$base/completion.json" tree/existing-completion.json 2>/dev/null; then
+          if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)
           fi
           # The Windows daemon has its own attestation (completion-windows.json)
@@ -2850,12 +2874,12 @@ jobs:
           # never gets a second build's bytes. The Windows build is optional:
           # with none of these, the tree is published without Windows.
           windows_commit=""
-          if fetch "$base/completion-windows.json" tree/completion-windows.json 2>/dev/null; then
+          if fetch_optional "$base/completion-windows.json" tree/completion-windows.json; then
             windows_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceCommit"])' tree/completion-windows.json)"
           elif [[ "$source_commit" != "$GITHUB_SHA" ]] &&
-              fetch "https://files.cmux.com/cmux-tui-windows/$source_commit/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+              fetch_optional "https://files.cmux.com/cmux-tui-windows/$source_commit/manifest.json" tree/windows-manifest.json; then
             windows_commit="$source_commit"
-          elif fetch "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" tree/windows-manifest.json 2>/dev/null; then
+          elif fetch_optional "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA/manifest.json" tree/windows-manifest.json; then
             windows_commit="$GITHUB_SHA"
           fi
           windows_args=()
@@ -2924,12 +2948,58 @@ jobs:
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: |
           set -euo pipefail
+          # Reads through files.cmux.com, as users read the tree. curl's --retry
+          # never retries a transfer error (exit 92, an HTTP/2 reset, run
+          # 40670486094), and the edge serves one cache key from one transfer,
+          # which can trickle at 4-35 KB/s (#26752). As verify_published_manifest.py
+          # does (#26810), each read again goes to a fresh URL and asks only for
+          # the bytes still missing (-C -). get() returns 22 for a 404 only (an
+          # absent object), fails at once on another 4xx, and reads again after a
+          # 5xx, 429 or transfer error. It fails after 3 reads in a row bring no
+          # new byte, or once 600 s have passed.
+          get() {
+            local url="$1" out="$2" attempt=0 stalls=0 status code before after deadline=$((SECONDS + 600))
+            rm -f "$out"
+            while :; do
+              attempt=$((attempt + 1))
+              before="$(wc -c 2>/dev/null < "$out" || echo 0)"
+              status=0
+              code="$(curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 -C - -w '%{http_code}' \
+                -o "$out" "$url?verify=$GITHUB_RUN_ID-check-$attempt")" || status=$?
+              if [[ "$status" == 0 ]]; then
+                return 0
+              elif [[ "$status" == 22 && "$code" == 416 && "$before" -gt 0 ]]; then
+                return 0 # already whole; the digest check below decides
+              elif [[ "$status" == 22 && "$code" == 404 ]]; then
+                rm -f "$out"
+                return 22
+              elif [[ "$status" == 22 && "$code" =~ ^4 && "$code" != 408 && "$code" != 429 ]]; then
+                echo "read of $url failed: HTTP $code" >&2
+                return 1
+              elif [[ "$status" == 33 ]]; then
+                rm -f "$out" # the server would not resume; start over
+              fi
+              after="$(wc -c 2>/dev/null < "$out" || echo 0)"
+              if (( after > before )); then stalls=0; else stalls=$((stalls + 1)); fi
+              echo "read $attempt of $url failed (curl exit $status, HTTP $code, $after bytes so far)" >&2
+              if (( stalls >= 3 || SECONDS >= deadline )); then
+                echo "read of $url failed: $stalls reads in a row brought no new byte or 600 s passed" >&2
+                return 1
+              fi
+              sleep $((stalls * 5))
+            done
+          }
           verify_tree() {
           local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
           names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
           # The Windows daemon is optional: verified when the tree has it, with
           # each optional Windows companion (host, acpmux) its completion attests.
-          if curl -fsSL --proto '=https' -o completion-windows.json "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
+          # Only a 404 means no Windows daemon; a read that keeps failing fails.
+          windows_status=0
+          get "$base/completion-windows.json" completion-windows.json || windows_status=$?
+          if [[ "$windows_status" != 0 && "$windows_status" != 22 ]]; then
+            exit "$windows_status"
+          elif [[ "$windows_status" == 0 ]]; then
             names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
             for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
               if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion-windows.json "$name"; then
@@ -2940,19 +3010,21 @@ jobs:
             echo "::warning title=tree without Windows::$base has no completion-windows.json"
           fi
           # acpmux for Linux and macOS (hq-1f): each one completion.json lists.
-          curl -fsSL --proto '=https' -o completion.json "$base/completion.json?verify=$GITHUB_RUN_ID-check"
+          get "$base/completion.json" completion.json
           for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
             if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion.json "$name"; then
               names="$names $name"
             fi
           done
           for name in $names; do
-            curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID-check"
-            published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID-check" | awk 'NR==1{print $1}')"
+            get "$base/$name" published
+            get "$base/$name.sha256" published.sha256
+            published_sha="$(awk 'NR==1{print $1}' published.sha256)"
             [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
             echo "Verified: $base/$name"
           done
-          curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID-check"
+          get "$base/source.json" source.json
+          cat source.json
           }
           verify_tree "$KEY"
           # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.

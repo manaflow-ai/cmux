@@ -8,6 +8,7 @@ import { GALLERY_NOW } from "../../../gallery/clock";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 const PROMPT = "Show me how dynamic workflows work by running a small one";
@@ -26,6 +27,18 @@ const paneSnapshot = (stage: WorkflowFixtureStage) => {
         : []),
     ],
     { isWorking: stage === "running", title: "Dynamic workflows" },
+  );
+};
+const realPaneSnapshot = (running: boolean) => {
+  const elapsedMs = running ? 8_760 : 10_780;
+  const started = elapsedMs / 60_000;
+  return chat(
+    [
+      user("Run a two-phase workflow: two agents count files, then one reports the count.", started + 0.2),
+      row(SUBAGENTS, started, { subagents: realWorkflowFixture(GALLERY_NOW, elapsedMs) }),
+      ...(!running ? [assistant("The Count and Report phases finished; all three agents completed.", 0)] : []),
+    ],
+    { isWorking: running, title: "File count workflow" },
   );
 };
 /// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
@@ -56,6 +69,20 @@ export default agentPaneEntry({
     finished: {
       note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-run": {
+      note: "Labs: transcript card and Session Info Background tasks both render a scrubbed replay captured from a real Claude Workflow run: Count 2/2, Report 1/1, 3 completed agents and 10s elapsed.",
+      snapshot: realPaneSnapshot(false),
+      native,
+      workflowLabs: true,
+      play: shown,
+    },
+    "real-running": {
+      note: "Labs: the transcript card and Session Info Background tasks render the real Claude Workflow replay while Report runs.",
+      snapshot: realPaneSnapshot(true),
       native,
       workflowLabs: true,
       play: shown,

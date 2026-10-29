@@ -482,6 +482,12 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* A shell sibling must leave the offered native tab row clear, including when the narrow
+   preview covers the chat. Its background belongs below the row, never in its tools hole. */
+.acpmux-shell[data-tab-row] > .acpmux-artifact {
+  margin-top: var(--acpmux-tab-row-height);
+  max-height: calc(100% - var(--acpmux-tab-row-height));
+}
 @media (max-width: 720px) {
   .acpmux-artifact {
     position: absolute;
@@ -1210,6 +1216,10 @@ pre.cv-math-source {
    that frame, and the offset clamped short of the end and stayed there. */
 .acpmux-spacer {
   transition: none;
+  /* A row's entrance (`cv-enter`) slides it up 4px into place; its translate must not make the
+     scroller taller than the layout, or a view at its end rests 2-4px short of it until the motion
+     ends (transcript-pinned-bottom). The 4px falls in the row's own bottom padding. */
+  overflow-y: clip;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
    the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that

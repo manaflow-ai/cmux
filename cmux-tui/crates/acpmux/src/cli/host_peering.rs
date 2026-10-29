@@ -185,7 +185,7 @@ pub(crate) async fn peer_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) -> St
         Some(p) if !fix => fail(format!("{name} at {url} is not connected{}", last_error(p)))
             .with_fix("Check again with --fix to reconnect it."),
         Some(_) => settle(
-            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true, "force": true})).await,
         ),
         None if !fix => fail(format!("no peer named {name}"))
             .with_fix(format!("Check again with --fix to add {name} at {url}.")),
