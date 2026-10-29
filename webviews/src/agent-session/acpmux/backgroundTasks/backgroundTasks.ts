@@ -106,7 +106,7 @@ const commandState = (command: BackgroundCommand): BackgroundState =>
     ? "running"
     : command.state === "failed"
       ? "failed"
-      : command.state === "lost"
+      : command.state === "lost" || command.state === "stopped"
         ? "stopped"
         : "done";
 
@@ -164,6 +164,10 @@ function split(tasks: readonly BackgroundTask[]) {
   return { running, finished, total: tasks.length, failed };
 }
 
+/// A group is live while it or any of its tasks runs: an agent that ended with a nested agent
+/// still running stays with the running groups and is never cleared.
+export const isLive = (group: BackgroundGroup): boolean => group.state === "running" || group.running.length > 0;
+
 /// The panel's groups: the running ones first, oldest first, so a group never jumps while it runs;
 /// then the ended ones, the latest first. Cleared groups that ended are left out.
 export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new WeakMap()): BackgroundGroup[] {
@@ -181,7 +185,19 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     // A nested subagent is a task of the one that spawned it, unless that one is unknown.
     if (agent.parent !== null && agents.has(agent.parent)) continue;
     const tasks = [...toolTasks(agent, views?.[agent.id], cache)];
-    for (const child of children.get(agent.id) ?? [])
+    // Every descendant, not only the direct children, so an agent nested two deep (A spawns B,
+    // B spawns C) still shows, opens and stops from A's group.
+    const descendants: Subagent[] = [];
+    const stack = [...(children.get(agent.id) ?? [])];
+    const seen = new Set<string>([agent.id]);
+    while (stack.length > 0) {
+      const next = stack.shift()!;
+      if (seen.has(next.id)) continue;
+      seen.add(next.id);
+      descendants.push(next);
+      stack.push(...(children.get(next.id) ?? []));
+    }
+    for (const child of descendants)
       tasks.push({
         id: child.id,
         kind: "agent",
@@ -239,23 +255,30 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       id: "commands",
       kind: "commands",
       name: chatName,
-      state: parts.running.length > 0 ? "running" : parts.failed > 0 ? "failed" : "done",
+      state:
+        parts.running.length > 0
+          ? "running"
+          : parts.failed > 0
+            ? "failed"
+            : tasks.some((task) => task.state === "stopped")
+              ? "stopped"
+              : "done",
       startedAt: starts.length > 0 ? Math.min(...starts) : undefined,
       endedAt: parts.running.length > 0 || ends.length === 0 ? undefined : Math.max(...ends),
       ...parts,
     });
   }
-  const live = groups.filter((group) => group.state === "running").sort(byStart);
+  const live = groups.filter(isLive).sort(byStart);
   const ended = groups
-    .filter((group) => group.state !== "running" && !dismissed?.has(group.id))
+    .filter((group) => !isLive(group) && !dismissed?.has(group.id))
     .sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id));
   return [...live, ...ended];
 }
 
-/// What Clear finished clears: every ended group now shown.
+/// What Clear finished clears: every group with nothing left running (one whose agent ended while
+/// a nested agent or command of it still runs stays).
 export const finishedGroupIds = (groups: readonly BackgroundGroup[]): string[] =>
-  groups.filter((group) => group.state !== "running").map((group) => group.id);
+  groups.filter((group) => !isLive(group)).map((group) => group.id);
 
 /// Whether anything runs: the panel's clock ticks only then (SubagentGroup.tsx `useNow`).
-export const anyRunning = (groups: readonly BackgroundGroup[]): boolean =>
-  groups.some((group) => group.state === "running" || group.running.length > 0);
+export const anyRunning = (groups: readonly BackgroundGroup[]): boolean => groups.some(isLive);

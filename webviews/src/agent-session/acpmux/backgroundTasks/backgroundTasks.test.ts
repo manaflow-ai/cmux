@@ -96,6 +96,51 @@ describe("backgroundGroups", () => {
     });
   });
 
+  test("an agent nested two deep is a task of the top agent that opens and stops on its own", () => {
+    const rows = [group([agent("a")])];
+    const views = {
+      a: [group([agent("b", { parent: "a", startedAt: 1_200 })])],
+      b: [group([agent("c", { parent: "b", task: "Grep", startedAt: 1_400 })])],
+    };
+    const groups = backgroundGroups(input(rows, views));
+    expect(groups.map((g) => g.id)).toEqual(["agent:a"]);
+    expect(groups[0]!.running.map((task) => task.id)).toEqual(["b", "c"]);
+    expect(groups[0]!.running[1]).toMatchObject({ agentId: "c", title: "Grep", stop: { kind: "agent", id: "c" } });
+  });
+
+  test("an agent that ended while a nested agent still runs stays live: ordered with the running, never cleared", () => {
+    const rows = [
+      group([
+        agent("parent", { state: "completed", startedAt: 500, endedAt: 9_000 }),
+        agent("done", { state: "completed", endedAt: 10_000 }),
+        agent("busy", { startedAt: 2_000 }),
+      ]),
+    ];
+    const views = { parent: [group([agent("child", { parent: "parent", startedAt: 600 })])] };
+    const groups = backgroundGroups(input(rows, views));
+    expect(groups.map((g) => g.id)).toEqual(["agent:parent", "agent:busy", "agent:done"]);
+    expect(finishedGroupIds(groups)).toEqual(["agent:done"]);
+    expect(anyRunning(groups)).toBe(true);
+    const cleared = backgroundGroups(input(rows, views, { dismissed: new Set(["agent:parent", "agent:done"]) }));
+    expect(cleared.map((g) => g.id)).toEqual(["agent:parent", "agent:busy"]);
+  });
+
+  test("commands that ended with one stopped or lost and none failed read stopped, as each stopped one does", () => {
+    const commands: BackgroundCommand[] = [
+      { id: "c1", command: "make", state: "completed", startedAt: 500, endedAt: 900 },
+      { id: "c2", command: "tail -f log", state: "lost", startedAt: 600, endedAt: 950 },
+      { id: "c3", command: "watch", state: "stopped", startedAt: 700, endedAt: 800 },
+    ];
+    const [commandsGroup] = backgroundGroups(input([], {}, { commands }));
+    expect(commandsGroup!.state).toBe("stopped");
+    expect(commandsGroup!.finished.map((task) => [task.id, task.state])).toEqual([
+      ["c2", "stopped"],
+      ["c1", "done"],
+      ["c3", "stopped"],
+    ]);
+    expect(commandsGroup!.endedAt).toBe(950);
+  });
+
   test("running groups first oldest first, then ended groups latest first; cleared ended groups leave", () => {
     const rows = [
       group([
