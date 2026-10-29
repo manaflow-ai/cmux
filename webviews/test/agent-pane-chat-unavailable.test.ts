@@ -10,6 +10,7 @@
 // Real Chromium from Playwright, against a stand-in acpmux on a WebSocket and the pane's Vite dev
 // server; skipped where it is not installed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -242,6 +243,69 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     expect((await state(waiting)).sessionId).toBe("chat-on-box");
     expect(await waiting.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
     await waiting.close();
+  });
+
+  test("loading spinner centers in the transcript area above the composer as the pane resizes", async () => {
+    scenario = {
+      sessions: [summary("chat-other", { peer: "build-box" })],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    const shown = page.locator('[data-unavailable="connecting"]');
+    await shown.waitFor({ timeout: 60_000 });
+    const spinner = shown.locator(".acpmux-unavailable-spinner");
+    await spinner.waitFor();
+    const captureDir = process.env.CMUX_LOADING_CENTER_CAPTURE_DIR;
+    if (captureDir) await mkdir(captureDir, { recursive: true });
+
+    const measure = async () =>
+      page.evaluate(() => {
+        const rect = (selector: string) => {
+          const node = document.querySelector<HTMLElement>(selector);
+          if (!node) throw new Error(`missing ${selector}`);
+          const box = node.getBoundingClientRect();
+          return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height };
+        };
+        return {
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          header: rect(".acpmux-header"),
+          stage: rect(".acpmux-stage"),
+          spinner: rect(".acpmux-unavailable-spinner"),
+          composer: rect(".acpmux-composer-box"),
+          main: rect(".acpmux-main"),
+        };
+      });
+    const assertCentered = (layout: Awaited<ReturnType<typeof measure>>) => {
+      const contentTop = layout.header.bottom;
+      const contentBottom = layout.stage.bottom;
+      const targetY = (contentTop + contentBottom) / 2;
+      const spinnerY = (layout.spinner.top + layout.spinner.bottom) / 2;
+      expect({
+        viewport: layout.viewport,
+        spinnerY: Math.round(spinnerY * 10) / 10,
+        targetY: Math.round(targetY * 10) / 10,
+        composerHeight: Math.round(layout.composer.height * 10) / 10,
+      }).toMatchObject({ viewport: layout.viewport });
+      expect(Math.abs(spinnerY - targetY)).toBeLessThanOrEqual(2);
+      expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
+      expect(layout.composer.height).toBeGreaterThan(0);
+      expect(layout.composer.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
+    };
+
+    const sizes = [
+      { width: 900, height: 760, name: "before-900x760" },
+      { width: 900, height: 620, name: "before-900x620" },
+      { width: 760, height: 760, name: "before-760x760" },
+    ];
+    for (const size of sizes) {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const layout = await measure();
+      if (captureDir) await page.screenshot({ path: path.join(captureDir, `${size.name}.png`) });
+      console.info("loading-center", JSON.stringify(layout));
+      assertCentered(layout);
+    }
+    await page.close();
   });
 
   test("a deleted chat says so, names its machine, and offers Remove from Sidebar", async () => {
