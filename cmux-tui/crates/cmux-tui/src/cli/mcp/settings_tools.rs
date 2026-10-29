@@ -127,18 +127,22 @@ impl SettingTool {
         } else {
             let key =
                 text(arguments, "key")?.ok_or_else(|| v2_tools::invalid("key is required"))?;
-            let row =
-                schema.row(key).ok_or_else(|| v2_tools::invalid("key is not a schema setting"))?;
-            if self.mutation() && !row.agent_settable {
+            let row = schema.row(key);
+            if self.mutation() && row.is_none_or(|row| !row.agent_settable) {
                 let refusal = Refusal::AgentRefused {
-                    key: row.key.clone(),
-                    reason: row.agent_refusal.clone(),
+                    key: key.to_owned(),
+                    reason: row.and_then(|row| row.agent_refusal.clone()),
                 };
+                let mut details = refusal.data();
+                if let Some(details) = details.as_object_mut() {
+                    details.retain(|_, value| !value.is_null());
+                }
                 return Err(
                     json!({"code": "settings.agent_refused", "message": refusal.to_string(),
-                    "details": refusal.data(), "retryable": false}),
+                    "details": details, "retryable": false}),
                 );
             }
+            let row = row.ok_or_else(|| v2_tools::invalid("key is not a schema setting"))?;
             Some(row)
         };
         let offset = count(arguments, "offset", 0, usize::MAX)?;

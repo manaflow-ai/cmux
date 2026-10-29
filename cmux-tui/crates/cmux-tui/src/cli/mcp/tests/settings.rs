@@ -54,6 +54,7 @@ fn settings_tools_refuse_raw_paths_and_policy_overrides_without_sending() {
     let mut server = Server::new(Fake::default(), None);
     for (name, arguments) in [
         ("settings_get", json!({"key": "mcp.enabled"})),
+        ("settings_set", json!({"key": "mcp.enabled", "value": true})),
         ("settings_get", json!({"path": ["appearance"]})),
         ("settings_set", json!({"key": "appearance.theme", "value": "dark", "origin": "user"})),
         ("settings_reset", json!({"key": "appearance.theme", "confirm": true})),

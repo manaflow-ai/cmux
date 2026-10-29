@@ -1411,8 +1411,8 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
-mod settings;
 mod machine_catalog;
+mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
