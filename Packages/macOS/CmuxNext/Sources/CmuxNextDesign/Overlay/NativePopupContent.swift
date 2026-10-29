@@ -10,7 +10,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var commit: () -> Void = {}
     var model: NativePopupModel?
     private var rowViews: [(NativePopupRow, NSView)] = []
-    private var targets: [NativePopupControlTarget] = []
+    var targets: [NativePopupControlTarget] = []
     var fields: [String: NSTextField] = [:]
     var inputState = NativePopupInputState()
     var allocateEditSequence: ((Int) -> Int)?
@@ -167,10 +167,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         if row.kind == .slider, let descriptor = row.slider {
             let view = NativePopupSliderView(row: row, descriptor: descriptor)
-            view.change = { [weak self] value in self?.emit(.change, row.id, value) }
-            view.commit = { [weak self] in self?.commit() }
-            view.escape = { [weak self] in self?.dismiss() }
-            view.slider.navigate = { [weak self] key in self?.navigateFromSlider(row.id, key: key) ?? false }
+            let owns = { [weak self, weak view] in self != nil && view?.superview === self }
+            view.change = { [weak self] value in if owns() { self?.emit(.change, row.id, value) } }
+            view.commit = { [weak self] in if owns() { self?.commit() } }
+            view.escape = { [weak self] in if owns() { self?.dismiss() } }
+            view.slider.navigate = { [weak self] key in owns() ? (self?.navigateFromSlider(row.id, key: key) ?? false) : false }
             editableControls[row.id] = view.slider
             return view
         }
@@ -268,33 +269,18 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         // wrapper must not retain the keys after arrows move the menu highlight elsewhere.
         view.takesFocus = false
         view.setAccessibilityIdentifier(row.id)
-        view.onHover = { [weak self] in
-            self?.selected = row.id
-            self?.selectionReason = "pointer"
-            self?.paintSelection()
-            self?.emit(.highlight, row.id, nil)
+        view.onHover = { [weak self, weak view] in
+            guard let self, let view, view.superview === self, view.isEnabled else { return }
+            selected = row.id
+            selectionReason = "pointer"
+            paintSelection()
+            emit(.highlight, row.id, nil)
         }
         view.onActivate = { [weak self, weak view] in
             guard let self, let view else { return }
             activate(row, view: view)
         }
         return view
-    }
-
-    private func bind(_ control: NSControl, action: @escaping (NSControl) -> Void) {
-        let target = NativePopupControlTarget(action)
-        targets.append(target)
-        control.target = target
-        control.action = #selector(NativePopupControlTarget.controlChanged(_:))
-    }
-
-    private func activate(_ row: NativePopupRow, view: NSView) {
-        guard row.disabled != true else { return }
-        if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
-        else if row.kind == .submenu { openSubmenu(row, view) }
-        else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
-        else if row.kind == .action { emit(.pick, row.id, nil) }
-        else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
     }
 
     func paintSelection() {

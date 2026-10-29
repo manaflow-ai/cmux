@@ -1,6 +1,25 @@
 import AppKit
 
 extension NativePopupContent {
+    func bind(_ control: NSControl, action: @escaping (NSControl) -> Void) {
+        let target = NativePopupControlTarget { [weak self] sender in
+            guard let self, sender.isEnabled, sender.isDescendant(of: self) else { return }
+            action(sender)
+        }
+        targets.append(target)
+        control.target = target
+        control.action = #selector(NativePopupControlTarget.controlChanged(_:))
+    }
+
+    func activate(_ row: NativePopupRow, view: NSView) {
+        guard row.disabled != true, view.superview === self else { return }
+        if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
+        else if row.kind == .submenu { openSubmenu(row, view) }
+        else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
+        else if row.kind == .action { emit(.pick, row.id, nil) }
+        else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
+    }
+
     func navigateFromSlider(_ id: String, key: UInt16) -> Bool {
         let enabled = enabledRows
         guard let index = enabled.firstIndex(where: { $0.0.id == id }),
