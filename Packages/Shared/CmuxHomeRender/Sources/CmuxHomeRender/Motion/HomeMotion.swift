@@ -98,8 +98,10 @@ enum HomeMotion {
     static let crossFade: Double = 0.1
     /// A removed row stays as a zero-height ghost this long while it fades.
     static let ghostLifetime: Double = 1.0
-    /// Working spinner: one full rotation per period.
-    static let typingSpinnerPeriod: Double = 1
+    /// Typing dots: one brightness pulse per dot per period, `typingDotStagger` apart.
+    static let typingDotPeriod: Double = 1
+    static let typingDotStagger: Double = 0.26
+    static let typingDotWidth: Double = 0.22
     /// Caret: solid for `caretHold` after an edit, then blinks once per period.
     static let caretHold: Double = 0.99
     static let caretPeriod: Double = 1
@@ -124,7 +126,7 @@ struct MotionPolicy: Hashable, Sendable {
     var moves: Bool { !reduceMotion && speed != .off }
     /// Reduce Motion replaces movement with a short cross-fade (`off` wins: no fade).
     var crossFades: Bool { reduceMotion && speed != .off }
-    /// Activity loops (typing spinner) run; Reduce Motion shows them static.
+    /// Decorative loops (typing dots) run; Reduce Motion shows them static.
     var loops: Bool { speed != .off && !reduceMotion }
     /// The caret blinks (a text-editing affordance, kept under Reduce Motion).
     var caretBlinks: Bool { speed != .off }

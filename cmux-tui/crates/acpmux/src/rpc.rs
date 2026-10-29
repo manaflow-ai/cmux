@@ -297,6 +297,9 @@ pub mod method {
     /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
     /// its `gh` login; never a credential (`github_broker.rs`).
     pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
+    /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
+    /// (`github_app_token.rs`); the unix socket only.
+    pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
