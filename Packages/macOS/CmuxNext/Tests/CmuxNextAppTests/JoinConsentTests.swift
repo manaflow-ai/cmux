@@ -568,7 +568,7 @@ import Testing
         var genuine: Set<Int> = []
         panel.isPersonEvent = { genuine.contains($0.eventNumber) }
         var current: NSEvent?
-        panel.currentEvent = { current }
+        panel.eventInHand = { current }
         let settle = { for _ in 0..<50 { await Task.yield() } }
         /// The person's click: a mouse-down dispatched on `down`'s view, the mouse-up on `up`'s current.
         let click = { (down: NSView, up: NSView, person: Bool, inside: () -> Void) throws in
@@ -606,16 +606,32 @@ import Testing
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
 
-    /// The strict check: this process's own posted events (DEBUG automation) are not the person's, in DEBUG
-    /// builds too; the HID system's are.
-    @Test func theStrictPersonCheckRefusesThisProcesssOwnEvents() throws {
-        let own = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: .zero, mouseButton: .left))
-        own.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()))
-        let hid = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: .zero, mouseButton: .left))
-        hid.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+    /// The strict check takes only the HID system's input: source pid 0 (or the WindowServer's) and the
+    /// HID system's source state. A click posted from a private or combined-session source is refused even
+    /// with pid 0; one from a HID-state source (how the cmux-cua helper posts) is refused by its pid, as is
+    /// this process's own (DEBUG automation) and any other process's, in DEBUG builds too.
+    @Test func theStrictPersonCheckTakesOnlyTheHIDSystemsInput() throws {
+        let event = { (pid: Int64, state: CGEventSourceStateID) throws -> NSEvent in
+            let cgEvent = try #require(CGEvent(mouseEventSource: CGEventSource(stateID: state), mouseType: .leftMouseUp,
+                                               mouseCursorPosition: .zero, mouseButton: .left))
+            cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: pid)
+            cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(state.rawValue))
+            return try #require(NSEvent(cgEvent: cgEvent))
+        }
         let check = PersonInputCheck()
-        #expect(!check.isPerson(try #require(NSEvent(cgEvent: own))))
-        #expect(check.isPerson(try #require(NSEvent(cgEvent: hid))))
+        #expect(check.isPerson(try event(0, .hidSystemState)), "the HID system's")
+        #expect(!check.isPerson(try event(0, .privateState)), "a private source, pid 0")
+        #expect(!check.isPerson(try event(0, .combinedSessionState)), "a combined-session source, pid 0")
+        #expect(!check.isPerson(try event(Int64(getpid()), .hidSystemState)), "this process's own (DEBUG automation)")
+        #expect(!check.isPerson(try event(1, .hidSystemState)), "another process's (launchd), from a HID-state source")
+        // A real posting process: a child that stays up while it is checked, posting as the cmux-cua helper does.
+        let poster = Process()
+        poster.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        poster.arguments = ["30"]
+        try poster.run()
+        defer { poster.terminate() }
+        #expect(!check.isPerson(try event(Int64(poster.processIdentifier), .hidSystemState)), "a posting process with a HID-state source")
+        #expect(!check.isPerson(try event(-1, .hidSystemState)), "no pid")
     }
 
     /// Turning the Labs switch on drops what was read: nothing is allowed (a running session stops) until

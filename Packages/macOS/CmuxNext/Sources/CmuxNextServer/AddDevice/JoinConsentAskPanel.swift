@@ -13,7 +13,7 @@ public final class JoinConsentAskPanel: NSPanel {
     /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
     /// The event the app is handling now (tests set it).
-    var currentEvent: @MainActor () -> NSEvent? = { NSApp.currentEvent }
+    var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent }
     /// The person's own mouse-down this sheet is dispatching now (a button tracks the click inside it).
     private var personDown: NSEvent?
     /// The last mouse-up that answered Allow: each click answers once.
@@ -59,7 +59,7 @@ public final class JoinConsentAskPanel: NSPanel {
     /// programmatic click, a click another process (or DEBUG automation) posts, a press while the button
     /// is still held, and a press on anything else find none.
     func takePersonClick(on button: NSView) -> Bool {
-        guard let down = personDown, let up = currentEvent(), up.type == .leftMouseUp, isPersonEvent(up),
+        guard let down = personDown, let up = eventInHand(), up.type == .leftMouseUp, isPersonEvent(up),
               up.windowNumber == windowNumber, down.windowNumber == windowNumber,
               up.timestamp >= down.timestamp else { return false }
         let inside = { (event: NSEvent) in button.bounds.contains(button.convert(event.locationInWindow, from: nil)) }
