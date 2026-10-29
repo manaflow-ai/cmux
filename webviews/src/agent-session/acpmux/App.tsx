@@ -9999,6 +9999,7 @@ function AcpmuxPane() {
             key={snapshot.sessionId}
             card={summaryCard}
             rows={snapshot.rows}
+            cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : lastChanges}
             onOpenChanges={toggleLastChanges}
             onOpenOutput={quick ? undefined : openOutput}
