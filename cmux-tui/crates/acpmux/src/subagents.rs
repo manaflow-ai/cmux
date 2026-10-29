@@ -639,7 +639,7 @@ mod codex_tests {
     }
 
     #[test]
-    fn Claude_context_updates_do_not_erase_a_real_token_total() {
+    fn claude_context_updates_do_not_erase_a_real_token_total() {
         let mut tree = SubagentTree::default();
         subagents(
             &mut tree,
