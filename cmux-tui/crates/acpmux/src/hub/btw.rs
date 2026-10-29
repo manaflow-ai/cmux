@@ -206,7 +206,10 @@ impl Hub {
                         if error.code == -32601
                             || error
                                 .message
-                                .starts_with("side_question is not supported in this context") => {}
+                                .starts_with("side_question is not supported in this context")
+                            || error.message.starts_with(
+                                "Unsupported control request subtype: side_question",
+                            ) => {}
                     result => return result,
                 }
             }

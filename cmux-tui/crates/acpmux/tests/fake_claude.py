@@ -294,9 +294,12 @@ def long_step(prompt):
             request = msg.get("request") or {}
             if (request.get("subtype") == "side_question"
                     and os.environ.get("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED") == "1"):
+                unsupported = ("Unsupported control request subtype: side_question"
+                               if os.environ.get("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED_SUBTYPE") == "1"
+                               else "side_question is not supported in this context")
                 send({"type": "control_response", "response": {"subtype": "error",
                       "request_id": msg.get("request_id"),
-                      "error": "side_question is not supported in this context"}})
+                      "error": unsupported}})
                 continue
             send({"type": "control_response", "response": {"subtype": "success",
                   "request_id": msg.get("request_id"), "response": {}}})
