@@ -25,7 +25,7 @@ final class SidebarTabRowView: SidebarRowView {
     /// Whether the icon is a template agent mark (tinted with the text) rather than a page favicon.
     private var iconIsMark = false
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
-    private let unreadDot = UnreadBadgeView()
+    let unreadDot = UnreadBadgeView()
     /// The tab its workspace shows: a quiet fill marks it.
     private(set) var isFocusedTab = false
     /// Activates this tab from an accessibility AXPress.
