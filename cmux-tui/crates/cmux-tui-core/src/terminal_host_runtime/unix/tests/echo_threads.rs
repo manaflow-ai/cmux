@@ -165,7 +165,7 @@ fn blocking_cascade_a_clients_control_sequence_ends_before_its_serve_loop_return
     let parser = {
         let host = host.clone();
         thread::spawn(move || {
-            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new())
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new());
         })
     };
     let (server_stream, mut client_stream) = UnixStream::pair().unwrap();

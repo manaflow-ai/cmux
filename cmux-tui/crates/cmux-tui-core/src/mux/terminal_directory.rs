@@ -105,7 +105,7 @@ impl Mux {
         &self,
         surface: SurfaceId,
         sequence: &Arc<mux_work::Sequence>,
-        posted: &Arc<std::sync::atomic::AtomicBool>,
+        posted: &Arc<AtomicBool>,
     ) {
         let pass = PublicationPass { posted: posted.clone(), ran: false };
         let _ = self.post_mux_work_sequenced(
@@ -162,7 +162,7 @@ impl Mux {
     ) {
         let _ =
             self.post_mux_work_sequenced(sequence, Priority::UserVisible, Lane::Files, move |_| {
-                end()
+                end();
             });
     }
 
@@ -188,14 +188,14 @@ impl Mux {
 /// clears it as it drops, so the flag is never left set with no pass
 /// queued and a later change always queues a new one.
 struct PublicationPass {
-    posted: Arc<std::sync::atomic::AtomicBool>,
+    posted: Arc<AtomicBool>,
     ran: bool,
 }
 
 impl Drop for PublicationPass {
     fn drop(&mut self) {
         if !self.ran {
-            self.posted.store(false, std::sync::atomic::Ordering::Release);
+            self.posted.store(false, Ordering::Release);
         }
     }
 }

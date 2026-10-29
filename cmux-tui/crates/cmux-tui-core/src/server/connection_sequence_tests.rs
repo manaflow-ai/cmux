@@ -219,7 +219,7 @@ fn blocking_cascade_the_persons_request_answers_while_the_system_lane_is_full() 
         ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()).classed(cell),
     );
     let mut ping = Some(Request { id: Some(json!(1)), cmd: Command::Ping });
-    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut ping, 0, writer), Some(true));
+    assert_eq!(scheduler.dispatch(mux, client, &mut ping, 0, writer), Some(true));
     let reply = pop_within(&outbound, Duration::from_secs(5));
     drop(release);
     let reply = reply.expect("the person's ping answers while System is full");

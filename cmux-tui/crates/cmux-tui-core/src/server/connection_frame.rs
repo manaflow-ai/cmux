@@ -36,15 +36,18 @@ pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
 }
 
 /// The threads that read a connection's lines and only route them: the
-/// Unix reader (`mux-conn`), the WebSocket and remote-entry readers, and the
-/// mux-io loops that read the person's and every other connection.
+/// Unix reader (`mux-conn`), the WebSocket and remote-entry readers, and
+/// (Unix) the mux-io loops that read the person's and every other connection.
+#[cfg(unix)]
 const READER_THREADS: [&str; 5] = [
     WatchKind::MuxConn.name(),
     "mux-ws-conn",
     "mux-remote-conn",
-    super::mux_io::MUX_IO_THREAD,
-    super::mux_io::MUX_IO_INPUT_THREAD,
+    mux_io::MUX_IO_THREAD,
+    mux_io::MUX_IO_INPUT_THREAD,
 ];
+#[cfg(not(unix))]
+const READER_THREADS: [&str; 3] = [WatchKind::MuxConn.name(), "mux-ws-conn", "mux-remote-conn"];
 
 /// Debug builds: no request handler runs on a thread that reads a
 /// connection ([`READER_THREADS`]); a reader only reads, cuts and

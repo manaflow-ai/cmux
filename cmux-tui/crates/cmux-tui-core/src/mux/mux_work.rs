@@ -114,7 +114,7 @@ impl Mux {
             "only the person's UserBlocking requests take the User lane"
         );
         self.work.post(route.priority, route.lane, Shutdown::ContinueOnShutdown, move || {
-            cmux_threads::work::will_block(body)
+            cmux_threads::work::will_block(body);
         })
     }
 
@@ -388,13 +388,6 @@ impl Sequence {
         let item = queue.items.pop_front();
         queue.draining = item.is_some();
         item
-    }
-
-    /// Whether nothing is queued or running (tests wait for it).
-    #[cfg(test)]
-    pub(crate) fn is_idle(&self) -> bool {
-        let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        queue.items.is_empty() && !queue.draining
     }
 
     /// Ends a drain that stopped early; the caller drops the queued items
