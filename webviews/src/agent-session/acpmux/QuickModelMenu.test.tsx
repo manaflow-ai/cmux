@@ -551,6 +551,8 @@ test("the running model keeps session-only effort levels and calls effort.onPick
           models: [{ id: "a", name: "Model A", family: "", efforts: ["low", "high"] }],
           current: "a",
           onModel() {},
+          // A menu without families opts into inline rows only with the combined callback.
+          onModelEffort() {},
           effort: {
             levels: [
               { id: "low", name: "Low" },
