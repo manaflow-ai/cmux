@@ -1,17 +1,11 @@
+import { translate, type Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
-/**
- * The command palette rows exposed by the composer's + menu.
- *
- * The registry owns labels, descriptions, icons and stable action ids. Hosts provide the live
- * rows for tools, sessions and tabs; the composer invokes the same action dispatcher used by the
- * native palette instead of implementing a second command handler.
- */
-export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "sessions", "tabs", "files"] as const;
+export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "apps", "sessions", "tabs", "files"] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
-  | { kind: "command"; id: string }
+  | { kind: "command"; id: string; modeId?: string }
   | { kind: "slash"; command: SlashCommand };
 
 export type ComposerPlusEntry = {
@@ -29,17 +23,11 @@ export type ComposerPlusExtension = Omit<ComposerPlusEntry, "section"> & {
 };
 
 export type ComposerPlusRegistryOptions = {
-  /** The commands advertised by the harness; skills and prompts become Add rows. */
   commands?: readonly SlashCommand[];
-  /** A harness can omit screenshots/window capture when its capture bridge is unavailable. */
+  translate?: Translate;
   canCapture?: boolean;
-  /** Whether this surface can select a project/cwd before sending. */
   canChooseProject?: boolean;
-  /** Whether this harness exposes a persistent goal command. */
-  canSetGoal?: boolean;
-  /** Whether the composer can change its run mode from this menu. */
   planMode?: { id: string; name: string; description: string };
-  /** Live rows from the command-palette registry for tools, sessions, tabs and file search. */
   extensions?: readonly ComposerPlusExtension[];
 };
 
@@ -49,7 +37,8 @@ const COMMANDS = {
   attachWindow: "composer.attachWindow",
   chooseProject: "composer.chooseProject",
   planMode: "composer.planMode",
-  goal: "composer.goal",
+  mention: "composer.mention",
+  commands: "composer.commands",
   searchFiles: "searchFiles",
 } as const;
 
@@ -57,8 +46,9 @@ const staticRows: readonly ComposerPlusEntry[] = [
   {
     id: "add.files",
     section: "add",
-    name: "Files and folders",
-    description: "Attach files or folders as context",
+    // Named from the pane's table when the registry is built (`composer.attach`).
+    name: "",
+    description: "",
     icon: "file",
     keywords: ["attach", "upload", "folder", "files"],
     action: { kind: "command", id: COMMANDS.attachFiles },
@@ -69,20 +59,24 @@ function extensionKey(entry: ComposerPlusEntry): string {
   return `${entry.section}:${entry.id}`;
 }
 
-/**
- * Builds the + menu in display order. Empty sections are omitted by consumers, while the returned
- * section field keeps rows interoperable with the native command-palette section ordering.
- */
 export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}): ComposerPlusEntry[] {
-  const rows: ComposerPlusEntry[] = [...staticRows];
+  // Every label is the pane's table's, in the app's language (pane-english.test.ts).
+  const t: Translate = options.translate ?? translate;
+  const text = (key: Parameters<Translate>[0]) => t(key);
+  const label = text;
+  const description = text;
+  const rows: ComposerPlusEntry[] = staticRows.map((row) => ({
+    ...row,
+    name: label("composer.attach"),
+  }));
 
   if (options.canCapture !== false) {
     rows.push(
       {
         id: "add.screenshot",
         section: "add",
-        name: "Attach a screenshot",
-        description: "Capture the screen and attach it",
+        name: label("composer.attachScreenshot"),
+        description: "",
         icon: "site.permission.camera",
         keywords: ["capture", "screen", "image"],
         action: { kind: "command", id: COMMANDS.attachScreenshot },
@@ -90,8 +84,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.window",
         section: "add",
-        name: "Attach a window",
-        description: "Capture a window and attach it",
+        name: label("composer.attachWindow"),
+        description: "",
         icon: "site.permission.windowmanagement",
         keywords: ["capture", "window", "image"],
         action: { kind: "command", id: COMMANDS.attachWindow },
@@ -103,8 +97,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.project",
       section: "add",
-      name: "Choose a project",
-      description: "Pick the folder or cwd for this chat",
+      name: label("project.choose"),
+      description: "",
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
       action: { kind: "command", id: COMMANDS.chooseProject },
@@ -119,19 +113,20 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       description: options.planMode.description,
       icon: "mode.plan",
       keywords: ["plan", "mode", "read", "planning"],
-      action: { kind: "command", id: COMMANDS.planMode },
+      action: { kind: "command", id: COMMANDS.planMode, modeId: options.planMode.id },
     });
   }
 
-  if (options.canSetGoal) {
+  const goalCommand = options.commands?.find((command) => command.name.toLowerCase() === "goal");
+  if (goalCommand) {
     rows.push({
       id: "add.goal",
       section: "add",
-      name: "Set a goal",
-      description: "Keep pursuing a goal across turns",
-      icon: "goal",
+      name: label("goal.label"),
+      description: description("goal.label"),
+      icon: "agent.chat",
       keywords: ["goal", "objective", "task"],
-      action: { kind: "slash", command: { name: "goal", description: "Set the chat goal.", source: "cmux" } },
+      action: { kind: "slash", command: goalCommand },
     });
   }
 
@@ -140,21 +135,42 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     const name = command.name.trim();
     if (!name) continue;
     rows.push({
-      id: `add.skill.${name.toLocaleLowerCase()}`,
+      id: `add.skill.${name.toLowerCase()}`,
       section: "add",
       name: `/${name}`,
-      description: command.description || "Run this skill in the current chat",
-      icon: "sparkles",
+      description: command.description || description("composer.slashSkill"),
+      icon: "terminal",
       keywords: [name, command.description],
       action: { kind: "slash", command },
     });
   }
 
+  rows.push(
+    {
+      id: "add.mention",
+      section: "add",
+      name: label("composer.mention"),
+      description: "",
+      icon: "composer.mention",
+      keywords: ["@", "mention", "file", "chat"],
+      action: { kind: "command", id: COMMANDS.mention },
+    },
+    {
+      id: "add.commands",
+      section: "add",
+      name: label("composer.commands"),
+      description: "",
+      icon: "terminal",
+      keywords: ["/", "slash", "commands"],
+      action: { kind: "command", id: COMMANDS.commands },
+    },
+  );
+
   rows.push({
     id: "files.search",
     section: "files",
-    name: "Files and chats",
-    description: "Search files or chats to attach as context",
+    name: label("files.search"),
+    description: "",
     icon: "search",
     keywords: ["files", "chats", "search", "context"],
     action: { kind: "command", id: COMMANDS.searchFiles },
@@ -164,7 +180,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   const extensions = [...(options.extensions ?? [])];
   const all = [...rows, ...extensions];
   return all.filter((entry) => {
-    if (!entry.id || !entry.name.trim() || !entry.description.trim()) return false;
+    if (!entry.id || !entry.name.trim()) return false;
     const key = extensionKey(entry);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -172,8 +188,9 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   });
 }
 
-/** Group entries without changing the registry's explicit section and row order. */
-export function composerPlusSections(entries: readonly ComposerPlusEntry[]): Map<ComposerPlusSection, ComposerPlusEntry[]> {
+export function composerPlusSections(
+  entries: readonly ComposerPlusEntry[],
+): Map<ComposerPlusSection, ComposerPlusEntry[]> {
   const sections = new Map<ComposerPlusSection, ComposerPlusEntry[]>(
     COMPOSER_PLUS_SECTIONS.map((section) => [section, []]),
   );
@@ -181,5 +198,75 @@ export function composerPlusSections(entries: readonly ComposerPlusEntry[]): Map
   return sections;
 }
 
-/** The + menu is an instant command surface; it must never fade in. */
 export const COMPOSER_PLUS_MOTION = "none" as const;
+
+export function runComposerPlusAction(
+  action: ComposerPlusAction,
+  handlers: {
+    command(id: string, modeId?: string): void;
+    extension?(id: string): void;
+    slash(command: SlashCommand): void;
+  },
+): boolean {
+  if (action.kind === "slash") {
+    handlers.slash(action.command);
+    return true;
+  }
+  if (Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) {
+    handlers.command(action.id, action.modeId);
+    return true;
+  }
+  if (!handlers.extension) return false;
+  handlers.extension(action.id);
+  return true;
+}
+
+export type NativeComposerAction = {
+  id: string;
+  section: "tools" | "apps" | "sessions" | "tabs";
+  name: string;
+  description: string;
+  icon: string;
+};
+
+/** Only the app's narrow, bound catalog rows become + extensions. No page-invented action IDs. */
+export function nativeComposerExtensions(value: unknown): ComposerPlusExtension[] {
+  if (!Array.isArray(value)) return [];
+  const sections = new Set(["tools", "apps", "sessions", "tabs"]);
+  const icons: Record<string, string> = {
+    openBrowser: "browser",
+    computerUseFocus: "computeruse.observe",
+    "palette.openCloudPane": "cloud",
+    newSurface: "terminal",
+    "app.command.run": "apps.stack",
+    openSettings: "app.permissions",
+    "search.chats": "agent.chat.list",
+    "tab.search": "tunable.panes",
+  };
+  return value.flatMap((row): ComposerPlusExtension[] => {
+    if (!row || typeof row !== "object") return [];
+    const item = row as Record<string, unknown>;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.section !== "string" ||
+      !sections.has(item.section) ||
+      typeof item.name !== "string" ||
+      typeof item.description !== "string" ||
+      !item.id ||
+      !item.name.trim() ||
+      !item.description.trim()
+    )
+      return [];
+    return [
+      {
+        id: item.id,
+        section: item.section as NativeComposerAction["section"],
+        name: item.name,
+        description: item.description,
+        icon: icons[item.id] ?? "terminal",
+        keywords: [item.name, item.description],
+        action: { kind: "command", id: item.id },
+      },
+    ];
+  });
+}

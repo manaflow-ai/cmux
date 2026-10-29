@@ -81,64 +81,6 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
 });
 
-test("New Tab + filters sections and opens the existing chat and page search actions", async () => {
-  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
-  let chats = 0;
-  Object.assign(dom!.window, {
-    webkit: {
-      messageHandlers: {
-        agentSession: {
-          postMessage: ({ method, params }: { method: string; params: Record<string, unknown> }) => {
-            calls.push({ method, params });
-            return Promise.resolve({ ok: true, value: {} });
-          },
-        },
-      },
-    },
-  });
-  await act(async () => {
-    root!.render(
-      <NewTabScreen
-        snapshot={noChat()}
-        onAsk={() => {}}
-        onOpen={() => {}}
-        onSearch={() => {}}
-        onShell={() => {}}
-        onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => chats++}
-      />,
-    );
-  });
-  const add = container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
-  const filter = async (text: string) => {
-    await act(async () => add.click());
-    const input = container.querySelector<HTMLInputElement>(".acpmux-newtab-plus .acpmux-menu-search")!;
-    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-    expect(document.activeElement === input).toBe(true);
-    await act(async () => {
-      const set = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
-      set.call(input, text);
-      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-    });
-    return input;
-  };
-  const pageSearch = await filter("pages");
-  expect(container.querySelectorAll(".acpmux-newtab-plus [role=option]").length).toBe(1);
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="pages"]')).toBeTruthy();
-  await act(async () =>
-    pageSearch.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-  );
-  expect(calls).toContainEqual({ method: "action.run", params: { id: "history.search" } });
-
-  const chatSearch = await filter("chats");
-  expect(container.querySelectorAll(".acpmux-newtab-plus [role=option]").length).toBe(1);
-  await act(async () =>
-    chatSearch.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-  );
-  expect(chats).toBe(1);
-});
-
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];

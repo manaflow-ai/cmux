@@ -13,8 +13,8 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
-import { type SpeedTiers } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
+import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -53,6 +53,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -232,6 +233,7 @@ export function ComposerPickers({
   holdsModePick = false,
 }: Props) {
   const t = useT();
+  const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
   // The model button is the row's one model control (Leo 2026-10-20): it names the model and its
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
@@ -262,6 +264,7 @@ export function ComposerPickers({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
+            ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(entry.topModels ? { top: entry.topModels } : {}),
@@ -424,37 +427,19 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          values: fastOption.options.map((option) => option.value),
+          lastOnValue:
+            fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // The catalog marks models whose Fast tier is a free, easy inline toggle. Paid or otherwise
-  // non-toggleable Fast modes stay inside the model menu, regardless of harness name.
-  const inlineFast =
-    catalogModel?.inlineFast === true ||
-    (catalogModel?.serviceTiers?.length ?? 0) > 0 ||
-    snapshot.catalog.some(
-      (entry) =>
-        entry.id === summary?.harness &&
-        entry.models.some(
-          (model) => model.id === runningModel && (model.inlineFast === true || (model.serviceTiers?.length ?? 0) > 0),
-        ),
-    );
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
-  // The bolt: every tier the option offers past off.
-  const speedTiers: SpeedTiers | undefined =
-    inlineFast && fastOption && fastMode && fastOffered
-      ? {
-          current: fastOption.currentValue,
-          off: fastMode.offValue,
-          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
-          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
-          onPick: fastMode.onPick,
-        }
-      : undefined;
-  // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = speedTiers !== undefined;
+  const fastCurrentValue = fastMode?.currentValue;
+  const fastOffValue = fastMode?.offValue;
+  // Fast mode is a row in the model menu for every harness. The picker owns the toggle;
+  // the composer never renders a separate lightning button.
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -626,6 +611,14 @@ export function ComposerPickers({
   // picker's first installed, pickable one, the one the model picker's face draws (a bundled
   // harness acpmux does not have can come first in `pickerEntries`); else the catalog's first.
   const chipHarness = harness ?? pickerFaceHarness(pickerEntries) ?? pickerEntries[0]?.id;
+  // Preserve an on tier only for this chat and option. ComposerPickers stays mounted when
+  // the person switches chats, so a plain/off chat must not inherit another chat's tier.
+  const fastScope = `${summary?.sessionId ?? `new:${chipHarness ?? ""}`}\u0000${chipHarness ?? ""}\u0000${fastOption?.id ?? ""}`;
+  const rememberedFastValue = lastFastValue.current?.scope === fastScope ? lastFastValue.current.value : undefined;
+  useEffect(() => {
+    if (fastCurrentValue === undefined || fastCurrentValue === fastOffValue) return;
+    lastFastValue.current = { scope: fastScope, value: fastCurrentValue };
+  }, [fastScope, fastCurrentValue, fastOffValue]);
   const chipEntry = pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness);
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
@@ -908,14 +901,14 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
-  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
-  // has the bolt instead.
+  // Fast mode is one checkbox row in the menu, after Account. On is any tier past off;
+  // a click turns it off, or on at the option's first tier.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && fastOffered && !bolted
+    fastMode && fastOffered
       ? {
-          checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
-          onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          checked: fastModeIsOn(fastMode),
+          onChange: (on) =>
+            fastMode.onPick(on ? nextFastModeValue(fastMode, rememberedFastValue, fastMode.values) : fastMode.offValue),
         }
       : undefined;
   const quick: QuickMenuExtras = {
@@ -943,6 +936,9 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          sessionAuth={signIn?.sessionAuth}
+          onSessionLogin={signIn?.loginSession}
+          onSessionAuthRefresh={signIn?.recheckSession}
           {...(modelChip ? { chip: modelChip } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
@@ -962,8 +958,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={bolted ? undefined : fastMode}
-          {...(speedTiers ? { speed: speedTiers } : {})}
+          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1555,8 +1550,6 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
-  searchPlaceholder,
-  emptyLabel,
 }: {
   label: string;
   className: string;
@@ -1571,16 +1564,11 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
-  /// The + menu filters its sections in place. Other select-only pickers stay unchanged.
-  searchPlaceholder?: string;
-  emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [query, setQuery] = useState("");
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const searchField = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
@@ -1601,18 +1589,12 @@ export function Picker({
     kind: "list",
     active: ".acpmux-menu-active",
   });
-  const matching = query.trim().toLocaleLowerCase();
-  const visibleSections = sections.map((section) => ({
-    ...section,
-    choices: matching
-      ? section.choices.filter((choice) =>
-          `${choice.name} ${choice.description ?? ""}`.toLocaleLowerCase().includes(matching),
-        )
-      : section.choices,
-  }));
-  const rows = visibleSections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
+  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  useEffect(() => {
+    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
+  }, [open, rows.length, menuId, selected]);
 
   useEffect(() => {
     if (!open) return;
@@ -1633,22 +1615,13 @@ export function Picker({
   // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
   const byPointer = useRef(false);
   const show = () => {
-    const current = sections
-      .flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })))
-      .findIndex((row) => row.choice.id === sections[row.section].current);
-    setQuery("");
+    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
     focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
   };
-  useEffect(() => {
-    if (!open || !searchPlaceholder) return;
-    // Browser click focus runs after the trigger handler; focus the field on the next frame.
-    const frame = requestAnimationFrame(() => searchField.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(frame);
-  }, [open, searchPlaceholder]);
   const showRef = useRef(show);
   showRef.current = show;
   // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
@@ -1700,11 +1673,11 @@ export function Picker({
       pick(selected);
     }
     // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
-    else if (event.key === " " && !searchPlaceholder) event.preventDefault();
+    else if (event.key === " ") event.preventDefault();
     else if (event.key === "Tab") setOpen(false);
   };
   const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " " && !searchPlaceholder) {
+    if (open && event.key === " ") {
       event.preventDefault();
       pick(selected);
     }
@@ -1724,7 +1697,7 @@ export function Picker({
         ref={trigger}
         type="button"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role={searchPlaceholder ? undefined : "combobox"}
+        role="combobox"
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
@@ -1733,7 +1706,7 @@ export function Picker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && !searchPlaceholder && rows.length > 0 ? `${menuId}-${selected}` : undefined}
+        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         {...press}
@@ -1753,40 +1726,15 @@ export function Picker({
           className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
           data-side="above"
         >
-          {searchPlaceholder && (
-            <input
-              ref={searchField}
-              className="acpmux-menu-search"
-              type="search"
-              // oxlint-disable-next-line jsx-a11y/no-redundant-roles
-              role="combobox"
-              aria-label={searchPlaceholder}
-              aria-controls={menuId}
-              aria-expanded={true}
-              aria-activedescendant={rows.length > 0 ? `${menuId}-${selected}` : undefined}
-              aria-autocomplete="list"
-              placeholder={searchPlaceholder}
-              spellCheck={false}
-              autoComplete="off"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActive(0);
-              }}
-              onKeyDown={keyDown}
-            />
-          )}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
-            {rows.length === 0 && emptyLabel && <div className="acpmux-menu-empty">{emptyLabel}</div>}
             {heading && (
               <div className="acpmux-menu-heading" aria-hidden="true">
                 {heading}
               </div>
             )}
-            {visibleSections.map((section, s) => {
-              if (section.choices.length === 0) return null;
-              const titled = section.title && visibleSections.filter((group) => group.choices.length > 0).length > 1;
+            {sections.map((section, s) => {
+              const titled = section.title && sections.length > 1;
               return (
                 <div
                   key={s}

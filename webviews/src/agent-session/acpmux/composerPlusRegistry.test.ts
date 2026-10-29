@@ -1,43 +1,42 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   COMPOSER_PLUS_MOTION,
   COMPOSER_PLUS_SECTIONS,
   composerPlusRegistry,
   composerPlusSections,
+  nativeComposerExtensions,
+  runComposerPlusAction,
 } from "./composerPlusRegistry";
 
 test("the plus registry exposes the Add and Files sections in command order", () => {
   const rows = composerPlusRegistry({
     canChooseProject: true,
-    canSetGoal: true,
+    commands: [{ name: "goal", description: "Set goal", source: "agent" }],
     planMode: { id: "plan", name: "Plan mode", description: "Think through the work before editing" },
   });
-
   expect(COMPOSER_PLUS_MOTION).toBe("none");
-  expect(rows.map((row) => row.section)).toEqual([
-    "add",
-    "add",
-    "add",
-    "add",
-    "add",
-    "add",
-    "files",
-  ]);
+  expect(rows.map((row) => row.section)).toEqual(["add", "add", "add", "add", "add", "add", "add", "add", "files"]);
   expect(rows.slice(0, 6).map((row) => row.name)).toEqual([
-    "Files and folders",
-    "Attach a screenshot",
-    "Attach a window",
-    "Choose a project",
+    "Attach files or images",
+    "Attach Screenshot…",
+    "Attach Window…",
+    "Choose project",
     "Plan mode",
-    "Set a goal",
+    "Goal",
   ]);
-  expect(rows.at(-1)?.name).toBe("Files and chats");
-  expect(rows.every((row) => row.icon && row.description && row.action)).toBe(true);
+  expect(rows.at(-1)?.name).toBe("Search files");
+  expect(rows.every((row) => row.icon && row.action)).toBe(true);
+  expect(rows.filter((row) => row.description).map((row) => row.id)).toEqual(["add.mode.plan", "add.goal"]);
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.acpmux-composer-plus \.acpmux-menu-header\s*\{[^}]*background-image:linear-gradient\(var\(--surface-popup\),var\(--surface-popup\)\)/,
+  );
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
-  const rows = composerPlusRegistry({ canCapture: false, canSetGoal: false });
-  expect(rows.map((row) => row.id)).toEqual(["add.files", "files.search"]);
+  const rows = composerPlusRegistry({ canCapture: false });
+  expect(rows.map((row) => row.id)).toEqual(["add.files", "add.mention", "add.commands", "files.search"]);
 });
 
 test("skills and prompts reuse their slash command while agent commands stay in the slash menu", () => {
@@ -104,7 +103,77 @@ test("host extensions keep their palette action and deduplicate stable ids", () 
     id: "palette.openBrowser",
   });
   expect([...composerPlusSections(rows).keys()]).toEqual([...COMPOSER_PLUS_SECTIONS]);
-  expect(composerPlusSections(rows).get("tools")?.map((row) => row.name)).toEqual(["Browser"]);
-  expect(composerPlusSections(rows).get("sessions")?.map((row) => row.name)).toEqual(["Recent chat"]);
-  expect(composerPlusSections(rows).get("tabs")?.map((row) => row.name)).toEqual(["Browser tab"]);
+  expect(
+    composerPlusSections(rows)
+      .get("tools")
+      ?.map((row) => row.name),
+  ).toEqual(["Browser"]);
+  expect(
+    composerPlusSections(rows)
+      .get("sessions")
+      ?.map((row) => row.name),
+  ).toEqual(["Recent chat"]);
+  expect(
+    composerPlusSections(rows)
+      .get("tabs")
+      ?.map((row) => row.name),
+  ).toEqual(["Browser tab"]);
+});
+
+test("the same registry action reaches the composer handler with its exact plan mode id", () => {
+  const calls: string[] = [];
+  const entries = composerPlusRegistry({
+    canCapture: false,
+    planMode: { id: "claude-plan", name: "Plan mode", description: "Plan without edits" },
+  });
+  const plan = entries.find((entry) => entry.id === "add.mode.claude-plan")!;
+  expect(plan.action).toEqual({ kind: "command", id: "composer.planMode", modeId: "claude-plan" });
+  expect(
+    runComposerPlusAction(plan.action, {
+      command: (id, modeId) => calls.push(`${id}:${modeId ?? ""}`),
+      slash: () => calls.push("slash"),
+    }),
+  ).toBe(true);
+  expect(calls).toEqual(["composer.planMode:claude-plan"]);
+});
+
+test("host palette actions dispatch through the extension handler", () => {
+  const calls: string[] = [];
+  expect(
+    runComposerPlusAction(
+      { kind: "command", id: "palette.openBrowser" },
+      {
+        command: () => calls.push("command"),
+        extension: (id) => calls.push(id),
+        slash: () => calls.push("slash"),
+      },
+    ),
+  ).toBe(true);
+  expect(calls).toEqual(["palette.openBrowser"]);
+});
+
+test("unknown actions cannot silently close the + menu", () => {
+  expect(
+    runComposerPlusAction(
+      { kind: "command", id: "missing" },
+      {
+        command: () => undefined,
+        slash: () => undefined,
+      },
+    ),
+  ).toBe(false);
+});
+
+test("native catalog rows keep their real action ids and reject malformed rows", () => {
+  const rows = nativeComposerExtensions([
+    { id: "openBrowser", section: "tools", name: "New Browser Tab", description: "Open a browser tab", icon: "globe" },
+    { id: "search.chats", section: "sessions", name: "Search Chats", description: "Find a chat", icon: "bubble.left" },
+    { id: "unknown", section: "debug", name: "Debug", description: "Not a composer section" },
+    { id: "", section: "tabs", name: "Empty", description: "No action" },
+  ]);
+  expect(rows.map((row) => [row.section, row.action])).toEqual([
+    ["tools", { kind: "command", id: "openBrowser" }],
+    ["sessions", { kind: "command", id: "search.chats" }],
+  ]);
+  expect(rows[0]?.icon).toBe("browser");
 });

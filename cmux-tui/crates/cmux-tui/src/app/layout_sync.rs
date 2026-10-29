@@ -9,6 +9,7 @@ use cmux_tui_core::{
     layout_screen_with_viewport,
 };
 
+use crate::app::dock_ops::stage_screen_of;
 use crate::app::frame_geometry::sidebar_layout_for_state;
 use crate::app::layout::{FocusTarget, RailKind, SidebarLayout, first_pane_by_id};
 use crate::app::pane_projection::{
@@ -24,7 +25,7 @@ impl App {
     pub(super) fn viewport_animation_active(&self) -> bool {
         self.config.viewport.animation
             && self
-                .active_screen_id()
+                .stage_screen_id()
                 .and_then(|screen| self.viewport_states.get(&screen))
                 .is_some_and(ViewportMotion::animating)
     }
@@ -33,11 +34,11 @@ impl App {
         if !self.config.viewport.animation {
             return RenderAction::None;
         }
-        let Some(screen) = self.active_screen_id() else {
+        let Some(screen) = self.stage_screen_id() else {
             return RenderAction::None;
         };
         let maximum =
-            self.viewport_virtual_width.saturating_sub(u64::from(self.content_area.width));
+            self.viewport_virtual_width.saturating_sub(u64::from(self.stage_area().width));
         let (offset, settled) = {
             let Some(motion) = self.viewport_states.get_mut(&screen) else {
                 return RenderAction::None;
@@ -58,7 +59,8 @@ impl App {
         if self.viewport_layout.is_empty() {
             return;
         }
-        let Some(screen) = self.tree.active_screen() else {
+        let stage_area = self.stage_area();
+        let Some(screen) = stage_screen_of(&self.tree, self.docks.stage_workspace) else {
             self.pane_areas.clear();
             self.viewport_projection.clear();
             return;
@@ -68,7 +70,7 @@ impl App {
                 screen,
                 layout: &self.viewport_layout,
                 stacked_headers: &self.viewport_stacked_headers,
-                area: self.content_area,
+                area: stage_area,
                 scrollbar_position: self.config.scrollbar.position,
                 pane_padding: self.config.pane.padding,
                 surface_only: self.surface_only,
@@ -77,9 +79,10 @@ impl App {
         }
         self.viewport_projection.project_into(
             &mut self.pane_areas,
-            self.content_area,
+            stage_area,
             self.viewport_offset,
         );
+        self.pane_areas.extend(self.docks.pane_areas.iter().copied());
     }
 
     pub(super) fn sync_viewport_motion(
@@ -119,9 +122,9 @@ impl App {
     }
 
     pub(super) fn set_viewport_target(&mut self, target: u64, animate: bool) -> bool {
-        let Some(screen) = self.active_screen_id() else { return false };
+        let Some(screen) = self.stage_screen_id() else { return false };
         let maximum =
-            self.viewport_virtual_width.saturating_sub(u64::from(self.content_area.width));
+            self.viewport_virtual_width.saturating_sub(u64::from(self.stage_area().width));
         let target = target.min(maximum);
         let now = Instant::now();
         let motion = self.viewport_states.entry(screen).or_insert_with(|| ViewportMotion::new(now));
@@ -195,7 +198,9 @@ impl App {
             self.sync_sidebar_files_to_focus(false);
         }
         self.pane_areas.clear();
-        let Some(screen) = self.tree.active_screen().cloned() else {
+        let frame = self.sync_frame(area);
+        let (area, dock_screens) = (frame.stage, frame.dock_screens);
+        let Some(screen) = frame.stage_screen else {
             self.viewport_projection.clear();
             self.viewport_layout.clear();
             self.viewport_stacked_headers.clear();
@@ -267,6 +272,8 @@ impl App {
             self.viewport_projection.clear();
             rebuild_pane_areas(&mut self.pane_areas, pane_projection);
         }
+        // Docked workspaces draw after the stage, Floating docks last.
+        self.pane_areas.extend(self.docks.pane_areas.iter().copied());
 
         // Size and attach every pane crossed by a short animation up front.
         // Paint-only ticks can then reveal cached surfaces without socket
@@ -279,7 +286,7 @@ impl App {
                 .map_or(self.viewport_offset, |motion| motion.target.round() as u64)
                 .min(maximum)
         });
-        let size_leases = if let Some(target_offset) =
+        let mut size_leases = if let Some(target_offset) =
             target_offset.filter(|target| *target != self.viewport_offset)
         {
             if let Some(leases) = swept_viewport_size_leases(
@@ -306,11 +313,17 @@ impl App {
                     area,
                     self.viewport_offset,
                 );
+                self.pane_areas.extend(self.docks.pane_areas.iter().copied());
                 visible_pane_size_leases(&self.pane_areas)
             }
         } else {
             visible_pane_size_leases(&self.pane_areas)
         };
+        for lease in visible_pane_size_leases(&self.docks.pane_areas) {
+            if !size_leases.iter().any(|leased| leased.surface == lease.surface) {
+                size_leases.push(lease);
+            }
+        }
 
         let visible = size_leases.iter().map(|lease| lease.surface).collect::<HashSet<_>>();
         let hidden = self
@@ -341,7 +354,12 @@ impl App {
         // this active screen so one lease per pane does not turn this loop
         // into quadratic work. `or_insert` preserves `pane`'s first-match
         // behavior if malformed input contains duplicate pane IDs.
-        let panes_by_id = first_pane_by_id(&screen.panes);
+        let mut panes_by_id = first_pane_by_id(&screen.panes);
+        for dock_screen in &dock_screens {
+            for (id, pane) in first_pane_by_id(&dock_screen.panes) {
+                panes_by_id.entry(id).or_insert(pane);
+            }
+        }
         for lease in size_leases {
             let Some(pane) = panes_by_id.get(&lease.pane).copied() else { continue };
             let content_size = lease.content_size;
