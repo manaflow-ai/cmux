@@ -69,9 +69,6 @@ use cmux_tui_util::machine_name;
 mod model;
 mod mux;
 pub mod net_keepalive;
-/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
-#[cfg(any(debug_assertions, feature = "oracle"))]
-mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod input_flow;

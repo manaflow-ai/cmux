@@ -540,7 +540,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
 
 /// [`public_session_snapshot_with_journal_head`] plus `visit`'s value, read
 /// from the same `State` in the same projection lock, so all three are one
-/// cut (`oracle-state` reads its runtime counts this way).
+/// cut.
 pub(crate) fn public_session_snapshot_at_cut<R>(
     mux: &Mux,
     visit: impl FnOnce(&crate::model::State) -> R,

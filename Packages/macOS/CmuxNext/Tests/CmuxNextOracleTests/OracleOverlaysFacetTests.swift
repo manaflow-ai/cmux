@@ -107,12 +107,11 @@ struct OracleOverlaysFacetTests {
         #expect(snapshot["overlays"]?["task"] == "p15-oracle-038")
     }
 
-    /// The owners' change signal is the facet's: `wait_for` subscribes to it.
+    /// The owners' change signal is the facet's.
     @Test func theOwnersChangeSignalIsTheFacets() async throws {
         let (stream, signal) = AsyncStream<Void>.makeStream()
         let facet = OracleOverlaysFacet(hash: Self.hash, changes: { stream }) { OracleOverlaysFacet.Reading() }
         let facets = OracleFacets([facet])
-        #expect(facets.signalsChanges(.overlays))
         let changes = try #require(facets.changes(.overlays))
         signal.yield()
         var iterator = changes().makeAsyncIterator()

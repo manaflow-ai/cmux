@@ -145,7 +145,6 @@ final class AppControl {
             AppProcesses.chromiumHelpers(helperParent: parent.pid)
         }
         registerSyncBarrier(service.router, daemon: services.daemon)
-        registerOracleSettle(service.router, services: services)
     }
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.

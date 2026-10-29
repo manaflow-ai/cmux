@@ -236,8 +236,6 @@ fn connection_frame_routes_find_every_sniffed_cmd() {
         let route = routes::find(cmd).unwrap_or_else(|| panic!("no route for {cmd}"));
         assert_eq!(route.stage, stage, "{cmd}");
     }
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    assert!(routes::find("oracle-state").is_some());
     for cmd in [
         "ping",
         "agent-inventor",

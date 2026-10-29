@@ -8,19 +8,12 @@
 /// main-actor part of every split provider in the same turn, then ``OracleCapture/finish()`` runs the
 /// background providers and the rest of the split ones off the main actor.
 public struct OracleFacets: Sendable {
-    private let list: [any OracleFacetProvider]
     private let providers: [OracleFacet: any OracleFacetProvider]
-    /// The run's path prefixes the captures hash with (``rewriting(_:)``).
-    private let paths: OraclePaths
     /// Facets that more than one provider named; the first provider in the list answers. The App
     /// test of its own list expects none.
     public let duplicates: [OracleFacet]
 
     public init(_ list: [any OracleFacetProvider]) {
-        self.init(list, paths: .unchanged)
-    }
-
-    private init(_ list: [any OracleFacetProvider], paths: OraclePaths) {
         var providers: [OracleFacet: any OracleFacetProvider] = [:]
         var duplicates: [OracleFacet] = []
         for provider in list {
@@ -30,22 +23,8 @@ public struct OracleFacets: Sendable {
                 duplicates.append(provider.facet)
             }
         }
-        self.list = list
         self.providers = providers
         self.duplicates = duplicates
-        self.paths = paths
-    }
-
-    /// This list capturing with `paths`, the prefixes a `debug.oracle.snapshot` or recorder arm names: a path in a
-    /// hashed field becomes `$ROOT` or `$HOME` before the hash, as normalize.py would write it.
-    public func rewriting(_ paths: OraclePaths) -> OracleFacets {
-        OracleFacets(list, paths: paths)
-    }
-
-    /// This list followed by `more`: the facets a server owns (the control router's topology) join the
-    /// host's list where the methods are registered. A facet already in this list keeps its provider.
-    public func adding(_ more: [any OracleFacetProvider]) -> OracleFacets {
-        OracleFacets(list + more, paths: paths)
     }
 
     /// The facets this build has a provider for, in catalog order.
@@ -53,15 +32,6 @@ public struct OracleFacets: Sendable {
 
     /// `facet`'s change signal, nil when its provider gives none (``OracleFacetProvider/changes``).
     public func changes(_ facet: OracleFacet) -> OracleFacetChanges? { providers[facet]?.changes }
-
-    /// Whether `debug.oracle.wait_for` can wait on `facet`: a provider reads it on the main actor (its reads are
-    /// observed) or gives a change signal. A background or split facet without one would only be read once.
-    public func signalsChanges(_ facet: OracleFacet) -> Bool {
-        guard let provider = providers[facet] else { return false }
-        if provider.changes != nil { return true }
-        if case .mainActor = provider.capture { return true }
-        return false
-    }
 
     /// The facets a request names (`facets: [String]`), or every facet when it names none.
     /// An unknown name is an error: a typo must not turn into a facet nobody compares.
@@ -94,7 +64,7 @@ public struct OracleFacets: Sendable {
                 values[facet.rawValue] = .notComparable(reason: "no provider for \(facet.rawValue) in this build", task: facet.task)
                 continue
             }
-            switch provider.capturing(paths: paths) {
+            switch provider.capture {
             case .mainActor(let read):
                 do throws(OracleFacetError) {
                     values[facet.rawValue] = try read()
