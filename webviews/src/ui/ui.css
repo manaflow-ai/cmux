@@ -292,7 +292,8 @@
   background: var(--ui-hover);
 }
 
-.ui-toolbar-button[data-pressed] {
+.ui-toolbar-button[data-pressed],
+.ui-toolbar-button[aria-pressed="true"] {
   background: var(--ui-selected);
 }
 
