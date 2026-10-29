@@ -270,6 +270,16 @@ path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swift_test_main_thread_isolation.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the swift test job's main-thread-heavy split and its detector; run python3 tests/test_ci_swift_test_main_thread_isolation.py yourself after changing scripts/cmux-next/main-thread-heavy-suites.py or that job (under 10 s, no build)."
+
+[[test]]
+path = "tests/test_ci_swift_test_shards.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in exactly one balanced shard and the build.db start gate; run python3 tests/test_ci_swift_test_shards.py yourself after changing scripts/cmux-next/swift-test-shards.py or the test sources' suite shapes (about 20 s, no build)."
+
+[[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
@@ -1357,6 +1367,10 @@ lane = "linux-guard"
 serial = true
 
 [[test]]
+path = "tests/test_cmux_next_dev_cas_seed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
@@ -2178,3 +2192,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shortcut_alternates_documented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."

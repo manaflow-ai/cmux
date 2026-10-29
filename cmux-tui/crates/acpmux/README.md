@@ -218,6 +218,8 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
+acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
@@ -955,13 +957,17 @@ everywhere. Peers are saved in `config.json` under `peers`.
 
 ### GitHub on an added machine
 
-A machine can use the Mac's `gh` login without one of its own (`src/github_broker.rs`). An agent
-session there asks its daemon over the unix socket for `_acpmux/github_action` (read a repository
-or a pull request, open an issue, comment on one, open a draft pull request); the daemon sends it
-up the link the Mac opened to it, and the Mac runs one fixed `gh` command and answers with its
-output. No token reaches the machine. The Mac serves only a peer whose saved config has
-`githubBroker: true` (`peer_add` takes it, over the unix socket only); `"githubBroker": false` in
-`config.json` with `acpmux daemon reload` takes it back at once. Each decision is a
+A machine added with Add Machine needs no `gh auth login`: it uses the Mac's `gh` login
+(`src/github_broker.rs`). An agent there runs `acpmux gh` (`src/cli/gh_shim.rs`) with one of
+`repo view`, `pr view N`, `pr create --draft`, `issue create` and `issue comment N`, each with only
+its own flags (`--repo` defaults to the folder's `origin`); anything else is refused. Its daemon
+asks for `_acpmux/github_action` over the unix socket and sends it up the link the Mac opened to
+it, and the Mac runs one fixed `gh` command and answers with its output. No token reaches the
+machine. The Mac serves only a peer whose saved config has `githubBroker: true`: Add Machine
+(`acpmux host enroll`) adds the person's machine with it, and turns it on for a machine added
+before at its next enroll; `host doctor --fix`, a plain `peer add` without `githubBroker`, a pairing
+and a Cloud lease never do. `"githubBroker": false` in `config.json` with `acpmux daemon reload`
+takes it back at once, and only a new enroll turns it on again. Each decision is a
 `github_broker_action` event on the agent's session (action, repository, branch, number and
 outcome; never a title, body or output) and a log line on the Mac.
 
