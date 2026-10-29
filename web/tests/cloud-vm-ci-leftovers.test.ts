@@ -6,6 +6,7 @@ import {
   ciRunTag,
   ciVmTags,
   deleteAll,
+  parseSince,
   runSnapshotSelection,
   throwawayVmOptions,
   vmsTaggedForRun,
@@ -45,17 +46,37 @@ describe("CI run tags", () => {
   });
 });
 
+const since = new Date("2026-10-29T04:00:00Z");
+const during = "2026-10-29T04:10:00Z";
+const before = "2026-10-29T03:00:00Z";
+
 describe("a promotion run's builder", () => {
-  test("only the builder named for this run's slug is selected", () => {
+  const base = "freestyle/ubuntu-sm";
+  const builder = (id: string, overrides: Partial<TaggedVm> = {}): TaggedVm => ({
+    id,
+    displayName: "cmux-devbox-builder cmux-devbox-123-1",
+    snapshotId: "sh-base",
+    sourceSnapshotSlugAtCreate: base,
+    createdAt: during,
+    metadata: {},
+    ...overrides,
+  });
+
+  test("only this run's builder is selected: its name, its base, this run's window, no cmux metadata", () => {
     const vms: TaggedVm[] = [
-      { id: "mine", displayName: "cmux-devbox-builder cmux-devbox-123-1" },
-      { id: "attempt-10", displayName: "cmux-devbox-builder cmux-devbox-123-10" },
-      { id: "local-bake", displayName: "cmux-devbox-builder devbox-20261028-120000" },
-      { id: "customer", displayName: "my box" },
+      builder("mine"),
+      builder("mine-no-metadata", { metadata: null }),
+      builder("attempt-10", { displayName: "cmux-devbox-builder cmux-devbox-123-10" }),
+      builder("local-bake", { displayName: "cmux-devbox-builder devbox-20261028-120000" }),
+      builder("customer-same-name", { metadata: { cmux: "cloud" } }),
+      builder("other-base", { snapshotId: "sh-other", sourceSnapshotSlugAtCreate: "freestyle/ubuntu" }),
+      builder("before-the-run", { createdAt: before }),
+      builder("no-created-at", { createdAt: null }),
       { id: "unnamed" },
     ];
-    expect(builderVmsForRun(vms, "cmux-devbox-123-1").map((vm) => vm.id)).toEqual(["mine"]);
-    expect(() => builderVmsForRun(vms, "devbox-20261028-120000")).toThrow();
+    expect(builderVmsForRun(vms, "cmux-devbox-123-1", base, since).map((vm) => vm.id)).toEqual(["mine", "mine-no-metadata"]);
+    expect(builderVmsForRun(vms, "cmux-devbox-123-1", "sh-base", since).map((vm) => vm.id)).toEqual(["mine", "mine-no-metadata"]);
+    expect(() => builderVmsForRun(vms, "devbox-20261028-120000", base, since)).toThrow();
   });
 });
 
@@ -72,17 +93,28 @@ describe("a promotion run's snapshots", () => {
     { id: "sh-rebake", slug: "cmux-devbox-ci-202610280000-abc-def" },
     { id: "sh-pointer", slug: "cmux-devbox" },
     { id: "sh-other-label", displayName: "cmux devbox cmux-devbox-123-10 (epoch 9, abcdef0123)" },
-  ];
+  ].map((row) => ({ createdAt: during, ...row }));
 
   test("selects what the run made and no manifest names", () => {
-    const doomed = runSnapshotSelection(rows, slug, new Set(["sh-promoted"]));
+    const doomed = runSnapshotSelection(rows, slug, new Set(["sh-promoted"]), since);
     expect(doomed.map((row) => row.id).sort()).toEqual(["sh-bake", "sh-bake-unslugged", "sh-lg", "sh-unslugged"]);
   });
 
+  test("a same-named snapshot from before the run, or of unknown age, is never selected", () => {
+    const old = [{ id: "sh-old", slug, createdAt: before }, { id: "sh-unknown", slug: `${slug}-lg`, createdAt: null }];
+    expect(runSnapshotSelection(old, slug, new Set(), since)).toEqual([]);
+  });
+
   test("refuses a slug that is not a run's", () => {
-    expect(() => runSnapshotSelection(rows, "cmux-devbox", new Set())).toThrow();
-    expect(() => runSnapshotSelection(rows, "cmux-devbox-123", new Set())).toThrow();
-    expect(() => runSnapshotSelection(rows, "cmux-devbox-ci-1-1", new Set())).toThrow();
+    expect(() => runSnapshotSelection(rows, "cmux-devbox", new Set(), since)).toThrow();
+    expect(() => runSnapshotSelection(rows, "cmux-devbox-123", new Set(), since)).toThrow();
+    expect(() => runSnapshotSelection(rows, "cmux-devbox-ci-1-1", new Set(), since)).toThrow();
+  });
+
+  test("--since is required and allows for clock skew", () => {
+    expect(() => parseSince(undefined)).toThrow();
+    expect(() => parseSince("")).toThrow();
+    expect(parseSince("2026-10-29T04:05:00Z").toISOString()).toBe("2026-10-29T04:00:00.000Z");
   });
 });
 

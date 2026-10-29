@@ -11,14 +11,19 @@
  * runs after a cancel too. It deletes what carries that exact tag and nothing
  * else. The bake's builder (build-devbox-freestyle.ts) is found by its name
  * instead, `cmux-devbox-builder <run slug>`: the bake script is part of the
- * image's source digest, so tagging it would ask for a re-promotion.
+ * image's source digest, so tagging it would ask for a re-promotion. A name is
+ * not proof of ownership in an account customers share, so a builder must also
+ * have been created after the run started (--since), have booted from the
+ * builder base, and carry no `cmux` metadata (every customer machine the
+ * driver creates carries `cmux: cloud`). Snapshots need the --since window too.
  *
  * Usage:
- *   FREESTYLE_API_KEY=... bun scripts/cloud-vm/ci-leftovers.ts vms [--tag <run tag>] [--builder-of <run slug>] [--dry-run]
+ *   FREESTYLE_API_KEY=... bun scripts/cloud-vm/ci-leftovers.ts vms [--tag <run tag>]
+ *       [--builder-of <run slug> --since <ISO time>] [--dry-run]
  *       Delete every VM tagged with this run (default: the current run's
  *       tag), and with --builder-of the bake builder named for that slug.
  *   FREESTYLE_API_KEY=... bun scripts/cloud-vm/ci-leftovers.ts snapshots --slug <cmux-devbox-RUN_ID-ATTEMPT>
- *       --manifest <manifest.json> [--manifest ...] [--dry-run]
+ *       --since <ISO time> --manifest <manifest.json> [--manifest ...] [--dry-run]
  *       Delete the snapshots this promotion run made (its bake, slugged <slug>,
  *       and its derived sizes, <slug>-<size>), slugged or not, except any
  *       snapshot one of the given manifests names: what a run did not stage
@@ -88,23 +93,41 @@ export function throwawayVmOptions(env: NodeJS.ProcessEnv = process.env): {
  */
 export function cleanupOnSignal(cleanup: () => Promise<void>): () => void {
   let started = false;
-  const handler = (signal: NodeJS.Signals) => {
+  // One closure per signal: the exit code must not depend on what the
+  // runtime passes a listener.
+  const handlerFor = (signal: "SIGINT" | "SIGTERM", exitCode: number) => () => {
     if (started) return;
     started = true;
     console.error(`${signal}: cleaning up before exit`);
     void cleanup()
       .catch((error: unknown) => console.error(`cleanup on ${signal} failed: ${String(error)}`))
-      .finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
+      .finally(() => process.exit(exitCode));
   };
-  process.on("SIGINT", handler);
-  process.on("SIGTERM", handler);
+  const onInt = handlerFor("SIGINT", 130);
+  const onTerm = handlerFor("SIGTERM", 143);
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
   return () => {
-    process.off("SIGINT", handler);
-    process.off("SIGTERM", handler);
+    process.off("SIGINT", onInt);
+    process.off("SIGTERM", onTerm);
   };
 }
 
-export type TaggedVm = { id: string; displayName?: string | null; metadata?: Record<string, string> | null };
+export type TaggedVm = {
+  id: string;
+  displayName?: string | null;
+  metadata?: Record<string, string> | null;
+  snapshotId?: string | null;
+  /** The snapshot's name when the VM was created, `{owner}/{slug}` for a public base. */
+  sourceSnapshotSlugAtCreate?: string | null;
+  createdAt?: string | null;
+};
+
+/** Created at or after `since`; an unreadable time never counts. */
+function createdSince(createdAt: string | null | undefined, since: Date): boolean {
+  const created = createdAt ? Date.parse(createdAt) : Number.NaN;
+  return Number.isFinite(created) && created >= since.getTime();
+}
 
 /** The VMs carrying exactly this run's tag; a list filter the API ignored cannot widen it. */
 export function vmsTaggedForRun<T extends TaggedVm>(vms: readonly T[], tag: string): T[] {
@@ -120,25 +143,36 @@ function requireRunSlug(slug: string): void {
   }
 }
 
-/** The bake builder build-devbox-freestyle.ts names for this run's slug, and nothing else. */
-export function builderVmsForRun<T extends TaggedVm>(vms: readonly T[], slug: string): T[] {
+/**
+ * The bake builder build-devbox-freestyle.ts made for this run's slug: its
+ * exact name, booted from the builder base, created since the run started,
+ * and no `cmux` metadata (customer machines carry `cmux: cloud`).
+ */
+export function builderVmsForRun<T extends TaggedVm>(vms: readonly T[], slug: string, base: string, since: Date): T[] {
   requireRunSlug(slug);
-  return vms.filter((vm) => vm.displayName === `cmux-devbox-builder ${slug}`);
+  return vms.filter(
+    (vm) =>
+      vm.displayName === `cmux-devbox-builder ${slug}` &&
+      (vm.snapshotId === base || vm.sourceSnapshotSlugAtCreate === base) &&
+      vm.metadata?.cmux === undefined &&
+      createdSince(vm.createdAt, since),
+  );
 }
 
-export type SnapshotRow = { id: string; slug?: string | null; displayName?: string | null };
+export type SnapshotRow = { id: string; slug?: string | null; displayName?: string | null; createdAt?: string | null };
 
 /**
  * The snapshots one promotion run made: the bake is slugged `<slug>` and its
  * derived sizes `<slug>-<size>`, and each is labelled `cmux devbox <its slug> (…)`
  * (build-devbox-freestyle.ts, derive-devbox-sizes.ts), which also finds one the
- * run snapshotted but never got to slug. A snapshot a manifest names is never
- * selected.
+ * run snapshotted but never got to slug. Only one taken since the run started
+ * counts, and a snapshot a manifest names is never selected.
  */
 export function runSnapshotSelection<T extends SnapshotRow>(
   snapshots: readonly T[],
   slug: string,
   protectedIds: ReadonlySet<string>,
+  since: Date,
 ): T[] {
   requireRunSlug(slug);
   const ownSlug = (value: string) => value === slug || value.startsWith(`${slug}-`);
@@ -146,8 +180,16 @@ export function runSnapshotSelection<T extends SnapshotRow>(
   return snapshots.filter(
     (row) =>
       !protectedIds.has(row.id) &&
+      createdSince(row.createdAt, since) &&
       ((typeof row.slug === "string" && ownSlug(row.slug)) || (typeof row.displayName === "string" && ownLabel(row.displayName))),
   );
+}
+
+/** --since: an ISO time, less a margin for clock skew between the runner and the provider. */
+export function parseSince(value: string | undefined, skewMs = 5 * 60_000): Date {
+  const parsed = value ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(parsed)) throw new Error(`--since must be an ISO time, got ${value ?? "(nothing)"}`);
+  return new Date(parsed - skewMs);
 }
 
 /** Freestyle answers 404 for something already gone; that counts as deleted. */
@@ -219,17 +261,16 @@ async function main(argv: string[]): Promise<void> {
       tag,
     );
     const builderOf = option("--builder-of");
-    const builders = builderOf
-      ? builderVmsForRun(
-          await listAll(async (offset) => {
-            // Only machines booted from the builder base can be the builder.
-            const base = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
-            const page = await fs.vms.list({ snapshotId: base, limit: 100, offset });
-            return { rows: page.vms, total: page.totalCount };
-          }),
-          builderOf,
-        )
-      : [];
+    let builders: TaggedVm[] = [];
+    if (builderOf) {
+      const since = parseSince(option("--since"));
+      const base = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
+      const fromBase = await listAll(async (offset) => {
+        const page = await fs.vms.list({ snapshotId: base, limit: 100, offset });
+        return { rows: page.vms, total: page.totalCount };
+      });
+      builders = builderVmsForRun(fromBase, builderOf, base, since);
+    }
     doomed = [...tagged, ...builders].map((vm) => ({ id: vm.id, label: vm.displayName ?? "" }));
     console.log(`vms: ${tagged.length} tagged run=${tag}${builderOf ? `, ${builders.length} builder(s) of ${builderOf}` : ""}`);
     remove = (id) => fs.vms.delete(id);
@@ -238,18 +279,19 @@ async function main(argv: string[]): Promise<void> {
     if (!slug) throw new Error("snapshots: --slug is required");
     const manifestFiles = options("--manifest");
     if (manifestFiles.length === 0) throw new Error("snapshots: pass every deployed manifest with --manifest, so a promoted snapshot is never deleted");
+    const since = parseSince(option("--since"));
     const { readImageManifest } = await import("../devbox-image-common");
     const protectedIds = new Set(manifestFiles.flatMap((file) => readImageManifest(file).images.map((row) => row.imageId)));
     const snapshots = await listAll(async (offset) => {
       const page = await fs.vms.snapshots.list({ limit: 100, offset });
       return { rows: page.snapshots, total: page.totalCount };
     });
-    const own = runSnapshotSelection(snapshots, slug, protectedIds);
+    const own = runSnapshotSelection(snapshots, slug, protectedIds, since);
     console.log(`snapshots: ${own.length} made by ${slug} and named by no manifest`);
     doomed = own.map((row) => ({ id: row.id, label: row.slug || row.displayName || "" }));
     remove = (id) => fs.vms.snapshots.delete(id);
   } else {
-    throw new Error("usage: ci-leftovers.ts vms [--tag T] [--builder-of S] [--dry-run] | snapshots --slug S --manifest F [--manifest F]... [--dry-run]");
+    throw new Error("usage: ci-leftovers.ts vms [--tag T] [--builder-of S --since ISO] [--dry-run] | snapshots --slug S --since ISO --manifest F [--manifest F]... [--dry-run]");
   }
   if (dryRun) {
     for (const row of doomed) console.log(`would delete ${row.id} (${row.label})`);
