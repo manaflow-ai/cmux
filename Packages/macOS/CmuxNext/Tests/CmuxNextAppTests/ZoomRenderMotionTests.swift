@@ -131,7 +131,8 @@ struct ZoomRenderMotionTests {
             #expect(grid.motion == [true], "the layout motion starts in the key's turn")
             #expect(screen.zoomMotion.pane == "p1" && screen.zoomMotion.rendersOnServer, "the zoom is not on the render server")
             #expect(host.frame == screen.geometry.panes["p1"]?.pixelEdges(screen.scale), "p1 is not at rest after the key's turn")
-            #expect(host.isOnRenderSpring && host.isOnLayoutSpring && host.backsZoom)
+            // A resting pane's material (felt 1d): no fill of its own; the panes under it are cut over its sweep instead.
+            #expect(host.isOnRenderSpring && host.isOnLayoutSpring && host.layer?.backgroundColor == nil)
             #expect(grid.frontHost === host, "the zooming pane is not in front of the panes it covers")
             #expect(Set(screen.covered) == Set(Self.others), "covered \(screen.covered)")
             // Half way along the zoom token's spring, p1 shows half way between where it showed and its rest.
@@ -172,7 +173,7 @@ struct ZoomRenderMotionTests {
             #expect(screen.covered.isEmpty, "the covered panes were not let go")
             #expect(covered.allSatisfy { $0.superview == nil }, "a covered host stays in the screen")
             let host = try grid.host("p1")
-            #expect(!host.isOnRenderSpring && !host.isOnLayoutSpring && !host.backsZoom)
+            #expect(!host.isOnRenderSpring && !host.isOnLayoutSpring && host.layer?.backgroundColor == nil)
             #expect(!screen.stripContainer.isLifted, "the strip container is still lifted")
             let settled = grid.panes.contents["p1"]?.settled ?? 0
             #expect(settled == 1, "p1's content heard \(settled) landings")
@@ -201,7 +202,7 @@ struct ZoomRenderMotionTests {
             }
             #expect(await grid.landed(), "the unzoom did not land in 5 s")
             #expect(grid.motion == [true, false], "layout motion \(grid.motion)")
-            #expect(screen.zoomMotion.pane == nil && !host.backsZoom && !screen.stripContainer.isLifted, "the stacking is not restored")
+            #expect(screen.zoomMotion.pane == nil && host.layer?.backgroundColor == nil && !screen.stripContainer.isLifted, "the stacking is not restored")
         }
     }
 

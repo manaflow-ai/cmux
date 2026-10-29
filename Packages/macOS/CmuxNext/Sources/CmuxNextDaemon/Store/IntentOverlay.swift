@@ -57,6 +57,13 @@ import Foundation
             guard let screen = store.screensByHandle[handle], screen.pinned != pinned else { return nil }
             screen.pinned = pinned
             return .screenPinned(screen: handle, pinned: !pinned)
+        case .setZoomedPane(let handle, let pane):
+            // A pane that left the screen zooms nothing (the daemon refuses it too).
+            guard let screen = store.screensByHandle[handle], screen.zoomedPane != pane,
+                  pane.map({ pane in screen.panes.contains { $0.handle == pane } }) ?? true else { return nil }
+            let previous = screen.zoomedPane
+            screen.zoomedPane = pane
+            return .screenZoom(screen: handle, pane: previous)
         case .renameWorkspace(let key, let name):
             guard let workspace = store.workspacesByKey[key], workspace.name != name else { return nil }
             let previous = workspace.name
@@ -180,6 +187,8 @@ import Foundation
             store.screensByHandle[screen]?.icon = icon
         case .screenPinned(let screen, let pinned):
             store.screensByHandle[screen]?.pinned = pinned
+        case .screenZoom(let screen, let pane):
+            store.screensByHandle[screen]?.zoomedPane = pane
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
         case .workspacePlace(let key, let index, let group):

@@ -154,7 +154,7 @@ struct StripClipLayerStructureTests {
                 "the landed strip container is not the strip's range: \(container.frame)")
         let order = view.subviews
         #expect((order.firstIndex(of: container) ?? .max) < (order.firstIndex(of: chat) ?? -1), "the chat's pane is not above the strip again")
-        #expect(link.layer?.mask == nil && !link.backsZoom && link.layer?.backgroundColor == nil)
+        #expect(link.layer?.mask == nil && link.layer?.backgroundColor == nil)
         #expect(screen.window.firstResponder === responder, "the focused view lost the keys")
         #expect(responder.resigns == 0, "the focused view resigned \(responder.resigns) times: a terminal sends focus out and in")
     }

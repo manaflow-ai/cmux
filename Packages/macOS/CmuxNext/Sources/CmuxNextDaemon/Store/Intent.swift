@@ -24,6 +24,10 @@ public enum Intent: Sendable, Hashable {
     case setScreenIcon(screen: ScreenID, icon: String?)
     /// `set-screen-pinned`.
     case setScreenPinned(screen: ScreenID, pinned: Bool)
+    /// `zoom-pane` with mode `on` (`pane`) or `off` (nil): the screen's zoomed pane (Cmd-Shift-Return). The
+    /// press shows in its own turn and each press asks for the state it shows, so fast presses end in the last
+    /// press's state with no queued replies after it (felt 1d, Lawrence 2026-10-29).
+    case setZoomedPane(screen: ScreenID, pane: PaneID?)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
     /// `move-workspace`: to final daemon-order `index` (clamped).
@@ -82,6 +86,7 @@ extension Intent {
         case .setScreenColor: "setScreenColor"
         case .setScreenIcon: "setScreenIcon"
         case .setScreenPinned: "setScreenPinned"
+        case .setZoomedPane: "setZoomedPane"
         case .renameWorkspace: "renameWorkspace"
         case .moveWorkspace: "moveWorkspace"
         case .setWorkspaceGroup: "setWorkspaceGroup"

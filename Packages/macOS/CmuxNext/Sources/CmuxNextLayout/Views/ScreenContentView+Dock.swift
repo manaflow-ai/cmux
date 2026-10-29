@@ -120,11 +120,13 @@ extension ScreenContentView {
     /// last time keeps its clip without recomputing it (`force` recomputes); a host with neither has
     /// the same input on every frame, and so does one a zoom leaves still under its pane.
     @discardableResult
-    func clipToStrip(_ host: PaneHostView, fronts: [CGRect] = [], force: Bool = false) -> Bool {
+    func clipToStrip(_ host: PaneHostView, fronts: [CGRect] = [], cover: CGRect? = nil, force: Bool = false) -> Bool {
         // A host in its scroll area's container is clipped by the container (`placeScrollerContainers`).
         let inAreaContainer = (host.superview as? ScrollerPanContainerView)?.scroller.isArea ?? false
+        // The zooming pane itself is not cut; every pane under it is, where it shows (``zoomCover``).
+        let hole = host.pane == zoomMotion.pane ? nil : cover.map { convert($0, to: host.superview).intersection(host.frame) }
         let input = StripClipInput(frame: host.frame, areaWindow: inAreaContainer ? nil : displayedAreaWindow(of: host.pane),
-                                   stripClip: heldStripClip(of: host, fronts: fronts))
+                                   stripClip: heldStripClip(of: host, fronts: fronts), cover: hole)
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
         stripClipsComputed += 1
@@ -133,7 +135,8 @@ extension ScreenContentView {
         var visible = bounds
         if let window = input.areaWindow { visible = visible.intersection(window) }
         if let range = input.stripClip { visible = visible.intersection(range) }
-        let changed = host.setStripClip(visible == bounds ? nil : (visible.isNull ? .zero : visible))
+        let clip: CGRect? = visible == bounds ? nil : (visible.isNull ? .zero : visible)
+        let changed = host.setStripClip(clip, cover: input.cover)
         // A clip can change while the pane stays put (its area scrolled, a zoom lifted the container):
         // the window's Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }

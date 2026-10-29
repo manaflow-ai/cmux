@@ -220,8 +220,10 @@ extension ScreenContentView {
         paneFrames[pane]?.snap()
         zoomMotion.handToRenderServer(from: move.from, to: move.to)
         springMoves(panes: [pane: move], dividers: [:], token: zoomMotion.spring(for: pane))
-        // The rings, dims and page cutouts behind it read its sweep now (``coverFrame(_:)``), not its rest frame.
+        // The rings, dims and page cutouts behind it read its sweep now (``coverFrame(_:)``), not its rest frame, and
+        // so do the panes under it (cut over the whole sweep: no per-frame mask on the render server).
         coverVersion &+= 1
+        if applyZoomCovers(displayedHosts, force: false) { context.stripClipsDidChange() }
         context.overlayNeedsSync()
         return true
     }

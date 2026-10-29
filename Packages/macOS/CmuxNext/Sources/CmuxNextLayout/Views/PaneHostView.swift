@@ -96,7 +96,7 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                heldContentSize = holdsContentInMotion() ? content.frame.size : nil
+                heldContentSize = holdsContentInMotion() && !followsFrameLive ? content.frame.size : nil
             } else {
                 heldContentSize = nil
                 heldAnchor = nil
@@ -104,6 +104,20 @@ final class PaneHostView: NSView, RestingPlacement {
                 layoutClip()
                 content.notifyPaneMotionSettled()
             }
+        }
+    }
+
+    /// The content lays out at this host's frame on every frame of its spring, whatever
+    /// `paneHoldsContentInMotion` says: the pane a zoom or an unzoom moves (`ScreenContentView.applyPresentation`).
+    /// Lawrence 2026-10-29 (felt 1d): the zoom is one transition of the real content, terminals resizing live with
+    /// it; held at its rest size, the content showed at its end place from the first frame while the pane's edge
+    /// wiped over it, and an unzoom snapped it at the landing.
+    var followsFrameLive = false {
+        didSet {
+            guard followsFrameLive != oldValue, followsFrameLive, heldContentSize != nil else { return }
+            heldContentSize = nil
+            heldAnchor = nil
+            layoutClip()
         }
     }
 
@@ -149,19 +163,7 @@ final class PaneHostView: NSView, RestingPlacement {
         stripClipInput = nil
         overlaySyncKey = nil
         pageCoverMemo = nil
-        if superview == nil { backsZoom = false }
-    }
-
-    /// While its pane zooms or unzooms, an opaque window-background fill under its whole bounds: the
-    /// pane is above the others (`ScreenContentView.rank`), and they must not show through its padding,
-    /// its corners or its see-through header (as an overlay dock's backdrop fills under its panes).
-    /// One layer property set at the zoom's start and at its landing; the fill follows the bounds.
-    var backsZoom = false {
-        didSet { if backsZoom != oldValue { applyZoomBacking() } }
-    }
-
-    private func applyZoomBacking() {
-        layer?.backgroundColor = backsZoom ? performWithTheme { Palette.windowBackground.withAlphaComponent(1).cgColor } : nil
+        if superview == nil, followsFrameLive { followsFrameLive = false }
     }
 
     /// The panes in front last read for a page in this host (`pageCovers`), with the screen's
@@ -181,10 +183,9 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: two layer background colors (dock fill, zoom backing), no layout or text measure; cheaper than a deferral
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: one layer background color (the dock fill), no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyDockFill()
-        if backsZoom { applyZoomBacking() }
     }
 
     private func applyDockFill() {
@@ -358,17 +359,27 @@ final class PaneHostView: NSView, RestingPlacement {
     /// clip. The strip's clip beside docked columns is otherwise not a mask: the strip container
     /// clips its hosts (`StripClipContainerView`), and panes in front are above this one in the
     /// layer tree.
+    /// `cover` (its own coordinates): the part a zooming or unzooming pane in front of it shows over now
+    /// (`ScreenContentView.zoomCover`), cut out of the clip, so nothing of this pane shows through that
+    /// pane, which has a resting pane's material (no fill of its own; felt 1d, Lawrence 2026-10-29: an opaque
+    /// fill under the zooming pane read as a dark layer wiping in). The cut is a hole in a shape mask whose
+    /// frame is still the clip's rect.
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
-    func setStripClip(_ rect: CGRect?) -> Bool {
+    func setStripClip(_ rect: CGRect?, cover: CGRect? = nil) -> Bool {
         guard let layer else { return false }
+        let outer = rect ?? bounds
+        if let cover = cover?.intersection(outer), !cover.isNull, cover.width > 0.5, cover.height > 0.5 {
+            return setCoverMask(outer: outer, cover: cover, on: layer)
+        }
         guard let rect else {
             guard layer.mask != nil else { return false }
             layer.mask = nil
             return true
         }
         let mask = (layer.mask as? StripClipMaskLayer) ?? {
+            // A zoom's cover mask (``ZoomCoverMaskLayer``) gives way to the plain clip once the zoom no longer covers it.
             let mask = StripClipMaskLayer()
             mask.name = CALayer.cmuxStripClipName
             layer.mask = mask
@@ -379,6 +390,30 @@ final class PaneHostView: NSView, RestingPlacement {
         CATransaction.setDisableActions(true)
         mask.place(rect)
         CATransaction.commit()
+        return true
+    }
+
+    /// The clip `outer` less `cover` (both this host's coordinates, `cover` inside `outer`): a shape mask whose
+    /// bounds are `outer`, so its frame is the clip's rect as for ``StripClipMaskLayer`` (``stripShownRect``,
+    /// `CEFClipShape` read that frame), with the hole subtracted from its path. The bounds and path are in this
+    /// view's coordinates, as `PaneOverlayView`'s exclusion mask places them. One path per frame of a zoom, on
+    /// the panes under the zooming one only.
+    private func setCoverMask(outer: CGRect, cover: CGRect, on layer: CALayer) -> Bool {
+        let mask = (layer.mask as? ZoomCoverMaskLayer) ?? {
+            let mask = ZoomCoverMaskLayer()
+            mask.name = CALayer.cmuxStripClipName
+            mask.fillRule = .nonZero
+            return mask
+        }()
+        guard mask.bounds != outer || mask.cover != cover || layer.mask !== mask else { return false }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.bounds = outer
+        mask.position = CGPoint(x: outer.midX, y: outer.midY)
+        mask.cover = cover
+        mask.path = CGPath(rect: outer, transform: nil).subtracting(CGPath(rect: cover, transform: nil))
+        CATransaction.commit()
+        if layer.mask !== mask { layer.mask = mask }
         return true
     }
 
@@ -415,4 +450,19 @@ extension PaneHostView: PageCoverSource {
         pageCoverMemo = (ObjectIdentifier(screen), screen.coverVersion, covers)
         return covers
     }
+}
+
+/// A pane's clip with the part a zooming pane in front covers cut out (``PaneHostView/setStripClip(_:cover:)``).
+nonisolated final class ZoomCoverMaskLayer: CAShapeLayer {
+    /// The hole, in the masked host's coordinates.
+    var cover: CGRect = .null
+
+    override init() { super.init() }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        if let other = layer as? ZoomCoverMaskLayer { cover = other.cover }
+    }
+
+    required init?(coder: NSCoder) { super.init(coder: coder) }
 }

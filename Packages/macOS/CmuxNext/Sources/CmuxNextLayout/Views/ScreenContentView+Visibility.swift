@@ -70,6 +70,12 @@ extension ScreenContentView {
             let overlap = sweep.intersection(geometry.scrolls(pane: pane) ? uncovered : bounds)
             if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5 { result.insert(pane) }
         }
+        // The panes a zoom covers stay on screen under the zooming pane until it lands (`PaneZoomMotion.covered`),
+        // as an animating window occludes nothing in Chromium (`WindowIsAnimated`): their content stays shown, so
+        // the zooming pane covers it as it grows instead of the content vanishing at the press (felt 1d).
+        if zoomMotion.pane != nil {
+            for pane in covered where context.hosts[pane].map({ holds($0) }) == true { result.insert(pane) }
+        }
         return result
     }
 

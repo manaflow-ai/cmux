@@ -105,7 +105,8 @@ extension DaemonStore {
             return workspace(key: key).map { [$0.handle] }
         case .renamePane(let pane, _):
             return workspace(containing: pane).map { [$0.handle] }
-        case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _):
+        case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _),
+             .setZoomedPane(let screen, _):
             return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] }
         case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab, .bindAgentSession, .splitPane,
              .createWorkspace, .closeTabs:

@@ -116,7 +116,7 @@ extension ZoomRenderMotionTests {
             #expect(shown.isNull || range.insetBy(dx: -0.5, dy: -0.5).contains(shown), "the covered strip pane shows \(shown) past \(range)")
             #expect(await grid.landed(), "the zoom did not land in 5 s")
             #expect(!container.isLifted && screen.covered.isEmpty && chat.superview == nil && p2.superview == nil)
-            #expect(p1.superview === container && !p1.backsZoom)
+            #expect(p1.superview === container && p1.layer?.backgroundColor == nil)
 
             grid.motion = []
             grid.unzoom()
@@ -131,7 +131,7 @@ extension ZoomRenderMotionTests {
             #expect(!container.isLifted && abs(container.frame.minX - screen.geometry.clipMinX) < 0.5,
                     "the strip container is not the strip's range: \(container.frame)")
             #expect((landed.firstIndex(of: container) ?? .max) < (landed.firstIndex(of: dock) ?? -1), "the dock is not above the strip again")
-            #expect(p1.layer?.mask == nil && !p1.backsZoom)
+            #expect(p1.layer?.mask == nil && p1.layer?.backgroundColor == nil)
         }
     }
 
@@ -154,7 +154,7 @@ extension ZoomRenderMotionTests {
             #expect((order.firstIndex(of: container) ?? .max) < (order.firstIndex(of: chat) ?? -1), "the strip is above the zooming dock")
             #expect(await grid.landed(), "the zoom did not land in 5 s")
             #expect(screen.covered.isEmpty && p1.superview == nil && p2.superview == nil, "the strip's panes were not let go")
-            #expect(chat.superview === screen && !chat.backsZoom && screen.zoomMotion.pane == nil)
+            #expect(chat.superview === screen && chat.layer?.backgroundColor == nil && screen.zoomMotion.pane == nil)
         }
     }
 }

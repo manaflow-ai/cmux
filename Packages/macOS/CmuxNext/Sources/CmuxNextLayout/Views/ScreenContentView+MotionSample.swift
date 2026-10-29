@@ -22,7 +22,8 @@ extension ScreenContentView {
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)
     /// that shows (1: all of it; 0 without a header), then the content view in the window
-    /// `[cx, cy, cwidth, cheight]`.
+    /// `[cx, cy, cwidth, cheight]`. `backing` lists each pane host's own fill as `[pane, alpha]` (0: none, as a
+    /// pane at rest; the zoom's opaque fill on builds before felt 1d).
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
         // visibility-walk-allow: the DEBUG debug.motion sampler reports the geometry AppKit shows, its own view state
@@ -32,7 +33,7 @@ extension ScreenContentView {
             let shown = view.convert(rect, to: nil)
             return [shown.minX, height - shown.maxY, shown.width, shown.height].map { (Double($0) * 100).rounded() / 100 }
         }
-        var panes: [Any] = [], dividers: [Any] = []
+        var panes: [Any] = [], dividers: [Any] = [], backing: [Any] = []
         for (index, subview) in screen.stackedSubviews.enumerated() {
             // Where it shows: a pan on the strip container, or a row's or area's, moves it by the translation shown now.
             let moved = screen.shownPanTranslation(of: subview)
@@ -52,13 +53,14 @@ extension ScreenContentView {
                 let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
                     + laidOut.map { $0 as Any }
                 panes.append(row)
+                backing.append([host.pane.rawValue as Any, Double(host.layer?.backgroundColor?.alpha ?? 0) as Any])
             } else if let divider = subview as? DividerHandleView, !divider.isHidden {
                 let row: [Any] = [divider.kind.mouseAreaID as Any] + topLeft(divider.frame.offsetBy(dx: dx, dy: dy), in: screen).map { $0 as Any }
                     + [Double(divider.alphaValue) as Any, index as Any]
                 dividers.append(row)
             }
         }
-        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""]]
+        return ["panes": panes, "dividers": dividers, "zoom": [screen.zoomMotion.pane?.rawValue ?? ""], "backing": backing]
     }
 }
 #endif

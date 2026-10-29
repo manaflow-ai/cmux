@@ -190,7 +190,9 @@ extension ScreenContentView {
     /// Lays every pane out at the rect its spring presents this frame (live, as a window resize
     /// is: the host, its tab strip and its terminal or page take that size now). The strip container
     /// clips the strip beside the docks; a host has a clip of its own only in a scroll area or while a
-    /// zoom lifts the container over it, and the zooming pane is opaque (`PaneHostView.backsZoom`).
+    /// zoom lifts the container over it. The zooming pane has a resting pane's material (no fill): every other
+    /// pane is cut where it shows over them (``zoomCover``), and the zooming pane's content lays out at its frame
+    /// on every frame (`PaneHostView.followsFrameLive`), felt 1d.
     ///
     /// Work per frame is O(what changed): a host whose placed frame, alpha and clip are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
@@ -240,6 +242,9 @@ extension ScreenContentView {
             // A new rest size (a split's new pane has none before its first one) on a running spring.
             let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
+            // The pane a zoom moves lays its content out live (`PaneHostView.followsFrameLive`), before its spring starts.
+            let live = pane == zoomMotion.pane
+            if host.followsFrameLive != live { host.followsFrameLive = live }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect || host.isOnRenderSpring
             if springing { host.isOnLayoutSpring = true }
@@ -288,17 +293,7 @@ extension ScreenContentView {
         }
         // The rows' and scroll areas' containers: their range, an area's clip, and the translation a pan shows.
         if placeScrollerContainers(strip: strip) { changed = true }
-        let fronts = liftedFronts
-        for host in placedHosts {
-            if clipToStrip(host, fronts: fronts, force: force) { changed = true }
-            // Nothing under the zooming pane shows through its padding, corners or see-through header.
-            let backs = host.pane == zoomMotion.pane
-            if host.backsZoom != backs { host.backsZoom = backs }
-        }
-        for host in coveredHosts {
-            if clipToStrip(host, fronts: fronts, force: force) { changed = true }
-            if host.backsZoom { host.backsZoom = false }
-        }
+        if applyZoomCovers(placedHosts + coveredHosts, force: force) { changed = true }
         if changed { coverVersion &+= 1 }
         // A page in its own window under a zooming pane leaves out what that pane covers
         // (`ChildWindowPageFallback`): it re-reads its clip when the panes over it moved.
@@ -349,6 +344,32 @@ extension ScreenContentView {
         paneFrames.keys.compactMap { pane in
             context.hosts[pane].flatMap { holds($0) ? $0 : nil }
         } + coveredHosts
+    }
+
+    /// Where the pane a zoom or an unzoom moves shows now (this view's coordinates, ``coverFrame(_:)``: on the render
+    /// server, all it springs across), while it moves; nil otherwise. The panes under it are cut there
+    /// (`PaneHostView.setStripClip(_:cover:)`), as Chrome's compositor draws nothing under an opaque layer and cmux's
+    /// panes have no fill of their own: the zooming pane keeps a resting pane's material (felt 1d, Lawrence
+    /// 2026-10-29), and the window's art shows through it as it does through every pane.
+    var zoomCover: CGRect? {
+        guard let pane = zoomMotion.pane, let host = context.hosts[pane], holds(host) else { return nil }
+        let shown = coverFrame(host)
+        return shown.isNull || shown.isEmpty ? nil : shown
+    }
+
+    /// Each host's own clip (``clipToStrip(_:fronts:cover:force:)``) with what a zooming pane shows over it cut out
+    /// (``zoomCover``): nothing under the zooming pane shows through it (its padding, corners, header and
+    /// translucent content), so it keeps a resting pane's material. A page in its own window (a child window, over
+    /// every view of the window) stays shown and is cut the same way: a clip change asks the window's pages to read
+    /// their clip again in this turn (`context.stripClipsDidChange`), and its cutouts are the zooming pane's frame now
+    /// (`PaneHostView.pageCovers`, ``panes(inFrontOf:)``), so it shows what is uncovered of it in every frame, never a
+    /// blank tab (felt 1d: "all the tabs are perfectly visible"). Returns whether a clip changed.
+    @discardableResult
+    func applyZoomCovers(_ hosts: [PaneHostView], force: Bool) -> Bool {
+        let fronts = liftedFronts, cover = zoomCover
+        var changed = false
+        for host in hosts where clipToStrip(host, fronts: fronts, cover: cover, force: force) { changed = true }
+        return changed
     }
 
     var coveredHosts: [PaneHostView] {

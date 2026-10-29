@@ -238,10 +238,21 @@ enum PaneHandlers {
             guard !splits.isEmpty else { return ctx.refuseQuietly(RefusalStrings.screenHasNoSplits) }
             for split in splits { content.layoutModel.equalizeSplit(split) }
         })
-        registry.bind("toggleSplitZoom", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+        // The zoom shows in the press's turn (a store intent; felt 1d, Lawrence 2026-10-29). Each press asks for the
+        // state it shows, `on` or `off`, never `toggle`: presses faster than the daemon's replies end in the last
+        // press's state, and no reply moves the layout after the key (a toggle sent per press flipped the screen
+        // once per queued reply after the key went up). A refusal puts the screen back.
+        registry.bindEffect("toggleSplitZoom", effect: { invocation in
+            guard let pane = ctx.daemonPane(invocation), let screen = ctx.daemon.store.screen(containing: pane.handle),
+                  ctx.connection() != nil else { return .done }
             let handle = pane.handle
-            ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
+            let zoomed = screen.zoomedPane == handle ? nil : Optional(handle)
+            let effect = ctx.daemon.intentEffect("zoom-pane", .setZoomedPane(screen: screen.handle, pane: zoomed)) {
+                _ = try await $0.zoomPane(handle, mode: zoomed == nil ? .off : .on)
+            }
+            // The layout follows in this turn, not at the store observation's next pass.
+            ctx.content(invocation)?.applyLayoutIfChanged()
+            return effect
         })
     }
 }

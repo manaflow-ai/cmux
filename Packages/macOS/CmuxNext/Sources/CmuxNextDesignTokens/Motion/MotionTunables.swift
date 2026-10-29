@@ -15,8 +15,10 @@ public nonisolated enum MotionTunables {
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
-        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        // 0.30 ended visibly at 354 ms; 0.2 ended at 235 ms (Leo 2026-10-20) and landed (0.25 pt) about 330 ms
+        // after the key on v2.2.7-opt (felt 1d). Lawrence 2026-10-29: the zoom is one transition of at most about
+        // 150 ms: 0.09 is within half a point of a 1500 pt travel at 142 ms and lands at about 153 ms.
+        .zoom: (SpringParameters(response: 0.09, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
         // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
         .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
