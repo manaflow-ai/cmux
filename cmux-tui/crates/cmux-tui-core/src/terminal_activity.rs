@@ -1207,7 +1207,12 @@ mod tests {
         activity.observe(ShellMark::PromptStart, 1_300);
         check_at_b(&mut activity, 1_301);
         assert_eq!(activity.idle_since(), None, "C/D shell: `make deploy` waits");
+    }
 
+    /// The A/B-only half of `shell_idle_a_command_accepted_by_ctrl_o_answers_no_typed_ahead_line`,
+    /// its own test so that each half fails on its own assert.
+    #[test]
+    fn shell_idle_a_line_accepted_by_ctrl_o_in_an_a_b_only_shell_is_owed() {
         let mut activity = idle_at(1_000);
         activity.note_input(b"sleep 5\x0f");
         activity.note_input(b"make deploy\r");
