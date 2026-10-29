@@ -32,6 +32,7 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
+pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
 pub mod forum;
@@ -392,6 +393,11 @@ pub struct Hub {
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
+    /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
+    pub(crate) ws_shutdown: crate::server::WsShutdown,
+    /// Set only by an explicit daemon restart/update handoff. Ordinary stops
+    /// close clients normally so they do not immediately reconnect to a dead daemon.
+    pub(crate) restart_requested: std::sync::atomic::AtomicBool,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -635,6 +641,8 @@ impl Hub {
             list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
+            ws_shutdown: Default::default(),
+            restart_requested: std::sync::atomic::AtomicBool::new(false),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1040,6 +1048,7 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             compacting: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -1172,7 +1181,23 @@ impl Hub {
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
-        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // Record a harmless mux receipt instead of ambiguous completion metadata.
+        // Hosted delivery must persist host_seq before acknowledging the entry; a
+        // silent drop would lose its durable cursor and allow replay after reconnect.
+        let fenced = dir == "in"
+            && msg.pointer("/params/update").is_some_and(|u| session.fences_compaction_update(u));
+        let record = if fenced {
+            EventRecord {
+                seq,
+                at,
+                dir: "mux".into(),
+                kind: "compaction_metadata_fenced".into(),
+                msg: json!({"sourceKind": kind}),
+                host_seq,
+            }
+        } else {
+            EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq }
+        };
         // The agent message runaway guard reads progress from here, not the store.
         if agent_pairs::progress_record(&record) {
             session.last_progress.store(seq, Ordering::SeqCst);

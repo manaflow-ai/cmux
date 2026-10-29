@@ -2,15 +2,18 @@
 import CmuxMobileModel
 import SwiftUI
 
-/// The pages pushed over a workspace (swipe back returns): its Screens, its Panes and a tab
-/// group's actions (`WorkspaceRoute`), and Fork Conversation…'s question of where the copy of
-/// the chat opens (the Mac's fork destinations). Kept apart from `WorkspaceScreen.body`, whose
-/// modifier chain is long enough for the type checker already.
+/// The pages pushed over a workspace (swipe back returns): Search Agent Chats (the Mac's chats),
+/// its Screens, its Panes and a tab group's actions (`WorkspaceRoute`), and Fork Conversation…'s
+/// question of where the copy of the chat opens (the Mac's fork destinations). Kept apart from
+/// `WorkspaceScreen.body`, whose modifier chain is long enough for the type checker already.
 struct WorkspacePages: ViewModifier {
     let source: WorkspaceTabsSource
 
     func body(content: Content) -> some View {
         content
+            .navigationDestination(isPresented: Binding(get: { source.showsAgentChats }, set: { source.showsAgentChats = $0 })) {
+                AgentChatsScreen(source: source)
+            }
             .navigationDestination(item: Binding(get: { source.route }, set: { source.route = $0 })) { route in
                 page(route)
             }

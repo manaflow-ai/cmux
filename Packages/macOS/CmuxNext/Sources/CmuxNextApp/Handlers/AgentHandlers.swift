@@ -6,6 +6,7 @@ import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHistory
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextOnboarding
@@ -313,14 +314,10 @@ enum AgentHandlers {
         forkActions.first { $0.0 == id }?.1
     }
 
-    /// The shell line that forks a terminal agent's `session` by its own CLI (Claude Code, Codex),
-    /// or nil for other agents and session ids that are not plain tokens.
-    static func forkCommand(agent: String?, session: String?) -> String? {
-        guard let agent = agent?.lowercased(), let session, !session.isEmpty,
-              session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
-        if agent.contains("claude") { return "claude --resume \(session) --fork-session" }
-        if agent.contains("codex") { return "codex fork \(session)" }
-        return nil
+    /// How the terminal agent `status` forks: by the harness's own session id (a hook's
+    /// `agent_session_id`; its `session` is only a label).
+    static func terminalFork(_ status: AgentStatus?) -> TerminalAgentFork {
+        .route(agent: status?.agent, session: status?.harnessSessionID)
     }
 
     private static func fork(_ destination: AgentForkDestination, invocation: ActionInvocation, context: AppActionContext) throws {
@@ -335,15 +332,24 @@ enum AgentHandlers {
             return
         }
         guard tab.kind == .pty else { throw ActionFailure(message: MiscHandlerStrings.noForkTarget) }
-        guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: MiscHandlerStrings.noAgentSession) }
-        guard let command = forkCommand(agent: status.agent, session: status.session) else {
-            throw ActionFailure(message: MiscHandlerStrings.forkTerminalAgents)
+        // The terminal's agent forks by its own CLI, or through acpmux when its CLI has none (Muse).
+        let route = terminalFork(tab.agent)
+        let environment: AcpmuxEnvironment?
+        switch route {
+        case .noSession: throw ActionFailure(message: MiscHandlerStrings.noAgentSession)
+        case .unsupported: throw ActionFailure(message: MiscHandlerStrings.forkTerminalAgents)
+        case .command: environment = nil
+        case .acp:
+            guard let own = QuitAgents.environment(context.services) else { throw ActionFailure(message: MiscHandlerStrings.forkTerminalAgents) }
+            environment = own
         }
         let connection = try context.requireConnection()
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
-        let line = command + "\n"
+        let cwd = tab.cwd
         let logger = context.daemon.logger
+        let refusals = context.services.refusalHUD
+        let windows = context.services.windows
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
@@ -353,6 +359,17 @@ enum AgentHandlers {
         }
         Task {
             do {
+                // The shell line first: an acpmux fork that fails opens no empty terminal.
+                let line: String
+                switch route {
+                case let .command(command): line = command + "\n"
+                case let .acp(harness, session):
+                    guard let environment else { return }
+                    let forked = try await environment.forkChat(harness: harness, agentSessionId: session, cwd: cwd)
+                    guard let resume = TerminalAgentFork.resumeLine(harness: harness, session: forked) else { return }
+                    line = resume + "\n"
+                case .noSession, .unsupported: return
+                }
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
                 switch destination {
@@ -381,6 +398,8 @@ enum AgentHandlers {
                 }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
+                // The person asked for a fork: say why there is none (acpmux's reason).
+                refusals.show(error.localizedDescription, in: windows.active?.window)
             }
         }
     }
