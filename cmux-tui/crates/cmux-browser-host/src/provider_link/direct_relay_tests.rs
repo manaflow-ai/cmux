@@ -355,8 +355,12 @@ fn a_reopened_relay_continues_the_raw_ids() {
 #[test]
 fn the_relay_credential_opens_a_relay_link_and_nothing_else() {
     let secret = ProviderSecret::new("s3cret");
-    let credential = secret.relay_credential();
-    assert_eq!(credential, ProviderSecret::new("s3cret").relay_credential(), "deterministic");
+    let credential = secret.relay_credential().expect("the relay credential");
+    assert_eq!(
+        credential,
+        ProviderSecret::new("s3cret").relay_credential().expect("the relay credential"),
+        "deterministic"
+    );
     assert!(!credential.matches(&secret));
     assert_eq!(format!("{credential:?}"), "ProviderSecret(<redacted>)");
     let open = |frame: Frame| {
@@ -390,7 +394,8 @@ fn the_relay_credential_matches_the_apps_derivation() {
     // HMAC-SHA256(key "test-secret", "cmux-chromium-host-relay-v1"); the
     // app's ProviderSecretRelayTests checks the same value.
     let expected = ProviderSecret::new(RELAY_TEST_VECTOR);
-    assert!(ProviderSecret::new("test-secret").relay_credential().matches(&expected));
+    let credential = ProviderSecret::new("test-secret").relay_credential();
+    assert!(credential.expect("the relay credential").matches(&expected));
 }
 
 /// The relay credential of the secret `test-secret`.
