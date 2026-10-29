@@ -323,6 +323,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
+    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {

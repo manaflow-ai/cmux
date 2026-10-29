@@ -23,7 +23,10 @@ use std::time::Duration;
 const HOST_GRACE: Duration = Duration::from_secs(3);
 
 pub(crate) async fn run(end_agents: bool, keep_agents: bool, json_out: bool) -> Result<()> {
-    run_on(&*TokioClock::new(), end_agents, json_out, false, keep_agents).await
+    // `--keep-agents` is a compatibility no-op; only the explicit restart
+    // command requests service-restart signaling.
+    let _ = keep_agents;
+    run_on(&*TokioClock::new(), end_agents, json_out, false, false).await
 }
 
 /// Stop and start the daemon while keeping hosted agents for handoff.

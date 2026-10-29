@@ -135,6 +135,26 @@ async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_cod
     }
 }
 
+#[tokio::test]
+async fn ordinary_shutdown_uses_a_normal_close_code() {
+    let (ours, theirs) = tokio::io::duplex(4096);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (_out, outbound) = mpsc::channel(1);
+    let (_stop, stopped) = oneshot::channel();
+    let shutdown = WsShutdown::default();
+    shutdown.normal_shutdown();
+    let task = tokio::spawn(write(sink, outbound, stopped, shutdown));
+    let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(frame, Frame::Close(None)), "ordinary shutdown sent {frame:?}");
+    task.await.unwrap();
+}
+
 #[tokio::test(start_paused = true)]
 async fn shared_restart_waits_for_each_listener_and_keeps_client_signals_local() {
     let shared = WsShutdown::default();

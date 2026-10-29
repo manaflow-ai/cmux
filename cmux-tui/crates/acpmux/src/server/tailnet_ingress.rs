@@ -317,6 +317,7 @@ async fn device_connection<S>(
         };
         let restarting = tokio::select! {
             biased;
+            () = restart.normal() => false,
             () = restart.closing() => true,
             _ = stopped(&mut stop) => false,
             _ = revoked => false,

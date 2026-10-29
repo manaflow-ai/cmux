@@ -128,6 +128,7 @@ pub(super) async fn write<S>(
 {
     let restarting = tokio::select! {
         biased;
+        () = shutdown.normal() => false,
         () = shutdown.closing() => true,
         () = async {
             loop {
