@@ -39,8 +39,9 @@ final class VaultHostView: NSView, VisibilityGatedContent {
             },
             select: { [weak vault] id in vault?.selection = id })
         let appearance = appearanceState
-        let gate = VisibilityGatedHostingView(owner: "VaultHostView", hosting: NSHostingView(
-            rootView: VaultListView(vault: vault, appearance: appearance, actions: actions, readsOnAppear: readsOnAppear)))
+        let gate = VisibilityGatedHostingView(owner: "VaultHostView") {
+            VaultListView(vault: vault, appearance: appearance, actions: actions, readsOnAppear: readsOnAppear)
+        }
         gate.translatesAutoresizingMaskIntoConstraints = false
         addSubview(gate)
         NSLayoutConstraint.activate([

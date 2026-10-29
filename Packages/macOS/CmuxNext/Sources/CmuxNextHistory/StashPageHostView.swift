@@ -30,7 +30,7 @@ public final class StashPageHostView: NSView, VisibilityGatedContent {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         let view = StashPageView(model: model, draft: draft, appearance: appearanceState) { [weak self] in self?.window }
-        let gate = VisibilityGatedHostingView(owner: "StashPageHostView", hosting: NSHostingView(rootView: view))
+        let gate = VisibilityGatedHostingView(owner: "StashPageHostView") { view }
         gate.translatesAutoresizingMaskIntoConstraints = false
         addSubview(gate)
         NSLayoutConstraint.activate([

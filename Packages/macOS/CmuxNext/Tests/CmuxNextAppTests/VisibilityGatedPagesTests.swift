@@ -91,6 +91,42 @@ import Testing
         #expect(gate.isGated && gate.hosting.superview == nil, "the page stays out of the window after the picture")
     }
 
+    // MARK: Body counts
+
+    /// A content-init page (the counting root of HostingBodyCounter+SwiftUI.swift) counts its bodies: one or more
+    /// while shown, none while hidden though its model changes, and the ledger sees the same.
+    @Test func aGatedPageCountsItsBodiesAndNoneWhileHidden() throws {
+        let model = BookmarkManagerModel(source: nil)
+        let host = BookmarkManagerHostView(model: model)
+        let gate = try #require(host.visibilityGate)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 360), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        let app = VisibilityNode(root: "window", own: .visible)
+        let tab = VisibilityNode("tab", own: .visible, parent: app)
+        let ledger = ObservationLedger()
+        gate.follow(tab, observations: ledger)
+        func pass() {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+        pass()
+        let shown = gate.bodyEvaluations.total
+        #expect(shown >= 1, "the page's root counted its bodies once shown: \(gate.bodyEvaluations)")
+
+        tab.set(.hidden)
+        #expect(gate.isGated)
+        for index in 0..<20 {
+            model.query = "q\(index)"
+            pass()
+        }
+        #expect(gate.bodyEvaluations.hidden == 0, "no body while hidden: \(gate.bodyEvaluations)")
+        let entry = try #require(ledger.snapshot(matching: "Hosting.BookmarkManagerHostView").first)
+        #expect(entry.bodyEvaluations >= 1 && entry.hiddenBodyEvaluations == 0, "debug.observations: \(entry)")
+    }
+
     /// Points on a 24 x 24 grid over `image` that are not fully clear.
     private static func inkedPoints(in image: CGImage) -> Int {
         let rep = NSBitmapImageRep(cgImage: image)
