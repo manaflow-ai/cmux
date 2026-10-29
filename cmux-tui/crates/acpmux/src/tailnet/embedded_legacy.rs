@@ -121,10 +121,11 @@ impl Controller {
         }
         let this = Arc::clone(&self);
         let watch_node = node.clone();
-        if let Err(error) = std::thread::Builder::new()
-            .name("acpmux-tailnet-watch".into())
-            .spawn(move || this.watch(watch_node, generation))
-        {
+        if let Err(error) = cmux_threads::spawn(
+            "acpmux-tailnet-watch",
+            cmux_threads::ThreadQos::Utility,
+            move || this.watch(watch_node, generation),
+        ) {
             release_node(node);
             self.clear_node("error");
             self.update(|snapshot| snapshot.error = Some(error.to_string()));

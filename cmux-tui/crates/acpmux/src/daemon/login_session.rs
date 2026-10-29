@@ -54,7 +54,7 @@ pub(crate) fn launchctl(args: &[&str], budget: std::time::Duration) -> Result<(b
         .context("launchctl")?;
     // Drained while it runs: a `print` larger than the pipe never blocks it into the budget.
     let drain = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
+        cmux_threads::spawn("acpmux-launchctl-drain", cmux_threads::ThreadQos::Utility, move || {
             let mut out = String::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_string(&mut out);
@@ -64,20 +64,18 @@ pub(crate) fn launchctl(args: &[&str], budget: std::time::Duration) -> Result<(b
     };
     let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
     let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let deadline = std::time::Instant::now() + budget;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(anyhow!("launchctl {} did not answer within {budget:?}", args.join(" ")));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+    // wakeup-allow: deadline the one budget of a launchctl call; its exit ends the wait first
+    let Some(status) = wait_timeout::ChildExt::wait_timeout(&mut child, budget)? else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(anyhow!("launchctl {} did not answer within {budget:?}", args.join(" ")));
     };
-    let mut out = stdout.join().unwrap_or_default();
-    let err = stderr.join().unwrap_or_default();
+    // A drain that did not start leaves its pipe unread: that output is empty here.
+    let joined = |drain: std::io::Result<std::thread::JoinHandle<String>>| {
+        drain.ok().and_then(|handle| handle.join().ok()).unwrap_or_default()
+    };
+    let mut out = joined(stdout);
+    let err = joined(stderr);
     if !status.success() {
         out.push_str(&err);
     }

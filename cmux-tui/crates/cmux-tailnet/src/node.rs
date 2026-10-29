@@ -5,8 +5,10 @@ use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::raw::c_char;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+
+use cmux_threads::sync::Mutex;
 
 use crate::localapi::LocalApi;
 use crate::{Error, Result, Status, Watch, WhoIs, ffi};

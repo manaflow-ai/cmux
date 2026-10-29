@@ -27,7 +27,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::process::{Child, Command};
@@ -52,10 +52,12 @@ impl SupervisorHandle {
         let stop = unsafe { OwnedFd::from_raw_fd(raw) };
         let thread_stop =
             stop.try_clone().map_err(|e| format!("clone supervisor stop eventfd: {e}"))?;
-        let join = thread::Builder::new()
-            .name("acpmux-sandbox-supervisor".into())
-            .spawn(move || supervisor::run(notify, policy, thread_stop))
-            .map_err(|e| format!("start sandbox supervisor: {e}"))?;
+        let join = cmux_threads::spawn(
+            "acpmux-sandbox-supervisor",
+            cmux_threads::ThreadQos::Utility,
+            move || supervisor::run(notify, policy, thread_stop),
+        )
+        .map_err(|e| format!("start sandbox supervisor: {e}"))?;
         Ok(Self { stop, join: Some(join) })
     }
 

@@ -204,11 +204,26 @@ fn call(
     let (answer, answered) = mpsc::channel();
     let (thread_global, thread_method, thread_connected) =
         (global.clone(), method.to_owned(), Arc::clone(&connected));
-    std::thread::spawn(move || {
-        let result =
-            call_on_connection(&thread_global, &thread_method, params, timeout, &thread_connected);
-        let _ = answer.send(result);
-    });
+    let started = cmux_threads::spawn(
+        "sandbox-run-call",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let result = call_on_connection(
+                &thread_global,
+                &thread_method,
+                params,
+                timeout,
+                &thread_connected,
+            );
+            let _ = answer.send(result);
+        },
+    );
+    if let Err(error) = started {
+        return Err(CallError {
+            error: json!({ "code": "app.transport", "message": error.to_string(), "details": {}, "retryable": true }),
+            exit_code: 1,
+        });
+    }
     answered.recv_timeout(bound).unwrap_or_else(|_| {
         if let Some(stream) = connected.lock().ok().and_then(|mut slot| slot.take()) {
             let _ = stream.shutdown(Shutdown::Both);
@@ -575,7 +590,9 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
             // deadline, where the loop cancels the run. Only a definite refusal ends it here.
             // An outage answers at once: pause before asking again (backing off, inside the deadline).
             Err(failed) if is_wait_transient(&failed.error) => {
-                std::thread::sleep(pause.min(deadline.saturating_duration_since(Instant::now())));
+                cmux_threads::checked::sync::sleep(
+                    pause.min(deadline.saturating_duration_since(Instant::now())),
+                );
                 pause = (pause * 2).min(RETRY_PAUSE_MAX);
                 continue;
             }

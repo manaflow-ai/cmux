@@ -39,6 +39,7 @@ async fn agent_host_panic_log_gets_one_line_and_the_host_keeps_its_harness() {
         args: vec![FAKE.into()],
         env: daemon_env::vars(&dir, daemon_env::Agents::StandIn, &[]),
         cwd: dir.clone(),
+        cwd_pin: None,
         translator: None,
         codex_bridge: false,
         socket: agent_host::socket_path(&hosts, session),

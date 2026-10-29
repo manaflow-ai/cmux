@@ -4,18 +4,20 @@ use std::net::TcpListener;
 fn local_api(reply: &'static str) -> (crate::localapi::LocalApi, std::thread::JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
-    let worker = std::thread::spawn(move || {
-        let (mut socket, _) = listener.accept().unwrap();
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
-        let mut bytes = Vec::new();
-        let mut byte = [0];
-        while !bytes.ends_with(b"\r\n\r\n") {
-            socket.read_exact(&mut byte).unwrap();
-            bytes.push(byte[0]);
-        }
-        socket.write_all(reply.as_bytes()).unwrap();
-        String::from_utf8(bytes).unwrap()
-    });
+    let worker =
+        cmux_threads::spawn("tailnet-test-localapi", cmux_threads::ThreadQos::Utility, move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut bytes = Vec::new();
+            let mut byte = [0];
+            while !bytes.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).unwrap();
+                bytes.push(byte[0]);
+            }
+            socket.write_all(reply.as_bytes()).unwrap();
+            String::from_utf8(bytes).unwrap()
+        })
+        .unwrap();
     (crate::localapi::LocalApi::new(&address.to_string(), "private-password").unwrap(), worker)
 }
 

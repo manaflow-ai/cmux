@@ -20,9 +20,10 @@ use std::time::Duration;
 
 use super::*;
 
-/// How often a stop that found another handoff running (a client's
-/// `shutdown-daemon`, a version handoff) tries again, until that handoff
-/// stops the owner or is cancelled.
+/// The longest a stop that found another handoff running (a client's
+/// `shutdown-daemon`, a version handoff) waits before it tries again; a
+/// cancelled handoff wakes it at once. It ends when that handoff stops the
+/// owner or this stop runs.
 const HANDOFF_RETRY: Duration = Duration::from_millis(250);
 
 /// The process an owner was started for.
@@ -71,7 +72,7 @@ pub(super) static REFUSED_STOPS: std::sync::atomic::AtomicUsize =
 /// startup work begun), so the stop ends every terminal startup made.
 pub fn exit_with_process(mux: &Arc<Mux>, starter: Starter) -> std::io::Result<()> {
     let watched = Arc::downgrade(mux);
-    std::thread::Builder::new().name("owner-exit-with-pid".into()).spawn(move || {
+    cmux_threads::spawn("owner-exit-with-pid", cmux_threads::ThreadQos::Utility, move || {
         let pid = starter.pid;
         let waited =
             crate::state::status_owners::wait_for_process_exit_if(pid, || starter.still_running());
@@ -84,13 +85,19 @@ pub fn exit_with_process(mux: &Arc<Mux>, starter: Starter) -> std::io::Result<()
         eprintln!("cmux-tui: process {pid} this owner was started for exited; stopping");
         loop {
             let Some(mux) = watched.upgrade() else { return };
+            // Read before the stop is tried, so a release between the refusal and the wait
+            // still wakes it.
+            let releases = mux.control_clients.handoff_releases.clone();
+            let seen = releases.seen();
             if mux.daemon_shutdown_requested() || stop_for_exited_starter(&mux) {
                 return;
             }
             drop(mux);
             #[cfg(test)]
             REFUSED_STOPS.fetch_add(1, Ordering::SeqCst);
-            std::thread::sleep(HANDOFF_RETRY);
+            // Woken when that handoff is released; a handoff that stops the owner instead is
+            // read at the next try, at most HANDOFF_RETRY later.
+            releases.wait_after(seen, HANDOFF_RETRY);
         }
     })?;
     Ok(())

@@ -66,7 +66,7 @@ use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// First-attach announcement payload: (transport, name, kind).
 pub(super) type ClientAnnouncement = (String, Option<String>, Option<String>);
@@ -353,7 +353,36 @@ pub(crate) struct ClientRegistry {
     pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
+    /// Told each time a pending daemon handoff is released (cancelled, or its client gone):
+    /// a stop that found one running waits for this (starter_exit.rs).
+    pub(super) handoff_releases: Arc<HandoffReleases>,
     pub(super) state: Mutex<ClientRegistryState>,
+}
+
+/// A count of released daemon handoffs and the condition variable each release notifies: a
+/// waiter holds only this, never the registry's owner, so it keeps no `Mux` alive.
+#[derive(Default)]
+pub(crate) struct HandoffReleases {
+    count: Mutex<u64>,
+    released: Condvar,
+}
+
+impl HandoffReleases {
+    fn note(&self) {
+        *self.count.lock().recover_poison() += 1;
+        self.released.notify_all();
+    }
+
+    /// The releases so far, read before a handoff is tried, for [`Self::wait_after`].
+    pub(crate) fn seen(&self) -> u64 {
+        *self.count.lock().recover_poison()
+    }
+
+    /// Waits until a release after `seen`, or `limit`.
+    pub(crate) fn wait_after(&self, seen: u64, limit: Duration) {
+        let count = self.count.lock().recover_poison();
+        let _ = self.released.wait_timeout_while(count, limit, |count| *count == seen);
+    }
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -426,6 +455,7 @@ impl ClientRegistry {
                 super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
+            handoff_releases: Arc::default(),
             state: Mutex::new(ClientRegistryState::default()),
         }
     }
@@ -1052,6 +1082,7 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
+            self.handoff_releases.note();
         }
     }
 

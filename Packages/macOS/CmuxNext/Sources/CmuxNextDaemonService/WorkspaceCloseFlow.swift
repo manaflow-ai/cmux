@@ -74,7 +74,10 @@ public struct WorkspaceCloseFlow {
             if closes, let ask { closes = await ask() }
             let failure: ActionWorkFailure?
             if closes, await exists() {
-                failure = await send(early ?? hide()).value
+                // The row that stayed for the question leaves now, a main-actor step as the others.
+                let hidden: Bool
+                if let early { hidden = early } else { hidden = await hide() }
+                failure = await send(hidden).value
             } else {
                 // Cancel on a row that never moved: nothing to bring back.
                 if let early { await restore(early) }

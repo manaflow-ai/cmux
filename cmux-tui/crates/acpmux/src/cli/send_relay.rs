@@ -22,6 +22,9 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// The thread that hands the relay its message while the relay is waited for.
+const SEND_RELAY_WRITER: &str = "acpmux-send-relay-writer";
+
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -119,7 +122,17 @@ pub(crate) fn relay(
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("the send relay has no stdin"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
     let body = text.as_bytes().to_owned();
-    let writer = std::thread::spawn(move || stdin.write_all(&body));
+    let writer =
+        match cmux_threads::spawn(SEND_RELAY_WRITER, cmux_threads::ThreadQos::Utility, move || {
+            stdin.write_all(&body)
+        }) {
+            Ok(writer) => writer,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(anyhow!("cannot write to the send relay: {e}"));
+            }
+        };
     let out = child.wait_with_output().context("the send relay")?;
     let written = writer.join().unwrap_or_else(|_| Err(std::io::Error::other("writer panicked")));
     let status = out.status.code().unwrap_or(1);

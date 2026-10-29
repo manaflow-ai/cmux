@@ -574,7 +574,7 @@ impl Hub {
         if !person
             && choice != "deny"
             && (choice != "allow_once"
-                || !self.approver_spends_group(session, &state, &id, revision, &params))
+                || !self.approver_spends_group(session, state, &id, revision, &params))
         {
             return Err(super::person::person_required("allowing a permission group"));
         }

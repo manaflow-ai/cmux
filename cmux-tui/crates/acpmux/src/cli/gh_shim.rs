@@ -192,11 +192,17 @@ fn bounded_output(
     let mut out = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
     let (tx, rx) = std::sync::mpsc::channel();
     // Ends at the child's EOF, at `limit`, or when the kill below closes the pipe.
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let read = (&mut out).take(limit as u64 + 1).read_to_end(&mut bytes);
-        let _ = tx.send(read.map(|_| bytes));
-    });
+    let reader =
+        cmux_threads::spawn(GH_OUTPUT_THREAD, cmux_threads::ThreadQos::Utility, move || {
+            let mut bytes = Vec::new();
+            let read = (&mut out).take(limit as u64 + 1).read_to_end(&mut bytes);
+            let _ = tx.send(read.map(|_| bytes));
+        });
+    if let Err(e) = reader {
+        let _ = child.kill();
+        let _ = child.wait();
+        bail!("its output could not be read: {e}");
+    }
     let read = rx.recv_timeout(timeout);
     let fail = |child: &mut std::process::Child, why: String| -> Result<String> {
         let _ = child.kill();
@@ -210,21 +216,22 @@ fn bounded_output(
         Err(_) => return fail(&mut child, format!("it took over {}s", timeout.as_secs())),
     };
     // Its stdout closed; it may still run (a child that closed it and went on). Its exit is
-    // waited for within the same deadline, a short check at a time, then it is killed.
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            return fail(&mut child, format!("it took over {}s", timeout.as_secs()));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    // waited for within the same deadline, then it is killed.
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    // wakeup-allow: deadline the one bound on a git command's exit; its exit ends the wait first
+    let Some(status) = wait_timeout::ChildExt::wait_timeout(&mut child, left)? else {
+        return fail(&mut child, format!("it took over {}s", timeout.as_secs()));
     };
     if !status.success() {
         bail!("it exited with an error");
     }
     Ok(String::from_utf8_lossy(&bytes).trim().to_owned())
 }
+
+/// The thread that reads a git command's output for [`bounded_output`].
+const GH_OUTPUT_THREAD: &str = "acpmux-gh-output";
+/// The thread that reads a body for [`read_body_within`].
+const GH_BODY_THREAD: &str = "acpmux-gh-body";
 
 /// How long a `--body-file` (or stdin) may take to open and read.
 const BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -234,14 +241,14 @@ const BODY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 fn read_body_within(path: &str, timeout: std::time::Duration) -> Result<String> {
     let path = path.to_owned();
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    cmux_threads::spawn(GH_BODY_THREAD, cmux_threads::ThreadQos::Utility, move || {
         let read = if path == "-" {
             read_bounded(std::io::stdin())
         } else {
             std::fs::File::open(&path).map_err(anyhow::Error::from).and_then(read_bounded)
         };
         let _ = tx.send(read);
-    });
+    })?;
     rx.recv_timeout(timeout).unwrap_or_else(|_| {
         bail!("acpmux gh: the body did not arrive within {}s", timeout.as_secs())
     })

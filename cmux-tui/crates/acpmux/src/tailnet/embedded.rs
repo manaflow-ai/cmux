@@ -540,10 +540,11 @@ impl Controller {
         let this = Arc::clone(self);
         let watch_node = node.clone();
         let runtime = tokio::runtime::Handle::current();
-        if let Err(error) = std::thread::Builder::new()
-            .name("acpmux-tailnet-watch".into())
-            .spawn(move || this.watch(watch_node, generation, runtime))
-        {
+        if let Err(error) = cmux_threads::spawn(
+            "acpmux-tailnet-watch",
+            cmux_threads::ThreadQos::Utility,
+            move || this.watch(watch_node, generation, runtime),
+        ) {
             let _ = self.close_node(node).await;
             self.clear_node("error");
             self.update(|snapshot| snapshot.error = Some(error.to_string()));
@@ -1067,9 +1068,13 @@ fn late_logout_error() -> String {
 /// libtailscale owns a background runtime. Never let its final `Arc<Node>`
 /// drop on a Tokio worker or request task.
 fn release_on_background<T: Send + 'static>(value: T) {
-    let _ = std::thread::Builder::new()
-        .name("acpmux-tailnet-release".into())
-        .spawn(move || drop(value));
+    let _ = cmux_threads::spawn(
+        "acpmux-tailnet-release",
+        cmux_threads::ThreadQos::Utility,
+        move || {
+            drop(value);
+        },
+    );
 }
 
 #[cfg(test)]

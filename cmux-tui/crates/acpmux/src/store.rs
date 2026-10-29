@@ -1426,7 +1426,7 @@ impl Store for LocalStore {
         if let Some(ms) =
             std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
         {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
+            cmux_threads::checked::sync::sleep(std::time::Duration::from_millis(ms.min(1_000)));
         }
         let mut line = Vec::new();
         for (_, path) in self.segments(id)? {

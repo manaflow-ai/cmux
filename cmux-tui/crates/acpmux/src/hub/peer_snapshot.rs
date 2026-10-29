@@ -281,9 +281,11 @@ impl PeerSnapshots {
                 let (tx, rx) = mpsc::channel();
                 let store = Store::new(root.clone(), self.dropped.clone());
                 let (ended, untaken) = (self.ended.clone(), self.untaken.clone());
-                let spawned = std::thread::Builder::new()
-                    .name("acpmux-peer-snapshots".into())
-                    .spawn(move || store.run(&rx, &ended, &untaken));
+                let spawned = cmux_threads::spawn(
+                    "acpmux-peer-snapshots",
+                    cmux_threads::ThreadQos::Utility,
+                    move || store.run(&rx, &ended, &untaken),
+                );
                 match spawned {
                     Ok(handle) => *thread = Some(Thread { tx, handle }),
                     Err(e) => tracing::warn!("peer snapshots: could not start their thread: {e}"),

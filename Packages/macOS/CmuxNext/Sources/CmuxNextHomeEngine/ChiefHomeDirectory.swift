@@ -65,7 +65,7 @@ public actor ChiefHomeDirectory {
         guard let owned = try? await work.run(.userVisible, mayBlock: .files, { home.hostRuns }) else { return nil }
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
-                                        sessionsHome: home.acpmuxHome, parentTag: tag)
+                                        sessionsHome: home.acpmuxHome, parentTag: tag, work: work)
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {

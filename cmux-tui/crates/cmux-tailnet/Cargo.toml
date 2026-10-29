@@ -15,3 +15,4 @@ base64.workspace = true
 rustls.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 libc = "0.2"
+cmux-threads.workspace = true

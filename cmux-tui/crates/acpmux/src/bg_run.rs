@@ -45,6 +45,15 @@ pub const RUN_ARG: &str = "__bg-run";
 pub const SEGMENT: u64 = 4 << 20;
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// The runner's threads (cmux_threads names them in its registry).
+#[cfg(unix)]
+const SIGNAL_THREAD: &str = "bg-run-signals";
+#[cfg(unix)]
+const CONTROL_THREAD: &str = "bg-run-control";
+#[cfg(unix)]
+const OUTPUT_THREAD: &str = "bg-run-output";
+#[cfg(unix)]
+const STOP_THREAD: &str = "bg-run-stop";
 
 /// What the daemon hands the runner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -267,10 +276,11 @@ pub fn request_stop(_dir: &Path, _id: &str, _generation: &str) -> bool {
 /// The runner process: never returns while the task runs.
 #[cfg(unix)]
 pub fn main() -> anyhow::Result<()> {
+    use cmux_threads::sync::{Condvar, Mutex};
     use std::io::{BufRead, Read, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
     let spec: Spec = serde_json::from_str(&line)?;
@@ -301,22 +311,71 @@ pub fn main() -> anyhow::Result<()> {
         stopping: bool,
         record: Record,
     }
+    /// A stop's end of the task's group: SIGTERM, then SIGKILL after [`GRACE`], then one more
+    /// grace for the pipe before the reap stops waiting for it (module docs). Each grace is a wait
+    /// on the task's lock for its reap, so it ends at once when nothing is left to signal.
+    #[derive(Clone)]
+    struct Ending {
+        pid: u32,
+        task: Arc<Mutex<Task>>,
+        give_up: Arc<Mutex<Option<std::sync::mpsc::Sender<()>>>>,
+        killed: Arc<(Mutex<bool>, Condvar)>,
+        reaped: Arc<Condvar>,
+    }
+    impl Ending {
+        fn run(&self) {
+            let sent = || {
+                *self.killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                self.killed.1.notify_all();
+            };
+            for signal in [libc::SIGTERM, libc::SIGKILL] {
+                let held = self.task.lock().unwrap_or_else(|e| e.into_inner());
+                if held.reaped {
+                    break;
+                }
+                // SAFETY: the leader is unreaped (checked under the lock, and the reap waits
+                // for the SIGKILL below), so the group is the task's.
+                unsafe { libc::killpg(self.pid as i32, signal) };
+                if signal == libc::SIGKILL {
+                    drop(held);
+                    sent();
+                    let held = self.task.lock().unwrap_or_else(|e| e.into_inner());
+                    self.grace(held);
+                } else {
+                    self.grace(held);
+                }
+            }
+            // Every way out lets the reap go on, and ends the wait for a pipe a process
+            // outside the group (or one this runner cannot signal) still holds.
+            sent();
+            if let Some(done) = self.give_up.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                let _ = done.send(());
+            }
+        }
+
+        /// Waits [`GRACE`], or less once the leader is reaped.
+        fn grace(&self, held: std::sync::MutexGuard<'_, Task>) {
+            let _ = self.reaped.wait_timeout_while(held, GRACE, |task| !task.reaped);
+        }
+    }
     let task = Arc::new(Mutex::new(Task {
         pid: None,
         reaped: false,
         stopping: false,
         record: Record::default(),
     }));
+    // Told each time `reaped` turns true: a stop's grace ends early once nothing is left to signal.
+    let reaped = Arc::new(Condvar::new());
     // What a stop that SIGKILLed the group sends when the pipe still has not ended.
     // Made before any stop can run, so a stop never finds it missing.
     let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
     let give_up = Arc::new(Mutex::new(Some(done_tx.clone())));
     // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
     // until then.
-    let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let killed = Arc::new((Mutex::new(false), Condvar::new()));
     let stop = {
-        let (task, dir, give_up, killed) =
-            (task.clone(), dir.clone(), give_up.clone(), killed.clone());
+        let (task, dir, give_up, killed, reaped) =
+            (task.clone(), dir.clone(), give_up.clone(), killed.clone(), reaped.clone());
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
@@ -334,38 +393,30 @@ pub fn main() -> anyhow::Result<()> {
             held.record.stopped = true;
             let _ = write_record(&dir, &held.record);
             drop(held);
-            let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
-            std::thread::spawn(move || {
-                let sent = || {
-                    *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                    killed.1.notify_all();
-                };
-                for signal in [libc::SIGTERM, libc::SIGKILL] {
-                    let held = task.lock().unwrap_or_else(|e| e.into_inner());
-                    if held.reaped {
-                        break;
-                    }
-                    // SAFETY: the leader is unreaped (checked under the lock, and the reap waits
-                    // for the SIGKILL below), so the group is the task's.
-                    unsafe { libc::killpg(pid as i32, signal) };
-                    drop(held);
-                    if signal == libc::SIGKILL {
-                        sent();
-                    }
-                    std::thread::sleep(GRACE);
-                }
-                // Every way out lets the reap go on, and ends the wait for a pipe a process
-                // outside the group (or one this runner cannot signal) still holds.
-                sent();
-                if let Some(done) = give_up.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-                    let _ = done.send(());
-                }
-            });
+            let ending = Ending {
+                pid,
+                task: task.clone(),
+                give_up: give_up.clone(),
+                killed: killed.clone(),
+                reaped: reaped.clone(),
+            };
+            let thread = ending.clone();
+            // On a thread of its own, so the signal or control thread that asked keeps reading; a
+            // runner that cannot start one ends the group from the asking thread.
+            if cmux_threads::spawn(STOP_THREAD, cmux_threads::ThreadQos::Utility, move || {
+                thread.run()
+            })
+            .is_err()
+            {
+                ending.run();
+            }
         }
     };
     {
         let stop = stop.clone();
-        std::thread::spawn(move || {
+        // The signals of the set every thread blocks; without this thread a SIGTERM could not
+        // stop the task, so the runner does not start one.
+        cmux_threads::spawn(SIGNAL_THREAD, cmux_threads::ThreadQos::Utility, move || {
             loop {
                 let mut sig = 0;
                 // SAFETY: waits for a signal of the set every thread blocks.
@@ -373,7 +424,7 @@ pub fn main() -> anyhow::Result<()> {
                     stop();
                 }
             }
-        });
+        })?;
     }
     let lock = std::fs::File::create(lock_path(&dir, &id))?;
     // SAFETY: flock on a descriptor this process owns (close-on-exec: the task never holds it).
@@ -449,55 +500,72 @@ pub fn main() -> anyhow::Result<()> {
         stop();
     }
     let own = spec.generation.clone();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 256];
-        let mut line: Vec<u8> = Vec::new();
-        loop {
-            let n = match control.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            };
-            for &b in &buf[..n] {
-                if b != b'\n' {
-                    // Bounded: an overlong line is dropped whole.
-                    if line.len() <= STOP_LINE_MAX {
-                        line.push(b);
-                    }
-                    continue;
-                }
-                // Only a stop for this runner's own folder generation stops it.
-                if !own.is_empty() && line == own.as_bytes() {
-                    stop();
-                }
-                line.clear();
-            }
-        }
-    });
-    {
-        let (task, dir) = (task.clone(), dir.clone());
-        std::thread::spawn(move || {
-            let mut buf = vec![0u8; 64 << 10];
-            let mut failed = false;
+    let control_stop = stop.clone();
+    let control_thread =
+        cmux_threads::spawn(CONTROL_THREAD, cmux_threads::ThreadQos::Utility, move || {
+            let stop = control_stop;
+            let mut buf = [0u8; 256];
+            let mut line: Vec<u8> = Vec::new();
             loop {
-                let n = match reader.read(&mut buf) {
+                let n = match control.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => n,
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(_) => break,
                 };
-                // A spool that fails is said in the record; the pipe is still read, so the
-                // task never blocks on it.
-                if !failed && let Err(e) = spool.write(&buf[..n]) {
-                    failed = true;
-                    let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
-                    held.record.output_error = Some(e.to_string());
-                    let _ = write_record(&dir, &held.record);
+                for &b in &buf[..n] {
+                    if b != b'\n' {
+                        // Bounded: an overlong line is dropped whole.
+                        if line.len() <= STOP_LINE_MAX {
+                            line.push(b);
+                        }
+                        continue;
+                    }
+                    // Only a stop for this runner's own folder generation stops it.
+                    if !own.is_empty() && line == own.as_bytes() {
+                        stop();
+                    }
+                    line.clear();
                 }
             }
-            let _ = done_tx.send(());
         });
+    // No stop line could reach the task: a task that cannot be stopped does not run.
+    if control_thread.is_err() {
+        stop();
+    }
+    {
+        let (task, dir) = (task.clone(), dir.clone());
+        let spool_thread =
+            cmux_threads::spawn(OUTPUT_THREAD, cmux_threads::ThreadQos::Utility, move || {
+                let mut buf = vec![0u8; 64 << 10];
+                let mut failed = false;
+                loop {
+                    let n = match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(_) => break,
+                    };
+                    // A spool that fails is said in the record; the pipe is still read, so the
+                    // task never blocks on it.
+                    if !failed && let Err(e) = spool.write(&buf[..n]) {
+                        failed = true;
+                        let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
+                        held.record.output_error = Some(e.to_string());
+                        let _ = write_record(&dir, &held.record);
+                    }
+                }
+                let _ = done_tx.send(());
+            });
+        // Nothing reads the task's output, so it would block on a full pipe: it is stopped, and
+        // the stop's give-up ends the wait for that pipe.
+        if let Err(e) = spool_thread {
+            let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
+            held.record.output_error = Some(format!("the output reader did not start: {e}"));
+            let _ = write_record(&dir, &held.record);
+            drop(held);
+            stop();
+        }
     }
     let pid = child.id();
     // The leader's exit, learned without reaping it: until the reap its pid keeps the group id
@@ -509,6 +577,7 @@ pub fn main() -> anyhow::Result<()> {
             // The leader cannot be waited for, so its group id is not known to be the task's:
             // nothing signals it from here on.
             task.lock().unwrap_or_else(|e| e.into_inner()).reaped = true;
+            reaped.notify_all();
             break;
         }
     }
@@ -528,6 +597,7 @@ pub fn main() -> anyhow::Result<()> {
             held = task.lock().unwrap_or_else(|e| e.into_inner());
         }
         held.reaped = true;
+        reaped.notify_all();
         let status = child.wait().ok();
         held.record.ended_at = Some(crate::store::now_ms());
         held.record.exit_code = status.and_then(|s| s.code());

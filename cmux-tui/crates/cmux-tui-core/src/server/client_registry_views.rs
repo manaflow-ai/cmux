@@ -622,6 +622,7 @@ impl ClientRegistry {
         self.browser_runtimes.disconnect(client);
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
+            self.handoff_releases.note();
         }
         let mut detached = false;
         for surface in record.attached.keys() {

@@ -128,16 +128,20 @@ fn run_with_config(
     tcp.set_write_timeout(Some(Duration::from_secs(5)))?;
     let output = Arc::new(Mutex::new(tcp.try_clone()?));
     let replies = output.clone();
-    let down = std::thread::spawn(move || {
-        // Serialize whole daemon lines with refusals, so responses never interleave.
-        while let Ok(Some(bytes)) = line(&mut daemon_read, 16 * 1024 * 1024) {
-            let mut out = replies.lock().unwrap_or_else(|e| e.into_inner());
-            if out.write_all(&bytes).is_err() {
-                break;
+    let down = cmux_threads::spawn(
+        "host-share-proxy-down",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            // Serialize whole daemon lines with refusals, so responses never interleave.
+            while let Ok(Some(bytes)) = line(&mut daemon_read, 16 * 1024 * 1024) {
+                let mut out = replies.lock().unwrap_or_else(|e| e.into_inner());
+                if out.write_all(&bytes).is_err() {
+                    break;
+                }
             }
-        }
-        let _ = tcp_close.shutdown(Shutdown::Both);
-    });
+            let _ = tcp_close.shutdown(Shutdown::Both);
+        },
+    )?;
     let mut input = BufReader::new(tcp);
     let result = (|| {
         loop {
