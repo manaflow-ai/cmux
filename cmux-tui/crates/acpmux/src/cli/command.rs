@@ -228,6 +228,12 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// What your message asks of the receiver: block (you cannot go on until it acts),
+        /// question (you wait for its answer), result (work you finished; the default for an
+        /// agent's message) or fyi. A coordinator is woken by blocks and questions only; results
+        /// and FYIs wait for its next turn's inbox digest.
+        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi"])]
+        class: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -432,6 +438,8 @@ pub enum Command {
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
+    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true)]
     Schema,
     #[command(hide = true)]
     Models {
@@ -534,7 +542,8 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `session.tasks_max=8192` or `session.sessions_tasks_max=131072`).
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },
@@ -884,6 +893,21 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// The turn cap: past it, the running turn takes no other agent's message (they wait for the
+    /// next turn, and the agent is told once to end its turn); the person's still go in. Omit
+    /// the flags to show it; setting it takes the app or this socket, never an agent.
+    TurnCap {
+        session: String,
+        /// The cap in minutes (1 to 1440).
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440), conflicts_with_all = ["off", "clear"])]
+        minutes: Option<u64>,
+        /// No cap for this session, whatever its default.
+        #[arg(long, conflicts_with = "clear")]
+        off: bool,
+        /// Drop the session's own value: back to its default.
+        #[arg(long)]
+        clear: bool,
+    },
     /// One line per turn.
     History {
         session: String,
@@ -1163,6 +1187,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }
+            SessionCmd::TurnCap { session, minutes, off, clear } => {
+                Command::TurnCapCmd { session, minutes, off, clear }
+            }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }
             }
@@ -1439,6 +1466,18 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `send --class`: the four classes only (`prompt_class.rs`).
+    #[test]
+    fn send_class_takes_one_of_the_four_classes() {
+        for class in crate::prompt_class::PromptClass::ALL {
+            let argv = ["acpmux", "send", "coord", "done", "--class", class.as_str()];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(
+            Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
+        );
     }
 
     /// `host vm-host [NAME] [on|off]`: the state is on or off only.
