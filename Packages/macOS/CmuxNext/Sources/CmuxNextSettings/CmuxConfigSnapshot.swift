@@ -123,6 +123,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
     /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
     public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel keeps a Command scroll over it.
+    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).

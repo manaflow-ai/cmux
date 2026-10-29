@@ -158204,6 +158204,399 @@
         }
       }
     },
+    "settings.layout.pagesHandleCommandScroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web Pages Get Command + Scroll First"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحات الويب تتلقى Command + التمرير أولاً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web stranice prve dobijaju Command + pomicanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Websider får Command + rul først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webseiten erhalten Befehl + Scrollen zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las páginas web reciben Comando + desplazamiento primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les pages web reçoivent Commande + défilement en premier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le pagine web ricevono Comando + scorrimento per prime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Webページが Command + スクロールを優先して受け取る"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័របណ្ដាញទទួល Command + រំកិល មុនគេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹 페이지가 Command + 스크롤을 먼저 받음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettsider får Kommando + rulling først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strony internetowe otrzymują Command + przewijanie jako pierwsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas da web recebem Command + rolagem primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-страницы первыми получают Command + прокрутку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าเว็บได้รับ Command + เลื่อน ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web sayfaları Command + kaydırmayı önce alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вебсторінки першими отримують Command + прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang web nhận Command + cuộn trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网页优先接收 Command + 滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網頁優先接收 Command + 捲動"
+          }
+        }
+      }
+    },
+    "settings.layout.pagesHandleCommandScroll.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Figma and Excalidraw keep Command + Scroll zoom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتفظ Figma وExcalidraw بالتكبير عبر Command + التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma i Excalidraw zadržavaju zumiranje sa Command + pomicanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma og Excalidraw beholder zoom med Command + rul"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma und Excalidraw behalten das Zoomen mit Befehl + Scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma y Excalidraw conservan el zoom con Comando + desplazamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma et Excalidraw gardent le zoom avec Commande + défilement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma ed Excalidraw mantengono lo zoom con Comando + scorrimento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma と Excalidraw の Command + スクロールによるズームを維持"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma និង Excalidraw រក្សាការពង្រីកដោយ Command + រំកិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma와 Excalidraw는 Command + 스크롤 확대/축소를 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma og Excalidraw beholder zoom med Kommando + rulling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma i Excalidraw zachowują powiększanie Command + przewijanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma e Excalidraw mantêm o zoom com Command + rolagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma и Excalidraw сохраняют масштабирование через Command + прокрутку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma และ Excalidraw ยังซูมด้วย Command + เลื่อน ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma ve Excalidraw, Command + kaydırma ile yakınlaştırmayı korur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma та Excalidraw зберігають масштабування через Command + прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma và Excalidraw giữ thao tác thu phóng bằng Command + cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma 和 Excalidraw 保留 Command + 滚动缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma 和 Excalidraw 保留 Command + 捲動縮放"
+          }
+        }
+      }
+    },
+    "settings.layout.pagesHandleCommandScroll.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحتفظ صفحة الويب التي تستخدم Command + التمرير بنفسها، مثل التكبير في Figma أو Excalidraw، به. فوق أي صفحة أخرى، ينقل Command + التمرير الأعمدة. عند الإيقاف، ينقل Command + التمرير الأعمدة دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web stranica koja sama koristi Command + pomicanje, kao zumiranje u Figmi ili Excalidrawu, zadržava ga. Iznad bilo koje druge stranice Command + pomicanje pomiče kolone. Kada je isključeno, Command + pomicanje uvijek pomiče kolone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En webside, der selv bruger Command + rul, som zoom i Figma eller Excalidraw, beholder det. Over alle andre sider flytter Command + rul kolonner. Slået fra flytter Command + rul altid kolonner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Webseite, die Befehl + Scrollen selbst nutzt, etwa zum Zoomen in Figma oder Excalidraw, behält es. Über jeder anderen Seite verschiebt Befehl + Scrollen die Spalten. Ausgeschaltet verschiebt Befehl + Scrollen immer die Spalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una página web que usa Comando + desplazamiento por sí misma, como el zoom de Figma o Excalidraw, lo conserva. Sobre cualquier otra página, Comando + desplazamiento mueve las columnas. Desactivado, Comando + desplazamiento siempre mueve las columnas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une page web qui utilise elle-même Commande + défilement, comme le zoom de Figma ou d’Excalidraw, le garde. Sur toute autre page, Commande + défilement déplace les colonnes. Désactivé, Commande + défilement déplace toujours les colonnes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pagina web che usa da sé Comando + scorrimento, come lo zoom di Figma o Excalidraw, lo mantiene. Su qualsiasi altra pagina, Comando + scorrimento sposta le colonne. Se disattivato, Comando + scorrimento sposta sempre le colonne."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma や Excalidraw のズームのように、Command + スクロールを自ら使う Web ページはその操作を受け取ります。それ以外のページでは Command + スクロールで列が移動します。オフにすると、Command + スクロールは常に列を移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័របណ្ដាញដែលប្រើ Command + រំកិល ដោយខ្លួនឯង ដូចជាការពង្រីកក្នុង Figma ឬ Excalidraw រក្សាវាទុក។ លើទំព័រផ្សេងទៀត Command + រំកិល ផ្លាស់ទីជួរឈរ។ ពេលបិទ Command + រំកិល តែងតែផ្លាស់ទីជួរឈរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma나 Excalidraw의 확대/축소처럼 Command + 스크롤을 직접 사용하는 웹 페이지는 그 입력을 유지합니다. 다른 페이지에서는 Command + 스크롤이 열을 이동합니다. 끄면 Command + 스크롤이 항상 열을 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En nettside som selv bruker Kommando + rulling, som zoom i Figma eller Excalidraw, beholder det. Over alle andre sider flytter Kommando + rulling kolonner. Av: Kommando + rulling flytter alltid kolonner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona internetowa, która sama używa Command + przewijanie, np. do powiększania w Figmie lub Excalidraw, zachowuje je. Nad każdą inną stroną Command + przewijanie przesuwa kolumny. Po wyłączeniu Command + przewijanie zawsze przesuwa kolumny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma página da web que usa Command + rolagem por conta própria, como o zoom do Figma ou do Excalidraw, a mantém. Sobre qualquer outra página, Command + rolagem move as colunas. Desativado, Command + rolagem sempre move as colunas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-страница, которая сама использует Command + прокрутку, например для масштабирования в Figma или Excalidraw, сохраняет её. Над любой другой страницей Command + прокрутка перемещает колонки. Если выключено, Command + прокрутка всегда перемещает колонки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าเว็บที่ใช้ Command + เลื่อน เอง เช่น การซูมใน Figma หรือ Excalidraw จะได้รับไว้ บนหน้าอื่น Command + เลื่อน จะย้ายคอลัมน์ เมื่อปิด Command + เลื่อน จะย้ายคอลัมน์เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Figma veya Excalidraw yakınlaştırması gibi Command + kaydırmayı kendisi kullanan bir web sayfası onu korur. Diğer sayfaların üzerinde Command + kaydırma sütunları taşır. Kapalıyken Command + kaydırma her zaman sütunları taşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вебсторінка, яка сама використовує Command + прокручування, як-от масштабування у Figma чи Excalidraw, зберігає його. Над будь-якою іншою сторінкою Command + прокручування переміщує колонки. Якщо вимкнено, Command + прокручування завжди переміщує колонки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang web tự dùng Command + cuộn, như thu phóng trong Figma hoặc Excalidraw, sẽ giữ thao tác đó. Trên mọi trang khác, Command + cuộn di chuyển các cột. Khi tắt, Command + cuộn luôn di chuyển các cột."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自己使用 Command + 滚动的网页（例如 Figma 或 Excalidraw 的缩放）会保留它。在其他网页上，Command + 滚动会移动列。关闭后，Command + 滚动始终移动列。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自己使用 Command + 捲動的網頁（例如 Figma 或 Excalidraw 的縮放）會保留它。在其他網頁上，Command + 捲動會移動欄。關閉後，Command + 捲動一律移動欄。"
+          }
+        }
+      }
+    },
     "settings.layout.scrollAreas": {
       "extractionState": "manual",
       "localizations": {

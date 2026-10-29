@@ -409,7 +409,22 @@ Which scroll moves columns and rows, and which scrolls the pane under the pointe
 - `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
 - `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
 
-The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. Over a terminal, a chat or any other pane that is not a Chromium page, Command + Scroll on a columns screen is always the layout's, even when the columns fit: the columns follow your fingers and spring back, and the pane never scrolls. Over a Chromium page, a Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward; a page that uses Command + Scroll itself keeps it (`layout.pagesHandleCommandScroll`). Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+
+## `layout.pagesHandleCommandScroll`
+
+Whether a web page that uses Command + Scroll itself keeps it, such as Figma or Excalidraw zooming their canvas.
+
+```json
+{
+  "layout": { "pagesHandleCommandScroll": true }
+}
+```
+
+- `true` (default): when a Command + Scroll begins over a Chromium page, cmux asks the page first. A page that cancels the Command + wheel event (`preventDefault`) gets the whole gesture, momentum included. Over any other page, Command + Scroll moves the columns. If the page does not answer within about two frames, the columns move.
+- `false`: Command + Scroll over a page always moves the columns, as over a terminal.
+
+It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
 
 ## `workspaces.newPlacement`
 

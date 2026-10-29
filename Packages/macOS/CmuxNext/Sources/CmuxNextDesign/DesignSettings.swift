@@ -201,6 +201,9 @@ public final class DesignSettings {
     /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
     /// pane under the pointer (`command`, default), or the rule before it (`none`).
     public var layoutScrollModifier: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel (Figma,
+    /// Excalidraw zoom) keeps a Command scroll that starts over it; on by default.
+    public var pagesHandleCommandScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
