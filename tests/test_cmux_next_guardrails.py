@@ -3285,6 +3285,24 @@ class QualityRatchetTests(Fixture):
         self.assertIn("static-shared", ids)
         self.assertIn("quality-baseline", ids)
 
+    def test_a_base_that_deleted_the_json_does_not_let_the_head_json_list_new_debt(self):
+        # The json was added in shared history, then the base deleted it; a branch made before the deletion
+        # still has it. No commit of base..head adds it, so the head's json must not be the reference.
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.write(path, bad)
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("old singleton and the baseline")
+        fork = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("rm", "--quiet", guardrails.QUALITY_BASELINE)
+        self.commit("the base deletes the baseline")
+        deleted = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "--detach", fork)
+        self.write(f"{SHARED}/Other.swift", "public final class Other {\n    public static let shared = Other()\n}\n")
+        self.commit("a new singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new singleton")
+        self.assertIn("static-shared", self.ids(None, deleted, "HEAD"))
+
     def test_a_base_json_that_does_not_parse_allows_nothing(self):
         path, bad, _ = QUALITY_CASES["static-shared"]
         self.rebase_on({guardrails.QUALITY_BASELINE: "{not json"}, "a broken baseline")
