@@ -150,6 +150,29 @@ test("a reported current release keeps its catalog family metadata", () => {
   expect(terra?.family).toBe("Terra");
 });
 
+test("an alias probe does not guess a pinned release's identity metadata", () => {
+  const catalog = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "claude",
+        family: "claude",
+        name: "Claude",
+        topModels: ["haiku"],
+        models: [{ id: "haiku", name: "Haiku" }],
+      },
+    ],
+    session: { harness: "claude", model: "haiku" },
+    provisional: false,
+  });
+  const models = catalog.harnesses.find((entry) => entry.id === "claude")!.models;
+  expect(models.some((model) => model.id === "claude-haiku-5-5")).toBe(true);
+  expect(models.find((model) => model.id === "haiku")?.family).toBeUndefined();
+  const retry = retryModelSections(models, "haiku", "Claude");
+  expect(ids([...retry.latest, ...retry.more])).toContain("claude-haiku-5-5");
+  expect(ids([...retry.latest, ...retry.more])).toContain("haiku");
+});
+
 test("Retry keeps the running unavailable model and excludes unavailable alternatives", () => {
   const sections = retryModelSections(
     [

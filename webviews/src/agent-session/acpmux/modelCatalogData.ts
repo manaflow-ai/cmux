@@ -755,7 +755,7 @@ function includeCatalogIdentity(
 function catalogIdentity(id: string, join: Join): HarnessModel | undefined {
   for (const harness of join.sourceCatalog.harnesses)
     for (const model of harness.models)
-      if (model.id === id || model.aliases?.includes(id)) return model;
+      if (model.id === id) return model;
   return undefined;
 }
 
