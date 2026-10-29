@@ -5,8 +5,8 @@ import Observation
 import SwiftUI
 import Testing
 
-/// A tab page's SwiftUI leaves the window while its node is hidden and comes back in the show turn
-/// (p06-scheduler-214): no body runs while hidden, one runs on show, and the keyboard and accessibility
+/// A tab page's SwiftUI leaves the window while its node is hidden and comes back in the show turn:
+/// no body runs while hidden, one runs on show, and the keyboard and accessibility
 /// come back with it.
 @MainActor
 struct VisibilityGatedHostingViewTests {

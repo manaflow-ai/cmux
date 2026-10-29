@@ -75,8 +75,9 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
         container = SidebarContainerView(model: model, deadlines: services.mainDeadlines, appEvents: services.appEvents,
-                                         newRows: PendingWorkspaceRows.shared.newRows)
-        // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
+                                         newRows: PendingWorkspaceRows.shared.newRows,
+                                         responsiveScrolling: services.features.isEnabled(.responsiveScrolling))
+        // Only the rows the clip shows get views until startup completes; the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
         container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
         container.sidebarView.scrubFrameInput = services.dragFrameInput // the Now Playing scrubber, the same
@@ -92,10 +93,10 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        container.sidebarView.resourceSource = services.resources
+        container.sidebarView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
-        // Energy Saver's leaf follows the app's one energy policy (p14-energy-026).
+        // Energy Saver's leaf follows the app's one energy policy.
         container.sidebarView.followEnergy(services.mainDeadlines) { [weak monitor = services.energyMonitor] in monitor?.inputs.batteryPercent }
         // The list, the space bar and the rail hover once per frame (`pointerFrameHover`).
         container.sidebarView.hoverFrameInput = services.hoverFrameInput

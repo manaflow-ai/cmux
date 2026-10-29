@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 
-/// The daemon store's side of the app's ``ObservationCauses`` (p06-scheduler-032,
-/// plans/cmux-next/chrome-parity/p06-scheduler.md section D). Each change applies with the cause of
+/// The daemon store's side of the app's ``ObservationCauses``
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md section D). Each change applies with the cause of
 /// whoever made it: a daemon event with its envelope's cause, a local intent with the cause of the
 /// action run that made it. What the store publishes later than the change (the sidebar
 /// flattening, the tab list, the workspace set, a resync's snapshot) publishes with the highest

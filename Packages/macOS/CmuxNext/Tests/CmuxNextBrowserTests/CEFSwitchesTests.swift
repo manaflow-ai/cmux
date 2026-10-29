@@ -57,7 +57,7 @@ import Testing
     }
 }
 
-/// chromium-host-bench.py `--modes tcc` (p01-process-089) measures Chromium's real "Chromium Safe Storage" read on a
+/// chromium-host-bench.py `--modes tcc` measures Chromium's real "Chromium Safe Storage" read on a
 /// bench build, whose development bundle id otherwise runs Chromium with its mock keychain.
 @Suite struct CEFSwitchesBenchKeychainTests {
     private func arguments(bundle: String, environment: [String: String] = [:]) -> [String] {
@@ -87,7 +87,7 @@ import Testing
     }
 }
 
-/// Chromium's wake-up alignment (p14-energy-040). `AlignWakeUps` snaps each delayed wake-up of every
+/// Chromium's wake-up alignment. `AlignWakeUps` snaps each delayed wake-up of every
 /// Chromium thread to one 8 ms grid (MessagePump::AdjustDelayedRunTime), and `BatterySaverModeAlignWakeUps`
 /// lets battery saver widen it to 32 ms in child processes. Both are `FEATURE_DISABLED_BY_DEFAULT`, and
 /// Chrome turns them on only through field trials, which `disable-field-trial-config` leaves off, so cmux
@@ -156,7 +156,7 @@ import Testing
     #endif
 }
 
-/// The app's `process: chromium` features (p12-perf-process-153) reach CEF as one `enable-features` and one
+/// The app's `process: chromium` features reach CEF as one `enable-features` and one
 /// `disable-features` entry. A feature the app turns off is only on the disable list, also when the enable
 /// list names it too or cmux names it itself: disable wins, as Chromium's FeatureList::InitFromCommandLine
 /// processes the disabled features first (base/feature_list.cc).
@@ -195,7 +195,7 @@ import Testing
         #expect(arguments.filter { $0.hasPrefix("enable-features=") }.count == 1)
     }
 
-    /// With no app feature off, the one disable entry holds only the idle services cmux does not use (p13-webui-084).
+    /// With no app feature off, the one disable entry holds only the idle services cmux does not use.
     @Test func noOffFeatureLeavesOnlyTheIdleServicesDisabled() {
         let arguments = switches(enabled: ["TimerSlackMac"], disabled: [])
         let idleServicesOnly = "disable-features=" + CEFSwitches.idleServiceOffFeatures.joined(separator: ",")
@@ -284,7 +284,7 @@ import Testing
     }
 }
 
-/// A CEF pin bump must not put Chromium's commit waits back on the main thread (p03-rendering-041):
+/// A CEF pin bump must not put Chromium's commit waits back on the main thread:
 /// a page-window resize calls `CATransactionCoordinator::Synchronize`, which waits up to 500 ms
 /// before the app's commit and up to 50 ms after it (`ca_transaction_observer.mm`). Every fork
 /// version either keeps `AsyncLiveResize` (which skips that call) or skips it itself for a resize

@@ -1,4 +1,4 @@
-//! Attach frames (p05-ipc-076): OUTPUT offsets stay contiguous over 10k
+//! Attach frames: OUTPUT offsets stay contiguous over 10k
 //! chunks of a real terminal's attach tap, and decoding the OUTPUT, GRID and
 //! EVENT frames gives back the JSON attach events of the line path.
 
@@ -356,4 +356,33 @@ fn offsets_stay_contiguous_over_ten_thousand_chunks() {
     assert_eq!(framed, sent);
     assert_eq!(encoder.offset(), expected_offset);
     assert_eq!(expected_offset, attach.offset + sent.len() as u64);
+}
+
+/// The JSON `output` event of a key's echo carries its daemon
+/// stages and when it was sent; one with no stages carries none, and an
+/// older app's decoder sees the same `flow` either way.
+#[test]
+fn input_stages_echo_output_event_carries_the_key_stages() {
+    let service = RenderService::new();
+    let shape = AttachWireShape::default();
+    let frame = AttachFrame::FlowOutput { output: Bytes::from_static(b"a"), flow: 42 };
+    let stages =
+        crate::input_stages::KeyStages { received_ns: 10, written_ns: 20, read_ns: 30, lost: 2 };
+    let before = crate::input_stages::now_ns();
+    let line =
+        service.serialize_attach_frame_with_stages(SURFACE, &frame, shape, Some(stages)).unwrap();
+    let line: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(line["flow"], 42);
+    let key = &line["key_stages"];
+    assert_eq!(
+        (key["received"].as_u64(), key["written"].as_u64(), key["read"].as_u64()),
+        (Some(10), Some(20), Some(30))
+    );
+    assert!(key["sent"].as_u64().unwrap() >= before);
+    assert_eq!(key["lost"], 2);
+
+    let plain = service.serialize_attach_frame(SURFACE, &frame, shape).unwrap();
+    let plain: Value = serde_json::from_str(&plain).unwrap();
+    assert_eq!(plain["flow"], 42);
+    assert!(plain.get("key_stages").is_none());
 }

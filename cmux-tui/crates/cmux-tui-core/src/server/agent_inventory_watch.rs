@@ -19,6 +19,7 @@ use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, Inboun
 use crate::server::command_args::present_non_null;
 use crate::server::routes::{Route, RouteLine, RouteName};
 use crate::server::{FrameStage, MessageWriter};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::thread_qos::ThreadType;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -198,15 +199,16 @@ fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> 
 }
 
 /// Starts `body` on a `mux-inventory-watch` thread: a watcher, utility as
-/// Chromium's kUtility (p04-input-084), started through `spawn_raisable`
-/// so a ranked lock can raise it (p05-ipc-080).
+/// Chromium's kUtility, started through `spawn_raisable`
+/// so a ranked lock can raise it.
 fn spawn_thread(
     body: impl FnOnce() + Send + 'static,
-) -> std::io::Result<std::thread::JoinHandle<()>> {
-    crate::thread_qos::spawn_raisable(
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_raisable(
         "mux-inventory-watch",
         ThreadType::Utility.qos(),
-        Some(256 * 1024),
+        Fatal,
+        ShutdownBehavior::Continue,
         body,
     )
 }
@@ -237,8 +239,8 @@ fn watch_ids_are_the_schema_bound() {
     assert_eq!(schema::request_max_bytes("agent-inventory-watch", "expected_watch_id"), bound);
 }
 
-/// The watch thread is declared at the raisable class of Utility
-/// (p04-input-084, p05-ipc-080): Utility where a lock can raise it.
+/// The watch thread is declared at the raisable class of Utility:
+/// Utility where a lock can raise it.
 #[cfg(test)]
 #[test]
 fn the_watch_thread_is_a_utility_thread() {

@@ -16,7 +16,7 @@ parts sum exactly to its target, so a role that goes over its part shows which r
 import argparse, datetime, json, sys
 
 # One group per program target. A part is (role, what it holds, budget, today's number and its source).
-# The roles are the census roles (process-model-census.py, task p01-process-004).
+# The roles are the census roles (process-model-census.py).
 BUDGETS = [
     {
         "id": "memory_per_hidden_terminal_mb",

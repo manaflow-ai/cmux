@@ -1,4 +1,5 @@
 import Darwin
+import CmuxNextCompat
 
 /// Whether a socket peer was started inside this cmux: it descends from the
 /// app, or from a process running a trusted executable (the bundled cmux
@@ -14,7 +15,7 @@ struct ControlPeerAncestry: Sendable {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         // SAFETY: sysctl reads the 4 names of `mib` and writes at most `size` bytes (one kinfo_proc) into `info`
         // and the size it wrote into `size`; all three are locals live for the call.
-        guard unsafe sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        guard unsafe blockingSysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(clamping: MAXPATHLEN) * 4)
         // SAFETY: proc_pidpath writes at most buffer.count bytes into the array's own storage, lent for the call.
         let length = unsafe proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))

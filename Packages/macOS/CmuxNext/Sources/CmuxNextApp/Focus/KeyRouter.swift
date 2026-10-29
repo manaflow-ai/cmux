@@ -198,7 +198,7 @@ final class KeyRouter: BrowserKeyRouting {
         var facts: Facts
         var sources: FactSources
     }
-    /// Each window's key facts, built once per change instead of once per chord (p04-input-053):
+    /// Each window's key facts, built once per change instead of once per chord:
     /// ``facts(in:controller:)`` reuses them while their stamp holds; a focus settle bumps the
     /// generation (``focusDidSettle(_:in:)``).
     let keyFactsCache = KeyContextCache<FactsStamp, CachedFacts>()
@@ -395,7 +395,7 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
-    /// Keys typed while a window shows its launch picture wait for the window or its terminal (p08-startup-061).
+    /// Keys typed while a window shows its launch picture wait for the window or its terminal.
     lazy var launchPictureKeys = LaunchPictureKeys.routed(by: self)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit() { didSet { modes.set(.focusModeEscape, focusModeEscape.armedTab != nil) } }

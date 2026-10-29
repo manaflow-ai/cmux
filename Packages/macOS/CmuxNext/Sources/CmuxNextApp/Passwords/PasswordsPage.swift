@@ -77,7 +77,7 @@ final class PasswordsPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) { close(key) }
 
-    // MARK: Discard (p07-memory-025)
+    // MARK: Discard
 
     /// One minute hidden. The page's renderer holds the listed sites and usernames, so it does not
     /// outlive a short look away, as Chrome's password manager asks for the device owner again after

@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
 
-/// One family of JSONL files a cmux Rust process writes for the app to forward (p09-observability-075): where
+/// One family of JSONL files a cmux Rust process writes for the app to forward: where
 /// they are, which process wrote them, and whether each line is a panic (`cmux-panic-log`) or a hang
 /// (`cmux-hang-watch`'s `hangs-<pid>.jsonl`, schema 1).
 ///
@@ -181,7 +181,9 @@ public struct RustDiagnosticsLog: Sendable, Equatable {
         let stem: String
     }
 
-    /// The user-level roles whose panic log is `<stateRoot>/<stem>-panics-<pid>.jsonl` (tasks 099 and 100).
+    /// The user-level roles whose panic log is `<stateRoot>/<stem>-panics*.jsonl` (tasks 099 and 100): one file per
+    /// process (`<stem>-panics-<pid>.jsonl`) or one every process of the role appends to (`<stem>-panics.jsonl`:
+    /// cmux-tui-core `HelperPanicLog`, the app hosts', the browser host's and `cmux mcp serve`'s).
     private static let stateRootRoles: [Role] = [
         Role(source: .terminalHost, stem: "terminal-host"),
         Role(source: .agentHost, stem: "agent-host"),
@@ -200,10 +202,11 @@ public struct RustDiagnosticsLog: Sendable, Equatable {
     /// | --- | --- | --- |
     /// | daemon (the owner) | `<stateRoot>/owner-panics-<session>.jsonl` | the trace folder |
     /// | acpmux | `<acpmuxHome>/panics.jsonl` | `<acpmuxHome>/hangs-<pid>.jsonl` (acpmux `daemon::hang_watch::init(home)`) |
+    /// | acpmux agent host | `<acpmuxHome>/agent-host-panics.jsonl` (acpmux `agent_host::panic_log_path`) | the trace folder |
     /// | holder | `<holderDirectory>/holder-panics*.jsonl` | `<holderDirectory>/<socket>.trace/hangs-<pid>.jsonl` (cmux-holder `run`) |
     /// | terminal host | `<stateRoot>/terminal-host-panics-<pid>.jsonl` | ``Roots/terminalHostTraceDirectory`` (`start_process_hang_watch`), and the trace folder |
     /// | server helper | `<serverHelperDirectory>/server-helper-panics*.jsonl` | none: it starts no hang watch |
-    /// | every other role | `<stateRoot>/<stem>-panics-<pid>.jsonl` | the trace folder |
+    /// | every other role | `<stateRoot>/<stem>-panics*.jsonl` | the trace folder |
     ///
     /// The trace folder (``Roots/traceDirectory``) is task 095's folder for every process but the holder; its hang
     /// lines name their process by the black box of their pid (``namesProcessByBlackBox``), the daemon when none does.
@@ -225,17 +228,19 @@ public struct RustDiagnosticsLog: Sendable, Equatable {
         ]
         if let home = roots.acpmuxHome { logs += acpmux(home: home) }
         for role in stateRootRoles {
-            logs.append(RustDiagnosticsLog(directory: roots.stateRoot, name: .pattern(prefix: "\(role.stem)-panics-", suffix: ".jsonl"),
+            logs.append(RustDiagnosticsLog(directory: roots.stateRoot, name: .pattern(prefix: "\(role.stem)-panics", suffix: ".jsonl"),
                                            source: role.source, kind: .panic))
         }
         return logs
     }
 
-    /// The acpmux daemon's logs in its `ACPMUX_HOME`: `panics.jsonl` and `hangs-<pid>.jsonl` (acpmux
+    /// The acpmux daemon's logs in its `ACPMUX_HOME`: `panics.jsonl`, its agent hosts' `agent-host-panics.jsonl` (the
+    /// controller names it to each host, which gets no `ACPMUX_HOME`) and `hangs-<pid>.jsonl` (acpmux
     /// `daemon::hang_watch::init(home)`). The app finds that home with a file system read, so its launch adds these at
     /// the forwarders' first pass (``CrashForwarders``); ``all(_:)`` holds them when ``Roots/acpmuxHome`` is set.
     public static func acpmux(home: URL) -> [RustDiagnosticsLog] {
         [.file(RustPanicSource.acpmuxLog(acpmuxHome: home), source: .acpmux, kind: .panic),
+         .file(RustPanicSource.agentHostLog(acpmuxHome: home), source: .agentHost, kind: .panic),
          RustDiagnosticsLog(directory: home, name: .pattern(prefix: "hangs-", suffix: ".jsonl"), source: .acpmux, kind: .hang)]
     }
 }

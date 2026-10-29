@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 extension AnimationKindsSetting {
     /// The palette actions of `ui.animations.*`: `appearance.animations.<kind>.toggle` flips a

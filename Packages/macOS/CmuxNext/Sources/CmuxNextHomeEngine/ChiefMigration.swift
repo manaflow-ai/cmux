@@ -2,6 +2,7 @@ public import CmuxNextDaemon
 import Darwin
 public import Foundation
 import SQLite3
+import CmuxNextCompat
 
 /// What the Chief owner does for the migration: the Chief conversation and
 /// the `conversation-import` command.
@@ -116,20 +117,19 @@ public nonisolated enum ChiefMigration {
     static func writeMemory(home: ChiefHome, plan: ChiefMigrationPlan, sources: [ChiefMigrationSource],
                             conversation: String, loggedSeq: UInt64, tool: (any ChiefMemoryTool)? = nil,
                             scratch: URL? = nil) async throws -> Int {
-        let fm = FileManager.default
         let optchat = home.root.appendingPathComponent("optchat", isDirectory: true)
         let chat = optchat.appendingPathComponent("chat", isDirectory: true)
-        let hasMemory = fm.fileExists(atPath: optchat.appendingPathComponent("memory.sqlite3").path)
-            || ((try? fm.contentsOfDirectory(atPath: chat.appendingPathComponent("main").path)) ?? []).contains { $0.hasSuffix(".jsonl") }
+        let hasMemory = FileManager.checked.fileExists(atPath: optchat.appendingPathComponent("memory.sqlite3").path)
+            || ((try? FileManager.checked.contentsOfDirectory(atPath: chat.appendingPathComponent("main").path)) ?? []).contains { $0.hasSuffix(".jsonl") }
         if hasMemory {
             // A memory from an interrupted move: keep it; the host state must
             // still say every imported message is logged.
-            if !fm.fileExists(atPath: optchat.appendingPathComponent("host.json").path) {
+            if !FileManager.checked.fileExists(atPath: optchat.appendingPathComponent("host.json").path) {
                 try writeHostState(optchat: optchat, conversation: conversation, loggedSeq: loggedSeq)
             }
             return 0
         }
-        try fm.createDirectory(at: optchat, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.checked.createDirectory(at: optchat, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let staging = (tool != nil ? scratch : nil)?.appendingPathComponent("memory", isDirectory: true) ?? chat
         let main = staging.appendingPathComponent("main", isDirectory: true)
         var entries: [ChiefMigrationSource.LogEntry] = []
@@ -138,25 +138,25 @@ public nonisolated enum ChiefMigration {
             break
         case .copy(let index):
             if let text = sources[index].textDir {
-                for part in ["main", "tree"] where fm.fileExists(atPath: text.appendingPathComponent(part).path) {
+                for part in ["main", "tree"] where FileManager.checked.fileExists(atPath: text.appendingPathComponent(part).path) {
                     try copyRegularFiles(from: text.appendingPathComponent(part, isDirectory: true), to: staging.appendingPathComponent(part, isDirectory: true))
                 }
             }
             entries = sources[index].log
             for name in ["AGENTS.md", "engine.json"] {
                 let source = sources[index].muxHome.appendingPathComponent("optchat/\(name)")
-                if fm.fileExists(atPath: source.path) { try? fm.copyItem(at: source, to: optchat.appendingPathComponent(name)) }
+                if FileManager.checked.fileExists(atPath: source.path) { try? FileManager.checked.copyItem(at: source, to: optchat.appendingPathComponent(name)) }
             }
         case .interleave:
             let all = sources.flatMap(\.log).sorted { ChiefMigrationPlan.time($0.date) < ChiefMigrationPlan.time($1.date) }
-            try fm.createDirectory(at: main, withIntermediateDirectories: true)
+            try FileManager.checked.createDirectory(at: main, withIntermediateDirectories: true)
             for (index, entry) in all.enumerated() {
                 try append(ChiefMigrationPlan.logLine(i: index, kind: entry.kind, text: entry.text, date: entry.date), day: entry.date, in: main)
             }
             entries = all
         }
-        try fm.createDirectory(at: main, withIntermediateDirectories: true)
-        try fm.createDirectory(at: staging.appendingPathComponent("tree", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: main, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: staging.appendingPathComponent("tree", isDirectory: true), withIntermediateDirectories: true)
         for (offset, item) in plan.unlogged.enumerated() {
             let date = ChiefMigrationPlan.localDate(item.message.createdAt)
             try append(ChiefMigrationPlan.logLine(i: entries.count + offset, kind: "user", text: item.message.text, date: date), day: date, in: main)
@@ -180,24 +180,23 @@ public nonisolated enum ChiefMigration {
     private static func append(_ line: String, day date: String, in main: URL) throws {
         let file = main.appendingPathComponent(String(date.prefix(10)) + ".jsonl")
         if !FileManager.default.fileExists(atPath: file.path) { FileManager.default.createFile(atPath: file.path, contents: nil) }
-        let handle = try FileHandle(forWritingTo: file)
+        let handle = try FileHandle.blockingForWriting(to: file)
         defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data(line.utf8))
+        try handle.blockingSeekToEnd()
+        try handle.blockingWrite(contentsOf: Data(line.utf8))
     }
 
     /// Copies files and directories (the git history too), skipping sockets
     /// and lock files.
     private static func copyRegularFiles(from source: URL, to destination: URL) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-        for name in try fm.contentsOfDirectory(atPath: source.path) where !["lock", "takeover.flock"].contains(name) && !name.contains(".tmp") {
+        try FileManager.checked.createDirectory(at: destination, withIntermediateDirectories: true)
+        for name in try FileManager.checked.contentsOfDirectory(atPath: source.path) where !["lock", "takeover.flock"].contains(name) && !name.contains(".tmp") {
             let from = source.appendingPathComponent(name)
             let values = try from.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values.isDirectory == true {
                 try copyRegularFiles(from: from, to: destination.appendingPathComponent(name))
             } else if values.isRegularFile == true {
-                try fm.copyItem(at: from, to: destination.appendingPathComponent(name))
+                try FileManager.checked.copyItem(at: from, to: destination.appendingPathComponent(name))
             }
         }
     }
@@ -216,9 +215,9 @@ public nonisolated enum ChiefMigration {
         private var descriptor: Int32
 
         init?(path: URL) {
-            descriptor = open(path.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+            descriptor = blockingOpen(path.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
             guard descriptor >= 0 else { return nil }
-            guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            guard blockingFlock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
                 close(descriptor)
                 return nil
             }
@@ -226,7 +225,7 @@ public nonisolated enum ChiefMigration {
 
         func release() {
             guard descriptor >= 0 else { return }
-            flock(descriptor, LOCK_UN)
+            _ = blockingFlock(descriptor, LOCK_UN)
             close(descriptor)
             descriptor = -1
         }

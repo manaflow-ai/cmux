@@ -6,6 +6,7 @@ use super::connection::{CdpConnection, CdpEvent};
 use super::cors::{Cors, RequestAction};
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::driver::{RequestFilter, RequestInfo, RequestKind};
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
@@ -45,15 +46,23 @@ pub(super) fn start_worker(
     cors: Arc<Mutex<Cors>>,
 ) -> Result<mpsc::Sender<PausedRequest>, DriverError> {
     let (tx, rx) = mpsc::channel::<PausedRequest>();
-    std::thread::Builder::new()
-        .name("cmux-browser-host-cdp-requests".into())
-        .spawn(move || {
+    // supervise-allow: the driver's request worker, ending when its sender drops; a panic answering one paused request leaves that request paused, and the worker answers the next.
+    cmux_threads::spawn(
+        "cmux-browser-host-cdp-requests",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             for paused in rx {
-                let (method, params) = decide(&filter, &cors, &paused);
-                let _ = conn.call(Some(&paused.session), method, params, INTERNAL_TIMEOUT);
+                let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let (method, params) = decide(&filter, &cors, &paused);
+                    let _ = conn.call(Some(&paused.session), method, params, INTERNAL_TIMEOUT);
+                }));
+                if answered.is_err() {
+                    eprintln!("cmux-browser-host: answering a paused request panicked");
+                }
             }
-        })
-        .map_err(|e| DriverError::closed(format!("could not start the request worker: {e}")))?;
+        },
+    )
+    .map_err(|e| DriverError::closed(format!("could not start the request worker: {e}")))?;
     Ok(tx)
 }
 
@@ -147,8 +156,8 @@ impl Inner {
             session,
             request_id: text(&params["requestId"]),
             target,
-            url: text(&params["request"]["url"]),
-            method: text(&params["request"]["method"]),
+            url: text(params.field("request").field("url")),
+            method: text(params.field("request").field("method")),
             headers: params["request"].get("headers").cloned().unwrap_or(json!({})),
             network_id: text(&params["networkId"]),
             kind: match params["resourceType"].as_str() {

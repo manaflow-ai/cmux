@@ -60,7 +60,7 @@ nonisolated struct MobileHostFuzzTests {
         return FuzzRun(name, seed: seed, iterations: iterations, environment: environment)
     }
 
-    /// One input, its choices read from `data` (the libFuzzer entry, p10-stability-182). The stored-file
+    /// One input, its choices read from `data` (the libFuzzer entry). The stored-file
     /// run writes files and the session and stream runs await actors, so they are not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)

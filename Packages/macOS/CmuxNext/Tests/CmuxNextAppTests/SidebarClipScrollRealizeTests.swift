@@ -4,8 +4,8 @@ import CmuxNextDesign
 import Testing
 
 /// The sidebar list realizes rows as its clip scrolls and follows the clip's width as it resizes, pushed
-/// from the clip itself (p03-rendering-039; before, from NotificationCenter observers of the clip).
-/// The edge fade and the scroll fit share that clip (p03-rendering-038), so the sidebar's pushes must
+/// from the clip itself (before, from NotificationCenter observers of the clip).
+/// The edge fade and the scroll fit share that clip, so the sidebar's pushes must
 /// survive them attaching.
 @MainActor @Suite(.serialized) struct SidebarClipScrollRealizeTests {
     private static let count = 200

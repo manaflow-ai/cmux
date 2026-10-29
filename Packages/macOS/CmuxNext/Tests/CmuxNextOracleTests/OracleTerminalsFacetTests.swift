@@ -3,7 +3,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The `terminals` facet (p15-oracle-044): the host's terminals listed in the snapshot's main-actor turn, then every
+/// The `terminals` facet: the host's terminals listed in the snapshot's main-actor turn, then every
 /// screen read off the main actor; the title and the last 24 rows go in only through the injected hash, after the
 /// run's paths are rewritten, so two runs under different case roots hash the same.
 /// Run: `swift test --filter OracleTerminalsFacetTests`.

@@ -109,22 +109,16 @@ fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
 pub(crate) fn run(args: &[String]) -> i32 {
     // `dial` has its own exit codes and always one JSON line on stderr.
-    if args.first().map(String::as_str) == Some("dial") {
-        return dial_cli::run(&args[1..]);
-    }
-    // `sync` answers one JSON line on stdout and has its own exit codes too.
-    if args.first().map(String::as_str) == Some("sync") {
-        return sync_cli::run(&args[1..]);
-    }
-    // So do `agent` and `access`.
-    if args.first().map(String::as_str) == Some("agent") {
-        return agent_cli::run(&args[1..]);
-    }
-    if args.first().map(String::as_str) == Some("access") {
-        return access_cli::run(&args[1..]);
-    }
-    if args.first().map(String::as_str) == Some("machine") {
-        return machine_update::run(&args[1..]);
+    let rest = crate::panic_free::rest_after(args, 1);
+    match args.first().map(String::as_str) {
+        Some("dial") => return dial_cli::run(rest),
+        // `sync` answers one JSON line on stdout and has its own exit codes too.
+        Some("sync") => return sync_cli::run(rest),
+        // So do `agent` and `access`.
+        Some("agent") => return agent_cli::run(rest),
+        Some("access") => return access_cli::run(rest),
+        Some("machine") => return machine_update::run(rest),
+        _ => {}
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
@@ -157,8 +151,8 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(help_text());
-    let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
-    let rest = &args[1..];
+    let Some((action, rest)) = args.split_first() else { return Err(help()) };
+    let action = action.as_str();
     match action {
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
@@ -205,8 +199,8 @@ type Flags = HashMap<&'static str, String>;
 fn flags(args: &[String], allowed: &[&'static str]) -> anyhow::Result<Flags> {
     let mut values = Flags::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index) {
+        let argument = argument.as_str();
         let Some(name) = allowed.iter().copied().find(|name| *name == argument) else {
             return Err(anyhow!(catalog().remote_client.unknown_option(argument)));
         };
@@ -253,7 +247,7 @@ fn run_init(flags: &Flags) -> anyhow::Result<()> {
             if flags.get("--install").is_some_and(|wanted| wanted != &install) {
                 bail!("server_link.identity_conflict");
             }
-            (install, Some(std::fs::canonicalize(path)?))
+            (install, Some(cmux_blocking::fs::canonicalize(path)?))
         }
         None => (required(flags, "--install")?.to_string(), None),
     };
@@ -302,10 +296,10 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
 }
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {
-    let Some(action) = args.first().map(String::as_str) else {
+    let Some((action, rest)) = args.split_first() else {
         return Err(anyhow!(help_text()));
     };
-    let rest = &args[1..];
+    let action = action.as_str();
     match action {
         "add" => {
             let flags = flags(
@@ -428,7 +422,7 @@ pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
 /// The bytes of `server.json` at `path`; none when there is no path or no file.
 pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<Vec<u8>>> {
     let Some(path) = path else { return Ok(None) };
-    match std::fs::read(path) {
+    match cmux_blocking::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
@@ -461,8 +455,12 @@ async fn serve(
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
 ) -> anyhow::Result<()> {
-    let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let (state, config, private_key) = crate::blocking::off_worker(move || {
+        let config = state.config().context("run `cmux link init --install ID` first")?;
+        let private_key = state.private_key()?;
+        anyhow::Ok((state, config, private_key))
+    })
+    .await?;
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -481,18 +479,25 @@ async fn serve(
     // Cloud host ids resolve through the host credential relay, which is
     // not served yet: Cloud dials report `unreachable` until it ships.
     let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
-    let peers = Arc::new(Peers::load(state.peers_path())?);
+    let peers_path = state.peers_path();
+    let peers = Arc::new(crate::blocking::off_worker(move || Peers::load(peers_path)).await?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
-    let local = bind_local(&socket_path)?;
+    let local = {
+        let socket_path = socket_path.clone();
+        crate::blocking::off_worker(move || bind_local(&socket_path)).await?
+    };
     let pid = std::process::id();
     let udp = overlay.local_addr()?.to_string();
     let status: Arc<str> =
         ensure::status_line(&state, &config, &socket_path, pid, &udp, &served, &public_key)
             .to_string()
             .into();
-    registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
+    let registration_dir = state.registration_dir();
+    let registration = Registration::new(socket_path.clone(), pid);
+    crate::blocking::off_worker(move || registration::write(&registration_dir, &registration))
+        .await?;
     let ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
@@ -510,8 +515,12 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
     };
-    registration::remove_if_owned(&state.registration_dir(), pid);
-    let _ = std::fs::remove_file(&socket_path);
+    let registration_dir = state.registration_dir();
+    let _ = crate::blocking::off_worker(move || {
+        registration::remove_if_owned(&registration_dir, pid);
+        cmux_blocking::fs::remove_file(&socket_path)
+    })
+    .await;
     result
 }
 
@@ -520,19 +529,22 @@ async fn serve(
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        crate::blocking::fs::create_dir_with(
+            std::fs::DirBuilder::new().recursive(true).mode(0o700),
+            parent,
+        )?;
         // Never bind in a folder another user or a symlink put there.
         state::check_socket_dir(parent)?;
     }
-    if path.exists() {
+    if cmux_blocking::fs::metadata(path).is_ok() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {
             return Err(anyhow!("a cmux link already listens on {}", path.display()));
         }
-        std::fs::remove_file(path)?;
+        cmux_blocking::fs::remove_file(path)?;
     }
     cmux_unix_socket::check_path(path)?;
     let listener = tokio::net::UnixListener::bind(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    crate::blocking::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
 }
 

@@ -98,15 +98,20 @@ private final class SilentListener {
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        // SAFETY: inet_addr reads the NUL-terminated copy of the literal made for this call.
+        address.sin_addr.s_addr = unsafe inet_addr("127.0.0.1")
         address.sin_port = 0
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        // SAFETY: bind reads sizeof(sockaddr_in) bytes, the length passed, from `address`, a
+        // sockaddr_in local; the sockaddr view is the socket API's cast, used only for the call.
+        let bound = unsafe withUnsafePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard bound == 0, listen(fd, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        _ = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+        // SAFETY: getsockname writes at most `length` (sizeof(sockaddr_in)) bytes into
+        // `address`, a sockaddr_in local, and updates `length`, a local.
+        _ = unsafe withUnsafeMutablePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe getsockname(fd, $0, &length) }
         }
         self.fd = fd
         port = Int(UInt16(bigEndian: address.sin_port))

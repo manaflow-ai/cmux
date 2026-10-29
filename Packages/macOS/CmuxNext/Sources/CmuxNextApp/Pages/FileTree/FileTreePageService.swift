@@ -102,7 +102,7 @@ final class FileTreePageService: InternalPageProvider {
         tabs.removeValue(forKey: key)?.page?.close()
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The tree
     /// is a read-only listing: the next page lists the folder again and opens the folders the last

@@ -17,7 +17,7 @@ extension CEFEngine {
         return self
     }
 
-    /// Feature `cefAttachedPages` (p03-rendering-045): a pane's tabs attach Chromium's own view in the pane
+    /// Feature `cefAttachedPages`: a pane's tabs attach Chromium's own view in the pane
     /// where the fork has the call (`CEFAttachedPages`). Applies to page windows made from now on.
     @discardableResult
     public func usingAttachedPages(_ enabled: Bool) -> CEFEngine {

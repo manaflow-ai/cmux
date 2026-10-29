@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The crash keys reach the next launch (p10-stability-207): a crash with the run marker live writes the keys
+/// The crash keys reach the next launch: a crash with the run marker live writes the keys
 /// of that moment into `run.crashkeys` from the crash path, and the next launch reads them back scrubbed.
 struct CrashKeysRecordTests {
     @Test func aCrashWritesTheRunningActionAndHungThreadsForTheNextLaunch() async throws {

@@ -14,6 +14,7 @@ use cmux_tui_core::platform::transport::Stream;
 use serde_json::{Value, json};
 
 use super::adapter::AGENT_MUX;
+use crate::cli::json_fields::JsonFields;
 
 /// The largest response line read.
 const LINE_LIMIT: usize = 16 << 20;
@@ -51,7 +52,9 @@ pub(super) struct Link {
 /// CLI never writes through it.
 pub(super) fn is_brain_socket(path: &Path) -> bool {
     let parts: Vec<_> = path.components().map(|c| c.as_os_str().to_owned()).collect();
-    parts.windows(2).any(|pair| pair[0] == ".cmux" && pair[1] == "brains")
+    parts
+        .windows(2)
+        .any(|pair| matches!(pair, [cmux, brains] if cmux == ".cmux" && brains == "brains"))
 }
 
 /// The request line of `operation` on the current session.
@@ -67,10 +70,10 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
         // A request-origin claim may only narrow the daemon-derived origin;
         // it gives history a durable agent/person distinction without
         // granting an agent any additional rights.
-        line["origin"] = json!({"claim": "agent"});
+        line.insert("origin", json!({"claim": "agent"}));
     }
     if let Some(key) = key {
-        line["idempotency_key"] = json!(key);
+        line.insert("idempotency_key", json!(key));
     }
     line
 }
@@ -188,36 +191,35 @@ impl Link {
         let _ = self.reader.get_ref().set_read_timeout(None);
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
-        std::thread::Builder::new()
-            .name("chief-events".into())
-            .spawn(move || {
-                let mut reason = String::from("closed");
-                while let Ok(Some(value)) = read_line(&mut reader) {
-                    if value.get("stream_id").and_then(Value::as_str) != Some(&stream_id) {
-                        continue;
-                    }
-                    match value.get("type").and_then(Value::as_str) {
-                        Some("stream_item") => {
-                            let item = value.get("item").cloned().unwrap_or(Value::Null);
-                            if sink.send(super::Input::Daemon(item)).is_err() {
-                                return;
-                            }
-                        }
-                        Some("stream_end") => {
-                            reason = value
-                                .get("reason")
-                                .and_then(Value::as_str)
-                                .unwrap_or("closed")
-                                .to_owned();
-                            break;
-                        }
-                        _ => {}
-                    }
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
+        cmux_threads::spawn("chief-events", cmux_threads::ThreadQos::Utility, move || {
+            let mut reason = String::from("closed");
+            while let Ok(Some(value)) = read_line(&mut reader) {
+                if value.get("stream_id").and_then(Value::as_str) != Some(&stream_id) {
+                    continue;
                 }
-                let _ = sink.send(super::Input::Closed(reason));
-            })
-            .map(|_| handle)
-            .map_err(|e| LinkError::Transport(e.to_string()))
+                match value.get("type").and_then(Value::as_str) {
+                    Some("stream_item") => {
+                        let item = value.get("item").cloned().unwrap_or(Value::Null);
+                        if sink.send(super::Input::Daemon(item)).is_err() {
+                            return;
+                        }
+                    }
+                    Some("stream_end") => {
+                        reason = value
+                            .get("reason")
+                            .and_then(Value::as_str)
+                            .unwrap_or("closed")
+                            .to_owned();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let _ = sink.send(super::Input::Closed(reason));
+        })
+        .map(|_| handle)
+        .map_err(|e| LinkError::Transport(e.to_string()))
     }
 
     /// The cloud counterpart of `into_events`: `subscribe` with typing
@@ -248,60 +250,58 @@ impl Link {
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
         let conversation = conversation.to_owned();
-        std::thread::Builder::new()
-            .name("chief-cloud-events".into())
-            .spawn(move || {
-                let mut early: Option<Vec<Value>> = Some(Vec::new());
-                let mut reason = String::from("closed");
-                while let Ok(Some(value)) = read_line(&mut reader) {
-                    if value.get("event").is_none() {
-                        if value.get("id").and_then(Value::as_str) != Some(&snapshot_id) {
-                            continue;
-                        }
-                        if value.get("ok").and_then(Value::as_bool) != Some(true) {
-                            reason = value
-                                .get("error")
-                                .and_then(Value::as_str)
-                                .unwrap_or("snapshot refused")
-                                .to_owned();
-                            break;
-                        }
-                        let data = value.get("data").cloned().unwrap_or(Value::Null);
-                        let snapshot = super::backend::cloud_snapshot_item(&data);
-                        if sink.send(super::Input::Daemon(snapshot)).is_err() {
-                            return;
-                        }
-                        for item in early.take().unwrap_or_default() {
-                            if sink.send(super::Input::Daemon(item)).is_err() {
-                                return;
-                            }
-                        }
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
+        cmux_threads::spawn("chief-cloud-events", cmux_threads::ThreadQos::Utility, move || {
+            let mut early: Option<Vec<Value>> = Some(Vec::new());
+            let mut reason = String::from("closed");
+            while let Ok(Some(value)) = read_line(&mut reader) {
+                if value.get("event").is_none() {
+                    if value.get("id").and_then(Value::as_str) != Some(&snapshot_id) {
                         continue;
                     }
-                    if value.get("event").and_then(Value::as_str)
-                        == Some("cloud-subscription-state")
-                        && value.get("conversation").and_then(Value::as_str) == Some(&conversation)
-                        && value.get("state").and_then(Value::as_str) == Some("closed")
-                    {
-                        reason = "closed".into();
+                    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                        reason = value
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("snapshot refused")
+                            .to_owned();
                         break;
                     }
-                    let Some(item) = super::backend::cloud_item(&value, &conversation) else {
-                        continue;
-                    };
-                    match early.as_mut() {
-                        Some(waiting) => waiting.push(item),
-                        None => {
-                            if sink.send(super::Input::Daemon(item)).is_err() {
-                                return;
-                            }
+                    let data = value.get("data").cloned().unwrap_or(Value::Null);
+                    let snapshot = super::backend::cloud_snapshot_item(&data);
+                    if sink.send(super::Input::Daemon(snapshot)).is_err() {
+                        return;
+                    }
+                    for item in early.take().unwrap_or_default() {
+                        if sink.send(super::Input::Daemon(item)).is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
+                if value.get("event").and_then(Value::as_str) == Some("cloud-subscription-state")
+                    && value.get("conversation").and_then(Value::as_str) == Some(&conversation)
+                    && value.get("state").and_then(Value::as_str) == Some("closed")
+                {
+                    reason = "closed".into();
+                    break;
+                }
+                let Some(item) = super::backend::cloud_item(&value, &conversation) else {
+                    continue;
+                };
+                match early.as_mut() {
+                    Some(waiting) => waiting.push(item),
+                    None => {
+                        if sink.send(super::Input::Daemon(item)).is_err() {
+                            return;
                         }
                     }
                 }
-                let _ = sink.send(super::Input::Closed(reason));
-            })
-            .map(|_| handle)
-            .map_err(|e| LinkError::Transport(e.to_string()))
+            }
+            let _ = sink.send(super::Input::Closed(reason));
+        })
+        .map(|_| handle)
+        .map_err(|e| LinkError::Transport(e.to_string()))
     }
 }
 

@@ -5,6 +5,7 @@
 // for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -76,7 +77,9 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
   expect(shaped.findIndex((entry) => entry.id === "s")).toBeLessThan(shaped.length - 1);
   // Between steps it is timed ("Thinking 18s"), from the prompt.
   expect(line.untimed).toBeUndefined();
-  expect(words(renderToStaticMarkup(<Thinking since={line.at} now={() => line.at + 18_000} />))).toBe("Thinking 18s");
+  expect(words(renderToStaticMarkup(<Thinking since={line.at} clock={fixedPageClock(line.at + 18_000)} />))).toBe(
+    "Thinking 18s",
+  );
 });
 
 test("the live line carries the turn's tokens while it times the turn, not beside a call", () => {
@@ -88,8 +91,8 @@ test("the live line carries the turn's tokens while it times the turn, not besid
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
-  expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} now={() => start + 4_000} />)).toBe(
+  expect(drawn(<Thinking since={start} clock={fixedPageClock(start + 354_000)} />)).toBe("Thinking 5m · 2.1M tokens");
+  expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} clock={fixedPageClock(start + 4_000)} />)).toBe(
     "Running cargo test 4s",
   );
 });
@@ -99,10 +102,12 @@ test("with the tray off the live line counts the work still going, beside a call
   const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const drawn = (node: ReactElement) =>
     words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
-  expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
+  expect(drawn(<Thinking doing="Read app.ts" doingAt={start} clock={fixedPageClock(start + 3_000)} />)).toBe(
     "Read app.ts 3s · 2 subagents · 1 command",
   );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
+  expect(drawn(<Thinking since={start} clock={fixedPageClock(start + 18_000)} />)).toBe(
+    "Thinking 18s · 2 subagents · 1 command",
+  );
   // Not on the start status line, before the agent runs.
   expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
 });
@@ -118,7 +123,11 @@ test("a command Claude is still writing reads Writing a command, with no Ctrl-B"
   expect(drafting.doingCommand).toBeUndefined();
   const start = 1_000_000;
   expect(
-    words(renderToStaticMarkup(<Thinking doing="" doingShell draft doingAt={start} now={() => start + 9_000} />)),
+    words(
+      renderToStaticMarkup(
+        <Thinking doing="" doingShell draft doingAt={start} clock={fixedPageClock(start + 9_000)} />,
+      ),
+    ),
   ).toBe("Writing a command 9s");
   // Once its command comes, it runs and offers Ctrl-B.
   const running = codex([
@@ -169,18 +178,18 @@ test("while text streams the line waits behind it, keyed by the text's version",
 test("the live line draws Running with the call's time, or Thinking alone; both shimmer", () => {
   const start = 1_000_000;
   const running = renderToStaticMarkup(
-    <Thinking doing="bun test" doingShell doingAt={start} now={() => start + 13_000} untimed={false} />,
+    <Thinking doing="bun test" doingShell doingAt={start} clock={fixedPageClock(start + 13_000)} untimed={false} />,
   );
   expect(words(running)).toBe("Running bun test 13s");
   expect(running).toContain("is-shimmer");
   const described = renderToStaticMarkup(
-    <Thinking doing="Run the web tests" doingAt={start} now={() => start + 2_000} />,
+    <Thinking doing="Run the web tests" doingAt={start} clock={fixedPageClock(start + 2_000)} />,
   );
   expect(words(described)).toBe("Run the web tests 2s");
-  expect(words(renderToStaticMarkup(<Thinking doing="" doingShell doingAt={start} now={() => start} />))).toBe(
-    "Running a command 0s",
-  );
-  const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
+  expect(
+    words(renderToStaticMarkup(<Thinking doing="" doingShell doingAt={start} clock={fixedPageClock(start)} />)),
+  ).toBe("Running a command 0s");
+  const thinking = renderToStaticMarkup(<Thinking since={start} untimed clock={fixedPageClock(start + 9_000)} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
   // Behind streaming text it keeps its height but draws nothing.

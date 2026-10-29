@@ -114,73 +114,77 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             // startup.
             let path = PATH_OVERRIDE.get().cloned().or_else(platform::client_log_path)?;
             let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
-            std::thread::Builder::new()
-                .name("client-log".into())
-                .spawn(move || {
-                    // Bound the open itself: a FIFO override or a dead
-                    // network mount can block open(2) forever, and while the
-                    // writer waits the queue fills and the stderr pump
-                    // backpressures into the pipe, blocking noisy children.
-                    // After the deadline the sink is declared broken and
-                    // stderr goes back to the terminal; if the stray open
-                    // ever completes, the opener thread just drops the file.
-                    let (sink_sender, sink_receiver) = sync_channel(1);
-                    let opened = std::thread::Builder::new()
-                        .name("client-log-open".into())
-                        .spawn(move || {
-                            let _ = sink_sender.try_send(open_sink(path));
-                        })
-                        .is_ok();
-                    let sink = if opened {
-                        sink_receiver
-                            .recv_timeout(std::time::Duration::from_secs(10))
-                            .ok()
-                            .flatten()
-                    } else {
-                        None
-                    };
-                    let Some(mut sink) = sink else {
-                        // The log is unreachable. Give stderr back to the
-                        // terminal (idempotent; no-op unless redirected) so
-                        // diagnostics are not swallowed by the pump, and
-                        // drain the queue so senders and flushes never wedge.
-                        SINK_BROKEN.store(true, Ordering::Release);
-                        restore_stderr_from_log();
-                        while let Ok(message) = receiver.recv() {
-                            if let Message::Flush(ack) = message {
-                                let _ = ack.try_send(());
-                            }
+            // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
+            cmux_threads::spawn("client-log", cmux_threads::ThreadQos::Utility, move || {
+                // Bound the open itself: a FIFO override or a dead
+                // network mount can block open(2) forever, and while the
+                // writer waits the queue fills and the stderr pump
+                // backpressures into the pipe, blocking noisy children.
+                // After the deadline the sink is declared broken and
+                // stderr goes back to the terminal; if the stray open
+                // ever completes, the opener thread just drops the file.
+                let (sink_sender, sink_receiver) = sync_channel(1);
+                // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
+                let opened = cmux_threads::spawn(
+                    "client-log-open",
+                    cmux_threads::ThreadQos::Utility,
+                    move || {
+                        let _ = sink_sender.try_send(open_sink(path));
+                    },
+                )
+                .is_ok();
+                let sink = if opened {
+                    crate::blocking::sync::recv_timeout(
+                        &sink_receiver,
+                        std::time::Duration::from_secs(10),
+                    )
+                    .ok()
+                    .flatten()
+                } else {
+                    None
+                };
+                let Some(mut sink) = sink else {
+                    // The log is unreachable. Give stderr back to the
+                    // terminal (idempotent; no-op unless redirected) so
+                    // diagnostics are not swallowed by the pump, and
+                    // drain the queue so senders and flushes never wedge.
+                    SINK_BROKEN.store(true, Ordering::Release);
+                    restore_stderr_from_log();
+                    while let Ok(message) = cmux_blocking::sync::recv(&receiver) {
+                        if let Message::Flush(ack) = message {
+                            let _ = ack.try_send(());
                         }
-                        return;
-                    };
-                    while let Ok(message) = receiver.recv() {
-                        let record = match message {
-                            Message::Record(record) => record,
-                            Message::Flush(ack) => {
-                                // Every record queued before this marker has
-                                // already gone through write_record (the loop
-                                // is serial), so draining to here IS the
-                                // flush.
-                                let _ = ack.try_send(());
-                                continue;
-                            }
-                        };
-                        let dropped = DROPPED.swap(0, Ordering::AcqRel);
-                        if dropped > 0 {
-                            write_record(
-                                &mut sink,
-                                &Record {
-                                    stamp: timestamp(),
-                                    level: "WARN",
-                                    area: "log".into(),
-                                    message: format!("{dropped} records dropped (queue full)"),
-                                },
-                            );
-                        }
-                        write_record(&mut sink, &record);
                     }
-                })
-                .ok()?;
+                    return;
+                };
+                while let Ok(message) = cmux_blocking::sync::recv(&receiver) {
+                    let record = match message {
+                        Message::Record(record) => record,
+                        Message::Flush(ack) => {
+                            // Every record queued before this marker has
+                            // already gone through write_record (the loop
+                            // is serial), so draining to here IS the
+                            // flush.
+                            let _ = ack.try_send(());
+                            continue;
+                        }
+                    };
+                    let dropped = DROPPED.swap(0, Ordering::AcqRel);
+                    if dropped > 0 {
+                        write_record(
+                            &mut sink,
+                            &Record {
+                                stamp: timestamp(),
+                                level: "WARN",
+                                area: "log".into(),
+                                message: format!("{dropped} records dropped (queue full)"),
+                            },
+                        );
+                    }
+                    write_record(&mut sink, &record);
+                }
+            })
+            .ok()?;
             // `std::process::exit` (usage errors, startup failures) skips
             // destructors but runs atexit handlers, so queued diagnostics
             // still reach disk on the paths this log exists for.
@@ -234,13 +238,13 @@ fn flush_with_deadline(deadline: std::time::Duration) {
                     return;
                 }
                 marker = returned;
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                exit_pause();
             }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
         }
     }
     let remaining = deadline.saturating_sub(started.elapsed());
-    let _ = done.recv_timeout(remaining);
+    let _ = crate::blocking::sync::recv_timeout(&done, remaining);
 }
 
 /// Sentinel line the exiting thread writes into the stderr pipe so it can
@@ -281,8 +285,17 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
         if started.elapsed() >= deadline {
             return;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        exit_pause();
     }
+}
+
+/// One step of an exit-time drain, on whatever thread exits: shutdown work
+/// that may block (cmux_threads `AllowReason::Shutdown`).
+fn exit_pause() {
+    cmux_threads::allow_blocking(cmux_threads::AllowReason::Shutdown, || {
+        // wakeup-allow: bounded exit-time drain only; each caller stops at its 250 ms deadline
+        cmux_blocking::thread::sleep(std::time::Duration::from_millis(5));
+    });
 }
 
 /// Unix only, like the redirect itself: off Unix stderr is never redirected,
@@ -326,15 +339,15 @@ fn open_sink(path: PathBuf) -> Option<Sink> {
     if let Some(dir) = path.parent()
         && !dir.as_os_str().is_empty()
     {
-        fs::create_dir_all(dir).ok()?;
+        cmux_blocking::fs::create_dir_all(dir).ok()?;
     }
-    let lock = append_options().open(lock_path(&path)).ok()?;
+    let lock = crate::blocking::fs::open_with(&append_options(), lock_path(&path)).ok()?;
     // An active file created by an older build may be group/world readable;
     // tighten it once (it captures stderr, which can carry credentials).
     #[cfg(unix)]
-    if path.exists() {
+    if cmux_blocking::fs::metadata(&path).is_ok() {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        let _ = crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
     Some(Sink { lock, path })
 }
@@ -373,7 +386,7 @@ fn write_record(sink: &mut Sink, record: &Record) {
     if !lock_exclusive(&sink.lock) {
         return;
     }
-    let Ok(mut file) = append_options().open(&sink.path) else {
+    let Ok(mut file) = crate::blocking::fs::open_with(&append_options(), &sink.path) else {
         unlock(&sink.lock);
         return;
     };
@@ -391,16 +404,19 @@ fn write_record(sink: &mut Sink, record: &Record) {
             // in some sharing configurations.
             drop(file);
             let rolled = rollover_path(&sink.path);
-            let mut rotated = fs::rename(&sink.path, &rolled).is_ok();
+            let mut rotated = cmux_blocking::fs::rename(&sink.path, &rolled).is_ok();
             if !rotated {
                 // Windows also refuses to replace an existing destination.
-                let _ = fs::remove_file(&rolled);
-                rotated = fs::rename(&sink.path, &rolled).is_ok();
+                let _ = cmux_blocking::fs::remove_file(&rolled);
+                rotated = cmux_blocking::fs::rename(&sink.path, &rolled).is_ok();
             }
             if !rotated {
                 // Keep the size bound even where rename keeps failing:
                 // drop the old content in place.
-                let _ = OpenOptions::new().write(true).truncate(true).open(&sink.path);
+                let _ = crate::blocking::fs::open_with(
+                    OpenOptions::new().write(true).truncate(true),
+                    &sink.path,
+                );
             }
         }
     }
@@ -470,9 +486,9 @@ pub(crate) fn redirect_stderr_into_log() {
         }
         // SAFETY: read_fd is owned by this File from here on.
         let mut reader = unsafe { File::from_raw_fd(read_fd) };
-        let spawned = std::thread::Builder::new()
-            .name("stderr-pump".into())
-            .spawn(move || {
+        // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
+        let spawned =
+            cmux_threads::spawn("stderr-pump", cmux_threads::ThreadQos::Utility, move || {
                 let mut buffer = [0u8; 4096];
                 let mut pending = Vec::new();
                 loop {
@@ -492,16 +508,21 @@ pub(crate) fn redirect_stderr_into_log() {
                             break;
                         }
                         Ok(read) => {
-                            pending.extend_from_slice(&buffer[..read]);
+                            let Ok(chunk) = crate::panic_free::reported_prefix(&buffer, read)
+                            else {
+                                break;
+                            };
+                            pending.extend_from_slice(chunk);
                             // One pass over complete lines, one drain per
                             // read: draining per line would shift the whole
                             // buffer for every short line (quadratic).
                             let mut start = 0;
-                            while let Some(offset) =
-                                pending[start..].iter().position(|byte| *byte == b'\n')
+                            while let Some(unread) = pending.get(start..)
+                                && let Some(offset) = unread.iter().position(|byte| *byte == b'\n')
+                                && let Some(line) = unread.get(..offset)
                             {
                                 let end = start + offset;
-                                let text = String::from_utf8_lossy(&pending[start..end]);
+                                let text = String::from_utf8_lossy(line);
                                 let text = text.trim_end();
                                 if text == PIPE_FLUSH_MARKER {
                                     PIPE_MARKERS_SEEN.fetch_add(1, Ordering::AcqRel);
@@ -510,7 +531,9 @@ pub(crate) fn redirect_stderr_into_log() {
                                     // backpressure to a runaway writer
                                     // instead of burning a core converting
                                     // records that will be dropped anyway.
-                                    std::thread::sleep(std::time::Duration::from_millis(5));
+                                    cmux_blocking::thread::sleep(std::time::Duration::from_millis(
+                                        5,
+                                    ));
                                 }
                                 start = end + 1;
                             }
@@ -639,11 +662,9 @@ pub(crate) fn log(level: &'static str, area: &str, message: &str) {
 fn log_tracked(level: &'static str, area: &str, message: &str) -> bool {
     let Some(sender) = queue() else { return false };
     let message = if message.len() > MAX_MESSAGE_BYTES {
-        let mut end = MAX_MESSAGE_BYTES;
-        while !message.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{} [truncated {} bytes]", &message[..end], message.len() - end)
+        let end = message.floor_char_boundary(MAX_MESSAGE_BYTES);
+        let kept = message.get(..end).unwrap_or_default();
+        format!("{kept} [truncated {} bytes]", message.len() - kept.len())
     } else {
         message.to_string()
     };

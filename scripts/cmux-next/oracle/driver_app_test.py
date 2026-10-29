@@ -51,6 +51,17 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        # The I11-I14 side channels: counters since launch that each action moves.
+        self.blocking_compiled = True
+        self.main_blocks = 0
+        self.blocks_per_turn = 0
+        self.hang_records: List[Dict[str, Any]] = [{"sequence": 2, "kind": "stall", "duration_ms": 90.0}]
+        self.runs: List[Dict[str, Any]] = []
+        self.commit_ms = 3.0
+        self.stall_ms = 0.0
+        self.uptime = 500.0
+        self.idle_wakes = 0
+        self.left_clients: List[str] = []
         # The switches facet's `arms` (None: no provider in this build) and the per-key hit counts (None: no
         # debug.oracle.switch_hits in this build); each turn counts one hit on the arm the key runs.
         self.switch_arms: Optional[Dict[str, str]] = None
@@ -87,6 +98,9 @@ class FakeApp:
 
     def daemon_socket(self) -> Optional[str]:
         return self.daemon_sock
+
+    def daemon_owner_pid(self) -> Optional[int]:
+        return self.daemon_pid
 
     def signal_daemon(self, signum: int) -> Optional[int]:
         if self.daemon_pid is None:
@@ -136,6 +150,12 @@ class FakeApp:
     def turn(self, action: str) -> None:
         self.workspaces += 1
         self.sequence += 1
+        self.main_blocks += self.blocks_per_turn
+        self.runs.append({"sequence": len(self.runs) + 1, "id": action, "entrypoint": "socket",
+                          "commit_ms": self.commit_ms, "outcome": "committed"})
+        if self.stall_ms:
+            self.hang_records.append({"sequence": self.hang_records[-1]["sequence"] + 1, "kind": "stall",
+                                      "duration_ms": self.stall_ms})
         for key, counts in (self.hits or {}).items():
             counts[(self.switch_arms or {}).get(key, "old")] += 1
         if self.armed is not None:
@@ -203,6 +223,28 @@ class FakeApp:
             reply["result"] = {"name": params["args"]["name"]}
         return {"ok": True, "result": reply}
 
+    def m_debug_blocking(self, params):
+        sites = [{"context": "main", "kind": "blocking-call", "seam_kind": "none", "location": "Store.swift:9",
+                  "count": self.main_blocks, "total_ms": 1.0, "max_ms": 1.0}] if self.main_blocks else []
+        return {"ok": True, "result": {"compiled_in": self.blocking_compiled, "overflow": 0, "sites": sites,
+                                       "contexts": {"main": {"sites": len(sites), "count": self.main_blocks,
+                                                             "overflow": 0}}}}
+
+    def m_debug_hangs(self, params):
+        records = [r for r in self.hang_records if r["sequence"] > params.get("after", 0)]
+        records = records[-params["limit"]:] if "limit" in params else records
+        gaps = sum(1 for r in self.hang_records if r["duration_ms"] >= 250)
+        return {"ok": True, "result": {"installed": True, "count": len(self.hang_records), "count250": gaps,
+                                       "records": records}}
+
+    def m_debug_action_budget(self, params):
+        return {"ok": True, "result": {"action_budget_ms": 10, "recent": self.runs[-params.get("limit", 64):]}}
+
+    def m_debug_wakeups(self, params):
+        self.uptime += 1.5
+        reply = {"uptime_s": self.uptime, "active_frame_clients": list(self.left_clients),
+                 "ledger": [{"owner": "IdleScheduler", "reason": "period", "count": self.idle_wakes}]}
+        return {"ok": True, "result": reply}
     def m_debug_oracle_switch_hits(self, params):
         if self.hits is None:
             return {"ok": False, "error": {"code": "method_not_found", "message": "debug.oracle.switch_hits"}}
@@ -271,7 +313,7 @@ class SessionTestBase(unittest.TestCase):
         self.run_proc = Recorder()
 
     def session(self, run=None, canonicalizer=None, *, switch_roots=None, read_daemon_arms=None, read_daemon=None,
-                **ctx) -> driver_app.AppSession:
+                read_resources=None,                 **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
@@ -286,7 +328,8 @@ class SessionTestBase(unittest.TestCase):
                                      run=run or self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
                                      root_base=Path(self.tmp.name) / "o",
-                                     switch_roots=switch_roots or self.empty_registry(), **extra)
+                                     switch_roots=switch_roots or self.empty_registry(), 
+                                     read_resources=read_resources or (lambda pid: None), **extra)
 
     def empty_registry(self) -> "driver_app.switches.Roots":
         return driver_app.switches.selftest_tree(Path(self.tmp.name) / "registry-empty", {}, None)
@@ -875,6 +918,122 @@ class AppSessionTest(SessionTestBase):
         session.close()
         self.assertFalse(session.paths.root.exists())
         self.assertEqual((out / "app.log").read_text(), "launch failed\n")
+
+    # -- the trace of invariants I11-I15
+
+    TRACED = step("new", "action.run", target={"workspace": "current"}, args={"action": "workspace.new"},
+                  expect={"outcome": "ok"}, checkpoint=["before", "settled"])
+    RESOURCES = {"pid": 4242, "fds": 20, "threads": 8, "children": 1, "source": "/proc/<pid>/fd",
+                 "liveObjects": {"workspaces": 1, "terminals": 1}}
+
+    def traced_run(self, the_case: Dict[str, Any], teardown_threads: int = 8):
+        readings = [self.RESOURCES, {**self.RESOURCES, "threads": teardown_threads}]
+        read = []
+
+        def read_resources(pid):
+            read.append(pid)
+            return dict(readings[len(read) - 1])
+
+        session = self.session(trace=True, read_resources=read_resources)
+        return session, session.run_case(the_case, {"case_id": "actions/c"}), read
+
+    def check(self, trace: Dict[str, Any]):
+        import invariants
+
+        return invariants.check_trace(json.loads(json.dumps(trace)), schema=invariants.load_schema())
+
+    def test_a_traced_case_reads_each_side_channel_around_the_step(self) -> None:
+        session, result, read = self.traced_run(case(self.TRACED), teardown_threads=9)
+        app = self.apps[0]
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(read, [4242, 4242], "the tag daemon after the fixture setup and after its teardown")
+        trace = result["trace"]
+        self.assertEqual(trace["setup"]["daemonResources"]["threads"], 8)
+        self.assertEqual(trace["teardown"]["daemonResources"]["threads"], 9)
+        self.assertNotIn("recorderArmed", trace)
+        (record,) = trace["steps"]
+        self.assertEqual(sorted(record["checkpoints"]), ["before", "settled"])
+        self.assertEqual({k: sorted(v) for k, v in record["sideChannels"].items()},
+                         {"blocking": ["after", "before"], "hangs": ["after", "before"],
+                          "actionBudget": ["after", "before"], "wakeups": ["idle", "settled"]})
+        methods = [m for m, _ in app.calls]
+        blocking = [i for i, m in enumerate(methods) if m == "debug.blocking"]
+        wakeups = [i for i, m in enumerate(methods) if m == "debug.wakeups"]
+        settle = max(i for i, m in enumerate(methods) if m == driver_app.SETTLE)
+        captures = [i for i, (m, p) in enumerate(app.calls) if m == driver_app.SNAPSHOT and "facets" in p]
+        self.assertLess(captures[0], blocking[0], "the before capture is not part of the step")
+        self.assertLess(blocking[0], methods.index("action.run"))
+        self.assertLess(settle, blocking[1], "the after readings follow the settle")
+        self.assertLess(blocking[1], captures[1], "and come before the settled capture")
+        self.assertLess(wakeups[0], captures[1])
+        self.assertLess(captures[1], wakeups[1], "the idle window spans the settled capture")
+        hangs = [p for m, p in app.calls if m == "debug.hangs"]
+        self.assertEqual(hangs, [{"limit": 1}, {"after": 2, "limit": driver_app.HANGS_AFTER_LIMIT}])
+        report = self.check(trace)
+        self.assertEqual([report.checked[i] for i in ("I11", "I12", "I13", "I14", "I15")], [1, 1, 1, 1, 1])
+        self.assertEqual(report.perf_queue, [])
+        self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I15"],
+                         [("I15", "/daemonResources/threads")])
+
+    def test_a_slow_step_gives_one_perf_queue_line_per_side_channel(self) -> None:
+        def slow(app):
+            app.blocks_per_turn, app.commit_ms, app.stall_ms = 1, 14.0, 400.0
+            app.left_clients = ["Motion.clock"]
+
+        session = self.session(trace=True)
+        slow(self.apps[0])
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        report = self.check(result["trace"])
+        self.assertEqual([(v.invariant, v.step, v.source, v.pointer) for v in report.perf_queue],
+                         [("I11", "new", "debug.blocking", "/sideChannels/blocking/after/sites/0"),
+                          ("I12", "new", "debug.hangs", "/sideChannels/hangs/after/records/0"),
+                          ("I13", "new", "debug.action_budget", "/sideChannels/actionBudget/after/recent/0"),
+                          ("I14", "new", "debug.wakeups", "/sideChannels/wakeups/idle/active_frame_clients/0")])
+        self.assertEqual([v.invariant for v in report.violations if v.invariant in ("I11", "I12", "I13", "I14")], [])
+        self.assertIn("I15", [n.invariant for n in report.not_checked], "no daemon counts were read")
+
+    def test_a_recorder_case_reads_no_side_channel(self) -> None:
+        session, result, _ = self.traced_run(case(NEW_WORKSPACE))
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("debug.blocking", [m for m, _ in self.apps[0].calls])
+        self.assertTrue(result["trace"]["recorderArmed"])
+        self.assertNotIn("sideChannels", result["trace"]["steps"][0])
+        report = self.check(result["trace"])
+        self.assertIn("debug.oracle.recorder", next(n.reason for n in report.not_checked if n.invariant == "I11"))
+
+    def test_a_refused_side_channel_is_recorded_and_not_checked(self) -> None:
+        session = self.session(trace=True)
+        self.apps[0].m_debug_blocking = lambda p: {"ok": False, "error": {"code": "method_not_found"}}
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        reading = result["trace"]["steps"][0]["sideChannels"]["blocking"]["before"]
+        self.assertEqual(reading, {"error": {"code": "method_not_found"}})
+        report = self.check(result["trace"])
+        self.assertEqual(report.checked["I11"], 0)
+        self.assertEqual(report.checked["I13"], 1)
+
+    def test_an_untraced_run_reads_no_side_channel_and_writes_no_trace(self) -> None:
+        session = self.session()
+        result = session.run_case(case(self.TRACED), {"case_id": "actions/c"})
+        self.assertNotIn("trace", result)
+        self.assertFalse({"debug.blocking", "debug.hangs", "debug.action_budget", "debug.wakeups"}
+                         & {m for m, _ in self.apps[0].calls})
+
+    def test_run_case_trace_writes_each_attempts_trace(self) -> None:
+        ctx = {"run_id": "r", "product": "app", "build": "bench", "binary": APP, "out_dir": self.tmp.name}
+        lines: List[str] = []
+        opened: List[Dict[str, Any]] = []
+
+        def open_session(c):
+            opened.append(c)
+            return self.session(**{k: v for k, v in c.items() if k not in ctx})
+
+        out = Path(self.tmp.name) / "traces"
+        driver_app.run_repeats(ctx, case(self.TRACED), 2, open_session=open_session, emit=lines.append, trace_dir=out)
+        self.assertEqual([c["trace"] for c in opened], [True, True])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["0.trace.json", "1.trace.json"])
+        self.assertEqual(json.loads((out / "0.trace.json").read_text())["schema"], "cmux.oracle.trace/v1")
 
     def test_results_pass_oracle_protocol_checks(self) -> None:
         session = self.session()

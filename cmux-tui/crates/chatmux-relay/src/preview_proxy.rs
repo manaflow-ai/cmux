@@ -690,6 +690,7 @@ fn accept_websocket(
     };
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let mut shutdown = shared.shutdown.clone();
+    // supervise-allow: one upgraded preview WebSocket; it ends with its socket or the proxy's shutdown, and a panic ends that socket only.
     tokio::spawn(async move {
         if let Ok(upgraded) = hyper::upgrade::on(request).await {
             let io = hyper_util::rt::TokioIo::new(upgraded);

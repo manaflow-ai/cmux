@@ -52,7 +52,7 @@
     },
     "planned": {
       "enum": ["old", "new"],
-      "description": "The arm the refactor lands at: `--arm launch-config` runs every switch at its planned arm against all-default."
+      "description": "The arm the refactor lands at: `oracle.py diff --arm launch-config` runs every switch at its planned arm against all-default, each run's receipt lists the arms the product read back (switch_readback) and refuses a switch that did not read back its planned arm, and `oracle.py bisect-switches CASE` names the smallest set of switches at their planned arm that makes CASE diverge (task p15-oracle-183). A switch planned at its default arm is inert there."
     },
     "created": {
       "type": "string",

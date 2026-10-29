@@ -103,11 +103,24 @@ fn output_by(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("git did not run: {e}"))?;
     // Written from a thread: git may answer before it reads it all.
-    let stdin = child
-        .stdin
-        .take()
-        .zip(input)
-        .map(|(mut stdin, input)| std::thread::spawn(move || stdin.write_all(&input)));
+    let stdin = match child.stdin.take().zip(input) {
+        Some((mut stdin, input)) => {
+            let writer = move || stdin.write_all(&input);
+            match crate::supervised::scoped_thread(
+                "acpmux-git-stdin",
+                cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+                writer,
+            ) {
+                Ok(writer) => Some(writer),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("git did not run: {e}"));
+                }
+            }
+        }
+        None => None,
+    };
     let Some(by) = by else {
         let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"));
         if let Some(Err(e)) = stdin.and_then(|w| w.join().ok()) {
@@ -121,13 +134,18 @@ fn output_by(
         (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
     ] {
         let tx = tx.clone();
-        std::thread::spawn(move || {
-            let mut got = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut got);
-            }
-            let _ = tx.send((is_stdout, got));
-        });
+        // One that cannot start drops its sender: the wait below ends in an error.
+        let _ = crate::supervised::scoped_thread(
+            "acpmux-git-output",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut got = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut got);
+                }
+                let _ = tx.send((is_stdout, got));
+            },
+        );
     }
     drop(tx);
     let stop = |child: &mut std::process::Child| {
@@ -342,6 +360,18 @@ fn fetch_missing(
         return Err(format!("fetching the partial clone's missing files failed: {}", err.trim()));
     }
     Ok(())
+}
+
+/// [`remove_worktree`] on a thread of its own: the caller (a drop) does not wait for git.
+pub fn remove_worktree_in_background(folder: PathBuf, worktree: Worktree) {
+    let remove = move || remove_worktree(&folder, &worktree);
+    if let Err(e) = crate::supervised::scoped_thread(
+        "acpmux-worktree-remove",
+        cmux_threads::ThreadQos::Utility,
+        remove,
+    ) {
+        tracing::warn!("a worktree that was not used stays: {e}");
+    }
 }
 
 /// Removes a worktree [`make_worktree`] made, and its branch.

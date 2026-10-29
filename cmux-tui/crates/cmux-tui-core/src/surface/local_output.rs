@@ -149,6 +149,9 @@ impl LocalOutput {
         let n = read(&mut buf)?;
         // The key press this read echoes, taken with the read so it stamps no later one.
         let flow = self.take_echo_flow(pty);
+        if flow != 0 {
+            pty.input_stages.echoed(flow, crate::input_stages::now_ns());
+        }
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
         if output.is_empty() {
@@ -289,6 +292,23 @@ impl LocalOutput {
             wake.kick();
         }
         result
+    }
+
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
+    #[cfg(unix)]
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
+        self.pending.push(ParsedOutput {
+            generation,
+            title_update: None,
+            scroll_changed: Some(position),
+            terminal_notifications: Vec::new(),
+            finished_commands: Vec::new(),
+        });
+        if let Some(wake) = self.wake.as_ref() {
+            wake.kick();
+        }
     }
 
     pub(super) fn take_pending(&mut self) -> Vec<ParsedOutput> {

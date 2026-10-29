@@ -1,5 +1,5 @@
-// The code editor and Markdown pages keep their tab's page while it holds edits not on disk
-// (p13-webui-032): each store sets `user_edits` through `cmux.page.keepAlive` once when the first
+// The code editor and Markdown pages keep their tab's page while it holds edits not on disk:
+// each store sets `user_edits` through `cmux.page.keepAlive` once when the first
 // edit makes the file dirty, and ends it once the save lands. No call per keystroke.
 import { expect, test } from "bun:test";
 import { KEEP_ALIVE_OP, pageKeepAliveFor, type PageClient } from "../src/pages/shared/pageClient";

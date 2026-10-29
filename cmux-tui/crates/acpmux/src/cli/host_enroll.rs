@@ -820,16 +820,20 @@ fn rewrite_home(text: &str, from: &str, to: &str) -> String {
     let bytes = text.as_bytes();
     let (mut out, mut last) = (String::with_capacity(text.len()), 0);
     for (at, _) in text.match_indices(from) {
-        let prev = at.checked_sub(1).map(|i| bytes[i]);
+        let prev = at.checked_sub(1).and_then(|i| bytes.get(i)).copied();
         let next = bytes.get(at + from.len()).copied();
         if prev.is_some_and(path_byte) || next.is_some_and(|b| b != b'/' && path_byte(b)) {
             continue;
         }
-        out.push_str(&text[last..at]);
+        // Matches do not overlap and start and end on character boundaries.
+        let Some(kept) = text.get(last..at) else { continue };
+        out.push_str(kept);
         out.push_str(to);
         last = at + from.len();
     }
-    out.push_str(&text[last..]);
+    if let Some(tail) = text.get(last..) {
+        out.push_str(tail);
+    }
     out
 }
 
@@ -840,13 +844,13 @@ fn profile_perms(ls: &str, uid: &str) -> Result<(), &'static str> {
     let mut fields = ls.split_whitespace();
     let mode = fields.next().unwrap_or("").as_bytes();
     let owner = fields.nth(1).unwrap_or("");
-    if mode.len() < 10 || mode[0] != b'-' {
+    let [b'-', _, _, _, _, group_write, _, _, other_write, _, ..] = mode else {
         return Err("not a regular file");
-    }
+    };
     if owner != uid {
         return Err("owned by another user");
     }
-    if mode[5] == b'w' || mode[8] == b'w' {
+    if *group_write == b'w' || *other_write == b'w' {
         return Err("group- or other-writable, so acpmux refuses it");
     }
     Ok(())

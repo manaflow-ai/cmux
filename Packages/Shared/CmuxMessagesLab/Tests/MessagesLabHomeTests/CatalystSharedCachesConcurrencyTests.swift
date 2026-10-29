@@ -7,8 +7,8 @@ import Testing
 import UniformTypeIdentifiers
 @testable import MessagesLabHome
 
-/// The catalyst caches that row drawing reaches from the render queues and the main thread at once
-/// (p10-stability-041): every miss and hit from many threads gives what one thread computes, and the process
+/// The catalyst caches that row drawing reaches from the render queues and the main thread at once:
+/// every miss and hit from many threads gives what one thread computes, and the process
 /// stays up. Each cache is lock-owned; the bubble outline cache had no lock before, so many threads that miss
 /// at once wrote one dictionary (a trap, or a report under `--sanitize=thread`).
 @Suite struct CatalystSharedCachesConcurrencyTests {

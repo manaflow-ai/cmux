@@ -3,8 +3,8 @@ import CmuxNextDesign
 public import CmuxNextWakeups
 public import Foundation
 
-/// The Home list's two launch files, read together on a launch lane from `main` while AppKit starts
-/// (p08-startup-076): the conversations' ``HomeCache`` (`home.json` and its windows) and the list's
+/// The Home list's two launch files, read together on a launch lane from `main` while AppKit starts:
+/// the conversations' ``HomeCache`` (`home.json` and its windows) and the list's
 /// ``HomeSidebarLaunchCache`` (`sidebar.json`). The main thread never reads them: the Home list's first
 /// frame takes ``value`` when the read has ended, and otherwise seeds the list on the read's completion
 /// (the theme background until then), as Chrome reads a profile's files on a blocking sequence and runs
@@ -52,7 +52,7 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     public static func start(owner: String, caches: URL, on work: BackgroundWork,
                              reads: @escaping @Sendable () -> Bool = { true }) -> HomeListLaunchRead {
         let conversations = HomeCache.standard(owner: owner, caches: caches)
-        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches)
+        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: work)
         return HomeListLaunchRead(owner: owner, caches: caches, conversations: conversations, sidebar: sidebar, on: work) {
             reads() ? Value(conversations: conversations.load(), sidebar: sidebar.read()) : Value()
         }
@@ -64,10 +64,11 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     /// - Parameters:
     ///   - owner: The Chief owner (`ChiefHome.session`).
     ///   - caches: The new folder of the Home caches.
+    ///   - work: The app's blocking-work lanes, which write the list's launch cache.
     /// - Returns: The ended read.
-    public static func nothingToRead(owner: String, caches: URL) -> HomeListLaunchRead {
+    public static func nothingToRead(owner: String, caches: URL, on work: BackgroundWork) -> HomeListLaunchRead {
         HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
-                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches), read: nil)
+                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: work), read: nil)
     }
 
     private init(owner: String, caches: URL, conversations: HomeCache, sidebar: HomeSidebarLaunchCache, read: LaunchRead<Value>?) {

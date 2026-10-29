@@ -52,7 +52,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cmux-tui/spec/sdk-schema.json"
 CENSUS = ROOT / "scripts/cmux-next/ipc-census.py"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The iOS cmux-tui client names every command it sends in this enum (p05-ipc-048).
+# The iOS cmux-tui client names every command it sends in this enum.
 IOS_COMMAND_TABLE = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 
 sys.path.insert(0, str(ROOT / "cmux-tui/bindings"))
@@ -75,15 +75,17 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
+        "memory-report",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
-        "client-hello",
+        "client-hello", "bridge-hello",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream",
+        "set-stream-priority", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -200,7 +202,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
 # stats and the agent inventory registry refresh, which waits on the network
 # for seconds; else control. An agent chat's prompt, cancel and permission
-# answer are the person's input to the attached session (p05-ipc-018: input
+# answer are the person's input to the attached session (input
 # for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
@@ -208,6 +210,8 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        # Focus and visibility of an attach stream: a tab switch is the person's.
+        "set-stream-priority",
         "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
@@ -227,7 +231,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     ),
     "background": (
         "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
-        "terminal-resources", "agent-inventory-refresh",
+        "terminal-resources", "agent-inventory-refresh", "memory-report",
     ),
 }
 
@@ -303,6 +307,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "memory-report",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
     "loopback-status", "browser-runtime-status",
@@ -338,9 +343,10 @@ MEMORY = (
     # Cancels an in-flight apps-run or script cell of this connection only.
     "cancel-request",
     # Connection state that ends with the connection: its role and proof, its
-    # loopback streams, its browser hosts and its machine catalog lease.
-    "client-hello", "loopback-open", "loopback-data", "loopback-credit", "loopback-shutdown",
-    "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
+    # bridge kind, its loopback streams, its browser hosts and its machine
+    # catalog lease.
+    "client-hello", "bridge-hello", "loopback-open", "loopback-data", "loopback-credit",
+    "loopback-shutdown", "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -349,6 +355,8 @@ MEMORY = (
     "snapshot-request",
     # Ends one attach stream of this connection and removes its view.
     "cancel-stream",
+    # The lane and sequence priority of one attach stream of this connection.
+    "set-stream-priority",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.

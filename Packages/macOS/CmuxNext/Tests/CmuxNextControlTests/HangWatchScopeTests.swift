@@ -7,13 +7,13 @@ import Darwin
 import Foundation
 import Testing
 
-/// Hang-watch scopes on other threads, scanned on the main-thread watchdog's thread (p02-threads-016,
-/// Chrome's base/threading/hang_watcher.cc): the watchdog thread runs as at launch with the main run loop
+/// Hang-watch scopes on other threads, scanned on the main-thread watchdog's thread
+/// (Chrome's base/threading/hang_watcher.cc): the watchdog thread runs as at launch with the main run loop
 /// asleep, and the scopes run on named threads that spin, so the monitor samples a thread that is running
 /// its work, as a real hang does.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct HangWatchScopeTests {
     #if DEBUG
-    /// A thread blocked inside its scope (p10-stability-031): one jank with no stack at the budget (in
+    /// A thread blocked inside its scope: one jank with no stack at the budget (in
     /// `threadJanks`), then one hang dump (in `threadHangs`) whose stack has the blocked function on top (under
     /// the `read` it waits in), with the crash keys of the moment, the hung thread named in them while it is
     /// hung. The hang dump itself unblocks the thread: the test waits on the monitor's report, not on a clock.
@@ -104,7 +104,7 @@ import Testing
         defer { watchdog.stop() }
         try await Task.sleep(for: .milliseconds(200)) // the attach's own wake
         let before = watchdog.watchdogWakes.load(ordering: .relaxed)
-        // Ten idle seconds are the scenario under test (p09-observability-067: 0 wakes over 10 s idle).
+        // Ten idle seconds are the scenario under test (0 wakes over 10 s idle).
         try await Task.sleep(for: .seconds(10))
         #expect(watchdog.watchdogWakes.load(ordering: .relaxed) == before)
     }

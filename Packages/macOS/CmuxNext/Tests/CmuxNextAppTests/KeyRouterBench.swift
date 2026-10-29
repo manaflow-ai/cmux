@@ -10,7 +10,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// KeyRouterBench (p04-input-056, plan DC8): the real key dispatcher (`KeyRouter.interceptKeyDown`, the
+/// KeyRouterBench (plan DC8): the real key dispatcher (`KeyRouter.interceptKeyDown`, the
 /// `key-dispatch` perf-hot path) in a cmux window of a 60-workspace registry whose focused pane is a terminal,
 /// one of 30 panes. It drives synthetic key-downs (a plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C)
 /// and prints one `KEY-ROUTER-BENCH {json}` line with
@@ -159,7 +159,7 @@ struct KeyRouterBench {
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
 
         let timing = ProcessInfo.processInfo.environment["CMUX_BENCH"] == "1"
-        // The plain key measures the normal-mode path (p04-input-054): no owner holds typing keys.
+        // The plain key measures the normal-mode path: no owner holds typing keys.
         try #require(harness.router.modes.isNormal, "modes \(harness.router.modes.active) are on: the plain key skips the normal-mode path")
         let plainRow = try Self.measure(Self.plain, in: harness, timing: timing)
         var chordRows: [(Key, Row)] = []
@@ -217,7 +217,7 @@ struct KeyRouterBench {
 
     /// The chord step every Cmd or Ctrl key-down takes before the router resolves it
     /// (`ChordTracker.step`, then `KeyBindingTable.step`) allocates nothing: a first key that runs,
-    /// one that arms a chord, the Cmd-J leader, an armed chord's next key and an unbound key (p04-input-055).
+    /// one that arms a chord, the Cmd-J leader, an armed chord's next key and an unbound key.
     @Test func chordStepAllocatesNothing() throws {
         let control = MallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")

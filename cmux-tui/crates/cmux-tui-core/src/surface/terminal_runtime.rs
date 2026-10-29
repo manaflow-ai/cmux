@@ -53,7 +53,7 @@ impl ReaderCompletion {
 pub(super) enum TerminalReader {
     /// A thread of its own: a hosted terminal's host reader, a holder or
     /// byte-backend terminal's reader. Shutdown joins it.
-    Thread(std::thread::JoinHandle<()>),
+    Thread(SupervisedThread<()>),
     /// A source on the owner's read loop (`mux::TerminalReads`): a
     /// daemon-local PTY. Nothing to join.
     #[cfg(unix)]
@@ -362,11 +362,15 @@ pub struct PtyTerminalRuntime {
     pub(super) attach_colors_force_pending: AtomicBool,
     /// The flow of the newest key press a `send` wrote on this terminal's
     /// local PTY master (0: none since the last output took it): the
-    /// daemon's next read of that PTY carries it, once
-    /// (p09-observability-018). A hosted terminal's host and a holder
+    /// daemon's next read of that PTY carries it, once.
+    /// A hosted terminal's host and a holder
     /// terminal's sink keep their own slot: the daemon does not read
     /// their PTY.
     pub(super) last_input_flow: crate::input_flow::InputFlowSlot,
+    /// This terminal's key presses on their way to their echo: the daemon's
+    /// receive, the PTY write and the echo's read. Shared
+    /// with each attach writer, which sends the stamps with the echo.
+    pub(super) input_stages: Arc<crate::input_stages::InputStageRing>,
     /// Published byte offset and grid generation for snapshot viewers.
     pub(super) snapshot_position: snapshot_attach::SnapshotStreamPosition,
     /// Last effective color state emitted to attach streams. This suppresses

@@ -70,7 +70,13 @@ impl BoundedDiagnosticBuffer {
                     self.finish();
                     return;
                 }
-                Ok(read) => self.append(&buffer[..read]),
+                Ok(read) => match crate::panic_free::reported_prefix(&buffer, read) {
+                    Ok(chunk) => self.append(chunk),
+                    Err(_) => {
+                        self.finish();
+                        return;
+                    }
+                },
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => {
                     self.finish();
@@ -111,7 +117,13 @@ impl BoundedDiagnosticBuffer {
                     self.finish();
                     return;
                 }
-                Ok(read) => self.append(&buffer[..read]),
+                Ok(read) => match crate::panic_free::reported_prefix(&buffer, read) {
+                    Ok(chunk) => self.append(chunk),
+                    Err(_) => {
+                        self.finish();
+                        return;
+                    }
+                },
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => {
                     self.finish();
@@ -187,26 +199,28 @@ impl BoundedDiagnosticBuffer {
 
 fn append_bounded(state: &mut DiagnosticState, bytes: &[u8], max_bytes: usize) {
     let remaining = max_bytes.saturating_sub(state.bytes.len());
-    state.bytes.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+    state.bytes.extend(bytes.iter().take(remaining));
     state.truncated |= bytes.len() > remaining;
 }
 
 fn redact_committed(bytes: &[u8], redactions: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>) {
     const REPLACEMENT: &[u8] = b"[redacted]";
     let mut redacted = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if let Some(secret) = redactions.iter().find(|secret| bytes[index..].starts_with(secret)) {
+    let mut rest = bytes;
+    while let Some((&first, after_first)) = rest.split_first() {
+        if let Some(after_secret) =
+            redactions.iter().find_map(|secret| rest.strip_prefix(secret.as_slice()))
+        {
             redacted.extend_from_slice(REPLACEMENT);
-            index += secret.len();
+            rest = after_secret;
         } else if redactions
             .iter()
-            .any(|secret| bytes.len() - index < secret.len() && secret.starts_with(&bytes[index..]))
+            .any(|secret| rest.len() < secret.len() && secret.starts_with(rest))
         {
-            return (redacted, bytes[index..].to_vec());
+            return (redacted, rest.to_vec());
         } else {
-            redacted.push(bytes[index]);
-            index += 1;
+            redacted.push(first);
+            rest = after_first;
         }
     }
     (redacted, Vec::new())
@@ -215,14 +229,16 @@ fn redact_committed(bytes: &[u8], redactions: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>) 
 fn redact(bytes: &[u8], redactions: &[Vec<u8>]) -> Vec<u8> {
     const REPLACEMENT: &[u8] = b"[redacted]";
     let mut redacted = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if let Some(secret) = redactions.iter().find(|secret| bytes[index..].starts_with(secret)) {
+    let mut rest = bytes;
+    while let Some((&first, after_first)) = rest.split_first() {
+        if let Some(after_secret) =
+            redactions.iter().find_map(|secret| rest.strip_prefix(secret.as_slice()))
+        {
             redacted.extend_from_slice(REPLACEMENT);
-            index += secret.len();
+            rest = after_secret;
         } else {
-            redacted.push(bytes[index]);
-            index += 1;
+            redacted.push(first);
+            rest = after_first;
         }
     }
     redacted

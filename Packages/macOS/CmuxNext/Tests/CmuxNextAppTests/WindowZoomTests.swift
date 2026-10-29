@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextWakeupsTestSupport
 import struct CmuxNextDaemon.CellSize
 @testable import CmuxNextDesign
 import CmuxNextSidebar
@@ -17,7 +18,7 @@ import Testing
     private func shownWindow() throws -> (ShellWindow, NSRect) {
         _ = NSApplication.shared
         let screen = try #require(NSScreen.main, "zooming needs a screen")
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
         let window = ShellWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

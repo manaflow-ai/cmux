@@ -3,6 +3,7 @@
 //! once for a session here or on a peer, however slow the peer or busy the target.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// How long `--no-wait` gives a target that takes the message at once (a session here) to say
 /// whether it steered in, before it prints the delivery id alone.
@@ -43,7 +44,7 @@ pub(super) async fn queue(
     }
     let steered = status.pointer("/accepted/steer") == Some(&json!(true));
     if !json_out {
-        warn_host_pressure(&status["accepted"]);
+        warn_host_pressure(status.field("accepted"));
     }
     if json_out {
         let session_id = status.pointer("/accepted/sessionId").cloned().unwrap_or(json!(key));
@@ -60,15 +61,19 @@ pub(super) async fn queue(
         });
         if superseding {
             // null until delivered, or when the target's daemon predates the key.
-            out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-            out["replacedPromptIds"] =
-                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+            out.set("replaced", accepted.get("replaced").cloned().unwrap_or(Value::Null));
+            out.set(
+                "replacedPromptIds",
+                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null),
+            );
         }
         print_json(&out);
     } else if state == "delivered" {
         let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
         let mut lines = sent_lines(&accepted, superseding);
-        lines[0].push_str(&format!(" (delivery {id})"));
+        if let Some(first) = lines.first_mut() {
+            first.push_str(&format!(" (delivery {id})"));
+        }
         for line in lines {
             println!("{line}");
         }
@@ -115,9 +120,11 @@ async fn queue_direct(
             "accepted": accepted,
         });
         if superseding {
-            out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-            out["replacedPromptIds"] =
-                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+            out.set("replaced", accepted.get("replaced").cloned().unwrap_or(Value::Null));
+            out.set(
+                "replacedPromptIds",
+                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null),
+            );
         }
         print_json(&out);
     } else {

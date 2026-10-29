@@ -3,6 +3,7 @@ public import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
 public import CmuxNextInput
+public import CmuxNextAppearance
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///

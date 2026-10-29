@@ -2,7 +2,7 @@ import CmuxNextDesign
 import CoreGraphics
 import QuartzCore
 
-/// The canvas camera's springs on the render server, as values (chrome-parity R2, p03-rendering-031).
+/// The canvas camera's springs on the render server, as values (chrome-parity R2).
 ///
 /// The view's bounds rest at the target camera from the change's turn. Two channels on the screen
 /// layer show the move there, and they do not interact, so springs added by later changes stack in any

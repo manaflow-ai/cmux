@@ -4,7 +4,7 @@ import CmuxNextInputCore
 import CmuxNextWakeups
 
 /// One terminal view's pointer input on its window's ``FrameInputCoalescer`` (feature
-/// `terminalPointerFrames`, p04-input-034), as Chromium aligns mouse moves and wheels to the frame
+/// `terminalPointerFrames`), as Chromium aligns mouse moves and wheels to the frame
 /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`, `IsRafAlignedEvent`):
 ///
 /// - Moves and drags reach Ghostty (`ghostty_surface_mouse_pos`) on a frame interval's first event and

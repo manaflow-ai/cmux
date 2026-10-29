@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 import Testing
 
-/// The events whose queueing `CmuxApplication.sendEvent` feeds to the watchdog's input-queueing histogram
-/// (p12-perf-process-031): the user's keys, clicks and wheel, as Chromium's EventLatency counts them;
+/// The events whose queueing `CmuxApplication.sendEvent` feeds to the watchdog's input-queueing histogram:
+/// the user's keys, clicks and wheel, as Chromium's EventLatency counts them;
 /// never moves, modifier changes or the app's synthetic input.
 @MainActor @Suite struct CmuxApplicationQueueingTests {
     @Test func keysClicksAndWheelAreMeasured() {

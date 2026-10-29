@@ -13,7 +13,7 @@ extension ChatController {
     /// didBecomeKey -> active, didResignKey -> inactive (an app that deactivates resigns its key window),
     /// `!window.isKeyWindow` when it joins a window, each through `viewInactive`. No other pane changes; a display
     /// move never sets it. Without `followsKeyWindow` the view stays active. The same observers tell the compose bar's
-    /// controls (their Full Keyboard Access ring shows only in the key window, p03-rendering-074).
+    /// controls (their Full Keyboard Access ring shows only in the key window).
     func followKeyState() {
         keyObservers = []
         guard let window, let demo else { return }

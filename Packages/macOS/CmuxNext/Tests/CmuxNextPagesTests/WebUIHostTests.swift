@@ -102,7 +102,7 @@ struct WebUIHostTests {
     /// Pages that ask to share WebKit processes (the agent pages) join the host's process groups:
     /// one data store, the next page related to the first, so many New Tab pages and chats do not
     /// start a process each (sequoia-lag.md: 55 tabs had run 54 WebContent processes). A page that
-    /// does not ask keeps a store of its own; the warm-up view gets the group's pool and store.
+    /// does not ask keeps a store of its own; the warm-up view gets the pool and the agent group's store.
     @Test func pagesThatShareWebKitProcessesJoinTheHostsGroup() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil)
@@ -110,19 +110,21 @@ struct WebUIHostTests {
         let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        let store = try #require(host.processGroups).dataStore
+        let groups = try #require(host.processGroups)
+        let store = groups.dataStore(for: .page(descriptor.id))
         #expect(first.webView.configuration.websiteDataStore === store)
         #expect(second.webView.configuration.websiteDataStore === store)
         #expect(second.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webView)
         #expect(alone.webView.configuration.websiteDataStore !== store)
         let warmup = host.groupedWebKitConfiguration()
-        #expect(warmup.websiteDataStore === store)
+        #expect(warmup.websiteDataStore === groups.dataStore(for: .group(.agent)))
+        #expect(warmup.websiteDataStore !== store)
         #expect(warmup.processPool === first.webView.configuration.processPool)
         for view in [first, second, alone] { host.close(view) }
     }
 
-    /// A page that shows in Chromium has no WebKit process to share: it has no WebKit view
-    /// (p13-webui-041), and the one a host forces stays out of the group, so it never becomes the
+    /// A page that shows in Chromium has no WebKit process to share: it has no WebKit view,
+    /// and the one a host forces stays out of the group, so it never becomes the
     /// group's first page.
     @Test func aSharedPageInChromiumStaysOutOfTheGroup() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
@@ -133,14 +135,15 @@ struct WebUIHostTests {
         #expect(view.webKitPieces == nil)
         await view.chromiumStart?.value
         #expect(view.webKitPieces == nil)
-        #expect(view.webView.configuration.websiteDataStore !== host.processGroups?.dataStore)
+        #expect(view.webView.configuration.websiteDataStore !== host.processGroups?.dataStore(for: .page(descriptor.id)))
         #expect(!view.crash.sharesWebKitProcess)
         host.close(view)
     }
 
     /// With `webKitPageProcessGroups` every page of a sharing group joins it without asking, so the
     /// pages of one group start one WebContent process and their crashes count against one budget;
-    /// a solo page keeps its own store and process (p07-memory-087).
+    /// a solo page keeps its own store and process. The group's store is its own,
+    /// not the agent group's the warm-up has: pages of different groups never share localStorage.
     @Test func everyPageOfASharingGroupJoinsItWithWebKitPageProcessGroups() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil, everySharingPage: true)
@@ -148,8 +151,9 @@ struct WebUIHostTests {
         let first = try #require(host.open(PageOpenRequest(descriptor: privileged, root: root, routes: [])))
         let second = try #require(host.open(PageOpenRequest(descriptor: privileged, root: root, routes: [])))
         let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        let store = try #require(host.processGroups).dataStore
+        let store = try #require(host.processGroups).dataStore(for: .group(.privileged))
         #expect(first.webView.configuration.websiteDataStore === store)
+        #expect(store !== host.groupedWebKitConfiguration().websiteDataStore)
         #expect(second.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webView)
         #expect(first.crash.sharesWebKitProcess && second.crash.sharesWebKitProcess)
         #expect(alone.webView.configuration.websiteDataStore !== store)

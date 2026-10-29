@@ -8,7 +8,7 @@ import WebKit
 /// render_process_host_impl.cc, `GetExistingProcessHost` and `IsSuitableHost`): below the limit every tab has its
 /// own process; at it, a new tab joins a live process whose every tab is of its site (scheme and eTLD+1), never a
 /// process of another site, of another profile, or one that holds two sites; incognito never joins a normal tab.
-/// A joined tab is made with the process's tab as its `_relatedWebView` (p07-memory-088).
+/// A joined tab is made with the process's tab as its `_relatedWebView`.
 ///
 /// The tabs' first URLs are `.test` names, which never resolve: only the process choice made when the web view is
 /// made is under test. Process ids are the test's (`processIdentifier`): none (every process still starting, one

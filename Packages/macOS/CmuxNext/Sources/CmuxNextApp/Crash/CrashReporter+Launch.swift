@@ -16,7 +16,7 @@ extension CrashReporter {
     /// forced `DisableTelemetry` from the managed domains, all read once.
     /// `previousRun`: the previous run's crash keys and black box for its
     /// crash event (``previousRunEvidence(marker:bundleID:)``).
-    /// `hangTracking` follows feature `fatalHangReports` (p09-observability-076).
+    /// `hangTracking` follows feature `fatalHangReports`.
     static func forThisLaunch(
         bundleID: String?,
         hangTracking: CrashReporter.HangTracking = .sentry,
@@ -37,7 +37,7 @@ extension CrashReporter {
             processEnvironment: environment), hangTracking: hangTracking, previousRun: previousRun)
     }
 
-    /// The previous run's files for its crash event (p09-observability-079): its black box and crash-key page in
+    /// The previous run's files for its crash event: its black box and crash-key page in
     /// the app's trace folder (`TraceBlackBoxFileSteps.appDirectory`), named by its pid and checked against its
     /// process start, and its crash path's `run.crashkeys` record, which the marker's launch read took
     /// (`AppRunMarker.previousCrashKeys`). `blackbox.txt` goes only while this Mac has the hang-reports consent
@@ -45,7 +45,7 @@ extension CrashReporter {
     /// marker; no trace file is read until a crash event asks.
     ///
     /// After an unclean exit, the event also gets the `FATAL` line Chromium wrote before it aborted the app
-    /// (tag `cef.fatal`, p09-observability-084): read from the app's Chromium log only when that run ran
+    /// (tag `cef.fatal`): read from the app's Chromium log only when that run ran
     /// `CefInitialize` in process and wrote it (``ChromiumFatalLog/app(previous:endedUncleanly:launched:storage:)``,
     /// with `now` this launch), then scrubbed with the event's other tags.
     static func previousRunEvidence(marker: AppRunMarker?, bundleID: String?,
@@ -75,14 +75,14 @@ extension CrashReporter {
 }
 
 /// The app process's crash reporting (cx-urd.58): the Sentry reporter,
-/// the process's invariant sink (p10-stability-099) and the crash report and
+/// the process's invariant sink and the crash report and
 /// panic log forwarders. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
 ///
-/// With feature `sentryHandlersFirst` (p08-startup-032) Sentry starts with
+/// With feature `sentryHandlersFirst` Sentry starts with
 /// ``CrashReporter/StartProfile/handlersFirst`` and its app-hang reports resume
 /// in one afterStartup post (``AfterStartup``). With feature
-/// `crashForwardersAfterStartup` (p08-startup-078) the forwarders' first pass
+/// `crashForwardersAfterStartup` the forwarders' first pass
 /// (the DiagnosticReports listing, the panic logs) and their watches are one
 /// afterStartup best-effort files-lane post, behind the best-effort fence; the
 /// handlers and the LayoutPassGuard install at once either way. Chrome posts non-critical
@@ -93,7 +93,7 @@ extension CrashReporter {
 struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// The helper crash reports and every shipped Rust process's panic and hang logs (cx-urd.59,
-    /// p09-observability-075: ``RustDiagnosticsLog/all(_:)``), the acpmux daemon's among them; nil outside the
+    /// ``RustDiagnosticsLog/all(_:)``), the acpmux daemon's among them; nil outside the
     /// app process. With reports off they only mark reports done. The helper crash forwarder starts at the
     /// hang-reports controller's first decision too (``hangReportsDecided(_:)``), so no pass sends a black box before it.
     let forwarders: CrashForwarders?
@@ -109,7 +109,7 @@ struct AppCrashReporting: Sendable {
     ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
     ///     forwarders run in its afterStartup lane post (``CrashForwarders/post(on:)``). Nil: they start now.
     ///   - runMarker: The app's run marker: the previous run's crash event, sent after the start, gets that run's
-    ///     crash keys and black box (p09-observability-079).
+    ///     crash keys and black box.
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
          afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
          hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
@@ -124,12 +124,12 @@ struct AppCrashReporting: Sendable {
             blackboxConsent = nil
             return
         }
-        // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on (p09-observability-076).
+        // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on.
         hangSinks?.install(reporter: reporter)
         DebugTimings.markLaunch("crash.sentry_start")
         let sends = reporter.start(profile: afterStartup.profile)
         DebugTimings.markLaunch("crash.sentry_started")
-        // After the start, so the invariant sink sends only when Sentry runs (p10-stability-099).
+        // After the start, so the invariant sink sends only when Sentry runs.
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }

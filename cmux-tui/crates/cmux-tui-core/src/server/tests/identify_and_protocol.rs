@@ -378,7 +378,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &test_writer(),
     )
     .unwrap();
@@ -901,4 +901,125 @@ fn title_changed_event_includes_authoritative_surface_title() {
             "title": "server title",
         })
     );
+}
+
+fn identify_with(mux: &Arc<Mux>, request: Value) -> Value {
+    let command = serde_json::from_value::<Command>(request).expect("identify decodes");
+    handle_command(mux, mux.local_test_client(0), command, &test_writer()).unwrap()
+}
+
+/// `identify {startup_marks: true}` reports the serving daemon's timeline in
+/// start order (`startup-marks-v1`); the default reply keeps its frozen shape
+/// and a mux no daemon serves reports `null` without the capability.
+#[test]
+fn identify_reports_the_startup_timeline_only_when_asked() {
+    use crate::startup_marks::{CAPABILITY, MAIN_START_FIELD, StartupMark, StartupMarks};
+    let advertises = |identity: &Value| {
+        identity["capabilities"].as_array().unwrap().iter().any(|value| value == CAPABILITY)
+    };
+    let mux = test_mux();
+    let bare = identify_with(&mux, json!({"cmd":"identify","startup_marks":true}));
+    assert!(!advertises(&bare));
+    assert_eq!(bare["startup_marks"], Value::Null);
+
+    let marks = Arc::new(StartupMarks::starting_now());
+    marks.mark(StartupMark::ConfigLoaded);
+    mux.install_startup_marks(marks.clone());
+    mux.mark_startup(StartupMark::SocketBound);
+    mux.mark_server_lifecycle_ready();
+    let default = identify_with(&mux, json!({"cmd":"identify"}));
+    assert!(advertises(&default));
+    assert!(default.get("startup_marks").is_none(), "{default}");
+    let served = marks.reached(StartupMark::FirstIdentifyServed).expect("first identify marked");
+
+    let reply = identify_with(&mux, json!({"cmd":"identify","startup_marks":true}));
+    let timeline = reply["startup_marks"].as_object().expect("timeline");
+    let keys = timeline.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
+    let expected = [
+        MAIN_START_FIELD,
+        "config_loaded",
+        "socket_bound",
+        "lifecycle_ready",
+        "first_identify_served",
+    ];
+    assert_eq!(keys, expected.into_iter().collect());
+    // The first identify keeps its time; later ones do not move it.
+    assert_eq!(timeline["first_identify_served"], served);
+    // Reached in start order, so their times follow `StartupMark::ALL`.
+    let in_order = StartupMark::ALL
+        .into_iter()
+        .filter_map(|mark| timeline.get(mark.wire_name()).and_then(Value::as_u64))
+        .collect::<Vec<_>>();
+    assert_eq!(in_order.len(), 4);
+    assert!(in_order.is_sorted(), "{timeline:?}");
+
+    // IdentifyResult and its timeline type are closed: every reported key is declared.
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../../spec/sdk-schema.json")).unwrap();
+    let identify_fields = schema["types"]["IdentifyResult"]["fields"].as_object().unwrap();
+    assert!(identify_fields.contains_key("startup_marks"));
+    let timeline_fields = schema["types"]["DaemonStartupMarks"]["fields"].as_object().unwrap();
+    for mark in StartupMark::ALL.map(StartupMark::wire_name).into_iter().chain([MAIN_START_FIELD]) {
+        assert_eq!(timeline_fields[mark]["type"]["name"], "uint64", "{mark}");
+    }
+    assert_eq!(timeline_fields.len(), StartupMark::ALL.len() + 1);
+    mux.shutdown();
+}
+
+/// The daemon's start path (main.rs `run_server`): an `identify` parked during
+/// the restore is answered at attach, before the WebSocket and launch snapshot
+/// steps and lifecycle readiness. It is not the first identify served, so the
+/// reported timeline runs in `StartupMark::ALL` order and ends with it.
+#[cfg(unix)]
+#[test]
+fn an_identify_parked_during_the_restore_keeps_the_startup_timeline_in_order() {
+    use crate::startup_marks::{StartupMark, StartupMarks};
+    fn read_reply(stream: &mut Box<dyn transport::Stream>) -> Value {
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    }
+    let dir = TestSocketDir::create("startup-marks-parked");
+    let path = dir.path().join("mux.sock");
+    let marks = Arc::new(StartupMarks::starting_now());
+    marks.mark(StartupMark::ConfigLoaded);
+    marks.mark(StartupMark::OwnerPrepared);
+    let mux = test_mux();
+    let restoring =
+        bind_session_socket(&mux.session, Some(path.clone())).unwrap().serve_restoring().unwrap();
+    marks.mark(StartupMark::SocketBound);
+    let mut client = transport::connect(&path).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(client, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+    client.flush().unwrap();
+    mux.install_startup_marks(marks.clone());
+    mux.mark_startup(StartupMark::MuxRestored);
+    mux.mark_startup(StartupMark::OwnerEventLoop);
+    let pending = restoring.attach(mux.clone());
+
+    let parked = read_reply(&mut client);
+    assert_eq!(parked["data"]["lifecycle_ready"], false, "{parked}");
+    assert_eq!(
+        marks.reached(StartupMark::FirstIdentifyServed),
+        None,
+        "an identify answered before lifecycle readiness was counted"
+    );
+    mux.mark_startup(StartupMark::WebsocketReady);
+    mux.mark_startup(StartupMark::LaunchSnapshotWriterStarted);
+    let served = pending.mark_ready().unwrap();
+
+    writeln!(client, r#"{{"id":2,"cmd":"identify","startup_marks":true}}"#).unwrap();
+    client.flush().unwrap();
+    let reply = read_reply(&mut client);
+    let timeline = &reply["data"]["startup_marks"];
+    let offsets = StartupMark::ALL.map(|mark| {
+        timeline[mark.wire_name()].as_u64().unwrap_or_else(|| panic!("{mark:?} in {timeline}"))
+    });
+    assert!(offsets.is_sorted(), "{timeline}");
+    assert!(
+        timeline["first_identify_served"].as_u64() >= timeline["lifecycle_ready"].as_u64(),
+        "{timeline}"
+    );
+    cleanup(&served);
+    mux.shutdown();
 }

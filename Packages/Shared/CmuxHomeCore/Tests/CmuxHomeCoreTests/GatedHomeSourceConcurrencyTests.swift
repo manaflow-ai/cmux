@@ -3,8 +3,8 @@ import Testing
 import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
-/// `GatedHomeSource` keeps its record in one `Mutex<State>` (p10-stability-054,
-/// was an `@unchecked Sendable` class over an NSLock). Reads and closes from many
+/// `GatedHomeSource` keeps its record in one `Mutex<State>`
+/// (was an `@unchecked Sendable` class over an NSLock). Reads and closes from many
 /// tasks at once each land in the record exactly once, and a held read waits until
 /// `release()`. Run under TSan as well (`swift test --sanitize=thread`).
 @MainActor

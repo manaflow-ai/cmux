@@ -23,6 +23,7 @@
 //! releases a size reported after it.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Condvar;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
@@ -180,9 +181,15 @@ pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) 
     // that is going away is not kept alive by a lease (as exit_settle's worker).
     let weak = Arc::downgrade(mux);
     let leases = Arc::clone(&mux.control_clients.size_leases);
-    let spawned = std::thread::Builder::new()
-        .name("terminal-size-lease".into())
-        .spawn(move || run_worker(&leases, &weak));
+    let spawned = supervised::spawn_at(
+        "terminal-size-lease",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            run_worker(&leases, &weak);
+        },
+    );
     if spawned.is_err() {
         // No timer can run: no leases (sizes stay until their views leave).
         mux.control_clients.size_leases.stop_worker();

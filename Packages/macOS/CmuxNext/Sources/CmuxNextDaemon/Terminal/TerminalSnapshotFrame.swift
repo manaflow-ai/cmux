@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// One GHOSTSNP snapshot event of a snapshot attach (`terminal-snapshot-v1`
 /// and `terminal-snapshot-history-v1`; cmux-tui `server/terminal_snapshot.rs`).
@@ -59,10 +60,12 @@ struct DecodedAttachLine: Sendable, Equatable {
     var generation: UInt64?
     /// The key press an `output` echoes (its `flow`), for the probe's decode mark.
     var flow: UInt64?
+    /// That press's daemon stages, for the app's latency slot.
+    var keyStamps: TerminalKeyStamps?
 }
 
-/// The one owner of snapshot order on an attach stream (runs on the reader
-/// thread, in stream order).
+/// The one owner of snapshot order on an attach stream (runs on the attach
+/// connection's decode lane, in stream order).
 ///
 /// - Output tagged with a generation older than the last READY belongs to a
 ///   screen that READY replaced: dropped.

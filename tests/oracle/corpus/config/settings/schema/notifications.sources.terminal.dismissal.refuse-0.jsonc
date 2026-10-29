@@ -1,9 +1,0 @@
-{
-  "notifications": {
-    "sources": {
-      "terminal": {
-        "dismissal": "__not_a_choice__"
-      }
-    }
-  }
-}

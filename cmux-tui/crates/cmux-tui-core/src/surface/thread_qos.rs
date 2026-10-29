@@ -1,4 +1,4 @@
-//! The class a terminal's threads run at (p02-threads-236): its echo
+//! The class a terminal's threads run at: its echo
 //! threads (the local PTY reader and parser, or the hosted mirror reader and
 //! its frame reader, and in the host process the PTY reader and parser) run
 //! at the echo class while a view shows the terminal and at utility while

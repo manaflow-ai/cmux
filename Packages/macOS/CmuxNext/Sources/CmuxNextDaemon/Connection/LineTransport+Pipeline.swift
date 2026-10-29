@@ -8,7 +8,8 @@ extension LineTransport {
     enum Waiter {
         case reply(cmd: String, ReplySlot)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
-        /// The reader thread hands the reply, or the connection's end, to this handler (``send(cmd:onReply:_:)``).
+        /// The connection's decode lane hands the reply, or the closing thread the connection's end, to this
+        /// handler (``send(cmd:onReply:_:)``).
         case handled(cmd: String, ReplyHandler)
         /// Its deadline passed; the late reply is dropped. The id stays
         /// pending so an id-less error still maps to the right request.
@@ -42,8 +43,8 @@ extension LineTransport {
         }
     }
 
-    /// Runs on the reader thread with a request's reply, or on the closing thread with the connection's end;
-    /// once, and never under the transport's locks.
+    /// Runs on the connection's decode lane with a request's reply (inline on the reader while that lane is idle),
+    /// or on the closing thread with the connection's end; once, and never under the transport's locks.
     typealias ReplyHandler = @Sendable (Result<Response, DaemonError>) -> Void
 
     /// An `ok:true` response line plus the number of events routed before it

@@ -1,8 +1,8 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 
-/// The launch picture over the live root, region by region (p08-startup-060, plans/cmux-next/chrome-parity/
+/// The launch picture over the live root, region by region (plans/cmux-next/chrome-parity/
 /// p08-startup.md section 3A, P4). The one ``LaunchPictureView`` that was the window's first frame stays over the live
 /// root while the root is built behind it, masked: each part covers one region of the window (the sidebar, one
 /// visible pane) and leaves at that region's own first meaningful content; the rest of the window (the title row,
@@ -50,7 +50,7 @@ public final class LaunchPictureRegions {
     /// The bound took the picture down (``leaveAll()``): no part left for its content.
     private var isExpired = false
     private var finished: (@MainActor () -> Void)?
-    /// Runs as a part or the rest leaves (p08-startup-061, ``LaunchPictureInput``'s held clicks): its name
+    /// Runs as a part or the rest leaves (``LaunchPictureInput``'s held clicks): its name
     /// (``holder(at:)``) and whether its region drew its content (false at the bound).
     var partLeft: (@MainActor (_ holder: String, _ drawn: Bool) -> Void)?
     /// The whole picture left: every part and the rest.

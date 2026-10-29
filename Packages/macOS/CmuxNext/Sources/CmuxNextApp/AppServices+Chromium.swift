@@ -19,7 +19,7 @@ import Observation
 extension AppServices {
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
     /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
-    /// (``AppBrowserHostTabs/access(forTab:)``) and the Allow Agents prompt read it in memory (p02-threads-122).
+    /// (``AppBrowserHostTabs/access(forTab:)``) and the Allow Agents prompt read it in memory.
     static func preloadBuiltInAdBlockerFolder(on work: BackgroundWork) -> PreloadedValue<String?> {
         let folder = PreloadedValue<String?> { AgentExtensionAccess.readTrustedBuiltInFolder() }
         work.post(.userVisible, mayBlock: .files) { folder.load() }
@@ -31,16 +31,16 @@ extension AppServices {
     func configureChromiumSpares() {
         let spareAfterFirstTab = features.isEnabled(.chromiumSpareAfterFirstTab)
         cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
-        // A spare's placeholder has no renderer where the fork can (p13-webui-019).
+        // A spare's placeholder has no renderer where the fork can.
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
-        // At most one Chromium spare renderer: Chromium's own, or the placeholder's (p07-memory-113).
+        // At most one Chromium spare renderer: Chromium's own, or the placeholder's.
         cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
     }
 
     /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
     /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
     /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
-    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``, p08-startup-046); the warm-up, armed in the same post,
+    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``); the warm-up, armed in the same post,
     /// cannot start it sooner.
     func startChromiumWarmup() {
         guard chromiumRuntime.source.backend == .host, let launchStartup else { return armChromiumWarmup() }
@@ -69,10 +69,10 @@ extension AppServices {
         let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
-        // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
+        // keeps a spare window too, so a page's key joins a live window.
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
         #if DEBUG || CMUX_BENCH_HOOKS
-        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
+        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm
         #else
         let hostNoSpareWindow = false
         #endif
@@ -103,14 +103,14 @@ extension AppServices {
                 return
             }
         })
-        palettes.whenBuilt { [weak self] palette in  // the palette is built after launch (p08-startup-023)
+        palettes.whenBuilt { [weak self] palette in  // the palette is built after launch
             guard let self else { return }
             lifetimeFollowers.append(ChromiumPaletteSignal(palette.model, warmup: chromiumWarmup, on: mainWork))
         }
     }
 }
 
-// The cache's Chromium engine (p08-startup-024): built at its first read, a Chromium tab or page or the warm-up
+// The cache's Chromium engine: built at its first read, a Chromium tab or page or the warm-up
 // above, never by launch wiring, and wired as it is built.
 extension AppServices {
     /// The one Chromium Host's supervisor when Chromium tabs run in it (`cefHelperHost` with its Debug Settings
@@ -136,32 +136,36 @@ extension AppServices {
         let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
         supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
         AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
-        // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
+        // A crashed host's tabs come back with the history their daemon records keep.
         supervisor?.savedNavigation = { [weak self] tab, url in
             guard let tabs = self?.cache.browserTabs else { return nil }
             return await tabs.historyStarts.hostRestart(tab.rawValue, at: url, service: tabs)
         }
         #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
-        // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
+        // The lanes whose startup fence holds a predicted start's framework read.
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
-        let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame (p06-scheduler-219)
-        // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
+        let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame
+        let pumpFrames = features.isEnabled(.cefPumpFrameDeadline) ? mainWork : nil // pump slices to the frame
+        let hangFollowsVisibility = features.isEnabled(.chromiumHangFollowsVisibility) // Chrome's hidden-tab hang rules
+        // Host mode only: the host's widgets in cmux panels and panes.
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
-        // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
+        // Host mode only: hosted pages' input through the host's input ring.
+        chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
+        // Host mode only: drags onto a page as Chrome's own drop.
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
-        chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
-        // Host mode only: <select> popups as cmux menus (p01-process-060).
+        chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence)
+        // Host mode only: <select> popups as cmux menus.
         chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
-        chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
-        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
-        // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
+        chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions)
+        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers)
+        // Host mode only: page file choosers in cmux's picker, the files sent as paths.
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
-        // Host mode only: "Chromium is busy" after 2 s of undispatched input (p01-process-084).
+        // Host mode only: "Chromium is busy" after 2 s of undispatched input.
         chromiumRuntime.source.watchesHostHangs = features.isEnabled(.chromiumHostHangBanner)
-        chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks, p01-process-229
+        chromiumRuntime.source.handlesHostLocks = features.isEnabled(.chromiumHostLocks) // pointer and keyboard locks
         chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
-        // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
+        // Restored pages start Chromium by their origin, the visible one after the first frame.
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
@@ -171,7 +175,7 @@ extension AppServices {
                                            memoryCoordinator,
                                            everyPage = Self.hostsEveryPage(features),
                                            rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
-                                      // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
+                                      // Chromium's start as launch marks; its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
@@ -181,7 +185,8 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
-                                          .cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
+                                          .followingVisibilityForRendererHangs(hangFollowsVisibility)
+                                          .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   stability: rendererStability,

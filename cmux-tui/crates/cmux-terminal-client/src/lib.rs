@@ -44,6 +44,12 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+mod panic_deny_tests;
+mod panic_free;
+
+use panic_free::{LockShared as _, RecoverPoison as _, ResizeAckPayload, ResizedPayload};
+
 /// Teardown moved off the caller's thread so AppKit never waits on it; no
 /// one waits for it to finish.
 const TEARDOWN_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
@@ -121,16 +127,16 @@ struct RawOutput {
 
 impl RawOutput {
     fn set_callback(&self, callback: Option<TerminalOutputCallback>, context: *mut c_void) {
-        *self.callback.lock().unwrap() = callback
+        *self.callback.lock().recover_poison() = callback
             .map(|callback| OutputCallbackRegistration { callback, context: context as usize });
     }
 
     fn is_installed(&self) -> bool {
-        self.callback.lock().unwrap().is_some()
+        self.callback.lock().recover_poison().is_some()
     }
 
     fn emit(&self, event: &RawEvent) {
-        let registered = self.callback.lock().unwrap();
+        let registered = self.callback.lock().recover_poison();
         let Some(registered) = *registered else {
             return;
         };
@@ -186,7 +192,7 @@ struct ClientUpdates {
 
 impl ClientUpdates {
     fn set_callback(&self, callback: Option<TerminalUpdateCallback>, context: *mut c_void) {
-        let mut registered = self.callback.lock().unwrap();
+        let mut registered = self.callback.lock().recover_poison();
         *registered = callback
             .map(|callback| UpdateCallbackRegistration { callback, context: context as usize });
         if let Some(registered) = *registered {
@@ -197,7 +203,7 @@ impl ClientUpdates {
     }
 
     fn notify(&self) {
-        let registered = self.callback.lock().unwrap();
+        let registered = self.callback.lock().recover_poison();
         if let Some(registered) = *registered {
             // SAFETY: set_callback documents the context lifetime contract and
             // holds this same mutex across invocation and synchronous removal.
@@ -230,12 +236,12 @@ struct ResizeDelivery {
 
 impl ResizeDelivery {
     fn request(&self, request: ResizeRequest) {
-        *self.desired.lock().unwrap() = Some(request);
+        *self.desired.lock().recover_poison() = Some(request);
         self.changed.notify_one();
     }
 
     fn desired(&self) -> Option<ResizeRequest> {
-        *self.desired.lock().unwrap()
+        *self.desired.lock().recover_poison()
     }
 
     fn acknowledge(&self, request_id: u64) {
@@ -248,7 +254,7 @@ impl ResizeDelivery {
     }
 
     fn complete_if_current(&self, request_id: u64) {
-        let mut desired = self.desired.lock().unwrap();
+        let mut desired = self.desired.lock().recover_poison();
         if desired.is_some_and(|request| request.request_id == request_id) {
             *desired = None;
         }
@@ -524,18 +530,16 @@ impl ClientState {
                 self.render_dirty = true;
                 FrameEffect::Continue
             }
-            MessageKind::Resized if matches!(frame.payload.len(), 4 | 8) => {
-                self.require_sequence(frame.sequence)?;
-                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
-                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
-                let cell_pixels = if frame.payload.len() == 8 {
-                    (
-                        u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
-                        u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
-                    )
-                } else {
-                    self.cell_pixels
+            MessageKind::Resized => {
+                let Some(resized) = ResizedPayload::decode(&frame.payload) else {
+                    return Err(format!(
+                        "Resized payload must be 4 or 8 bytes, got {}",
+                        frame.payload.len()
+                    ));
                 };
+                self.require_sequence(frame.sequence)?;
+                let ResizedPayload { cols, rows, cell_pixels } = resized;
+                let cell_pixels = cell_pixels.unwrap_or(self.cell_pixels);
                 if self.raw_mode {
                     if !self.snapshot_applied {
                         return Err("resize arrived before snapshot".into());
@@ -578,17 +582,11 @@ impl ClientState {
                 if frame.request_id == 0 {
                     return Err("ResizeAck request ID is zero".into());
                 }
-                if frame.payload.len() != 8 {
+                let Some(ResizeAckPayload { cols, rows, flags }) =
+                    ResizeAckPayload::decode(&frame.payload)
+                else {
                     return Err("ResizeAck payload must be 8 bytes".into());
-                }
-                let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
-                let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
-                let flags = u32::from_le_bytes([
-                    frame.payload[4],
-                    frame.payload[5],
-                    frame.payload[6],
-                    frame.payload[7],
-                ]);
+                };
                 if flags & !RESIZE_ACK_CANONICAL_CHANGED != 0 {
                     return Err(format!("ResizeAck has unknown flags 0x{flags:08x}"));
                 }
@@ -925,7 +923,7 @@ enum StreamOutcome {
 }
 
 fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, status: String) {
-    state.lock().unwrap().status = status;
+    state.lock_shared().status = status;
     updates.notify();
 }
 
@@ -962,7 +960,7 @@ async fn receive_frames(
                     Ok(frames) => {
                         let mut outcome = None;
                         for frame in frames {
-                            let applied = state.lock().unwrap().apply(frame);
+                            let applied = state.lock_shared().apply(frame);
                             // The state lock is released before the embedding
                             // renderer runs, so a callback may call back into
                             // this API without deadlocking.
@@ -1069,7 +1067,7 @@ impl TerminalStreamSupervisor {
             if closed.load(Ordering::Acquire) {
                 return;
             }
-            if let Err(error) = state.lock().unwrap().prepare_handshake(terminal_id.clone()) {
+            if let Err(error) = state.lock_shared().prepare_handshake(terminal_id.clone()) {
                 set_client_status(&state, &updates, format!("resync: {error}"));
                 return;
             }
@@ -1238,7 +1236,7 @@ fn start_terminal_tasks(
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     {
-        let mut state = state.lock().unwrap();
+        let mut state = state.lock_shared();
         state.resize_delivery = Some(resize_delivery.clone());
         state.resize_acknowledgement = None;
     }
@@ -1336,7 +1334,7 @@ impl CmuxTerminalClient {
         terminal_id: TerminalPublicId,
         timeout: Option<StdDuration>,
     ) -> Result<(), String> {
-        let mut terminal = self.terminal.lock().unwrap();
+        let mut terminal = self.terminal.lock_shared();
         if attach_target_already_satisfied(
             terminal
                 .as_ref()
@@ -1384,7 +1382,7 @@ impl CmuxTerminalClient {
         // The delivery mode is fixed per attach: a renderer that installs its
         // callback after the snapshot would miss the replay.
         next_state.raw_mode = self.raw_output.is_installed();
-        *self.state.lock().unwrap() = next_state;
+        *self.state.lock_shared() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
@@ -1400,11 +1398,11 @@ impl CmuxTerminalClient {
     }
 
     fn detach_terminal(&self) {
-        let terminal = self.terminal.lock().unwrap().take();
+        let terminal = self.terminal.lock_shared().take();
         if let Some(terminal) = terminal {
             self.runtime.block_on(terminal.close());
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_shared();
         state.bootstrap_committed = false;
         state.ready = false;
         state.exited = false;
@@ -1449,7 +1447,7 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else {
         return false;
     };
-    let terminal = client.terminal.lock().unwrap();
+    let terminal = client.terminal.lock_shared();
     let Some(terminal) = terminal.as_ref() else {
         return false;
     };
@@ -1743,8 +1741,9 @@ pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTermin
     client.raw_output.set_callback(None, std::ptr::null_mut());
     // Connection teardown may wait on the carrier. Transfer ownership to a
     // background thread so the C call is nonblocking for AppKit.
+    // supervise-allow: one client's teardown after the caller gave it up; a panic ends that teardown only, and the client's sockets close when the process exits.
     let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
-        let terminal = client.terminal.lock().unwrap().take();
+        let terminal = client.terminal.lock_shared().take();
         client.runtime.block_on(async {
             if let Some(terminal) = terminal {
                 terminal.close().await;
@@ -1821,16 +1820,16 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     let chord = match chord.to_str() {
         Ok(chord) => chord,
         Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
+            client.state.lock_shared().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
     };
-    let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
+    let key_result = client.state.lock_shared().encode_key(chord, repeat);
     let encoded = match key_result {
         Ok(encoded) => encoded,
         Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
+            client.state.lock_shared().status = format!("key: {error}");
             client.updates.notify();
             return false;
         }
@@ -1917,7 +1916,7 @@ pub unsafe extern "C" fn cmux_terminal_client_resize_with_request_id(
 }
 
 fn queue_resize(client: &CmuxTerminalClient, cols: u16, rows: u16) -> Option<u64> {
-    let terminal = client.terminal.lock().unwrap();
+    let terminal = client.terminal.lock_shared();
     let terminal = terminal.as_ref()?;
     if terminal.closed.load(Ordering::Acquire) {
         return None;
@@ -1957,7 +1956,7 @@ pub unsafe extern "C" fn cmux_terminal_client_last_resize_ack(
     if request_id.is_null() || cols.is_null() || rows.is_null() || canonical_changed.is_null() {
         return false;
     }
-    let state = client.state.lock().unwrap();
+    let state = client.state.lock_shared();
     let Some(acknowledgement) = state.resize_acknowledgement else {
         return false;
     };
@@ -1992,7 +1991,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2020,7 +2019,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2053,7 +2052,7 @@ pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2082,7 +2081,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    let mut state = client.state.lock().unwrap();
+    let mut state = client.state.lock_shared();
     if let Err(error) = state.materialize_frame() {
         state.status = format!("render: {error}");
     }
@@ -2109,7 +2108,7 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return 0;
     };
-    copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
+    copy_utf8(&client.state.lock_shared().diagnostics(), buffer, capacity)
 }
 
 /// Returns whether the attached PTY has exited.
@@ -2128,7 +2127,7 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     let Some(client) = (unsafe { client.as_ref() }) else {
         return false;
     };
-    client.state.lock().unwrap().exited
+    client.state.lock_shared().exited
 }
 
 /// A client's runtime: it carries the terminal stream the person types into
@@ -2153,6 +2152,7 @@ fn spawn_diagnostics(
     let state = state.clone();
     let updates = updates.clone();
     let mut generation = connection.subscribe_generation();
+    // supervise-allow: the diagnostics mirror, ending with the connection's generation channel when the client's runtime shuts down; a panic freezes the transport readout only, and the terminal keeps working.
     runtime.spawn(async move {
         while generation.changed().await.is_ok() {
             let snapshot = connection.snapshot().await;
@@ -2162,7 +2162,7 @@ fn spawn_diagnostics(
                 .as_ref()
                 .map(|path| format!("{:?}", path.kind).to_lowercase())
                 .unwrap_or_else(|| snapshot.transport.route.clone());
-            let mut state = state.lock().unwrap();
+            let mut state = state.lock_shared();
             state.transport_provider = snapshot.transport.provider;
             state.transport_path = path;
             state.generation = snapshot.generation;
@@ -2173,9 +2173,9 @@ fn spawn_diagnostics(
 }
 
 /// Placeholder for a client that has not attached a terminal yet.
-fn unattached_terminal_id() -> TerminalPublicId {
+fn unattached_terminal_id() -> Result<TerminalPublicId, String> {
     TerminalPublicId::parse("term_00000000000000000000000000000000")
-        .expect("placeholder terminal id is well-formed")
+        .map_err(|error| format!("placeholder terminal id: {error}"))
 }
 
 /// Largest carrier frame on a direct WebSocket route; matches the sidecar.
@@ -2208,10 +2208,14 @@ fn select_enrolled_daemon(daemons: Vec<KnownDaemon>, route: &str) -> Result<Know
         .collect::<Vec<_>>();
     let selected = match matching.as_slice() {
         [daemon] => daemon.clone(),
-        [] if daemons.len() == 1 => daemons[0].clone(),
-        [] => {
-            return Err("no enrolled daemon matches this route; connect with an invitation".into());
-        }
+        [] => match daemons.as_slice() {
+            [only] => only.clone(),
+            _ => {
+                return Err(
+                    "no enrolled daemon matches this route; connect with an invitation".into()
+                );
+            }
+        },
         _ => return Err("multiple enrolled daemons match this route".into()),
     };
     if selected.auth == KnownDaemonAuth::Carrier {
@@ -2403,7 +2407,7 @@ async fn connect_route_client(options: RouteConnectOptions<'_>) -> Result<RouteC
             snapshot.transport.provider,
             path,
             snapshot.generation,
-            unattached_terminal_id(),
+            unattached_terminal_id()?,
         )
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
@@ -2693,6 +2697,7 @@ pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
     let net = unsafe { Box::from_raw(net) };
     // The driver task lives on this runtime; drop it off the caller's thread so
     // an AppKit or UIKit caller never blocks on socket teardown.
+    // supervise-allow: one handle's drop after the caller gave it up; a panic ends that drop only.
     let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
 }
 
@@ -2779,16 +2784,16 @@ impl CmuxTerminalClient {
     ) -> Result<Value, String> {
         params.entry("machine").or_insert_with(|| json!("current"));
         params.entry("session").or_insert_with(|| json!("current"));
-        let mut request = json!({
-            "protocol": "cmux.protocol/2",
-            "type": "request",
-            "id": random_token()?,
-            "operation": operation,
-            "params": Value::Object(params),
-        });
+        let mut request = serde_json::Map::new();
+        request.insert("protocol".into(), json!("cmux.protocol/2"));
+        request.insert("type".into(), json!("request"));
+        request.insert("id".into(), json!(random_token()?));
+        request.insert("operation".into(), json!(operation));
+        request.insert("params".into(), Value::Object(params));
         if mutation {
-            request["idempotency_key"] = json!(random_token()?);
+            request.insert("idempotency_key".into(), json!(random_token()?));
         }
+        let request = Value::Object(request);
         let call = async {
             let mux = self.mux_client().await?;
             match mux.request(&request).await {

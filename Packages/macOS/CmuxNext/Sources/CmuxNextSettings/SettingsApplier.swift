@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 import Foundation
 
 /// Applies a parsed cmux.json snapshot to the live objects on the main

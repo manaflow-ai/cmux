@@ -1,7 +1,7 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
-/// Which restored windows behind the front one show at launch (p08-startup-062): visibility is by
+/// Which restored windows behind the front one show at launch: visibility is by
 /// occlusion and display, not by z-order. A window shows when it is on the active Space, on a
 /// connected display, and no window in front of it covers it, judged from the saved frames before
 /// any of them is built.

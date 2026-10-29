@@ -1,7 +1,7 @@
 import Foundation
 
 /// What `CEFRuntime.initialize` reads from disk before `cmux_shim_initialize`: prepared off the main thread
-/// while the start loads the framework or attaches the Chromium Host (p08-startup-046), so the main
+/// while the start loads the framework or attaches the Chromium Host, so the main
 /// thread's part of a start is only the shim calls, as Chrome reads its startup files on a
 /// `MayBlock` sequence and never on the UI thread (base/threading/thread_restrictions.h).
 nonisolated struct CEFStartInputs: Equatable, Sendable {

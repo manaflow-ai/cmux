@@ -15,7 +15,7 @@ internal import Musl
 final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: `value` is reached only between lock() and unlock(), and the platform lock's operations are thread-safe
     @usableFromInline let value: UnsafeMutablePointer<Value>
     #if canImport(os)
-    private let primitive: UnsafeMutablePointer<os_unfair_lock> // concurrency-allow: the one os_unfair_lock in Packages (p10-stability-172), held only for the caller's short critical section
+    private let primitive: UnsafeMutablePointer<os_unfair_lock> // concurrency-allow: the one os_unfair_lock in Packages, held only for the caller's short critical section
     #else
     private let primitive: UnsafeMutablePointer<pthread_mutex_t> // concurrency-allow: the portable lock's non-Apple primitive, held only for the caller's short critical section
     #endif

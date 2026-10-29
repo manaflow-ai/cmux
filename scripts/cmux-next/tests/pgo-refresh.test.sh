@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cmux-next/pgo/refresh.sh (p08-startup-054) without a build: a sandbox clone with a bare remote, and stubs for
+# scripts/cmux-next/pgo/refresh.sh without a build: a sandbox clone with a bare remote, and stubs for
 # build-profile.sh, reload.sh, run-scenarios.py, check.py, the upload and gh (the script's test seams). The real
 # fetch-profdata.sh and release-env.sh run: the use build gets the profile through them, and the upload is fetched
 # back from a file:// public URL. Checks: a changed checkout, a HEAD that is not --ref, a run off the fleet and missing

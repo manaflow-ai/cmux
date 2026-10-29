@@ -151,12 +151,14 @@ final class FileGridCollectionView: NSCollectionView {
 
     nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
+        // main-hop-allow: Quick Look's panel-control callback off main (never seen): begin and end keep their order on main
         guard Thread.isMainThread else { Task { @MainActor in attach(panel, true) }; return }
         MainActor.assumeIsolated { attach(panel, true) } // main-proof: checked Thread.isMainThread above
     }
 
     nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
+        // main-hop-allow: Quick Look's panel-control callback off main (never seen): begin and end keep their order on main
         guard Thread.isMainThread else { Task { @MainActor in attach(panel, false) }; return }
         MainActor.assumeIsolated { attach(panel, false) } // main-proof: checked Thread.isMainThread above
     }

@@ -46,6 +46,7 @@
 
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use crate::no_panic::JsonExt;
 use std::sync::atomic::Ordering;
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
@@ -133,7 +134,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(p) = &part.run.provenance {
-                m["provenance"] = p.clone();
+                m.set("provenance", p.clone());
             }
             m
         })
@@ -196,12 +197,18 @@ impl Hub {
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
-            let delays = hub.config.read().await.auto_resume_delays_ms.clone();
-            let delays = delays
-                .filter(|d| !d.is_empty())
-                .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
-            let delay = delays[retries.min(delays.len() - 1)];
+        self.supervise("hub.held-retry", Fatal, ShutdownBehavior::Skip, async move {
+            let configured =
+                hub.config.read().await.auto_resume_delays_ms.clone().unwrap_or_default();
+            // Past its last step a list repeats that step; an empty one means the defaults.
+            let defaults = super::auto_resume::DEFAULT_DELAYS_MS;
+            let [.., default_last] = defaults;
+            let delay = configured
+                .get(retries)
+                .or(configured.last())
+                .or(defaults.get(retries))
+                .copied()
+                .unwrap_or(default_last);
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             if session.meta().status == SessionStatus::Closed {
                 return;
@@ -258,8 +265,7 @@ impl Hub {
             let unclaimed = session.restored.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let mut taken = Vec::new();
             let mut i = 0;
-            while i < queue.len() {
-                let q = &queue[i];
+            while let Some(q) = queue.get(i) {
                 if q.held {
                     i += 1;
                     continue;
@@ -344,11 +350,11 @@ impl Hub {
             let text = prompt_text(&q.run.blocks);
             let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
             if let Some(agent) = &q.run.agent {
-                queued["fromAgent"] = json!(agent);
+                queued.set("fromAgent", json!(agent));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
-                queued["images"] = Value::Array(images);
+                queued.set("images", Value::Array(images));
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());

@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::model::State;
 use crate::mux::tab_groups::{pane_by_public_id, pane_public_id};
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::{Actor, PaneId, SurfaceId};
 
 /// Where closing pane `pane_id` sits in the split tree of `screen_id`:
@@ -35,7 +36,7 @@ pub(super) fn pane_placement(
     let Some(layout) = layout else { return Ok(None) };
     let layout: Value = serde_json::from_str(&layout)?;
     Ok(placement_in(&layout, pane_id).map(|mut placement| {
-        placement["screen"] = json!(screen_id);
+        placement.insert("screen", json!(screen_id));
         placement
     }))
 }
@@ -79,9 +80,10 @@ fn pane_in_place(
 ) -> Option<PaneId> {
     let pane = pane_by_public_id(state, pane)?;
     let (workspace, index) = state.screen_of(pane)?;
-    let workspace = &state.workspaces[workspace];
-    let home = record["workspace_id"].as_str() == Some(workspace.public_id.as_str())
-        && screen.is_none_or(|id| id == workspace.screens[index].public_id.as_str());
+    let workspace = state.workspaces.get(workspace)?;
+    let public_screen = workspace.screens.get(index)?.public_id.as_str();
+    let home = record.field("workspace_id").as_str() == Some(workspace.public_id.as_str())
+        && screen.is_none_or(|id| id == public_screen);
     home.then_some(pane)
 }
 
@@ -134,7 +136,7 @@ pub(super) fn neighbors_first(members: Vec<Value>) -> Vec<Value> {
             pending
                 .iter()
                 .position(|member| {
-                    member["split"]["neighbor"].as_str().is_none_or(|neighbor| {
+                    member.field("split").field("neighbor").as_str().is_none_or(|neighbor| {
                         !waiting.contains(neighbor) || member["pane_id"].as_str() == Some(neighbor)
                     })
                 })
@@ -157,7 +159,7 @@ impl SplitPane {
         let (workspace, screen) = state.screen_of(pane)?;
         Some(Self {
             pane: pane_public_id(state, pane).ok()?,
-            screen: state.workspaces[workspace].screens[screen].public_id.as_str().to_string(),
+            screen: state.workspaces.get(workspace)?.screens.get(screen)?.public_id.to_string(),
         })
     }
 }

@@ -26,6 +26,7 @@
 //! the preview is honestly not fully reducible for at most one interval.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// At most one coalesced reconnect checkpoint per interval.
 const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(30);
@@ -250,9 +251,11 @@ impl Mux {
         if !retention.worker_started.swap(true, Ordering::AcqRel) {
             let shared = retention.shared.clone();
             let mux = Arc::downgrade(self);
-            let spawned = cmux_threads::spawn(
+            let spawned = supervised::spawn_at(
                 "journal-retention",
                 crate::request_qos::UPKEEP_THREAD_QOS,
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     run_retention_worker(&shared, &mux);
                 },

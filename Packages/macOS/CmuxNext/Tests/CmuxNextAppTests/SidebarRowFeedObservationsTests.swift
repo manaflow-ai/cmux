@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The sidebar rows record into `debug.observations` (p06-scheduler-029): the rows armed now, and per status
+/// The sidebar rows record into `debug.observations`: the rows armed now, and per status
 /// change one re-read and, when the row changed, one apply; a change of the pass's inputs re-reads every row.
 /// Without the feed recording, the ledger reads 0 for every sidebar size and the bench's budget check
 /// (`sidebar-stress-bench.py` observations: armed rows and evaluations per change) passes with nothing measured.

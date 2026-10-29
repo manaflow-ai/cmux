@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// Chromium names the fork's API version in the crash-key page once it is ready (p09-observability-078), and the
+/// Chromium names the fork's API version in the crash-key page once it is ready, and the
 /// version stays through a later failure or shutdown.
 @MainActor
 struct CEFCrashKeyPageTests {

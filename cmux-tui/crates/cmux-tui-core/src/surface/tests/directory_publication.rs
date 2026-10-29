@@ -2,7 +2,7 @@
 //! terminal's output thread. The PTY reader (`surface-<id>-reader`) and the
 //! terminal-host reader (`surface-<id>-host`) are echo threads with blocking
 //! disallowed (p02-threads 210); the publication is a SQLite workspace
-//! registry commit (MQ-13, p02-threads-303). On the reader, the detector's
+//! registry commit (MQ-13). On the reader, the detector's
 //! panic mode (the Debug default) panicked it while it held the registry
 //! and state locks: the terminal stopped reading and every later user of
 //! those locks panicked on the poison.

@@ -56,6 +56,7 @@ use serde::Deserialize;
 use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF, Engine};
 use crate::conversation_store::ConversationEvent;
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 #[cfg(unix)]
 mod brain_exit;
@@ -521,7 +522,7 @@ impl Slot {
 /// The running supervisor; [`ChiefBrains::stop`] ends every brain.
 pub struct ChiefBrains {
     sender: mpsc::Sender<Signal>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    thread: Option<supervised::SupervisedThread<()>>,
     mux: Weak<Mux>,
     live: Arc<AtomicUsize>,
 }
@@ -549,7 +550,7 @@ impl ChiefBrains {
             let _ = waits::recv_timeout(&ended, SHUTDOWN_GRACE + Duration::from_secs(1));
         }
         if let Some(thread) = self.thread.take() {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
     }
 }
@@ -584,17 +585,21 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         sender: sender.clone(),
         live: live.clone(),
     };
-    let thread = std::thread::Builder::new()
-        .name("chief-brains".into())
-        .spawn(move || {
+    let thread = supervised::spawn_at(
+        "chief-brains",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             // Before any brain starts: its lock probe cannot race a start.
             remove_old_acpmux_homes(
                 &supervisor.config.home,
                 supervisor.config.app.acpmux_bin.as_deref(),
             );
             supervisor.run(&inbox);
-        })
-        .ok()?;
+        },
+    )
+    .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux), live })
 }
 
@@ -1132,7 +1137,11 @@ impl Supervisor {
         };
         match spawned {
             Ok(mut child) => {
-                let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
+                let _ = supervised::spawn_at(
+                    "chief-sessions-end",
+                    cmux_threads::ThreadQos::Utility,
+                    Fatal,
+                    ShutdownBehavior::Continue,
                     move || {
                         let _ = child.wait();
                         remove();

@@ -66,17 +66,15 @@ impl Records {
         };
         create_private_dir(&dir)
             .with_context(|| format!("cannot make the state folder {}", dir.display()))?;
-        let from = std::fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
+        let from = cmux_blocking::fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
         let digest = Sha256::digest(from.as_os_str().as_encoded_bytes());
         let key: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
         let path = dir.join(format!("{surface}-{key}.json"));
-        let lock = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(path.with_extension("lock"))
-            .context("cannot open the move lock")?;
+        let lock = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new().write(true).create(true).truncate(false).mode(0o600),
+            path.with_extension("lock"),
+        )
+        .context("cannot open the move lock")?;
         match lock.try_lock() {
             Ok(()) => {}
             Err(std::fs::TryLockError::WouldBlock) => return Err(Busy.into()),
@@ -88,7 +86,7 @@ impl Records {
     }
 
     pub(super) fn load(&self) -> anyhow::Result<Option<Record>> {
-        match std::fs::read(&self.path) {
+        match cmux_blocking::fs::read(&self.path) {
             Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
                 format!("the move record {} is unreadable", self.path.display())
             })?)),
@@ -100,30 +98,31 @@ impl Records {
     /// Replaces the record (written whole, then renamed into place).
     pub(super) fn save(&self, record: &Record) -> anyhow::Result<()> {
         let temporary = self.path.with_extension("json.tmp");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&temporary)
-            .context("cannot write the move record")?;
+        let mut file = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600),
+            &temporary,
+        )
+        .context("cannot write the move record")?;
         file.write_all(&serde_json::to_vec(record)?)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, &self.path).context("cannot save the move record")?;
+        crate::blocking::fs::sync_all(&file)?;
+        cmux_blocking::fs::rename(&temporary, &self.path).context("cannot save the move record")?;
         // The rename itself survives a crash once its folder is synced.
         if let Some(dir) = self.path.parent() {
-            std::fs::File::open(dir)?.sync_all()?;
+            crate::blocking::fs::sync_all(&cmux_blocking::fs::open(dir)?)?;
         }
         Ok(())
     }
 
     pub(super) fn clear(&self) {
-        let _ = std::fs::remove_file(&self.path);
+        let _ = cmux_blocking::fs::remove_file(&self.path);
     }
 }
 
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+    crate::blocking::fs::create_dir_with(
+        std::fs::DirBuilder::new().recursive(true).mode(0o700),
+        dir,
+    )?;
+    crate::blocking::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }

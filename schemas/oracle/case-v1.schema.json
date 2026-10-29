@@ -233,12 +233,13 @@
         "switches",
         "cli",
         "mcp",
-        "reply"
+        "reply",
+        "tui"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp|reply)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp|reply|tui)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
@@ -472,7 +473,7 @@
           "uniqueItems": true,
           "items": {"enum": ["before", "turn", "settled"]},
           "default": ["settled"],
-          "description": "Snapshots to record: before the step, at the end of its input turn (app action.run and key only), and after debug.oracle.settle."
+          "description": "Snapshots to record: before the step, at the end of its input turn, and after debug.oracle.settle. A turn is the app's input turn for action.run and key, and for tui.key the first complete frame that meets the step's waitFor on /tui (driver_tui.py), for a state the settle probe cannot reach, such as an open overlay."
         },
         "settleMaxMs": {
           "type": "integer",
@@ -532,8 +533,8 @@
           "then": {"not": {"anyOf": [{"required": ["target"]}, {"required": ["readOnly"]}]}}
         },
         {
-          "$comment": "Turn checkpoints come from the app's OracleRecorder, which records input turns.",
-          "if": {"required": ["op"], "properties": {"op": {"not": {"enum": ["action.run", "key"]}}}},
+          "$comment": "Turn checkpoints come from the app's OracleRecorder, which records input turns, and from the frame that meets a tui.key step's waitFor.",
+          "if": {"required": ["op"], "properties": {"op": {"not": {"enum": ["action.run", "key", "tui.key"]}}}},
           "then": {"properties": {"checkpoint": {"not": {"contains": {"const": "turn"}}}}}
         },
         {

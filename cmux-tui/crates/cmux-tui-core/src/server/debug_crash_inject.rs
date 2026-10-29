@@ -153,6 +153,7 @@ fn parse(mut fields: Map<String, Value>) -> Result<CrashKind, DebugPanicRefused>
 
 /// Crash as `kind` says, on [`THREAD`].
 pub(super) fn fire(kind: CrashKind) -> Result<std::thread::JoinHandle<()>, DebugPanicRefused> {
+    // supervise-allow: the injected `panic` must end only this thread (module doc); crash-matrix.py counts its one panic-log report.
     cmux_threads::spawn(THREAD, cmux_threads::ThreadQos::Utility, move || crash_now(kind))
         .map_err(|error| DebugPanicRefused::Spawn(error.to_string()))
 }

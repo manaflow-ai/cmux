@@ -1,4 +1,4 @@
-//! The hang ledger behind server-stats `hangs` (p12-perf-process-232): a
+//! The hang ledger behind server-stats `hangs`: a
 //! scope of any kind busy past 250 ms is counted once with its span and
 //! duration, whether the watchdog saw it busy or it ended between ticks; a
 //! shorter one is not; one still busy reports its time up to the read; an
@@ -31,8 +31,8 @@ impl FakeClockWatcher {
     /// `hang`: every kind's hang tier but an echo item's (`None`: each
     /// kind's own). Returns the watchdog and its watcher.
     fn new(hang: Option<Duration>) -> (RequestWatchdog, Self) {
-        fn no_thread(_body: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
-            Ok(std::thread::current())
+        fn no_thread(_body: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
+            Ok(supervised::Unparker::current_for_test())
         }
         let clock = Arc::new(AtomicU64::new(0));
         let mut watchdog = RequestWatchdog::build(

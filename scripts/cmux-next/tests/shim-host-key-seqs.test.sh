@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's host-mode key seq table (CEFShim/src/host_key_seqs.h,
-# no CEF needed) and runs its cases (p01-process-030). Small: one clang++ call.
+# no CEF needed) and runs its cases. Small: one clang++ call.
 #
 # Not a scripts/cmux-next/test-*-cpp.sh, so cmux-next-shim-cpp.yml does not run
 # it (lead, 2026-10-23: no new CI tests); agents that change the table run it.

@@ -4,10 +4,10 @@
 art/manifest.json is the one source of truth: each work's Commons source and license,
 its picker collection, its framing hints and its SHA-256. This writes
 
-- Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift (the enum and titles) and
-  BackdropArt+Entries.swift (its records), two files to stay under the 400-line file limit,
-- the CmuxNextDesign string catalog entries for each title (every locale the catalog carries),
-- Resources/BackdropArt/<id>.avif for the bundled starter set, copied from art/full.
+- Packages/macOS/CmuxNext/Sources/CmuxNextAppearance/Backdrop/BackdropArt.swift (the enum and titles)
+  and BackdropArt+Entries.swift (its records), two files to stay under the 400-line file limit,
+- the CmuxNextAppearance string catalog entries for each title (every locale the catalog carries),
+- CmuxNextDesign's Resources/BackdropArt/<id>.avif for the bundled starter set, copied from art/full.
 
 Thumbnails (Resources/BackdropArt/<id>.thumb.avif) and art/full/*.avif come from
 scripts/cmux-next/art/render_backdrop_art.py. With --check nothing is written; the
@@ -24,9 +24,12 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "art/manifest.json"
 FULL = ROOT / "art/full"
 DESIGN = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"
-SWIFT = DESIGN / "BackdropArt.swift"
-SWIFT_ENTRIES = DESIGN / "BackdropArt+Entries.swift"
-CATALOG = DESIGN / "Resources/Localizable.xcstrings"
+APPEARANCE = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextAppearance"
+SWIFT = APPEARANCE / "Backdrop/BackdropArt.swift"
+SWIFT_ENTRIES = APPEARANCE / "Backdrop/BackdropArt+Entries.swift"
+# The backdrop's words live with the art's enum and the selection's names; the images stay in
+# CmuxNextDesign's resources.
+CATALOG = APPEARANCE / "Localizable.xcstrings"
 RESOURCES = DESIGN / "Resources/BackdropArt"
 LOCALES = ["ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr",
            "uk", "vi", "zh-Hans", "zh-Hant"]
@@ -118,7 +121,7 @@ def render_entries(works: list[dict]) -> str:
         "",
         "nonisolated extension BackdropArt {",
         "    /// The work's catalog record.",
-        "    var entry: BackdropArtEntry {",
+        "    package var entry: BackdropArtEntry {",
         "        switch self {",
     ]
     for work in works:

@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The `tabs` facet (schemas/oracle/snapshot-v1.schema.json, p15-oracle-037): per pane, its shown tab and its
+/// The `tabs` facet (schemas/oracle/snapshot-v1.schema.json): per pane, its shown tab and its
 /// browser and page tabs as its strip lists them, with the values a tab strip draws. Chromium's strip reads one
 /// engine-neutral value per tab, `TabRendererData` (chrome/browser/ui/tabs/tab_renderer_data.h: url, title,
 /// network_state, crashed_status, pinned, alert_state, is_tab_discarded), never the renderer. ``Tab`` is that

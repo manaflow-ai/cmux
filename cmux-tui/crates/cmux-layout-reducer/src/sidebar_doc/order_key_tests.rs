@@ -1,6 +1,6 @@
 //! Order keys: every answer is a valid key strictly between its bounds, for
-//! every pair of short keys, and the keys the byte-slice rewrite (panic deny,
-//! p10-stability-140) produces are the ones the string version produced.
+//! every pair of short keys, and the keys the byte-slice rewrite (panic deny)
+//! produces are the ones the string version produced.
 
 use super::*;
 

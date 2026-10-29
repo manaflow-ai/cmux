@@ -5,6 +5,7 @@ import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -92,6 +93,10 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        // Agent CDP straight from the browser host to the Chromium Host, never through this app.
+        if services.features.isEnabled(.chromiumHostAgentRelay) {
+            provider.relayLinking = (services.chromiumRuntime.source.hostSupervisor as? any ChromiumHostAgentRelaying)?.agentRelay
+        }
         services.cache.pageRequests.downloads.onDownload = { [weak provider] item, tab in
             Self.report(item, tab: tab, to: provider)
         }

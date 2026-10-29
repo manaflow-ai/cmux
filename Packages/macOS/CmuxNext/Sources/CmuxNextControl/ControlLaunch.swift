@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// The control service's launch order (p08-startup-019, plans/cmux-next/chrome-parity/p08-startup.md 3A).
+/// The control service's launch order (plans/cmux-next/chrome-parity/p08-startup.md 3A).
 ///
 /// With the feature `controlSocketEarlyBind` (``post(on:socket:start:groups:served:)``): the socket is
 /// bound on a lane after the owner check (``ControlSocketBind``). After the first frame (or the

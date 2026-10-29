@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextAppearance
 @testable import CmuxNextSettings
 import Foundation
 import Testing

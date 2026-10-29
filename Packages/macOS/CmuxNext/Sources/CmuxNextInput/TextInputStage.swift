@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextInputCore
 
-/// The text input part of a key down's dispatch (p04-input-101): the input method server round trip that
+/// The text input part of a key down's dispatch: the input method server round trip that
 /// `interpretKeyEvents` (or an `NSTextView`'s key handling) makes, stamped as the key's `textInputStart` and
 /// `textInputEnd` so a Japanese or Korean input source's time shows apart from cmux's own dispatch.
 ///

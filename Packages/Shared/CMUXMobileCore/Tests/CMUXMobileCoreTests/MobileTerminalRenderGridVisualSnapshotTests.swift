@@ -139,7 +139,7 @@ import Testing
 }
 
 /// A frame from the Mac may repeat a style id. The snapshot keeps the last one, as the
-/// replay does, instead of trapping (p10-stability-096).
+/// replay does, instead of trapping.
 @Test func renderGridVisualSnapshotKeepsTheLastOfARepeatedStyleID() throws {
     func frame(_ styles: [MobileTerminalRenderGridFrame.Style]) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(

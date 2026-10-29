@@ -122,8 +122,10 @@ Usage:
                             [--isolation netns|auto|none] [--trace TRACE.json]
                                                      one case, its result JSON; --trace also takes a journal
                                                      checkpoint at setup and writes the case's trace with an
-                                                     oracle-restore-preview at every capture (invariant I9:
-                                                     invariants.py check TRACE.json)
+                                                     oracle-restore-preview at every capture (invariant I9)
+                                                     and the daemon's fd, thread and child counts after setup
+                                                     and after the last step (I15, resource_counts.py):
+                                                     invariants.py check TRACE.json
   driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
@@ -178,14 +180,15 @@ for _path in (str(HERE), str(SDK)):
         sys.path.insert(0, _path)
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
-import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
+import hermetic_env  # noqa: E402 - sibling of this file, the only place env is built
 from invariants import first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
 from invariants import lock_ranks_compiled_in, panic_message, read_panic_log  # noqa: E402 - invariant I16
 from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
-import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
-import case_connections  # noqa: E402 - sibling of this file (p15-oracle-204): case connections and streams
+import normalize  # noqa: E402 - sibling of this file
+import case_connections  # noqa: E402 - sibling of this file: case connections and streams
 from case_connections import CaseConnection  # noqa: E402
-import invariants  # noqa: E402 - sibling of this file (p15-oracle-110, I8 of p15-oracle-204)
+import invariants  # noqa: E402 - sibling of this file (I8 of p15-oracle-204)
+import resource_counts  # noqa: E402 - sibling of this file, invariant I15's daemon reading
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
     CmuxConnectionError,
@@ -210,7 +213,7 @@ FACETS = (
     "invariants", "switches",
 )
 DEFAULT_FACETS = ("daemon",)
-# expect outcome `any` (case-v1, a walk move of gen_walks.py, p15-oracle-098): the step passes with ok or a typed error,
+# expect outcome `any` (case-v1, a walk move of gen_walks.py): the step passes with ok or a typed error,
 # and what it gave is the `reply` facet of its settled checkpoint, compared like any facet.
 ANY_OUTCOME = "any"
 REPLY_FACET = "reply"
@@ -219,7 +222,7 @@ BUILD_RECEIPT = "build.json"
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
 FACET_TASKS = {"crashes": "p15-oracle-188", "liveObjects": "p15-oracle-188", "switches": "p15-oracle-049"}
 ORACLE_STATE = "oracle-state"
-# Invariant I9's journal restore preview (p15-oracle-205), asked for at each capture of a traced case.
+# Invariant I9's journal restore preview, asked for at each capture of a traced case.
 RESTORE_PREVIEW = "oracle-restore-preview"
 # The idempotency key of the journal checkpoint a traced case takes when its daemon first starts: the
 # restore preview reduces from it.
@@ -1405,6 +1408,8 @@ class CaseState:
     captures: List[Capture] = field(default_factory=list)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
+    # I15: the daemon's resource_counts.py readings after setup and at teardown (a traced case only).
+    resources: Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]] = (None, None)
 
 
 class CaseRun:
@@ -1427,7 +1432,7 @@ class CaseRun:
         self.case_env = case_environment(self.paths, seed, isolation, self.abort_seam)
         self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
-        # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
+        # v0 facets (facets_v0.py): only the push-base methods and a wall clock, so a capture
         # of the push base and one of a later SHA compare.
         self.v0 = session_ctx.get("facets") == "v0"
         # `trace` in the session context (`run-case --trace`): the result's cmux.oracle.trace/v1 document (always
@@ -1463,8 +1468,11 @@ class CaseRun:
                 self.daemon.start("setup")
                 if self.restore_previews:
                     self.fixture_checkpoint()
+                    self.state.resources = (self.daemon_resources("setup"), None)
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
+                if self.restore_previews:
+                    self.state.resources = (self.state.resources[0], self.daemon_resources("teardown"))
             except CaseError as error:
                 status, message, at = error.status, error.message, error.step
             except CmuxError as error:
@@ -1495,14 +1503,38 @@ class CaseRun:
 
     def trace_doc(self) -> Dict[str, Any]:
         """The case as invariants.py reads it: raw checkpoints, each step's replies, the event logs, and in a
-        traced run I9's restore previews."""
+        traced run I9's restore previews and the daemon's resource_counts.py readings after setup and at
+        teardown (I15)."""
         rename = CaseReads(self.daemon, self.paths.session, 0).rename
         doc: Dict[str, Any] = {"schema": invariants.TRACE_SCHEMA, "case": self.case_id,
                                "steps": list(self.state.trace_steps.values()),
                                "eventLogs": self.streams.records(rename)}
         if self.case.get("allow_crashes"):
             doc["allow_crashes"] = list(self.case["allow_crashes"])
+        setup, teardown = self.state.resources
+        if setup is not None:
+            doc["setup"] = {"daemonResources": setup}
+        if teardown is not None:
+            doc["teardown"] = {"daemonResources": teardown}
         return doc
+
+    def daemon_resources(self, step: str) -> Optional[Dict[str, Any]]:
+        """The case daemon's descriptors, threads and children now (I15), with its oracle-state liveObjects (a
+        debug or oracle daemon), after a ping round trip on the driver's connection, so the daemon has answered
+        every request the case sent before it; None when the daemon is not running or cannot be read."""
+        if not self.daemon.running or self.daemon.raw is None:
+            return None
+        try:
+            self.daemon.request("session.ping", SELECTORS, None, REQUEST_S * self.scale)
+            state = self.daemon.raw.request(ORACLE_STATE)
+        except CmuxError as error:
+            raise self.sdk_failure(error, step, "the I15 reading") from None
+        pid = self.daemon.identity.get("pid")
+        reading = resource_counts.read(pid if isinstance(pid, int) else self.daemon.proc.pid)
+        live = (state.get("data") or {}).get("liveObjects") if state.get("ok") is True else None
+        if reading is not None and isinstance(live, dict):
+            reading["liveObjects"] = live
+        return reading
 
     def i8(self, trace: Mapping[str, Any]) -> List[str]:
         """I8's violations: its inputs, the raw daemon facets and the session event logs, are all in the trace.
@@ -2165,7 +2197,7 @@ class DaemonSession:
             raise ValueError(f"facets {session_ctx.get('facets')!r} is v0 or v1")
         default_schema = normalize.DEFAULT_SCHEMA
         if session_ctx.get("facets") == "v0" and not session_ctx.get("snapshot_schema"):
-            import facets_v0  # sibling (p15-oracle-006): the v1 schema cut to the push-base methods
+            import facets_v0  # sibling: the v1 schema cut to the push-base methods
 
             default_schema = facets_v0.write_schema(Path(str(session_ctx.get("out_dir") or "/tmp/oracle")))
         self.schema_path = str(session_ctx.get("snapshot_schema") or default_schema)
@@ -2622,7 +2654,7 @@ def live_check(binary: Path, *, write: bool) -> int:
     part with LIVE_EXPECTED. The session and settings are checked against the schema, not pinned: their
     ids and times are random until task 185's seeded ids and virtual clock. The expected panic log path
     is the Linux XDG state path, so this is a VM check."""
-    import capture_wire_fixtures  # sibling of this file (p15-oracle-020)
+    import capture_wire_fixtures  # sibling of this file
 
     root = Path(tempfile.mkdtemp(prefix="oracle-021-", dir="/tmp"))
     daemon = capture_wire_fixtures.Daemon(binary.resolve(), root)

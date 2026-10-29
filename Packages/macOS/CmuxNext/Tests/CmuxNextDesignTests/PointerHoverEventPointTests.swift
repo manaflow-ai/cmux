@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// An enter or exit sets hover from its own point, not from the live cursor (p04-input-095): the
+/// An enter or exit sets hover from its own point, not from the live cursor: the
 /// event a tracking area sends says where the pointer crossed, and the window's targets hover from
 /// that point wherever the real mouse rests.
 @MainActor @Suite(.serialized)

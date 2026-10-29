@@ -1,5 +1,5 @@
-// The History page keeps its search, filter, grouping, route and list scroll across a discard
-// (p13-webui-082): the hide saves them, and the restored document's store starts from them.
+// The History page keeps its search, filter, grouping, route and list scroll across a discard:
+// the hide saves them, and the restored document's store starts from them.
 import { describe, expect, test } from "bun:test";
 import { BridgePageClient, type ReplyHandler } from "../shared/pageClient";
 import { openPageState } from "../shared/pageState";

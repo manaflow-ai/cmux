@@ -31,6 +31,7 @@ use rusqlite::{Connection, Transaction, params};
 use serde_json::{Map, json};
 
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::resource::BrowserPublicId;
 use crate::state::home_store::live_app_workspace;
 use crate::state::prelude::*;
@@ -106,9 +107,8 @@ fn write_app_tab(
 /// An app id as the manifest names it (`publisher/name`): ASCII letters,
 /// digits and `.` `_` `-` `/`, starting with a letter or digit.
 fn validate_app_id(app: &str) -> Result<(), ResourceError> {
-    let valid = !app.is_empty()
-        && app.len() <= APP_ID_MAX_BYTES
-        && app.as_bytes()[0].is_ascii_alphanumeric()
+    let valid = app.len() <= APP_ID_MAX_BYTES
+        && app.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
         && app.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-/".contains(&byte));
     if valid {
         Ok(())
@@ -236,7 +236,9 @@ impl Mux {
         )?;
         self.emit(MuxEvent::TreeChanged);
         self.publish_journal_event();
-        let workspace_id = commit.result["workspace_id"]
+        let workspace_id = commit
+            .result
+            .field("workspace_id")
             .as_str()
             .context("the created app tab has no workspace")?;
         Ok(EnsuredApp {

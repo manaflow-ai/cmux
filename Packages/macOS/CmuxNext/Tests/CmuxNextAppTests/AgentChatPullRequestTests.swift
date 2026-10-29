@@ -56,6 +56,17 @@ struct AgentChatPullRequestTests {
         #expect(AgentPanePullRequest(ghView: Data(#"{"url":"javascript:alert(1)","number":1,"state":"OPEN"}"#.utf8)) == nil)
     }
 
+    /// With no gh path given, `env` finds gh on the PATH of gh's environment as it starts (p02-threads 060):
+    /// the reader checks no file on its caller's thread, which was the main thread.
+    @Test func ghIsFoundOnThePathWhenItStarts() async throws {
+        let rig = try Self.rig()
+        let folder = URL(fileURLWithPath: rig.gh).deletingLastPathComponent().path
+        let reader = AgentChatPullRequestReader(environment: ["PATH": folder, "HOME": NSHomeDirectory()], processes: AsyncProcess())
+        let read = try #require(await reader.read(in: rig.folder))
+        #expect(read.number == 7)
+        #expect(Self.calls(rig.gh) == 1)
+    }
+
     /// The chat's header asks once per folder while the answer is fresh, and shows it when it lands;
     /// a folder with no pull request (gh fails) shows none.
     @Test func theHeaderAsksOnceAndShowsTheAnswer() async throws {

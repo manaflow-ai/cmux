@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The Swift runner of the oracle's pane-protocol suite (p15-oracle-213): `tests/oracle/corpus/pane-protocol/`,
+/// The Swift runner of the oracle's pane-protocol suite: `tests/oracle/corpus/pane-protocol/`,
 /// written by `scripts/cmux-next/oracle/gen_pane_protocol.py`, which the Rust runner (cmux-pane-protocol's
 /// `conformance` example) and the TS runner (`webviews/scripts/pane-protocol-conformance.ts`) read too, as every
 /// Mojo binding reads chromium/src `mojo/public/interfaces/bindings/tests/data/validation/`.

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use super::{HarnessHealth, HealthService, inventory};
+use crate::no_panic::JsonExt;
 
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -16,7 +17,7 @@ impl Snapshot {
     /// A full partial inventory; revision is scoped to this HealthService run.
     pub(crate) fn wire(&self) -> Value {
         let mut value = self.value.clone();
-        value["revision"] = json!(self.revision);
+        value.set("revision", json!(self.revision));
         value
     }
 }

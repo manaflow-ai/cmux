@@ -156,7 +156,7 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.isEmpty)
     }
 
-    /// Intent prewarm (`intentPrewarmHover`, p04-input-043) with the hibernation as its warmer: a frozen hidden
+    /// Intent prewarm (`intentPrewarmHover`) with the hibernation as its warmer: a frozen hidden
     /// page is cold, a strip hover reaches the service through `noteHover`, its dwell thaws the page, and the
     /// switch that shows it is the commit (used, not cancelled). Neighbors are off, so only the dwell thaws.
     @Test func theHoverDwellPrewarmThawsAFrozenTabAndTheSwitchUsesIt() async throws {

@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// A close on the render server (chrome-parity p03-rendering-022b, `motion.renderServer` on): Cmd-W on
+/// A close on the render server (`motion.renderServer` on): Cmd-W on
 /// either axis and the close of the last column put every pane and divider at rest in the change's turn,
 /// with the strip camera (and each row column's) at rest in the model too. The camera rides the close's
 /// frame spring as part of each pane's own spring (Lawrence 2026-10-20), so the main thread steps nothing
@@ -371,7 +371,7 @@ struct CloseRenderMotionTests {
         }
     }
 
-    /// A docked column's strip clip is placed at rest: until it is layer structure (p03-rendering-023), a
+    /// A docked column's strip clip is placed at rest: until it is layer structure, a
     /// close beside a dock steps on the CPU, which clips every frame.
     @Test func aCloseBesideADockStepsOnTheCPU() async throws {
         try await Render.withMotion {

@@ -2,17 +2,18 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
-/// The attach reader's side of one terminal stream: snapshot order (``TerminalSnapshotSequencer``),
+/// The attach connection's side of one terminal stream: snapshot order (``TerminalSnapshotSequencer``),
 /// then each admitted event either straight to the view's lane (live output while the
 /// ``TerminalEchoRoute`` is open), held behind the marker in flight (live output while only output
 /// came after it), or onto the ``TerminalEventQueue`` the driver consumes.
 ///
-/// Live output therefore reaches the lane in one call on the reader thread: no AsyncStream, no task
-/// and no cooperative pool thread between the socket and the parser. After a record the route opens
+/// Live output therefore reaches the lane in one call on the connection's decode lane, inline on its reader
+/// while that lane is idle: no AsyncStream, no task and no cooperative pool thread between the
+/// socket and the parser. After a record the route opens
 /// again one round trip later even while output keeps coming: the output that came meanwhile waits
 /// here and the marker's acknowledgement hands it to the lane. Back-pressure is the lane's capacity,
-/// and the hold limit while output waits for a marker, both waited for on the reader thread
-/// (``TerminalEventQueue/waitForLane(_:)``, ``TerminalEventQueue/waitWhileFull()``), so a slow parser
+/// and the hold limit while output waits for a marker, both waited for on the reader thread after the line
+/// (``TerminalEventQueue/enqueueOnLane(_:)``, ``TerminalEventQueue/waitWhileFull()``), so a slow parser
 /// stops the socket and the daemon's bounded mailbox ends a stalled view with `overflow`, as the
 /// stream's own high water does.
 ///
@@ -47,10 +48,19 @@ final class TerminalEchoRouter: Sendable {
         state = Mutex(State(route: TerminalEchoRoute(holdLimit: holdLimit)))
     }
 
-    /// Reader thread, in stream order: one decoded attach line. A size state goes to `sizeState`
-    /// (the attachment orders generations under its own lock); it touches no surface, so it keeps
-    /// no order with output.
+    /// In stream order: one decoded attach line, then the reader's wait (``TerminalEventQueue/waitWhileFull()``).
+    /// The attach connection runs the two halves on two threads (``admit(_:sizeState:)`` on its decode lane, the
+    /// wait on its reader after the line); this runs both on the caller's.
     func receive(_ decoded: DecodedAttachLine, sizeState: (TerminalSizeState, String?) -> Void) {
+        admit(decoded, sizeState: sizeState)
+        queue.waitWhileFull()
+    }
+
+    /// The attach connection's decode lane (or its reader inline), in stream order: one decoded attach line. A
+    /// size state goes to `sizeState` (the attachment orders generations under its own lock); it touches no
+    /// surface, so it keeps no order with output. Never waits: what holds the reader (the lane's capacity, the
+    /// hold limit, the queue's high water) the reader waits for after the line.
+    func admit(_ decoded: DecodedAttachLine, sizeState: (TerminalSizeState, String?) -> Void) {
         let next = state.withLock { state -> Next in
             guard let event = state.sequencer.admit(decoded) else { return .drop }
             switch event {
@@ -79,8 +89,8 @@ final class TerminalEchoRouter: Sendable {
         switch next {
         case .drop: break
         case .sizeState(let size, let participant): sizeState(size, participant)
-        case .lane(let sink, let data, let flow): queue.waitForLane { wake in sink.enqueueEcho(data, flow: flow, wake: wake) }
-        case .queued: queue.waitWhileFull()
+        case .lane(let sink, let data, let flow): queue.enqueueOnLane { wake in sink.enqueueEcho(data, flow: flow, wake: wake) }
+        case .queued: break
         }
     }
 
@@ -99,7 +109,7 @@ final class TerminalEchoRouter: Sendable {
         queue.releaseLane(closing: true)
     }
 
-    /// Reader thread: the connection closed. Ends the stream after any output still held.
+    /// The connection's decode lane: the connection closed. Ends the stream after any output still held.
     func finish(_ last: TerminalChannelEvent) {
         state.withLock { state in
             queueHeld(state.route.close())

@@ -285,21 +285,37 @@ A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API
 1. Start: `cmux-rd host --browser URL --owner OWNER --display :99 --token-fd N` (flag off by default;
    `experiments/cloud-browser/vm/start.sh` is the reference). It binds 127.0.0.1 only, so an agent on
    the same VM reaches it with no network setup, and a human reaches it through a tunnel.
-2. Drive: the agent controls the same Chrome through CDP on the VM's loopback, never through the video
-   stream (CB1). Gap: `--browser` does not yet open a CDP port; CB-2 adds `--browser-cdp-port N`
-   (loopback only, off by default) so the agent's CDP driver and the human's stream share one Chrome.
+2. Drive: the agent controls the same Chrome through CDP, never through the video stream (CB1).
+   `--browser-cdp-socket PATH` (off by default) serves it so the agent's CDP driver and the human's
+   stream share one Chrome. Chrome opens no TCP debugging port (a loopback port is reachable by every
+   local user, and it controls the browser and its logins): it runs with `--remote-debugging-pipe`
+   and speaks CDP on fds 3 and 4 to the host. The host serves that connection on a Unix socket:
+   - mode 0600 from the moment it has its name (bound in a new 0700 directory, set to 0600 there,
+     renamed into place), in a parent directory that no other user owns or can write (refused
+     otherwise); a live socket at PATH is not replaced;
+   - a client is served only when its kernel peer uid (SO_PEERCRED / getpeereid) equals the host's;
+   - one client at a time: a second client, or any client while no browser runs, is closed at once;
+   - framing is the pipe's, a JSON message ended by a NUL byte, forwarded whole each way (a client
+     that leaves mid-message leaves nothing in the pipe);
+   - a browser restart attaches the new browser's pipe and closes the connected client; the agent
+     connects again. The pipe is one CDP connection: a new client starts with `Target.getTargets` /
+     `Target.attachToTarget` and ignores messages for ids and sessions it did not open.
 3. Watch and take over: the user's Mac opens a `remote_view` pane on that VM's host (today the
    DEBUG-only `CMUX_NEXT_RD_DEBUG_PORT` path; CB-3 makes it a normal action). One controller at a time:
    the automation lease decides between the agent and the person.
 4. Lifetime: Chrome outlives viewers and restarts after a crash (tested); it stops with the host, so
    the subagent's VM teardown also ends the browser.
 
-Landed for point 2 (CB-2): `cmux-rd host --browser-cdp-port N` (127.0.0.1 only, off by default),
-proven by a test that starts real Chrome under Xvfb, runs `Runtime.evaluate` over the DevTools
-WebSocket, sees the page title change, and checks the port does not answer on the VM's network
-address (`browser::tests::cdp_an_agent_drives_the_cloud_browser_on_loopback_only`, `--ignored`; needs
-Chrome and Xvfb). Image role: `/usr/local/bin/cmux-cloud-browser` and the `cmux-cloud-browser` unit in
-the devbox image, shipped but not enabled; it does nothing without `CMUX_CLOUD_BROWSER=1`. Gap: the
+Landed for point 2 (CB-2): `cmux-rd host --browser-cdp-socket PATH` (owner-only, off by default;
+`--browser-cdp-port` was removed and is refused with a pointer to the socket). Unit tests in
+`cdp_socket_tests.rs` and `browser.rs` cover the socket mode and parent check, the peer uid check, one
+client at a time, whole-message forwarding with a fake pipe, and reconnection after a restart. A real
+Chrome test under Xvfb attaches to the page over the socket, runs `Runtime.evaluate`, kills Chrome and
+drives the restarted one (`browser::tests::cdp_an_agent_drives_the_cloud_browser_over_the_owner_only_socket`,
+`--ignored`; needs Chrome and Xvfb). Image role: `/usr/local/bin/cmux-cloud-browser` and the
+`cmux-cloud-browser` unit in the devbox image, shipped but not enabled; it does nothing without
+`CMUX_CLOUD_BROWSER=1`. It serves CDP on `$state/cdp.sock` (`CMUX_CLOUD_BROWSER_CDP_SOCKET`; the 0700
+state dir) and refuses the removed `CMUX_CLOUD_BROWSER_CDP_PORT`. Gap: the
 `cmux-rd` binary is not in the image yet, so the unit exits with "cmux-rd is not installed" until
 it is; and per remote-desktop-DESIGN.md M3 the stream side moves to `cmux-screen-host`.
 

@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 public import CoreGraphics
 
 nonisolated enum AppearanceSettingsSchema {
@@ -16,7 +17,7 @@ nonisolated enum AppearanceSettingsSchema {
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.label) }
         // The background picker lists art by collection, Dark Art first.
-        let backgroundChoices = BackdropCatalog.bundled.map { SettingChoice($0.id, $0.title) } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
+        let backgroundChoices = BackdropArt.pickerOrder.map { SettingChoice(BackdropSelection.art($0).id, $0.label) } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
         return [
             SettingDescriptor(
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,

@@ -152,7 +152,7 @@ import Testing
         #expect(old.forkCalls == 0)
     }
 
-    /// p03-rendering-042: fork API 32 takes the resize deadline without effect and returns 1, so
+    /// Fork API 32 takes the resize deadline without effect and returns 1, so
     /// from API 32 no deadline is sent and none is recorded as applied.
     @Test func theResizeDeadlineReachesOnlyForkAPI27To31() {
         #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 26))

@@ -8,7 +8,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The key router's modes (p04-input-054, `KeyRouterMode`): each owner that takes typing keys before the focused
+/// The key router's modes (`KeyRouterMode`): each owner that takes typing keys before the focused
 /// view turns its mode on as it starts holding keys and off as it stops, and only then does the router ask it. In
 /// normal mode a typing key goes straight to the focused view, with the outcome the full ordered walk gives it;
 /// Escape and chords always take the walk.

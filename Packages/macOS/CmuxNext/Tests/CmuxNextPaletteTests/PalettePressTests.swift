@@ -82,7 +82,7 @@ struct PalettePressTests {
         #expect(ran.isEmpty)
     }
 
-    // MARK: The Actions menu's press, drag and release (p04-input-069: no `nextEvent(matching:)` loop)
+    // MARK: The Actions menu's press, drag and release (no `nextEvent(matching:)` loop)
 
     /// An open Actions menu with five rows; the menu is rebuilt with each hover, as the palette's render does.
     @MainActor private final class Menu {

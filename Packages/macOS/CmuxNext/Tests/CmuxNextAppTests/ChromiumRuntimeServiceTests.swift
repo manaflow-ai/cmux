@@ -2,6 +2,7 @@
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
 import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -109,6 +110,21 @@ import Testing
         #expect(BrowserTabService.message(.downloading(fraction: 0.42)).contains("42"))
         #expect(BrowserTabService.message(.downloadFailed("transfer: connection reset")) == BrowserEngineStrings.downloadFailed)
         #expect(BrowserTabService.message(.startFailed("dlopen failed")) == "dlopen failed")
+    }
+
+    /// A sanitizer app (reload.sh --config asan|tsan|ubsan) starts with no Chromium.
+    @Test func aSanitizerBuildStartsWithNoChromiumRuntime() {
+        let service = ChromiumRuntimeService.make(work: BackgroundWork(label: "test.chromium-runtime.sanitizer"), environment: [:],
+                                                  applicationSupport: nil, sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))
+        #expect(service.origin == .sanitizer)
+        #expect(service.source.layout == nil)
+        #expect(service.pinnedKey == nil)
+    }
+
+    @Test func aSanitizerBuildThatAsksForChromiumPicksARuntimeAsUsual() {
+        let service = ChromiumRuntimeService.make(work: BackgroundWork(label: "test.chromium-runtime.sanitizer"), environment: [:],
+                                                  applicationSupport: nil, sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: true))
+        #expect(service.origin != .sanitizer)
     }
 }
 

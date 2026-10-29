@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// cx-nkyvn at the pane's folder check: a folder the user picked in the native Open panel (New Tab
 /// > Add project > Local folder, `project.browse`) is the page's project from then on, so its
@@ -18,7 +19,7 @@ struct AgentPaneBrowsedFolderRootTests {
             .appendingPathComponent("nkyvn-\(UUID().uuidString)/.cache/repo").path
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: (folder as NSString).deletingLastPathComponent) }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.onBrowseProject = { folder }
         let harnesses = #"{"jsonrpc":"2.0","id":3,"method":"_acpmux/harnesses","params":{"cwd":"\#(folder)"}}"#
         func check() async -> Bool {
@@ -45,7 +46,7 @@ struct AgentPaneBrowsedFolderRootTests {
         let inside = home + "/src"
         try FileManager.default.createDirectory(atPath: inside, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: home) }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.homeFolder = home
         model.onBrowseProject = { home }
         _ = await model.respond(to: .browseProject)

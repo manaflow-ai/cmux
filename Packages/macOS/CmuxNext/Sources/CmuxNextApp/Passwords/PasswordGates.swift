@@ -17,10 +17,7 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
-        var error: NSError?
-        // SAFETY: the error pointer is a local live for the call; LocalAuthentication stores at most one
-        // autoreleased NSError through it and keeps no reference to the pointer.
-        guard unsafe context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
+        // No synchronous canEvaluatePolicy on main: evaluatePolicy fails at once when the Mac cannot evaluate it.
         // A reply that never comes (the context dropped it) is a failed authentication.
         return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             // The reply runs on a LocalAuthentication queue, never the main actor.

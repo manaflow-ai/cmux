@@ -74,7 +74,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
  style="position:fixed;left:40px;top:340px;font-size:16px">download</a>
 """ + suggestions.FIELDS
 
-# The permission rows (p01-process-062), on their own served page.
+# The permission rows, on their own served page.
 PERMISSION_ROW_NAMES = ("permission_camera", "permission_microphone", "permission_location", "permission_notifications")
 # Every row, in the order they run.
 ROWS = ("select", "context_menu", "download", "date", "datalist", "popup_window", "devtools_docked", "devtools_window",
@@ -387,33 +387,47 @@ def permission_row(rpc, wait, page_eval, host_windows, name, word, blocked):
     return row
 
 
-def permission_rows(rpc, wait, page_eval, permission_url, host_windows, names=PERMISSION_ROW_NAMES):
+def permission_rows(rpc, wait, page_eval, permission_url, host_windows, names=PERMISSION_ROW_NAMES,
+                    on_row=lambda name, row: row):
     """The permission rows of `names` on the served page, each `not_run` where the build or the bench cannot run them.
     `host_windows()` lists the on-screen windows (alpha > 0) of the app's child processes (the Chromium Host and its
-    helpers), or None when the window server cannot be read."""
+    helpers), or None when the window server cannot be read. `on_row(name, row)` runs right after each row and returns
+    the row to keep (run's)."""
+    ordered = [row for row in PERMISSION_ROW_NAMES if row in names]
     if not permission_url or host_windows is None:
-        return {name: {"ok": False, "not_run": "the bench gave no permission page or no way to list the app's child "
-                                               "windows"} for name in names}
+        return {name: on_row(name, {"ok": False, "not_run": "the bench gave no permission page or no way to list the "
+                                                            "app's child windows"}) for name in ordered}
     opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": permission_url}, "focus": True,
                                 "origin": "script"}, timeout=120)
     if not wait(lambda: page_eval("document.readyState === 'complete' && typeof ask === 'function'"), 60, 0.5):
-        return {name: {"ok": False, "error": f"the permission probe never loaded: {json.dumps(opened)[:200]}"} for name in names}
+        error = f"the permission probe never loaded: {json.dumps(opened)[:200]}"
+        return {name: on_row(name, {"ok": False, "error": error}) for name in ordered}
     if prompts(rpc) is None:
         reason = "debug.browser.prompts does not answer: these rows answer the prompt bar through it, in a Debug build"
-        return {name: {"ok": False, "not_run": reason} for name in names}
-    return {row: permission_row(rpc, wait, page_eval, host_windows, name, word, blocked)
+        return {name: on_row(name, {"ok": False, "not_run": reason}) for name in ordered}
+    return {row: on_row(row, permission_row(rpc, wait, page_eval, host_windows, name, word, blocked))
             for row, name, word, blocked in PERMISSION_ROWS if row in names}
 
 
 def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid=None, right_click=None,
-        permission_url=None, host_windows=None):
-    """`rows_to_run` (rows_named); `front` gives the frontmost app's pid, `app_pid` is cmux's; `right_click` right-clicks
+        permission_url=None, host_windows=None, on_row=lambda name, row: row):
+    """`rows_to_run` (rows_named), one at a time in ROWS order: the probe rows in one probe tab, then the permission
+    rows on their served page; `front` gives the frontmost app's pid, `app_pid` is cmux's; `right_click` right-clicks
     an empty spot of the page and returns False when it could not (None: the context_menu row cannot run);
-    `permission_url` is serve_permission_page()'s and `host_windows` permission_rows'. Returns (rows, ok)."""
+    `permission_url` is serve_permission_page()'s and `host_windows` permission_rows'. `on_row(name, row)` runs right
+    after each row and returns the row to keep (the bench adds the host's window lines the row caused). A probe that
+    never loads fails each probe row. Returns (rows, ok)."""
     rows = {}
     opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     if not wait(lambda: page_eval(PROBE_LOADED), 60, 0.5):
-        return {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}, False
+        error = f"the probe never loaded: {json.dumps(opened)[:200]}"
+        rows = {name: on_row(name, {"ok": False, "error": error})
+                for name in ROWS if name in rows_to_run and name not in PERMISSION_ROW_NAMES}
+        permission_names = [row for row in rows_to_run if row in PERMISSION_ROW_NAMES]
+        if permission_names:
+            rows.update(permission_rows(rpc, wait, page_eval, permission_url, host_windows, permission_names,
+                                        on_row=on_row))
+        return rows, False
 
     def center(element):
         rect = page_eval(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); "
@@ -427,27 +441,31 @@ def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid
         rpc("debug.key", {"target": "page", "key": "escape"})
         wait(lambda: shown(rpc, ("page_popup",)) is None, 5)
 
-    if "select" in rows_to_run:
-        rows["select"] = select_row(rpc, wait, page_eval, click, front, app_pid)
-    if "context_menu" in rows_to_run:
-        rows["context_menu"] = context_menu_row(rpc, wait, page_eval, right_click, front, app_pid)
-        wait(lambda: page_eval(PROBE_LOADED), 60, 0.5)  # the row reloaded the probe
-    if "download" in rows_to_run:
-        rows["download"] = download_row(rpc, wait, click, front, app_pid)
-    widget_rows = [row for row in rows_to_run
-                   if row not in CMUX_ROWS and row not in suggestions.ROWS and row not in PERMISSION_ROW_NAMES]
-    if widget_rows:
-        if host_widgets(rpc) is None:
-            reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
-            rows.update({name: {"ok": False, "not_run": reason} for name in widget_rows})
+    widget_host = None
+    for name in ROWS:
+        if name not in rows_to_run or name in PERMISSION_ROW_NAMES:
+            continue
+        if name == "select":
+            row = select_row(rpc, wait, page_eval, click, front, app_pid)
+        elif name == "context_menu":
+            row = context_menu_row(rpc, wait, page_eval, right_click, front, app_pid)
+            wait(lambda: page_eval(PROBE_LOADED), 60, 0.5)  # the row reloaded the probe
+        elif name == "download":
+            row = download_row(rpc, wait, click, front, app_pid)
+        elif name in suggestions.ROWS:
+            row = suggestions.run(rpc, wait, page_eval, click, [name])[name]
         else:
-            rows.update(run_widget_rows(rpc, wait, click, dismiss_page_popup, widget_rows))
-    suggestion_rows = [row for row in rows_to_run if row in suggestions.ROWS]
-    if suggestion_rows:
-        rows.update(suggestions.run(rpc, wait, page_eval, click, suggestion_rows))
+            if widget_host is None:
+                widget_host = host_widgets(rpc) is not None
+            if widget_host:
+                row = run_widget_rows(rpc, wait, click, dismiss_page_popup, [name])[name]
+            else:
+                row = {"ok": False,
+                       "not_run": "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"}
+        rows[name] = on_row(name, row)
     permission_names = [row for row in rows_to_run if row in PERMISSION_ROW_NAMES]
     if permission_names:
-        rows.update(permission_rows(rpc, wait, page_eval, permission_url, host_windows, permission_names))
+        rows.update(permission_rows(rpc, wait, page_eval, permission_url, host_windows, permission_names, on_row=on_row))
     return rows, all(row.get("ok") for row in rows.values())
 
 

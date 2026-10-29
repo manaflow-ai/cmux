@@ -65,6 +65,7 @@ nonisolated extension CEFShimLibrary {
         browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
+        setPumpTimeSlice = try r("cmux_shim_set_pump_time_slice")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         let cSetEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_set_energy_saver")
         setEnergySaver = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cSetEnergySaver(a0, s1) } }

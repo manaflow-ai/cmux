@@ -32,6 +32,10 @@ render-state -> (render-delta | scroll-changed)* -> detached
 
 The server captures the initial `render-state` snapshot and registers the live render tap while holding the same terminal lock. There is no terminal mutation between those operations, so the initial state and later deltas have no gap and no duplicated frame. The initial event may precede the `attach-surface` command response, as in byte mode.
 
+`render-state` carries no viewport position; a client starts at the live bottom. When the surface viewport is scrolled back at that snapshot, the first live event is a `scroll-changed` with its `offset` and `at_bottom:false`, captured under the same terminal lock. An attach to an exited terminal gets that `scroll-changed` too, then `detached`.
+
+The render viewport is one per terminal, shared by every render attach of it on every connection: `scroll-surface` or `terminal.viewport.scroll` from any connection moves it for all of them, and input snaps it back to the live bottom. Byte clients and in-process frontends keep their own scroll position. Automation screen reads (`read-screen`, `wait-for`, `copy` mode `screen`, `terminal.screen.read`, `terminal.wait`) read the live screen and do not follow the render viewport.
+
 For one surface, events are applied in transport order. `detached` is terminal for that surface's attach stream. Clients must discard later events for that attachment if transport buffering delivers any after `detached`.
 
 On reconnect, re-attach and rebuild from the fresh `render-state`; discard cached scrollback pages.
@@ -158,7 +162,7 @@ The cursor is always present, including cursor-only frames where `rows` is empty
 
 When `full:true`, `rows` contains exactly the complete current viewport. Optional `default_fg` and `default_bg` are present only when that default changed. `scrollback_rows` is present only when the count changed. `history_epoch` is present when terminal output or resize may have changed retained rows or their coordinates. Runs still carry resolved RGB, so any palette change that affects visible cells must dirty those rows or cause a full delta.
 
-`scroll-changed` carries viewport offset/at-bottom metadata; it does not carry cells and does not replace a delta. If scrolling changes visible content, the render stream also supplies the resulting dirty or full rows in an ordered `render-delta`. The two events need not be adjacent because frame coalescing may include other terminal mutations.
+`scroll-changed` carries viewport offset/at-bottom metadata; it does not carry cells and does not replace a delta. If scrolling changes visible content, the render stream also supplies the resulting dirty or full rows in an ordered `render-delta` after the `scroll-changed`. The two events need not be adjacent because frame coalescing may include other terminal mutations. Every move of the surface viewport is announced this way, whatever moved it: `scroll-surface` or `terminal.viewport.scroll` from any connection, input snapping to the live bottom, output, resize, or history clear. A client that falls behind receives coalesced events: the newest position, then one `render-delta` with every row damaged since it last drained. A `render-delta` never arrives before the `scroll-changed` of the scroll that moved its rows.
 
 ## Scrollback
 

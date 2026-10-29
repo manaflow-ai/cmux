@@ -68,7 +68,7 @@ impl ApproverSet {
                 .get("publicKey")
                 .and_then(Value::as_str)
                 .and_then(unhex)
-                .filter(|k| k.len() == 65 && k[0] == 4)
+                .filter(|k| k.len() == 65 && k.first() == Some(&4))
                 .ok_or_else(|| {
                     RpcError::invalid_params(
                         "publicKey must be a 65-byte uncompressed P-256 point as hex",
@@ -254,7 +254,7 @@ fn canonical_string(s: &str, out: &mut String) {
 /// The first 8 bytes of the key's SHA-256, as hex.
 pub fn fingerprint(key: &[u8]) -> String {
     use sha2::Digest;
-    hex(&sha2::Sha256::digest(key)[..8])
+    hex(sha2::Sha256::digest(key).iter().take(8))
 }
 
 fn valid_id(s: &str) -> bool {
@@ -262,17 +262,20 @@ fn valid_id(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+fn hex<'a>(bytes: impl IntoIterator<Item = &'a u8>) -> String {
+    bytes.into_iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Option<Vec<u8>> {
+pub(super) fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2)
         || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
         return None;
     }
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+    s.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| std::str::from_utf8(pair).ok().and_then(|d| u8::from_str_radix(d, 16).ok()))
+        .collect()
 }
 
 /// Seconds since the Unix epoch.

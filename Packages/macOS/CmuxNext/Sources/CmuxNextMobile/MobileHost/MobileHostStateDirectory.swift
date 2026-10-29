@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The iPhone host's state folder in the app's Application Support folder: device id,
@@ -17,11 +18,11 @@ public struct MobileHostStateDirectory: Sendable {
     }
 
     /// The state folder, after moving a pre-rename one into place.
-    public func resolve(fileManager: FileManager = .default) -> URL {
+    public func resolve() -> URL {
         let current = parent.appendingPathComponent(Self.name, isDirectory: true)
         let legacy = parent.appendingPathComponent(Self.legacyName, isDirectory: true)
-        if !fileManager.fileExists(atPath: current.path), fileManager.fileExists(atPath: legacy.path) {
-            try? fileManager.moveItem(at: legacy, to: current)
+        if !FileManager.checked.fileExists(atPath: current.path), FileManager.checked.fileExists(atPath: legacy.path) {
+            try? FileManager.checked.moveItem(at: legacy, to: current)
         }
         return current
     }

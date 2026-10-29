@@ -5,7 +5,7 @@ import ObjectiveC
 import QuartzCore
 import Testing
 
-/// `debug.terminal_display` and `debug.damage` share one display-pass probe (p03-rendering-003): arms nest,
+/// `debug.terminal_display` and `debug.damage` share one display-pass probe: arms nest,
 /// neither tool resets or ends the other's counts, and the last disarm puts the original IMP back (R4).
 @MainActor
 struct DebugTerminalDisplayProbeTests {
