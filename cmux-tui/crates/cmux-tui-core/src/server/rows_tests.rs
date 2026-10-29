@@ -109,7 +109,7 @@ fn new_row_replays_client_keys_and_refuses_a_changed_height() {
         "cmd": "new-row", "pane": pane, "height_permille": 400,
         "pane_id": "pane_0123456789abcdef0123456789abcdef",
         "tab_id": "tab_0123456789abcdef0123456789abcdef",
-        "terminal_id": "term_0123456789abcdef0123456789abcdef",
+        "terminal_id": "0123456789ab4def8123456789abcdef",
     });
     let created = wire.ok(request.clone());
     let replayed = wire.ok(request.clone());
