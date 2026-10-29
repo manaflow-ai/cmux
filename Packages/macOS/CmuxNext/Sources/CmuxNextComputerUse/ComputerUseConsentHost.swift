@@ -19,11 +19,15 @@ nonisolated private let consentHostLogger = Logger(subsystem: "com.cmuxterm.app.
 /// Stop condition: `stop()` (the helper stops or exits) cancels the
 /// connection and any retry. A lost connection is retried with `Backoff`
 /// while the helper runs; a refused attach (an older helper without the
-/// method) is not retried until the next start.
+/// method, or `host_unverified`: this app build is not team-signed, so the
+/// helper cannot verify it) is not retried until the next start.
 @MainActor
 final class ComputerUseConsentHost {
     private let consent: @Sendable () async -> Data?
     private let refused: @Sendable (String) async -> Void
+    /// The helper refused this app as its host (`host_unverified`), with its reason.
+    private let unverified: @MainActor (String) -> Void
+    private let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     private var configuration: AgentActivitySocketSource.Configuration?
     private var connection: AgentActivityLineConnection?
     /// The connection whose questions are answered; read off the main actor
@@ -33,9 +37,13 @@ final class ComputerUseConsentHost {
     private var retry: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(5))
 
-    init(consent: @escaping @Sendable () async -> Data?, refused: @escaping @Sendable (String) async -> Void) {
+    init(consent: @escaping @Sendable () async -> Data?, refused: @escaping @Sendable (String) async -> Void,
+         unverified: @escaping @MainActor (String) -> Void = { _ in },
+         acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = CuaHelperIdentity.isHelperServer) {
         self.consent = consent
         self.refused = refused
+        self.unverified = unverified
+        self.acceptsServer = acceptsServer
     }
 
     func start(_ configuration: AgentActivitySocketSource.Configuration) {
@@ -68,6 +76,9 @@ final class ComputerUseConsentHost {
     nonisolated enum Line: Equatable {
         case attached
         case refusedAttach
+        /// The helper cannot verify this app's code signature (an ad hoc
+        /// signed dev build); the value is the helper's reason.
+        case hostUnverified(String)
         case question
         case other
     }
@@ -77,15 +88,24 @@ final class ComputerUseConsentHost {
         case "machine_consent", "consent_refused": .question
         case nil where object["ok"] as? Bool == true
             && (object["result"] as? [String: Any])?["attached"] as? Bool == true: .attached
-        case nil: .refusedAttach
+        case nil: hostUnverifiedReason(object["error"] as? String).map(Line.hostUnverified) ?? .refusedAttach
         default: .other
         }
+    }
+
+    /// The reason in `"...: host_unverified (<why>)"`, "" without one; nil
+    /// for any other refusal (a host-token failure names no host_unverified).
+    nonisolated static func hostUnverifiedReason(_ error: String?) -> String? {
+        guard let error, let marker = error.range(of: "host_unverified") else { return nil }
+        let rest = error[marker.upperBound...].trimmingCharacters(in: .whitespaces)
+        guard rest.hasPrefix("("), let close = rest.lastIndex(of: ")") else { return "" }
+        return String(rest[rest.index(after: rest.startIndex)..<close])
     }
 
     private func open() {
         guard let configuration, connection == nil else { return }
         let connection = AgentActivityLineConnection(path: configuration.socketPath,
-                                                     acceptsServer: CuaHelperIdentity.isHelperServer)
+                                                     acceptsServer: acceptsServer)
         self.connection = connection
         let id = ObjectIdentifier(connection)
         current.withLock { $0 = id }
@@ -105,6 +125,11 @@ final class ComputerUseConsentHost {
             case .refusedAttach:
                 consentHostLogger.notice("cmux Computer Use helper does not take machine consent from this app: \(String(decoding: line.prefix(256), as: UTF8.self), privacy: .public)")
                 connection.cancel()
+            case .hostUnverified(let why):
+                consentHostLogger.error("cmux Computer Use helper refused this app as its consent host: \(why, privacy: .public). Legacy Computer Use stays off in this build; use driver: upstream or a signed cmux build.")
+                connection.cancel()
+                // task-owner: one main-actor hop per refused attach; it only records the reason.
+                Task { @MainActor in self?.refusedAsUnverified(why, connection: id) }
             case .other:
                 break
             }
@@ -112,6 +137,12 @@ final class ComputerUseConsentHost {
             // task-owner: one main-actor hop per lost connection; it schedules at most one retry.
             Task { @MainActor in self?.lost(connection) }
         })
+    }
+
+    private func refusedAsUnverified(_ why: String, connection id: ObjectIdentifier) {
+        // A stopped or replaced connection's refusal says nothing about the current helper.
+        guard current.withLock({ $0 == id }) else { return }
+        unverified(why)
     }
 
     private func lost(_ lostConnection: AgentActivityLineConnection?) {

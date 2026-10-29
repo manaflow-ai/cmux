@@ -64,6 +64,11 @@ public final class ComputerUseHelperDaemon {
     public static let shared = ComputerUseHelperDaemon()
 
     public private(set) var state: State = .off
+    /// Why the running helper refused this app as its consent host
+    /// (`host_unverified`: a cmux build that isn't team-signed, such as a
+    /// tagged dev build). Every call that needs consent is refused then.
+    /// Cleared when the helper stops, exits or starts again.
+    public private(set) var consentHostUnverified: String?
     @ObservationIgnored let socketPath: String
     @ObservationIgnored let stateDirectory: URL
     @ObservationIgnored private let identity: CuaHelperIdentity
@@ -284,6 +289,7 @@ public final class ComputerUseHelperDaemon {
     private func helperExited(_ pid: pid_t) {
         guard case .running(let running) = state, running == pid else { return }
         consentHost?.stop()
+        consentHostUnverified = nil
         agentToken = nil
         hostToken = nil
         guard requestedEnabled, !quitting else {
@@ -327,6 +333,7 @@ public final class ComputerUseHelperDaemon {
     func stop() {
         restarts.stopped()
         consentHost?.stop()
+        consentHostUnverified = nil
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
@@ -342,8 +349,10 @@ public final class ComputerUseHelperDaemon {
             refused: { [upstream] surface in
                 let record = await MainActor.run { upstream.consentRefused }
                 await record(surface)
-            })
+            },
+            unverified: { [weak self] why in self?.consentHostUnverified = why })
         consentHost = host
+        consentHostUnverified = nil
         host.start(AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,
                                                            hostAuthToken: hostToken, machineName: ""))
     }
