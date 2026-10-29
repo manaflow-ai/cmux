@@ -226,7 +226,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
-                view.trailingTrim = content.metrics.trailingTrim
+                view.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: content.look, metrics: content.metrics)
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):

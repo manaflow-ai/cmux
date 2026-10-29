@@ -150,4 +150,27 @@ import Testing
             #expect(abs(offset.x) <= 0.5 && abs(offset.y) <= 0.5, "\(glyph) at \(pixels) px draws \(offset) px off its box's center")
         }
     }
+
+    /// A band section header's chevron centers on its rows' trailing column in every look: a card keeps its rows at the
+    /// header's width (no `trailingTrim`), the other looks run the rows `trailingTrim` past it (review of #27292: the
+    /// chevron sat 4.5 pt right of a card's marks when the header always took the trim).
+    @Test(arguments: SectionsLookVariant.allCases)
+    func aBandHeadersChevronCentersOnItsRowsColumn(_ look: SectionsLookVariant) throws {
+        let item = LayoutItem(id: LayoutItemID("itm_column_band"), ref: .builtIn(.home))
+        let section = LayoutSection(id: LayoutSectionID("sec_column_band"), title: "Band", region: .top, items: [item])
+        var metrics = SidebarRegionMetrics.standard
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
+        let layout = SidebarRegionLayout.make(sections: [section], width: 260, look: look, collapsed: [], metrics: metrics)
+        guard let headerRow = layout.rows.first(where: { if case .header = $0.kind { true } else { false } }) else { return }
+        let itemRow = try #require(layout.rows.first { if case .item = $0.kind { true } else { false } }, "\(look): no item row")
+        let header = SidebarSectionHeaderView(frame: headerRow.frame)
+        header.configure(title: "Band", collapsed: false)
+        header.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: look, metrics: metrics)
+        header.layoutSubtreeIfNeeded()
+        header.layout()
+        let chevronX = headerRow.frame.minX + header.chevron.frame.midX
+        // A band row's fill is inset by `horizontalInset` in its frame (`SidebarItemRowView.layoutColumnMark`).
+        let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
+        #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
+    }
 }
