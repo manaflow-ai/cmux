@@ -983,42 +983,70 @@ on a dead pool needs force-cancel and then rerun.
 Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
-minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job waits for the probe. The watch never runs on GitHub-hosted
-Ubuntu: while overflow is on it takes `blacksmith-16vcpu-ubuntu-2404` (a size
-the probe does not ask for), and while it is off it takes
-`blacksmith-6vcpu-macos-26`, so it can always put overflow back. On
+minutes its `probe` jobs ask for each Blacksmith Linux size compiles run on
+(`PROBE_LABELS`: `blacksmith-32vcpu-ubuntu-2404` and
+`blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
+its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
+label alone stalled four times while the other sizes started jobs, and each
+stall flipped the whole fleet. The watch never runs on GitHub-hosted Ubuntu
+or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26`, so it
+can always put overflow back. On
 2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
 failover and held the workflow's concurrency group, so every later run was
 evicted with nothing decided.
 
-- **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
+- **Every probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
   failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` and
   `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404` (another Blacksmith
-  size; never GitHub-hosted Ubuntu), `MACOS_RUNNER_15`, `_26`,
+  size; never GitHub-hosted Ubuntu, and only a size whose probe started in
+  that run, so with every size stalled the Linux variables are left alone),
+  `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
-  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  read. That is the lever pulled by hand on 2026-09-29. `MACOS_RUNNER_26` and
+  `LINUX_RUNNER` are the variables signing jobs read
+  (`scripts/ci/signing_runner_variables.py`), so the switch never writes a
+  label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
+  has no owned failover, an override naming a reused machine for either is
+  refused, and a stalled probe never re-applies an older record's owned value
+  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
+  pull request). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
-  nothing on 2026-09-29) and re-run, so they pick their runners again; merge
+  nothing on 2026-09-29) and re-run, so they pick their runners again (a job on
+  a Blacksmith Linux label only when some Linux size started, since otherwise
+  its re-run would land on the same label); merge
   queue, release and publish runs, and runs already on attempt 3, are only
   listed. If a variable write fails after the record is saved, the next
   stalled probe retries entries still at their recorded before-value and
   leaves hand edits alone. The run force-cancels itself whenever the watcher
-  did not observe a started probe, including a switch failure before it could
-  publish its outcome, since a queued probe would otherwise hold the
-  concurrency group.
-- **The probe starts.** If the record exists, each variable it changed is put
+  did not observe a started probe, or another probe is still queued, including
+  a switch failure before it could publish its outcome, since a queued probe
+  would otherwise hold the concurrency group.
+- **Every probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
-  record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which names the failover size then.
+  record is deleted. The probes ask for the same sizes whatever the record
+  says. A Linux variable goes back only onto a size whose probe started; one
+  whose value before is a label nobody probed (an older record's
+  `blacksmith-4vcpu-ubuntu-2404`, or unset) stays where it is, unless it is on
+  GitHub-hosted Ubuntu (a record from before 2026-10-27): then `LINUX_RUNNER`
+  moves to a probed size that started and `CI_TRUSTED_RUNNER` is unset, so no
+  hosted value outlives the record. A GitHub-hosted value before is never put
+  back.
+- **Some start and some do not.** The switch changes nothing: overflow does
+  not flip and a record is not cleared. Moving work off one stalled size is
+  the `RUNNER_POOLS` reconciler's job, which reads the health below.
+
+Every deciding run that holds the switch token writes `CI_CLOUD_LABEL_HEALTH`:
+`{"checked", "run", "minutes", "labels": {label: "started" | "stalled"}}`. The
+switch never reads it back; it is per-label health for routing that picks a
+size per label (the `RUNNER_POOLS` reconciler).
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
@@ -1036,7 +1064,7 @@ variable `GLAEDA_ROUTE_APP_ID` and its key in the repository secret
 `GLAEDA_ROUTE_APP_KEY`. Without it the watch still probes, names each value to
 set by hand, and fails. A manual dispatch is a dry run by default.
 
-One Linux probe decides for macOS too: on 2026-09-29 both went at once. A
+The Linux probes decide for macOS too: on 2026-09-29 both went at once. A
 probe can start on a pool that is only partly back; the next probe, 10
 minutes later, turns overflow off again if that pool still starts nothing.
 
