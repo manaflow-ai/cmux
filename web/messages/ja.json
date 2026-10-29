@@ -4626,7 +4626,7 @@
       "coderouterLink": "CodeRouterの全コマンドリファレンス",
       "nextTitle": "Cloud CLI リファレンス（NEXT）",
       "nextIntro": "cmux NEXT CLI が提供する Cloud アクションの一覧です。提供されているコマンドでも、特定のマシンイメージでは利用できない場合があります。2026-10-29 に確認したイメージは、ネイティブのエージェントチャットタブ、開発サーバーのブラウザタブを開く操作、ローカルポート転送、フォーク、アイドル時の自動一時停止にまだ対応していません。",
-      "nextTargets": "list-machines から machine:<id> の target をコピーし、マシンが 1 台だけでもマシンコマンドには --target を明示的に指定してください。コマンドの構文は --help で、引数と戻り値のフィールドはアクション ID を指定した cmux action describe で確認できます。",
+      "nextTargets": "list-machines から {machineTarget} の target をコピーし、マシンが 1 台だけでもマシンコマンドには --target を明示的に指定してください。コマンドの構文は --help で、引数と戻り値のフィールドはアクション ID を指定した cmux action describe で確認できます。",
       "nextCatalog": "提供されているアクション",
       "nextCatalogBody": "この一覧は NEXT のアクションカタログから生成され、GUI 専用のアクションは含みません。利用可能なコマンド名を示すものであり、すべてのマシンでの対応を保証するものではありません。",
       "nextCommand": "コマンド",

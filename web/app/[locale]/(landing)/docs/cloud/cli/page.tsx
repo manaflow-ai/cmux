@@ -32,7 +32,7 @@ export default async function CloudCliPage({
       <DocsSchema namespace="docs.cloudCli" path="/docs/cloud/cli" />
       <DocsHeading level={1} id="title">{t("nextTitle")}</DocsHeading>
       <p>{t("nextIntro")}</p>
-      <p>{t("nextTargets")}</p>
+      <p>{t("nextTargets", { machineTarget: "machine:<id>" })}</p>
       <CodeBlock lang="bash">{`cmux cloud list-machines
 cmux cloud machine-status --target 'machine:<id>'
 cmux cloud new-machine --help

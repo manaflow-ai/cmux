@@ -3170,7 +3170,7 @@
       "coderouterLink": "Full CodeRouter-kommandoreferanse",
       "nextTitle": "Cloud CLI-referanse (NEXT)",
       "nextIntro": "Dette er Cloud-handlingene som tilbys av cmux NEXT CLI. En tilbudt kommando kan likevel være utilgjengelig på en bestemt maskinavbildning. Avbildningen som ble kontrollert 2026-10-29, støtter ennå ikke innebygde agentchatfaner, åpning av nettleserfaner for utviklingsservere, lokal portvideresending, forking eller automatisk pause ved inaktivitet.",
-      "nextTargets": "Kopier målet machine:<id> fra list-machines, og angi --target eksplisitt for maskinkommandoer, selv med bare én maskin. Bruk --help for kommandosyntaks og cmux action describe med handlings-ID-en for argumenter og returfelter.",
+      "nextTargets": "Kopier målet {machineTarget} fra list-machines, og angi --target eksplisitt for maskinkommandoer, selv med bare én maskin. Bruk --help for kommandosyntaks og cmux action describe med handlings-ID-en for argumenter og returfelter.",
       "nextCatalog": "Tilbudte handlinger",
       "nextCatalogBody": "Denne listen genereres fra handlingskatalogen for NEXT og utelater handlinger som bare er tilgjengelige i GUI-et. Den viser tilgjengelige kommandonavn, men garanterer ikke at alle maskiner støtter dem.",
       "nextCommand": "Kommando",

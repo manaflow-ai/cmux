@@ -3173,7 +3173,7 @@
       "coderouterLink": "Pełna dokumentacja poleceń CodeRouter",
       "nextTitle": "Dokumentacja CLI Cloud (NEXT)",
       "nextIntro": "Oto działania Cloud udostępniane przez CLI cmux NEXT. Udostępnione polecenie może mimo to być niedostępne w konkretnym obrazie maszyny. Obraz sprawdzony 2026-10-29 nie obsługuje jeszcze natywnych kart czatu agentów, otwierania kart przeglądarki serwera deweloperskiego, lokalnego przekierowywania portów, tworzenia forków ani automatycznego wstrzymywania po okresie bezczynności.",
-      "nextTargets": "Skopiuj cel machine:<id> z list-machines i jawnie podawaj --target w poleceniach dotyczących maszyn, nawet jeśli masz tylko jedną. Użyj --help, aby poznać składnię polecenia, oraz cmux action describe z identyfikatorem działania, aby poznać argumenty i zwracane pola.",
+      "nextTargets": "Skopiuj cel {machineTarget} z list-machines i jawnie podawaj --target w poleceniach dotyczących maszyn, nawet jeśli masz tylko jedną. Użyj --help, aby poznać składnię polecenia, oraz cmux action describe z identyfikatorem działania, aby poznać argumenty i zwracane pola.",
       "nextCatalog": "Udostępnione działania",
       "nextCatalogBody": "Ta lista jest generowana z katalogu działań NEXT i pomija działania dostępne wyłącznie w GUI. Zawiera nazwy dostępnych poleceń, ale nie gwarantuje, że każda maszyna je obsługuje.",
       "nextCommand": "Polecenie",

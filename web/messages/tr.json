@@ -3171,7 +3171,7 @@
       "coderouterLink": "Tam CodeRouter komut referansı",
       "nextTitle": "Cloud CLI başvuru kaynağı (NEXT)",
       "nextIntro": "Bunlar cmux NEXT CLI tarafından sunulan Cloud eylemleridir. Sunulan bir komut, belirli bir makine imajında yine de kullanılamayabilir. 2026-10-29 tarihinde kontrol edilen imaj; yerleşik ajan sohbet sekmelerini, geliştirme sunucusu için tarayıcı sekmesi açmayı, yerel port yönlendirmeyi, çatallamayı veya boştayken otomatik duraklatmayı henüz desteklemiyor.",
-      "nextTargets": "list-machines sonucundan machine:<id> hedefini kopyalayın ve tek makineniz olsa bile makine komutlarında --target seçeneğini açıkça belirtin. Komut sözdizimi için --help, argümanlar ve döndürülen alanlar için eylem kimliğiyle birlikte cmux action describe kullanın.",
+      "nextTargets": "list-machines sonucundan {machineTarget} hedefini kopyalayın ve tek makineniz olsa bile makine komutlarında --target seçeneğini açıkça belirtin. Komut sözdizimi için --help, argümanlar ve döndürülen alanlar için eylem kimliğiyle birlikte cmux action describe kullanın.",
       "nextCatalog": "Sunulan eylemler",
       "nextCatalogBody": "Bu liste NEXT eylem kataloğundan oluşturulur ve yalnızca GUI üzerinden kullanılabilen eylemleri içermez. Kullanılabilir komut adlarını listeler; her makinenin bunları desteklediğini garanti etmez.",
       "nextCommand": "Komut",

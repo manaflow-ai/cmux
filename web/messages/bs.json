@@ -3173,7 +3173,7 @@
       "coderouterLink": "Potpuna referenca CodeRouter komandi",
       "nextTitle": "Referenca za Cloud CLI (NEXT)",
       "nextIntro": "Ovo su Cloud radnje koje nudi cmux NEXT CLI. Ponuđena komanda ipak može biti nedostupna na određenoj slici mašine. Slika provjerena 2026-10-29 još ne podržava ugrađene kartice razgovora s agentima, otvaranje kartica preglednika za razvojne servere, lokalno prosljeđivanje portova, pravljenje forkova ni automatsko pauziranje pri neaktivnosti.",
-      "nextTargets": "Kopirajte cilj machine:<id> iz list-machines i izričito navedite --target za komande za mašine, čak i kada imate samo jednu. Koristite --help za sintaksu komande i cmux action describe s ID-jem radnje za argumente i povratna polja.",
+      "nextTargets": "Kopirajte cilj {machineTarget} iz list-machines i izričito navedite --target za komande za mašine, čak i kada imate samo jednu. Koristite --help za sintaksu komande i cmux action describe s ID-jem radnje za argumente i povratna polja.",
       "nextCatalog": "Ponuđene radnje",
       "nextCatalogBody": "Ova lista se generiše iz kataloga radnji NEXT i isključuje radnje dostupne samo u GUI-ju. Navodi dostupne nazive komandi, ali ne garantuje da ih svaka mašina podržava.",
       "nextCommand": "Komanda",

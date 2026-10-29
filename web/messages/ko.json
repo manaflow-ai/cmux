@@ -3170,7 +3170,7 @@
       "coderouterLink": "CodeRouter 전체 명령 레퍼런스",
       "nextTitle": "Cloud CLI 참조(NEXT)",
       "nextIntro": "cmux NEXT CLI에서 제공하는 Cloud 작업입니다. 제공되는 명령도 특정 머신 이미지에서는 사용할 수 없을 수 있습니다. 2026-10-29에 확인한 이미지는 네이티브 에이전트 채팅 탭, 개발 서버 브라우저 탭 열기, 로컬 포트 포워딩, 포크, 유휴 상태의 자동 일시 중지를 아직 지원하지 않습니다.",
-      "nextTargets": "list-machines에서 machine:<id> 형식의 target을 복사하고, 머신이 하나뿐이어도 머신 명령에 --target을 명시적으로 전달하세요. 명령 구문은 --help로 확인하고, 인수와 반환 필드는 작업 ID를 지정한 cmux action describe로 확인하세요.",
+      "nextTargets": "list-machines에서 {machineTarget} 형식의 target을 복사하고, 머신이 하나뿐이어도 머신 명령에 --target을 명시적으로 전달하세요. 명령 구문은 --help로 확인하고, 인수와 반환 필드는 작업 ID를 지정한 cmux action describe로 확인하세요.",
       "nextCatalog": "제공되는 작업",
       "nextCatalogBody": "이 목록은 NEXT 작업 카탈로그에서 생성되며 GUI 전용 작업은 제외됩니다. 사용 가능한 명령 이름을 나열한 것이며, 모든 머신이 이를 지원한다는 보장은 아닙니다.",
       "nextCommand": "명령",

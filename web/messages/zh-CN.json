@@ -3173,7 +3173,7 @@
       "coderouterLink": "完整的 CodeRouter 命令参考",
       "nextTitle": "Cloud CLI 参考（NEXT）",
       "nextIntro": "以下是 cmux NEXT CLI 提供的 Cloud 操作。某个命令即使已提供，也可能无法在特定机器镜像上使用。2026-10-29 检查的镜像尚不支持原生智能体聊天标签页、打开开发服务器浏览器标签页、本地端口转发、派生机器或空闲时自动暂停。",
-      "nextTargets": "从 list-machines 复制 machine:<id> 格式的 target，并在机器命令中明确传入 --target，即使只有一台机器也如此。使用 --help 查看命令语法，使用 cmux action describe 加操作 ID 查看参数和返回字段。",
+      "nextTargets": "从 list-machines 复制 {machineTarget} 格式的 target，并在机器命令中明确传入 --target，即使只有一台机器也如此。使用 --help 查看命令语法，使用 cmux action describe 加操作 ID 查看参数和返回字段。",
       "nextCatalog": "提供的操作",
       "nextCatalogBody": "此列表由 NEXT 操作目录生成，不包含仅限 GUI 的操作。它列出可用的命令名称，并不保证每台机器都支持这些命令。",
       "nextCommand": "命令",

@@ -3173,7 +3173,7 @@
       "coderouterLink": "Vollständige CodeRouter-Befehlsreferenz",
       "nextTitle": "Cloud-CLI-Referenz (NEXT)",
       "nextIntro": "Dies sind die Cloud-Aktionen, die die CLI von cmux NEXT anbietet. Ein angebotener Befehl kann auf einem bestimmten Maschinen-Image dennoch nicht verfügbar sein. Das am 2026-10-29 überprüfte Image unterstützt noch keine nativen Agent-Chat-Tabs, Browser-Tabs für Entwicklungsserver, lokale Portweiterleitungen, Forks oder automatisches Pausieren bei Inaktivität.",
-      "nextTargets": "Kopiere das Ziel machine:<id> aus list-machines und übergib --target bei Maschinenbefehlen ausdrücklich, auch wenn du nur eine Maschine hast. Verwende --help für die Befehlssyntax und cmux action describe mit der Aktions-ID für Argumente und Rückgabefelder.",
+      "nextTargets": "Kopiere das Ziel {machineTarget} aus list-machines und übergib --target bei Maschinenbefehlen ausdrücklich, auch wenn du nur eine Maschine hast. Verwende --help für die Befehlssyntax und cmux action describe mit der Aktions-ID für Argumente und Rückgabefelder.",
       "nextCatalog": "Angebotene Aktionen",
       "nextCatalogBody": "Diese Liste wird aus dem NEXT-Aktionskatalog generiert und enthält keine reinen GUI-Aktionen. Sie nennt verfügbare Befehlsnamen, garantiert aber nicht, dass jede Maschine sie unterstützt.",
       "nextCommand": "Befehl",

@@ -4714,7 +4714,7 @@
       "coderouterLink": "Full CodeRouter command reference",
       "nextTitle": "Cloud CLI reference (NEXT)",
       "nextIntro": "These are the Cloud actions offered by the cmux NEXT CLI. An offered command can still be unavailable on a particular machine image. The image checked on 2026-10-29 does not yet support native agent chat tabs, opening dev-server browser tabs, local port forwarding, forks or automatic idle pause.",
-      "nextTargets": "Copy the machine:<id> target from list-machines and pass --target explicitly for machine commands, even with one machine. Use --help for command syntax and cmux action describe with the action ID for arguments and return fields.",
+      "nextTargets": "Copy the {machineTarget} target from list-machines and pass --target explicitly for machine commands, even with one machine. Use --help for command syntax and cmux action describe with the action ID for arguments and return fields.",
       "nextCatalog": "Offered actions",
       "nextCatalogBody": "This list is generated from the NEXT action catalog and excludes GUI-only actions. It lists available command names, not a guarantee that every machine supports them.",
       "nextCommand": "Command",

@@ -3172,7 +3172,7 @@
       "coderouterLink": "Referencia completa de comandos de CodeRouter",
       "nextTitle": "Referencia de la CLI de Cloud (NEXT)",
       "nextIntro": "Estas son las acciones de Cloud que ofrece la CLI de cmux NEXT. Un comando ofrecido puede no estar disponible en una imagen de máquina concreta. La imagen verificada el 2026-10-29 aún no admite pestañas de chat nativas de agentes, la apertura de pestañas del navegador para servidores de desarrollo, el reenvío local de puertos, las bifurcaciones ni la pausa automática por inactividad.",
-      "nextTargets": "Copia el destino machine:<id> de list-machines y pasa --target explícitamente en los comandos de máquinas, aunque solo tengas una. Usa --help para consultar la sintaxis y cmux action describe con el ID de la acción para ver los argumentos y los campos devueltos.",
+      "nextTargets": "Copia el destino {machineTarget} de list-machines y pasa --target explícitamente en los comandos de máquinas, aunque solo tengas una. Usa --help para consultar la sintaxis y cmux action describe con el ID de la acción para ver los argumentos y los campos devueltos.",
       "nextCatalog": "Acciones ofrecidas",
       "nextCatalogBody": "Esta lista se genera a partir del catálogo de acciones de NEXT y excluye las acciones exclusivas de la interfaz gráfica. Enumera los nombres de los comandos disponibles, sin garantizar que todas las máquinas los admitan.",
       "nextCommand": "Comando",
