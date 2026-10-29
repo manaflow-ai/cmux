@@ -161,10 +161,22 @@ pub(crate) fn checked_host(host: &str) -> Result<&str> {
 pub(crate) fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
     let command = posix_command(script);
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, command.as_str()]
-        .iter()
-        .map(|s| s.to_string())
-        .collect())
+    let mut argv = ssh_options();
+    argv.extend(["-o", "ConnectTimeout=15", "--", host, command.as_str()].map(str::to_owned));
+    Ok(argv)
+}
+
+/// The options of every `host` ssh and scp: no prompt, and a link that goes
+/// quiet after it connected (a hop that stalls, a tailnet path that drops)
+/// ends within 30 s (3 keepalives 10 s apart) instead of waiting out the TCP
+/// retransmit timeout. A `host update` of a peer behind a stalled hop sat
+/// silent until the app's 900 s deadline stopped it (2026-10-29). The
+/// keepalives are answered by the remote sshd, so a script that prints
+/// nothing for a while (waiting for its daemon) is not cut short.
+fn ssh_options() -> Vec<String> {
+    ["-o", "BatchMode=yes", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3"]
+        .map(str::to_owned)
+        .to_vec()
 }
 
 /// What ssh hands the remote login shell: `script` run by `/bin/sh`, so it means the same
@@ -182,20 +194,17 @@ pub(crate) fn script_of(command: &str) -> Option<String> {
     Some(quoted.replace("'\\''", "'"))
 }
 
-/// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.
+/// `scp -q [ssh_options] -o ConnectTimeout=15 -- LOCAL HOST:REMOTE`.
 fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
-    Ok(vec![
-        "-q".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "--".into(),
-        local.to_owned(),
-        format!("{host}:{remote}"),
-    ])
+    let mut argv = vec!["-q".to_owned()];
+    argv.extend(ssh_options());
+    argv.extend(["-o".to_owned(), "ConnectTimeout=15".to_owned(), "--".to_owned()]);
+    argv.extend([local.to_owned(), format!("{host}:{remote}")]);
+    Ok(argv)
 }
 
-/// `scp -rq -o BatchMode=yes -- HOST:REMOTE LOCAL` for a bundle an ssh peer
+/// `scp -rq [ssh_options] -o ConnectTimeout=15 -- HOST:REMOTE LOCAL` for a bundle an ssh peer
 /// made. `remote` comes from the peer's reply: only a plain absolute or
 /// home path is accepted (a remote scp may hand it to a shell).
 pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
@@ -204,14 +213,11 @@ pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Resul
     if !plain_path(remote) {
         return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
     }
-    Ok(vec![
-        "-rq".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "--".into(),
-        format!("{}:{remote}", t.destination),
-        local.to_owned(),
-    ])
+    let mut argv = vec!["-rq".to_owned()];
+    argv.extend(ssh_options());
+    argv.extend(["-o".to_owned(), "ConnectTimeout=15".to_owned(), "--".to_owned()]);
+    argv.extend([format!("{}:{remote}", t.destination), local.to_owned()]);
+    Ok(argv)
 }
 
 /// Run `script` on the host; its trimmed output, or an error with its stderr.
@@ -866,8 +872,19 @@ mod tests {
         let script = "for f in /nonexistent-cmux*.app/x; do [ -e \"$f\" ] && echo hit; done; printf 'after %s\\n' \"it's\"";
         let argv = ssh_argv("leo@huge-blue", script).unwrap();
         assert_eq!(
-            &argv[..6],
-            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", "leo@huge-blue"]
+            &argv[..10],
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ServerAliveInterval=10",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-o",
+                "ConnectTimeout=15",
+                "--",
+                "leo@huge-blue"
+            ]
         );
         for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
             if !std::path::Path::new(shell).exists() {
@@ -875,7 +892,7 @@ mod tests {
             }
             assert_eq!(as_login_shell(shell, &argv).as_deref(), Some("after it's\n"), "{shell}");
         }
-        assert_eq!(script_of(&argv[6]).as_deref(), Some(script));
+        assert_eq!(script_of(&argv[10]).as_deref(), Some(script));
     }
 
     /// Records each script and its stdin; answers ok with `stdout`.
