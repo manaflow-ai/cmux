@@ -34,6 +34,22 @@ struct CloudIdlePauseTests {
         #expect(user.idlePauseMinutes == 0)
     }
 
+    @Test func theRecordCarriesIdlePauseDiagnosticsForMachineStatus() throws {
+        let data = Data(#"{"id":"vm-diag","status":"running","idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8)
+        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let idle = try #require(machine.idlePause)
+        #expect(idle.minutes == 30)
+        #expect(idle.lastCheckedAt == 1_700_000_000_000)
+        #expect(idle.idleSince == 1_699_998_000_000)
+        #expect(idle.lastApiActivityAt == 1_699_999_000_000)
+        #expect(idle.privateAddressKnown)
+        #expect(idle.lastDecision?.at == 1_700_000_000_000)
+        #expect(idle.lastDecision?.outcome == "idle")
+        #expect(idle.lastDecision?.reason == "idle")
+        #expect(idle.lastDecision?.run.checked == 8)
+        #expect(idle.lastDecision?.run.elapsedMs == 120)
+    }
+
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
         let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
