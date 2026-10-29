@@ -81,11 +81,15 @@ async fn echoes_until(c: &mut TestClient, last: &str) -> Vec<String> {
 
 /// A unix socket connection that proved it runs in session `caller` (its caller token).
 async fn agent_of(hub: &Arc<Hub>, caller: &str) -> TestClient {
+    agent_with_token(hub, caller, &acpmux::hub::person::caller_token(caller)).await
+}
+
+/// A unix socket connection that says it runs in session `caller` with `token`.
+async fn agent_with_token(hub: &Arc<Hub>, caller: &str, token: &str) -> TestClient {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    let token = acpmux::hub::person::caller_token(caller);
     let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "agent"},
                        "_meta": {"acpmux": {"callerSession": {"sessionId": caller, "token": token}}}});
     c.request(method::INITIALIZE, hello).await.unwrap();
@@ -193,6 +197,16 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
     for answer in answered.values() {
         assert_eq!(answer["stopReason"], "steered", "{answer}");
         assert_eq!(answer["_meta"]["acpmux"]["joinedPromptId"], *digest, "{answer}");
+    }
+    // Each names the turn the steer went into, the one that ran: not the digest's queue entry.
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let ran_in = find(&events, "turn_started")
+        .into_iter()
+        .find(|e| e.msg["promptId"] == "p-turn")
+        .map(|e| e.msg["turnId"].clone())
+        .unwrap();
+    for answer in answered.values() {
+        assert_eq!(answer["_meta"]["acpmux"]["turnId"], ran_in, "{answer}");
     }
     c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
     let (_, seen) = c.response(turn).await;
@@ -325,9 +339,106 @@ async fn only_the_unix_socket_and_the_chats_own_agent_drain_it() {
     let mut stranger = agent_of(&hub, &other).await;
     let refused = stranger.request(DIGEST, json!({"sessionId": id})).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("inbox_digest.other_agent")), "{refused:?}");
+    // A token this daemon did not issue proves nothing, not even for the chat it names.
+    let mut forged = agent_with_token(&hub, &id, &"0".repeat(64)).await;
+    let refused = forged.request(DIGEST, json!({"sessionId": id})).await;
+    let not_proven = refused.as_ref().is_err_and(|e| e.contains("inbox_digest.caller_not_proven"));
+    assert!(not_proven, "{refused:?}");
     assert_eq!(queue_order(&mut c, &id).await, ["p-a"], "a refused drain took a message");
     // Its own agent may.
     let mut own = agent_of(&hub, &id).await;
     let made = own.request(DIGEST, json!({"sessionId": id})).await.unwrap();
     assert_eq!(made["digested"], 1, "{made}");
+}
+
+/// A hub whose log lives in `dir`, so a second one there is the same daemon restarted.
+fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let store = acpmux::store::open(&cfg.store, dir).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// Drops every line of the logs under `dir` that contains `needle`: a stop that cut them off.
+fn cut_lines(dir: &std::path::Path, needle: &str) -> usize {
+    let mut cut = 0;
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        for path in std::fs::read_dir(&d).unwrap().flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "ndjson") {
+                let log = std::fs::read_to_string(&path).unwrap();
+                let kept: Vec<&str> = log.lines().filter(|l| !l.contains(needle)).collect();
+                cut += log.lines().count() - kept.len();
+                std::fs::write(&path, kept.iter().map(|l| format!("{l}\n")).collect::<String>())
+                    .unwrap();
+            }
+        }
+    }
+    cut
+}
+
+/// The digest's `queued` record is logged before the originals' `dequeued` ones. A stop between
+/// them leaves the originals' `queued` records with nothing after them: the digest's record names
+/// them, so the restart runs the digest and never them again.
+#[tokio::test]
+async fn a_restart_never_runs_a_message_a_digest_took_even_when_the_stop_cut_its_dequeued() {
+    let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    assert_eq!(cut_lines(&dir, "\"digestPromptId\""), 2);
+
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let order = queue_order(&mut c, &id).await;
+    assert!(order.contains(&digest), "the digest still waits: {order:?}");
+    assert!(!order.iter().any(|p| p == "p-a" || p == "p-b"), "{order:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A message a digest took, sent again (`resend`) after a restart, answers from the digest's
+/// turn: it went in there, so it is neither run again nor `interrupted`.
+#[tokio::test]
+async fn after_a_restart_a_resent_message_a_digest_took_answers_from_the_digests_turn() {
+    let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    let a = queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let answered = answers(&mut c, &[a]).await;
+    assert_eq!(answered[&a]["_meta"]["acpmux"]["turnId"], made["turnId"], "{answered:?}");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let mut again = from_agent(&id, "p-a", "lane-a", "from a");
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    let again = c.request(method::SESSION_PROMPT, again).await.unwrap();
+    assert_eq!(again["_meta"]["acpmux"]["turnId"], made["turnId"], "{again}");
+    assert_ne!(again["_meta"]["acpmux"]["status"], "interrupted", "{again}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let ran = find(&events, "user_message").into_iter().filter(|e| e.msg["promptId"] == "p-a");
+    assert_eq!(ran.count(), 0, "the resend ran it on its own");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
