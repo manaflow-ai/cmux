@@ -19,5 +19,8 @@ test("docs search includes every generated Cloud command", async () => {
   const page = pages.find((entry: { locale: string; href: string }) => entry.locale === "en" && entry.href === "/docs/cloud/cli");
   expect(page).toBeDefined();
   const text = page.sections.flatMap((section: { texts: string[] }) => section.texts).join("\n");
-  for (const { command } of catalog.actions) expect(text).toContain(command);
+  for (const { command, id } of catalog.actions) {
+    expect(text).toContain(command);
+    expect(text).toContain(id);
+  }
 });
