@@ -80,4 +80,13 @@ import Testing
         #expect(surface.text == "fix the build")
         #expect(surface.composerFocused)
     }
+
+    /// An edit loaded while "Reply instead" is open is a follow-up, not a denial.
+    @Test func editEndsReplyInstead() {
+        let surface = AgentChatSurface()
+        surface.replyInsteadOfPermission = true
+        surface.loadForEditing("fix the build", permissionPending: true)
+        #expect(!surface.replyInsteadOfPermission)
+        #expect(surface.permissionBarHidden)
+    }
 }

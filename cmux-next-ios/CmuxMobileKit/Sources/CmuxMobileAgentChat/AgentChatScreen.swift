@@ -106,9 +106,10 @@ public final class AgentChatSurface {
 
     /// Puts a message in the composer, focused. With permission choices up, the composer
     /// takes their place as a follow-up, as for a draft typed before the permission arrived,
-    /// never as "Reply instead", which would answer the request.
+    /// never as "Reply instead", which would answer the request (an open "Reply instead" ends).
     func loadForEditing(_ prompt: String, permissionPending: Bool) {
         text = prompt
+        replyInsteadOfPermission = false
         if permissionPending { permissionDeferred = true }
         composerFocused = true
     }
