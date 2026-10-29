@@ -61,8 +61,8 @@
       "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
       "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
       "when the queue janitor or the overflow probe sees the current one start nothing.",
-      "{std}, {gui} and {ios} are the lane's owned Mac pools for its Xcode pin (pr_runner_pool.py).",
-      "Only a pool marked owned may name one; only a pool marked hosted may name a GitHub-hosted label."
+      "Members are ephemeral only: owned Macs come first through a picker's output, never a pool.",
+      "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
       "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\")",
@@ -84,50 +84,23 @@
       ]
     },
     "macos_15": {
-      "why": "macOS 15 image work (its default SDK); the owned pool takes it while Blacksmith macOS starts nothing, as the overflow switch did for MACOS_RUNNER_15",
-      "owned": true,
+      "why": "The macOS 15 image (its default SDK), after any owned-Mac picker",
       "members": [
-        "blacksmith-6vcpu-macos-15",
-        "{std}"
+        "blacksmith-6vcpu-macos-15"
       ]
     },
     "macos_26": {
-      "why": "macOS 26 image work",
-      "owned": true,
-      "members": [
-        "blacksmith-6vcpu-macos-26",
-        "blacksmith-12vcpu-macos-26",
-        "{std}"
-      ]
-    },
-    "macos_26_large": {
-      "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU (Release compiles and signing builds)",
-      "members": [
-        "blacksmith-12vcpu-macos-26",
-        "blacksmith-6vcpu-macos-26"
-      ]
-    },
-    "macos_gui": {
-      "why": "A foreground Aqua session (XCUITest, virtual display)",
-      "owned": true,
-      "members": [
-        "blacksmith-6vcpu-macos-15",
-        "{gui}"
-      ]
-    },
-    "macos_ios": {
-      "why": "Installed iOS runtimes and a working simctl",
-      "owned": true,
-      "members": [
-        "blacksmith-6vcpu-macos-26",
-        "{ios}"
-      ]
-    },
-    "macos_signing": {
-      "why": "Jobs holding signing or notarization secrets: ephemeral runners only, never a reused machine (signing_runner_variables.py); owned signing Macs come only through a signing picker's output",
+      "why": "The macOS 26 image, after any owned-Mac picker",
       "members": [
         "blacksmith-6vcpu-macos-26",
         "blacksmith-12vcpu-macos-26"
+      ]
+    },
+    "macos_26_large": {
+      "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU",
+      "members": [
+        "blacksmith-12vcpu-macos-26",
+        "blacksmith-6vcpu-macos-26"
       ]
     },
     "provenance": {
@@ -136,6 +109,14 @@
       "hosted_why": "npm provenance, PyPI trusted publishing and artifact attestations accept only GitHub's OIDC from a GitHub-hosted runner",
       "members": [
         "ubuntu-24.04"
+      ]
+    },
+    "macos_intel": {
+      "why": "The Intel macOS leg of the dispatch-only compatibility suite",
+      "hosted": true,
+      "hosted_why": "Blacksmith has no Intel macOS image; GitHub's macos-15-intel is the only x86_64 Mac",
+      "members": [
+        "macos-15-intel"
       ]
     }
   }

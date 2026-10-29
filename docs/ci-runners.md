@@ -996,20 +996,19 @@ nobody serves.
 | `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
 | `windows` | Blacksmith 4 vCPU Windows |
-| `macos_15` | Blacksmith macOS 15, then the lane's owned std pool |
-| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU), then the lane's owned std pool |
-| `macos_26_large` | Blacksmith macOS 26 12 vCPU, then 6 vCPU |
-| `macos_gui` | Blacksmith macOS 15, then the lane's owned gui pool |
-| `macos_ios` | Blacksmith macOS 26, then `glaeda-ios-sim` |
-| `macos_signing` | Blacksmith macOS 26 (6, then 12 vCPU); ephemeral only |
+| `macos_15` | Blacksmith macOS 15 |
+| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
+| `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
 | `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
+| `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
 
-The macOS pools are what follows a picker: owned Macs come first through the
-picker job's output (`simple_pool_picker.py`, `side_lane_placement.py`, the
-nightly pickers), and a pool's own owned member only takes over while every
-Blacksmith member is dead, as the overflow switch's `MACOS_RUNNER_*` failover
-did. `macos_signing` never names an owned Mac (`signing_runner_variables.py`);
-an owned signing Mac comes only through a signing picker.
+Every member outside the two hosted pools is an ephemeral Blacksmith label, so
+a job reading a pool never lands on a reused machine, whoever started the run.
+Owned Macs come first through a picker job's output (`simple_pool_picker.py`,
+`side_lane_placement.py`, the nightly pickers) in the routing order: owned
+Macs, then Blacksmith macOS. The pool is what follows the picker. Jobs that
+hold signing secrets keep their literal ephemeral label for now and move
+through the stall-aware signing picker, not a pool.
 
 `scripts/ci/runner_pools.py` is the one writer. The overflow probe's `watch`
 job runs it every 10 minutes, after the switch, with the token the switch

@@ -133,10 +133,6 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
         run: python3 scripts/ci/cloud_overflow_switch.py
 
-      # Last, in its own step so the summary above is already saved. If the
-      # switch did not observe a started probe, cancel this run even when the
-      # switch failed before it could write its output; otherwise a queued
-      # probe can hold the concurrency group forever.
       # The one routing source (docs/ci-runners.md "Runner pools"): point each pool in
       # RUNNER_POOLS at its first member that is not dead, from this probe and the queue
       # janitor's dead labels. Runs whatever the switch decided, with the same token.
@@ -148,11 +144,14 @@ jobs:
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
-          CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           PROBE_LABEL: ${{ steps.switch.outputs.label }}
           PROBE_OUTCOME: ${{ steps.switch.outputs.outcome }}
         run: python3 scripts/ci/runner_pools.py
 
+      # Last, in its own step so the summary above is already saved. If the
+      # switch did not observe a started probe, cancel this run even when the
+      # switch failed before it could write its output; otherwise a queued
+      # probe can hold the concurrency group forever.
       - name: End this run's stuck probe
         if: always() && steps.switch.outputs.outcome != 'started'
         env:

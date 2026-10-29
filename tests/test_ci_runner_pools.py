@@ -17,16 +17,11 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import runner_pools  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 28, 23, 0, tzinfo=dt.timezone.utc)
-PIN = "/Applications/Xcode_26.6.app"
 POOLS = {
     "linux": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-    "macos_26": {"why": "x", "owned": True, "members": ["blacksmith-6vcpu-macos-26", "{std}"]},
-    "macos_signing": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
+    "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
+    "macos_26_large": {"why": "x", "members": ["blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"]},
 }
-
-
-def owned() -> dict[str, str]:
-    return runner_pools.owned_labels(PIN)
 
 
 class Declared(unittest.TestCase):
@@ -38,14 +33,20 @@ class Declared(unittest.TestCase):
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
                          ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
-    def test_signing_never_resolves_to_a_reused_machine(self) -> None:
-        pools = runner_pools.load_pools()
-        for label in runner_pools.members(pools["macos_signing"], owned()):
-            self.assertRegex(label, runner_pools.EPHEMERAL)
+    def test_no_pool_names_a_reused_machine(self) -> None:
+        # A job reading a pool, a fork's pull request or a signing job included, never lands on an
+        # owned Mac: those come only through a picker.
+        for name, spec in runner_pools.load_pools().items():
+            for label in runner_pools.members(spec):
+                with self.subTest(pool=name, label=label):
+                    if spec.get("hosted"):
+                        self.assertRegex(label, runner_pools.HOSTED)
+                    else:
+                        self.assertRegex(label, runner_pools.EPHEMERAL)
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
-            "a": {"why": "x", "members": ["{std}"]},
+            "a": {"why": "x", "members": ["glaeda-std-xcode-26.6"]},
             "b": {"why": "x", "members": ["ubuntu-24.04"]},
             "c": {"why": "x", "hosted": True, "members": ["ubuntu-24.04"]},
             "d": {"why": "x", "members": ["some-host"]},
@@ -68,19 +69,20 @@ class Declared(unittest.TestCase):
 
 class Reconcile(unittest.TestCase):
     def run_once(self, current, dead=(), served=(), now=NOW):
-        return runner_pools.reconcile(current, POOLS, owned=owned(), dead_now=dead, served_now=served, now=now)
+        return runner_pools.reconcile(current, POOLS, dead_now=dead, served_now=served, now=now)
 
     def test_first_pass_points_every_pool_at_its_first_member(self) -> None:
         value, _ = self.run_once({})
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
         self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+        self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
         self.assertEqual(value["_dead"], {})
 
     def test_a_dead_member_moves_its_pools_to_the_next(self) -> None:
         value, lines = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"})
-        self.assertEqual(value["macos_26"], "glaeda-std-xcode-26.6")
-        self.assertEqual(value["macos_signing"], "blacksmith-12vcpu-macos-26")
-        self.assertIn("pools.macos_26: unset -> glaeda-std-xcode-26.6", lines)
+        self.assertEqual(value["macos_26"], "blacksmith-12vcpu-macos-26")
+        self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
+        self.assertIn("pools.macos_26: unset -> blacksmith-12vcpu-macos-26", lines)
 
     def test_a_mark_holds_until_it_expires_or_the_probe_starts_there(self) -> None:
         first, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404"})
@@ -102,27 +104,21 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(runner_pools.render(again), runner_pools.render(value))
         self.assertEqual(lines, [])
 
-    def test_no_pin_drops_owned_members(self) -> None:
-        value, _ = runner_pools.reconcile({}, POOLS, owned={}, dead_now={"blacksmith-6vcpu-macos-26"},
-                                          served_now=(), now=NOW)
-        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
-
     def test_janitor_snapshot_labels(self) -> None:
         snapshot = {"dead_labels": [{"label": "blacksmith-16vcpu-ubuntu-2404"}],
                     "starved": [{"label": "glaeda-gui-std-xcode-26.6"}]}
-        self.assertEqual(runner_pools.dead_from_snapshot(snapshot),
-                         {"blacksmith-16vcpu-ubuntu-2404", "glaeda-gui-std-xcode-26.6"})
+        self.assertEqual(runner_pools.dead_from_snapshot(snapshot), {"blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(runner_pools.dead_from_snapshot(None), set())
 
 
 class Check(unittest.TestCase):
     def test_value_problems(self) -> None:
-        value, _ = runner_pools.reconcile({}, POOLS, owned=owned(), dead_now=(), served_now=(), now=NOW)
-        self.assertEqual(runner_pools.value_problems(value, POOLS, owned()), [])
-        self.assertTrue(runner_pools.value_problems({**value, "linux": "ubuntu-24.04"}, POOLS, owned()))
+        value, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(runner_pools.value_problems(value, POOLS), [])
+        self.assertTrue(runner_pools.value_problems({**value, "linux": "ubuntu-24.04"}, POOLS))
         missing = dict(value)
         del missing["macos_26"]
-        self.assertTrue(runner_pools.value_problems(missing, POOLS, owned()))
+        self.assertTrue(runner_pools.value_problems(missing, POOLS))
 
 
 class Main(unittest.TestCase):
@@ -144,7 +140,7 @@ class Main(unittest.TestCase):
         switch = self.Switch()
         with tempfile.TemporaryDirectory() as tmp:
             env = {"RUNNER_POOLS": "", "PROBE_LABEL": "blacksmith-32vcpu-ubuntu-2404", "PROBE_OUTCOME": "stalled",
-                   "CMUX_CI_XCODE_APP_PR": PIN, "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
+                   "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
             code = runner_pools.main([], env, api=self.Api({"dead_labels": []}), switch=switch, now=NOW)
         self.assertEqual(code, 0)
         [(name, raw)] = switch.writes
@@ -153,14 +149,14 @@ class Main(unittest.TestCase):
 
     def test_nothing_changed_writes_nothing(self) -> None:
         switch = self.Switch()
-        env = {"RUNNER_POOLS": "", "CMUX_CI_XCODE_APP_PR": PIN}
+        env = {"RUNNER_POOLS": ""}
         runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW)
         env["RUNNER_POOLS"] = switch.writes[0][1]
         runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW + dt.timedelta(minutes=10))
         self.assertEqual(len(switch.writes), 1)
 
     def test_check_fails_on_an_unset_variable(self) -> None:
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": "", "CMUX_CI_XCODE_APP_PR": PIN}), 1)
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": ""}), 1)
 
 
 if __name__ == "__main__":
