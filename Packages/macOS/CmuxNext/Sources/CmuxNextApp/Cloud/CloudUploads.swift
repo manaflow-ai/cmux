@@ -230,18 +230,19 @@ final class CloudUploads {
             armExpiry(work: work)
         }
         stages[token]?.cleanup = cleanup
+        armExpiry(work: work)
         await cleanup.value
     }
 
     private func purgeStages(work: BackgroundWork) async {
-        let expired = stages.filter { finishTasks[$0.key] == nil && $0.value.expires < Date() }.map(\.key)
+        let expired = stages.filter { finishTasks[$0.key] == nil && $0.value.cleanup == nil && $0.value.expires < Date() }.map(\.key)
         for token in expired { await removeStage(token, work: work) }
         batches = batches.filter { $0.value.authorization.isAlive() }
     }
 
     /// One deadline for ownerless batches and idle stages; an active transfer retains its batch.
     private func armExpiry(work: BackgroundWork) {
-        let stageDeadlines = stages.compactMap { finishTasks[$0.key] == nil ? $0.value.expires : nil }
+        let stageDeadlines = stages.compactMap { finishTasks[$0.key] == nil && $0.value.cleanup == nil ? $0.value.expires : nil }
         let batchDeadlines = batches.values.compactMap { $0.authorization.abandonmentDeadline }
         guard let next = (stageDeadlines + batchDeadlines).min() else { expiryTimer.cancel(); return }
         expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
