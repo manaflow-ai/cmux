@@ -37,7 +37,8 @@ import Testing
             x += rep.pixelsWide + 40
         }
         out.unlockFocus()
-        let png = try #require(NSBitmapImageRep(data: try #require(out.tiffRepresentation))?.representation(using: .png, properties: [:]))
+        let tiff = try #require(out.tiffRepresentation)
+        let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         try png.write(to: root.appendingPathComponent("chatcolors-capture.png"))
