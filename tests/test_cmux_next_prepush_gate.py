@@ -649,6 +649,47 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
+        # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
+        # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
+        # judged on its own commits (--own-range); the base's debt is a warning that names the commit there, and
+        # stays an error on the branch's push sweep (no --own-range).
+        start = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: a base commit with no record")
+        on_base = self.git("rev-parse", "HEAD").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda *extra: subprocess.run(
+            ["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{start}..HEAD", *extra],
+            cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        # The pull request adds an unrelated commit: the base commit is only a warning.
+        self.write("docs/notes.md", "notes\n")
+        self.commit("docs: notes")
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertEqual(pr_run.returncode, 0, output)
+        self.assertNotIn("::error", output)
+        self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
+        self.assertIn(on_base[:11], output)
+        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+
+        # The branch's push sweep (no --own-range) still fails on the same base commit.
+        push_run = sweep()
+        self.assertNotEqual(push_run.returncode, 0, push_run.stdout + push_run.stderr)
+        self.assertIn("::error title=Sidebar look owner::", push_run.stdout)
+
+        # A sidebar commit of the pull request's own stays an error, next to the base commit's warning.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 23\n}\n")
+        self.commit("sidebar: the pull request's own commit with no record")
+        own_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertNotEqual(pr_run.returncode, 0, output)
+        self.assertIn("::error title=Sidebar look owner::1 commit(s)", output)
+        self.assertIn(own_commit[:11], output.split("::warning")[0])
+        self.assertIn(f"{on_base[:11]}", output.split("::warning", 1)[1])
+
     def test_a_fixture_that_mentions_one_marker_passes(self):
         self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
         self.commit("docs mention a marker")
