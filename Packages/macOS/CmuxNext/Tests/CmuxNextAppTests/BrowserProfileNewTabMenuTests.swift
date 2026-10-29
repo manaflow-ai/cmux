@@ -130,6 +130,7 @@ struct BrowserProfileNewTabMenuTests {
     @Test func theProfileBadgeMenuOpensItsTabInTheRightClickedTabsPane() async throws {
         let action = "browserProfile.newTab"
         try await PasswordManagerRouteTests.withApp { services, connection in
+            defer { Self.close(services, palettePanel: nil) }
             let window = try #require(services.windows.active)
             services.home.ensureHomeWorkspace(connection)
             try await PasswordManagerRouteTests.until({ services.home.homeWorkspace != nil }, within: .seconds(60),

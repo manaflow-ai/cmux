@@ -58,7 +58,14 @@ struct PasswordManagerRouteTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        // Registered before restore can suspend or fail, including before the test body starts.
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+            let panels = NSApp.windows.filter { services.palette.owns($0) }
+            services.palette.hide()
+            for panel in panels { panel.close() }
+        }
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
