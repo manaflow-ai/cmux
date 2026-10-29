@@ -535,6 +535,10 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      // The chip's held level follows the pick to its harness: the combo's own, or none (a level an
+      // earlier pick held there would name an effort this combo does not send).
+      if (picked.effort) setHeldPick({ harness: picked.harness, value: picked.effort });
+      else setHeldPick((held) => (held?.harness === picked.harness ? undefined : held));
       // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
       // switch) runs its first turn on the whole combo; the effect below only fills in what the new
       // session still reports otherwise.
