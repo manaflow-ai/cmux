@@ -72,6 +72,26 @@ import Testing
         #expect(find.step == step)
     }
 
+    @Test func streamedTextIsSearchedAsItArrives() async {
+        // A chunk replaces the last message's text: no new turn, item or status.
+        var turns = Self.turns()
+        let before = AgentChatFind.revision(of: turns)
+        turns[1].items[1] = .message(id: "b", markdown: "Nothing else. The build")
+        let after = AgentChatFind.revision(of: turns)
+        #expect(after != before)
+        #expect(AgentChatFind.revision(of: turns) == after)
+
+        let find = AgentChatFind()
+        find.query = "build"
+        find.search(Self.turns())
+        await find.pending?.value
+        #expect(find.countText == "4 of 4")
+        find.refresh(turns)
+        await find.pending?.value
+        #expect(find.matches.count == 5)
+        #expect(find.matches.last?.block.hasPrefix("m-b") == true)
+    }
+
     @Test func aMatchKnowsWhereInItsBlockItIs() {
         let blocks = [AgentChatFind.Block(key: "b", text: "kiwi " + String(repeating: "x", count: 90) + " kiwi")]
         let found = AgentChatFind.matches(of: "kiwi", in: blocks)

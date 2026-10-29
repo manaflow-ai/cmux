@@ -68,6 +68,32 @@ public final class AgentChatFind {
         return out
     }
 
+    /// What the search reads, cheaply summed up: it changes when a turn arrives or goes, when
+    /// the newest turn's prompt, items or status change, and when its newest item's text grows
+    /// (a streamed chunk replaces the last message's text in place, with no new item). O(1) per
+    /// change: lengths only, never the text itself.
+    public struct Revision: Hashable, Sendable {
+        var turns: Int
+        var firstTurn: String?
+        var lastTurn: String?
+        var lastStatus: AgentTurn.Status?
+        var lastItems: Int
+        var lastItem: String?
+        var lastItemLength: Int
+        var lastPromptLength: Int
+    }
+
+    public nonisolated static func revision(of turns: [AgentTurn]) -> Revision {
+        let last = turns.last
+        let item = last?.items.last
+        // Thoughts are not searched: only a message's growth counts.
+        var length = 0
+        if case .message(_, let markdown)? = item { length = markdown.utf8.count }
+        return Revision(turns: turns.count, firstTurn: turns.first?.id, lastTurn: last?.id, lastStatus: last?.status,
+                        lastItems: last?.items.count ?? 0, lastItem: item?.id, lastItemLength: length,
+                        lastPromptLength: last?.prompt.utf8.count ?? 0)
+    }
+
     /// Every match of `query` in `blocks`, in order: one per occurrence, ignoring case and
     /// accents. An empty query matches nothing.
     public nonisolated static func matches(of query: String, in blocks: [Block]) -> [Match] {

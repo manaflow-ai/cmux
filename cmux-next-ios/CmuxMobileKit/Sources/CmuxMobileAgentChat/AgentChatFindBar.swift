@@ -64,10 +64,9 @@ struct AgentChatFindBar: View {
         .onChange(of: focused) { _, now in surface.findFieldFocused = now }
         .onChange(of: find.query) { find.search(store.turns) }
         .onChange(of: find.step) { surface.revealFindMatch() }
-        // Output that arrives while the bar is up is searched too; the current match stays.
-        .onChange(of: store.turns.count) { if !find.query.isEmpty { find.refresh(store.turns) } }
-        .onChange(of: store.turns.last?.status) { if !find.query.isEmpty { find.refresh(store.turns) } }
-        .onChange(of: store.turns.last?.items.count) { if !find.query.isEmpty { find.refresh(store.turns) } }
+        // Output that arrives while the bar is up is searched too, streamed text included (a
+        // chunk grows the last message in place); the current match stays.
+        .onChange(of: AgentChatFind.revision(of: store.turns)) { if !find.query.isEmpty { find.refresh(store.turns) } }
     }
 }
 
