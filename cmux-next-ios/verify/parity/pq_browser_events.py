@@ -14,6 +14,7 @@ PQ_RAW/<name>.mp4 and leaves stills in artifacts/shots.
 `BE_MODE=before` runs the same steps against a base build and records what it does instead
 (nothing opens, no menu, the dialog never shows); its flows never fail, they report.
 """
+import json
 import os
 import shlex
 import subprocess
@@ -321,14 +322,34 @@ def page_menu(j):
 ORDER = ["open-tab", "context-menu", "select", "dialogs", "dialog-dismissed", "page-menu"]
 
 
+def readback(name, status, notes):
+    """PQ_RAW/../data/<flow>.json: the result and the Mac's own record of this run's workspaces
+    (each tab's kind and address, from the rig app's daemon)."""
+    data = {"flow": name, "mode": "before" if BEFORE else "after", "status": status, "result": str(notes),
+            "at": time.strftime("%Y-%m-%d %H:%M:%S"), "mac_workspaces": []}
+    try:
+        for ws in t.mac_tree().get("workspaces", []):
+            if f"bev-{STAMP}" in (ws.get("name") or ""):
+                data["mac_workspaces"].append({"name": ws.get("name"), "tabs": [
+                    {"kind": tab.get("kind"), "url": tab.get("url"), "title": tab.get("title")} for _, tab in t.ws_tabs(ws)]})
+    except Exception as error:  # noqa: BLE001 - a read-back that fails says so
+        data["mac_error"] = str(error)
+    out = os.path.join(os.path.dirname(pq.RAW.rstrip("/")), "data")
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, f"{name}-{data['mode']}.json"), "w") as f:
+        json.dump(data, f, indent=2)
+
+
 def run(name):
     t0 = time.time()
     try:
         notes = t.FLOWS[name]()
         print(f"PASS {name} ({time.time() - t0:.0f} s): {notes}", flush=True)
+        readback(name, "pass", notes)
         return True
     except Exception as error:  # noqa: BLE001 - a flow's failure is its result
         print(f"FAIL {name} ({time.time() - t0:.0f} s): {error}", flush=True)
+        readback(name, "fail", error)
         return False
 
 

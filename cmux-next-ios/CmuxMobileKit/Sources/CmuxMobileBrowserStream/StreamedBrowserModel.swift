@@ -425,6 +425,11 @@ public final class StreamedBrowserModel: BrowserTabState {
         case "rb.open_tab":
             guard let request = RemoteBrowserOpenTab(json: json) else { return }
             openRequestedTab(request, from: sink)
+        case "rb.state" where ["crashed", "closed"].contains(json["state"] as? String ?? ""), "rb.closed":
+            // The page crashed or its session closed: its dialog and menus go with it,
+            // unanswered (nothing waits for an answer), as the Mac's viewer closes them.
+            log.notice("browser \(self.tab, privacy: .public): page \(json["state"] as? String ?? "closed", privacy: .public); its dialog and menus close")
+            dropPageUI()
         default:
             break
         }
@@ -677,7 +682,10 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     private func menuShown(_ open: OpenMenu) {
-        let items = open.menu.items.map { "\($0.id):\($0.type):\($0.label)" }.joined(separator: ", ")
+        func describe(_ items: [RemoteBrowserMenuItem]) -> String {
+            items.map { "\($0.id):\($0.type):\($0.label)" + ($0.items.isEmpty ? "" : " [\(describe($0.items))]") }.joined(separator: ", ")
+        }
+        let items = describe(open.menu.items)
         log.notice("browser \(self.tab, privacy: .public): menu \(open.token) \(open.menu.kind.rawValue, privacy: .public) [\(items, privacy: .public)]")
         switch open.menu.kind {
         case .select:
