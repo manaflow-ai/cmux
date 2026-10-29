@@ -69,6 +69,10 @@ export function edgeCanaryProblems({
  * expected alias. Provider/API errors and HTTP refusals remain single attempts.
  * The attempt cap and the caller's signal bound retries; cancellation also
  * interrupts the delay and is forwarded to the active guest request.
+ * @param {(signal?: AbortSignal) => Promise<{ stdout?: string, stderr?: string, exitCode?: number }>} run
+ * @param {string} host
+ * @param {{ attempts?: number, delayMs?: number, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ stdout?: string, stderr?: string, exitCode?: number }>}
  */
 export async function retryGuestEdgeRequest(
   run,
