@@ -332,7 +332,7 @@ function PricingContent({
 
       {showGo ? (
         <>
-          {/* Starter: two small Cloud VMs sharing a monthly runtime allowance. */}
+          {/* Starter: one fixed-size Cloud VM with no monthly hour cap. */}
           <PlanCard
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}
