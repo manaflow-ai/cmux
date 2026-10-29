@@ -133,8 +133,8 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       },
     }
     const first = await githubRepos(host, principal, {})
+    if (!first.ok) throw new Error(`synthetic repository-list fixture failed: ${first.code}`)
     expect(first.ok).toBe(true)
-    if (!first.ok) throw new Error(first.message)
     expect(first.value.repos).toHaveLength(100)
     const selected = first.value.repos[0]!.connection_id
     expect(first.value.repos.every((repo) => repo.connection_id === selected)).toBe(true)
