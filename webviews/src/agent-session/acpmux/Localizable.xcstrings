@@ -46,6 +46,8 @@
     "send.ended": {"comment":"Agent pane: a message this agent may have sent another one, when the shell call does not say whether it went; {target} is who it was for","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message to {target}"}},"ar":{"stringUnit":{"state":"needs_review","value":"رسالة إلى {target}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poruka za {target}"}},"da":{"stringUnit":{"state":"needs_review","value":"Besked til {target}"}},"de":{"stringUnit":{"state":"needs_review","value":"Nachricht an {target}"}},"es":{"stringUnit":{"state":"needs_review","value":"Mensaje a {target}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Message à {target}"}},"it":{"stringUnit":{"state":"needs_review","value":"Messaggio a {target}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{target} へのメッセージ"}},"km":{"stringUnit":{"state":"needs_review","value":"សារទៅ {target}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{target}에게 보내는 메시지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Melding til {target}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wiadomość do {target}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mensagem para {target}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сообщение для {target}"}},"th":{"stringUnit":{"state":"needs_review","value":"ข้อความถึง {target}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{target} için mesaj"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повідомлення для {target}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tin nhắn tới {target}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"发给 {target} 的消息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"發給 {target} 的訊息"}}}},
     "send.moreOne": {"comment":"Agent pane: after \"Sent message to X\", the one other command the same shell call ran","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"and 1 more command"}},"ar":{"stringUnit":{"state":"needs_review","value":"وأمر واحد آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"i još 1 naredba"}},"da":{"stringUnit":{"state":"needs_review","value":"og 1 kommando mere"}},"de":{"stringUnit":{"state":"needs_review","value":"und 1 weiterer Befehl"}},"es":{"stringUnit":{"state":"needs_review","value":"y 1 comando más"}},"fr":{"stringUnit":{"state":"needs_review","value":"et 1 autre commande"}},"it":{"stringUnit":{"state":"needs_review","value":"e 1 altro comando"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほか 1 件のコマンド"}},"km":{"stringUnit":{"state":"needs_review","value":"និងពាក្យបញ្ជា 1 ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"외 명령 1개"}},"nb":{"stringUnit":{"state":"needs_review","value":"og 1 kommando til"}},"pl":{"stringUnit":{"state":"needs_review","value":"i 1 inne polecenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"e mais 1 comando"}},"ru":{"stringUnit":{"state":"needs_review","value":"и ещё 1 команда"}},"th":{"stringUnit":{"state":"needs_review","value":"และอีก 1 คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"ve 1 komut daha"}},"uk":{"stringUnit":{"state":"needs_review","value":"і ще 1 команда"}},"vi":{"stringUnit":{"state":"needs_review","value":"và 1 lệnh khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以及另外 1 条命令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以及另外 1 個命令"}}}},
     "send.more": {"comment":"Agent pane: after \"Sent message to X\", the other commands the same shell call ran; {n} is how many (2 or more)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"and {n} more commands"}},"ar":{"stringUnit":{"state":"needs_review","value":"و{n} أوامر أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"i još {n} naredbi"}},"da":{"stringUnit":{"state":"needs_review","value":"og {n} kommandoer mere"}},"de":{"stringUnit":{"state":"needs_review","value":"und {n} weitere Befehle"}},"es":{"stringUnit":{"state":"needs_review","value":"y {n} comandos más"}},"fr":{"stringUnit":{"state":"needs_review","value":"et {n} autres commandes"}},"it":{"stringUnit":{"state":"needs_review","value":"e altri {n} comandi"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほか {n} 件のコマンド"}},"km":{"stringUnit":{"state":"needs_review","value":"និងពាក្យបញ្ជា {n} ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"외 명령 {n}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"og {n} kommandoer til"}},"pl":{"stringUnit":{"state":"needs_review","value":"i {n} innych poleceń"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"e mais {n} comandos"}},"ru":{"stringUnit":{"state":"needs_review","value":"и ещё {n} команд"}},"th":{"stringUnit":{"state":"needs_review","value":"และอีก {n} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"ve {n} komut daha"}},"uk":{"stringUnit":{"state":"needs_review","value":"і ще {n} команд"}},"vi":{"stringUnit":{"state":"needs_review","value":"và {n} lệnh khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以及另外 {n} 条命令"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以及另外 {n} 個命令"}}}},
+    "workflow.contentOmitted": {"comment":"Agent pane: the transcript reader omitted content exceeding its bounded page size","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Some transcript content is too large to display."}},"ar":{"stringUnit":{"state":"translated","value":"بعض محتوى المحادثة كبير جدًا ولا يمكن عرضه."}},"bs":{"stringUnit":{"state":"translated","value":"Dio sadržaja razgovora je prevelik za prikaz."}},"da":{"stringUnit":{"state":"translated","value":"Noget af samtalens indhold er for stort til at blive vist."}},"de":{"stringUnit":{"state":"translated","value":"Einige Gesprächsinhalte sind zu groß für die Anzeige."}},"es":{"stringUnit":{"state":"translated","value":"Parte del contenido de la conversación es demasiado grande para mostrarse."}},"fr":{"stringUnit":{"state":"translated","value":"Une partie du contenu de la conversation est trop volumineuse pour être affichée."}},"it":{"stringUnit":{"state":"translated","value":"Parte del contenuto della conversazione è troppo grande per essere visualizzata."}},"ja":{"stringUnit":{"state":"translated","value":"会話の一部は大きすぎるため表示できません。"}},"km":{"stringUnit":{"state":"translated","value":"ខ្លឹមសារសន្ទនាខ្លះធំពេកមិនអាចបង្ហាញបានទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"일부 대화 내용이 너무 커서 표시할 수 없습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Noe av samtaleinnholdet er for stort til å vises."}},"pl":{"stringUnit":{"state":"translated","value":"Część treści rozmowy jest zbyt duża, aby ją wyświetlić."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Parte do conteúdo da conversa é grande demais para ser exibida."}},"ru":{"stringUnit":{"state":"translated","value":"Некоторое содержимое разговора слишком велико для отображения."}},"th":{"stringUnit":{"state":"translated","value":"เนื้อหาบางส่วนของการสนทนามีขนาดใหญ่เกินกว่าจะแสดงได้"}},"tr":{"stringUnit":{"state":"translated","value":"Konuşma içeriğinin bir kısmı görüntülenemeyecek kadar büyük."}},"uk":{"stringUnit":{"state":"translated","value":"Частина вмісту розмови завелика для відображення."}},"vi":{"stringUnit":{"state":"translated","value":"Một phần nội dung trò chuyện quá lớn để hiển thị."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"部分对话内容过大，无法显示。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"部分對話內容過大，無法顯示。"}}}},
+    "workflow.historyLimited": {"comment":"Agent pane: the daemon retained only recent workflow transcript history; the omitted count is unknown","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Only recent transcript history is available."}},"ar":{"stringUnit":{"state":"translated","value":"يتوفر السجل الحديث للمحادثة فقط."}},"bs":{"stringUnit":{"state":"translated","value":"Dostupan je samo noviji dio historije razgovora."}},"da":{"stringUnit":{"state":"translated","value":"Kun den seneste samtalehistorik er tilgængelig."}},"de":{"stringUnit":{"state":"translated","value":"Nur der neueste Gesprächsverlauf ist verfügbar."}},"es":{"stringUnit":{"state":"translated","value":"Solo está disponible el historial reciente de la conversación."}},"fr":{"stringUnit":{"state":"translated","value":"Seul l’historique récent de la conversation est disponible."}},"it":{"stringUnit":{"state":"translated","value":"È disponibile solo la cronologia recente della conversazione."}},"ja":{"stringUnit":{"state":"translated","value":"会話履歴は最近の分のみ利用できます。"}},"km":{"stringUnit":{"state":"translated","value":"មានតែប្រវត្តិសន្ទនាថ្មីៗប៉ុណ្ណោះ។"}},"ko":{"stringUnit":{"state":"translated","value":"최근 대화 기록만 볼 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Bare den nyeste samtalehistorikken er tilgjengelig."}},"pl":{"stringUnit":{"state":"translated","value":"Dostępna jest tylko najnowsza historia rozmowy."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Apenas o histórico recente da conversa está disponível."}},"ru":{"stringUnit":{"state":"translated","value":"Доступна только недавняя история разговора."}},"th":{"stringUnit":{"state":"translated","value":"มีเฉพาะประวัติการสนทนาล่าสุดเท่านั้น"}},"tr":{"stringUnit":{"state":"translated","value":"Yalnızca son konuşma geçmişi kullanılabilir."}},"uk":{"stringUnit":{"state":"translated","value":"Доступна лише нещодавня історія розмови."}},"vi":{"stringUnit":{"state":"translated","value":"Chỉ có lịch sử trò chuyện gần đây."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"仅提供最近的对话记录。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"僅提供最近的對話記錄。"}}}},
     "workflow.detailUnavailable": {"comment":"Agent pane: no workflow agent transcript RPC is available","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Agent transcript unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントの会話履歴は利用できません"}},"ko":{"stringUnit":{"state":"translated","value":"에이전트 대화 기록을 사용할 수 없음"}},"de":{"stringUnit":{"state":"translated","value":"Agentenprotokoll nicht verfügbar"}},"es":{"stringUnit":{"state":"translated","value":"Transcripción del agente no disponible"}},"fr":{"stringUnit":{"state":"translated","value":"Transcription de l’agent indisponible"}},"it":{"stringUnit":{"state":"translated","value":"Trascrizione dell’agente non disponibile"}},"da":{"stringUnit":{"state":"translated","value":"Agentens samtalelog er ikke tilgængelig"}},"pl":{"stringUnit":{"state":"translated","value":"Transkrypcja agenta niedostępna"}},"ru":{"stringUnit":{"state":"translated","value":"История агента недоступна"}},"bs":{"stringUnit":{"state":"translated","value":"Transkript agenta nije dostupan"}},"ar":{"stringUnit":{"state":"translated","value":"سجل محادثة الوكيل غير متاح"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Transcrição do agente indisponível"}},"th":{"stringUnit":{"state":"translated","value":"ไม่มีบันทึกการสนทนาของเอเจนต์"}},"tr":{"stringUnit":{"state":"translated","value":"Aracı konuşma dökümü kullanılamıyor"}},"km":{"stringUnit":{"state":"translated","value":"មិនមានកំណត់ត្រាសន្ទនារបស់ភ្នាក់ងារ"}},"uk":{"stringUnit":{"state":"translated","value":"Історія агента недоступна"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"代理对话记录不可用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"代理對話記錄無法使用"}},"nb":{"stringUnit":{"state":"translated","value":"Agentens samtalelogg er utilgjengelig"}},"vi":{"stringUnit":{"state":"translated","value":"Không có bản ghi hội thoại của tác nhân"}}}},
     "workflow.cannotResume": {"comment":"Agent pane: workflow cannotResume","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This workflow can’t be resumed"}},"ja":{"stringUnit":{"state":"translated","value":"このワークフローは再開できません"}},"de":{"stringUnit":{"state":"translated","value":"Dieser Workflow kann nicht fortgesetzt werden"}},"fr":{"stringUnit":{"state":"translated","value":"Ce workflow ne peut pas être repris"}},"es":{"stringUnit":{"state":"translated","value":"Este flujo de trabajo no se puede reanudar"}},"ar":{"stringUnit":{"state":"translated","value":"لا يمكن استئناف سير العمل هذا"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此工作流无法恢复"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此工作流程無法恢復"}},"ko":{"stringUnit":{"state":"translated","value":"이 워크플로를 재개할 수 없습니다"}},"bs":{"stringUnit":{"state":"translated","value":"Ovaj tok rada se ne može nastaviti"}},"da":{"stringUnit":{"state":"translated","value":"Denne arbejdsgang kan ikke genoptages"}},"it":{"stringUnit":{"state":"translated","value":"Questo workflow non può essere ripreso"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចបន្តលំហូរការងារនេះបានទេ"}},"nb":{"stringUnit":{"state":"translated","value":"Denne arbeidsflyten kan ikke gjenopptas"}},"pl":{"stringUnit":{"state":"translated","value":"Nie można wznowić tego przepływu pracy"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Este fluxo de trabalho não pode ser retomado"}},"ru":{"stringUnit":{"state":"translated","value":"Этот рабочий процесс нельзя возобновить"}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถดำเนินเวิร์กโฟลว์นี้ต่อได้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu iş akışı sürdürülemez"}},"uk":{"stringUnit":{"state":"translated","value":"Цей робочий процес неможливо відновити"}},"vi":{"stringUnit":{"state":"translated","value":"Không thể tiếp tục quy trình này"}}}},
     "workflow.capacity": {"comment":"Agent pane: workflow capacity","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Daemon capacity limited"}},"ja":{"stringUnit":{"state":"translated","value":"デーモンの容量が制限されています"}},"de":{"stringUnit":{"state":"translated","value":"Daemon-Kapazität begrenzt"}},"fr":{"stringUnit":{"state":"translated","value":"Capacité du démon limitée"}},"es":{"stringUnit":{"state":"translated","value":"Capacidad del demonio limitada"}},"ar":{"stringUnit":{"state":"translated","value":"سعة البرنامج الخفي محدودة"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"守护进程容量受限"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"守護行程容量受限"}},"ko":{"stringUnit":{"state":"translated","value":"데몬 용량 제한"}},"bs":{"stringUnit":{"state":"translated","value":"Kapacitet demona je ograničen"}},"da":{"stringUnit":{"state":"translated","value":"Dæmonens kapacitet er begrænset"}},"it":{"stringUnit":{"state":"translated","value":"Capacità del demone limitata"}},"km":{"stringUnit":{"state":"translated","value":"សមត្ថភាពដេមុនមានកំណត់"}},"nb":{"stringUnit":{"state":"translated","value":"Demonens kapasitet er begrenset"}},"pl":{"stringUnit":{"state":"translated","value":"Ograniczona pojemność demona"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Capacidade do daemon limitada"}},"ru":{"stringUnit":{"state":"translated","value":"Ресурсы демона ограничены"}},"th":{"stringUnit":{"state":"translated","value":"ความจุของเดมอนถูกจำกัด"}},"tr":{"stringUnit":{"state":"translated","value":"Arka plan hizmetinin kapasitesi sınırlı"}},"uk":{"stringUnit":{"state":"translated","value":"Ресурси демона обмежені"}},"vi":{"stringUnit":{"state":"translated","value":"Dung lượng daemon bị giới hạn"}}}},
@@ -69867,6 +69869,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "停止"
+          }
+        }
+      }
+    },
+    "composer.stopping": {
+      "comment": "Agent pane: Stop's label and the empty prompt's text once Stop or Esc was sent, until the agent's turn ends",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الإيقاف…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavljanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopper…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gestoppt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deteniendo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêt en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arresto in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងបញ្ឈប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중지하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopper …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymywanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановка…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังหยุด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durduruluyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинка…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang dừng…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止…"
           }
         }
       }
@@ -142210,6 +142344,108 @@
         }
       }
     },
+    "sideQuestion.opened": {"comment":"Agent pane: the reply shown after /btw falls back to opening a side session on an older daemon","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Opened a side session for this question."}},"ar":{"stringUnit":{"state":"needs_review","value":"تم فتح جلسة جانبية لهذا السؤال."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvorena je sporedna sesija za ovo pitanje."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbnede en sidesession til dette spørgsmål."}},"de":{"stringUnit":{"state":"needs_review","value":"Für diese Frage wurde eine Nebensitzung geöffnet."}},"es":{"stringUnit":{"state":"needs_review","value":"Se abrió una sesión aparte para esta pregunta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Une session annexe a été ouverte pour cette question."}},"it":{"stringUnit":{"state":"needs_review","value":"È stata aperta una sessione separata per questa domanda."}},"ja":{"stringUnit":{"state":"needs_review","value":"この質問用のサイドセッションを開きました。"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបើកវគ្គបន្ថែមសម្រាប់សំណួរនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 질문을 위한 보조 세션을 열었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpnet en sideøkt for dette spørsmålet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwarto sesję poboczną dla tego pytania."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Uma sessão paralela foi aberta para esta pergunta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Для этого вопроса открыт дополнительный сеанс."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดเซสชันแยกสำหรับคำถามนี้แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu soru için bir yan oturum açıldı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Для цього запитання відкрито додатковий сеанс."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã mở một phiên phụ cho câu hỏi này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已为此问题打开旁支会话。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已為此問題開啟旁支工作階段。"}}}},
+    "sideQuestion.label": {"comment":"Agent pane: the heading of an inline /btw aside, separate from the main task","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Side question"}},"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "سؤال جانبي"
+          }
+        },"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sporedno pitanje"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørgsmål"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nebenfrage"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregunta aparte"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question annexe"
+          }
+        },"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domanda a margine"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "補足の質問"
+          }
+        },"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរបន្ថែម"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 질문"
+          }
+        },"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørsmål"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytanie poboczne"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunta à parte"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попутный вопрос"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถามแทรก"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yan soru"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додаткове запитання"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câu hỏi phụ"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁支问题"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁支問題"
+          }
+        }}},
     "sideQuestion.dismiss": {
       "comment": "Agent pane: button that closes the note above the composer saying a side session (/btw) did not start",
       "extractionState": "manual",
@@ -240589,6 +240825,7 @@
     "composer.slashStatus":{"comment":"Composer slash menu: description of cmux's /status command, which opens the Session status card.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show the effective harness session status."}},"ar":{"stringUnit":{"state":"needs_review","value":"عرض حالة جلسة الأداة الفعلية."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži stvarni status sesije alata."}},"da":{"stringUnit":{"state":"needs_review","value":"Vis den aktuelle sessionsstatus for værktøjet."}},"de":{"stringUnit":{"state":"needs_review","value":"Den tatsächlichen Sitzungsstatus des Harness anzeigen."}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar el estado efectivo de la sesión del agente."}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher l'état effectif de la session de l'agent."}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra lo stato effettivo della sessione dell'agente."}},"ja":{"stringUnit":{"state":"needs_review","value":"ハーネスの実際のセッション状態を表示します。"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញស្ថានភាពវគ្គពិតប្រាកដរបស់ឧបករណ៍។"}},"ko":{"stringUnit":{"state":"needs_review","value":"하네스의 실제 세션 상태를 표시합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis den faktiske øktstatusen for verktøyet."}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż rzeczywisty stan sesji narzędzia."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar o status efetivo da sessão do agente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать фактический статус сеанса."}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงสถานะเซสชันจริงของเครื่องมือ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Aracın geçerli oturum durumunu göster."}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати фактичний стан сеансу."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiển thị trạng thái phiên thực tế của công cụ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示工具当前的实际会话状态。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示工具目前的實際工作階段狀態。"}}}},
     "upload.notStarted":{"comment":"Composer: an attachment's error when the host refused to start its upload.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The upload could not be started."}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذر بدء الرفع."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otpremanje nije moguće započeti."}},"da":{"stringUnit":{"state":"needs_review","value":"Overførslen kunne ikke startes."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Upload konnte nicht gestartet werden."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo iniciar la carga."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de démarrer l'envoi."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile avviare il caricamento."}},"ja":{"stringUnit":{"state":"needs_review","value":"アップロードを開始できませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចាប់ផ្តើមការផ្ទុកឡើងបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"업로드를 시작할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Opplastingen kunne ikke startes."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można rozpocząć przesyłania."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível iniciar o envio."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось начать загрузку."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเริ่มการอัปโหลดได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükleme başlatılamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося почати завантаження."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể bắt đầu tải lên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法开始上传。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法開始上傳。"}}}},
     "upload.notRead":{"comment":"Composer: an attachment's error when the page could not read the file's bytes.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The file could not be read."}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذرت قراءة الملف."}},"bs":{"stringUnit":{"state":"needs_review","value":"Datoteku nije moguće pročitati."}},"da":{"stringUnit":{"state":"needs_review","value":"Filen kunne ikke læses."}},"de":{"stringUnit":{"state":"needs_review","value":"Die Datei konnte nicht gelesen werden."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo leer el archivo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de lire le fichier."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile leggere il file."}},"ja":{"stringUnit":{"state":"needs_review","value":"ファイルを読み込めませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចអានឯកសារបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"파일을 읽을 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Filen kunne ikke leses."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można odczytać pliku."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível ler o arquivo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось прочитать файл."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถอ่านไฟล์ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dosya okunamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося прочитати файл."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể đọc tệp."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法读取文件。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法讀取檔案。"}}}},
+    "upload.cancelled":{"comment":"Composer: an attachment's error when its upload was cancelled, by the person or by the host, before the host had the whole file.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The upload was cancelled."}},"ar":{"stringUnit":{"state":"needs_review","value":"تم إلغاء الرفع."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otpremanje je otkazano."}},"da":{"stringUnit":{"state":"needs_review","value":"Overførslen blev annulleret."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Upload wurde abgebrochen."}},"es":{"stringUnit":{"state":"needs_review","value":"Se canceló la carga."}},"fr":{"stringUnit":{"state":"needs_review","value":"L'envoi a été annulé."}},"it":{"stringUnit":{"state":"needs_review","value":"Il caricamento è stato annullato."}},"ja":{"stringUnit":{"state":"needs_review","value":"アップロードはキャンセルされました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការផ្ទុកឡើងត្រូវបានបោះបង់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"업로드가 취소되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Opplastingen ble avbrutt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przesyłanie zostało anulowane."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O envio foi cancelado."}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка отменена."}},"th":{"stringUnit":{"state":"needs_review","value":"การอัปโหลดถูกยกเลิก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükleme iptal edildi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження скасовано."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã hủy tải lên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"上传已取消。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"上傳已取消。"}}}},
     "upload.notCompleted":{"comment":"Composer: an attachment's error when its upload stopped before the host had the whole file.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The upload could not be completed."}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذر إكمال الرفع."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otpremanje nije moguće dovršiti."}},"da":{"stringUnit":{"state":"needs_review","value":"Overførslen kunne ikke fuldføres."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Upload konnte nicht abgeschlossen werden."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo completar la carga."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de terminer l'envoi."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile completare il caricamento."}},"ja":{"stringUnit":{"state":"needs_review","value":"アップロードを完了できませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចបញ្ចប់ការផ្ទុកឡើងបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"업로드를 완료할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Opplastingen kunne ikke fullføres."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można ukończyć przesyłania."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível concluir o envio."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось завершить загрузку."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถอัปโหลดให้เสร็จได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükleme tamamlanamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося завершити завантаження."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể hoàn tất tải lên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法完成上传。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法完成上傳。"}}}},
     "upload.hostTooLarge":{"comment":"Composer: an attachment's error when an older host can take the file only in one message and it is too large for that.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This host cannot stream an attachment this large."}},"ar":{"stringUnit":{"state":"needs_review","value":"لا يستطيع هذا المضيف نقل مرفق بهذا الحجم."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj host ne može prenijeti ovako veliki prilog."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne vært kan ikke overføre en så stor vedhæftet fil."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Host kann einen so großen Anhang nicht übertragen."}},"es":{"stringUnit":{"state":"needs_review","value":"Este host no puede transmitir un adjunto tan grande."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cet hôte ne peut pas transmettre une pièce jointe aussi volumineuse."}},"it":{"stringUnit":{"state":"needs_review","value":"Questo host non può trasmettere un allegato così grande."}},"ja":{"stringUnit":{"state":"needs_review","value":"このホストはこのサイズの添付ファイルを転送できません。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ាស៊ីននេះមិនអាចបញ្ជូនឯកសារភ្ជាប់ធំបែបនេះបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 호스트는 이렇게 큰 첨부 파일을 전송할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne verten kan ikke overføre et så stort vedlegg."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten host nie może przesłać tak dużego załącznika."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este host não consegue transmitir um anexo tão grande."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот хост не может передать такое большое вложение."}},"th":{"stringUnit":{"state":"needs_review","value":"โฮสต์นี้ไม่สามารถส่งไฟล์แนบขนาดใหญ่ขนาดนี้ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu ana bilgisayar bu kadar büyük bir eki aktaramaz."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей хост не може передати таке велике вкладення."}},"vi":{"stringUnit":{"state":"needs_review","value":"Máy chủ này không thể truyền tệp đính kèm lớn như vậy."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此主机无法传输这么大的附件。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此主機無法傳輸這麼大的附件。"}}}},
     "attachment.unavailable":{"comment":"Agent pane: error when a sent prompt's attachment can no longer be read back for Edit or Retry; {name} is the attachment's name.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Attachment unavailable: {name}"}},"ar":{"stringUnit":{"state":"needs_review","value":"المرفق غير متاح: {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prilog nije dostupan: {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Vedhæftet fil er ikke tilgængelig: {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Anhang nicht verfügbar: {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Adjunto no disponible: {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pièce jointe indisponible : {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Allegato non disponibile: {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"添付ファイルを利用できません: {name}"}},"km":{"stringUnit":{"state":"needs_review","value":"ឯកសារភ្ជាប់មិនអាចប្រើបាន៖ {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"첨부 파일을 사용할 수 없음: {name}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vedlegget er ikke tilgjengelig: {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Załącznik niedostępny: {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Anexo indisponível: {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вложение недоступно: {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ไฟล์แนบไม่พร้อมใช้งาน: {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ek kullanılamıyor: {name}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вкладення недоступне: {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tệp đính kèm không khả dụng: {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"附件不可用：{name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"附件無法使用：{name}"}}}},

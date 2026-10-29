@@ -15,6 +15,11 @@ const doSql = (storage: DurableObjectStorage): SqlStore => ({
   transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
 })
 
+/** How long a caller waits for the commit-time drain of prompt channels (OwnerDO.promptDrained). */
+const PROMPT_DRAIN_WAIT_MS = 2_000
+/** Target objects one commit-time drain sends to; the rest wait for the alarm (a 12,000-member team's index is the alarm's). */
+const PROMPT_DRAIN_MAX_CHANNELS = 32
+
 export interface Attachment {
   readonly principal: Principal
   /** Subscribed to this object's primary stream. */
@@ -122,9 +127,15 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   protected promptChannel(channel: string): boolean {
     return isWakeChannel(channel)
   }
-  /** Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended. */
-  protected async promptDrained(): Promise<void> {
-    while (this.wakeDrain) await this.wakeDrain
+  /**
+   * Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended, or
+   * after `maxMs`, whichever is first: a slow target never holds the caller (the alarm retries what is left).
+   */
+  protected async promptDrained(maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
+    if (!this.wakeDrain) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settled = (async () => { while (this.wakeDrain) await this.wakeDrain })()
+    await Promise.race([settled, new Promise<void>((r) => (timer = setTimeout(r, maxMs)))]).finally(() => clearTimeout(timer))
   }
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
@@ -353,7 +364,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (this.wakeDrain) return void (this.wakeAgain = true)
     const prompt = (c: string) => this.promptChannel(c)
     if (!this.engine.outbox.dueChannels(now).some(prompt)) return
-    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt)
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt, PROMPT_DRAIN_MAX_CHANNELS)
       .catch(() => undefined)
       .finally(() => {
         this.wakeDrain = undefined
@@ -549,6 +560,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
     const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
+    // A commit-time drain started by this run's own commits ends inside the run (the alarm is awaited; a drain is not).
+    await this.promptDrained()
     if (at !== null && Number.isFinite(at)) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

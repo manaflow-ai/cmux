@@ -46,8 +46,12 @@ struct AcpmuxLaunchReadyWaitTests {
     /// on the ready line (cmux#25761): the launcher throws that text, not "exited".
     @Test func aDaemonThatRefusesSaysWhy() async throws {
         let why = "acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"
+        // A heredoc, not `echo '...'`: the reason has an apostrophe, which would end a quoted
+        // echo and leave the ready pipe empty (the launcher then says "exited").
         let environment = try Self.environment("""
-        echo '{"ready":false,"refused":"\(why)"}' >&3
+        cat >&3 <<'LINE'
+        {"ready":false,"refused":"\(why)"}
+        LINE
         """)
         await #expect(throws: AcpmuxDaemonLauncher.Failure.refused(why)) {
             _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(20))
@@ -55,6 +59,25 @@ struct AcpmuxLaunchReadyWaitTests {
         #expect(AcpmuxFailureCause.refused(why).userText == why)
         #expect(AcpmuxReadyLine.refusal(Self.readyLine) == nil)
         #expect(AcpmuxReadyLine.refusal(#"{"ready":false,"lockHeld":true}"#) == nil)
+    }
+
+    /// A launch that lost the lock race relays the winner's readiness with `lockHeld` (acpmux#27336):
+    /// the launcher says it did not start that daemon, and the enroll after it never hands the
+    /// winner off, so it is never shut down under the client that started it.
+    @Test func aRelayedLockHeldEndpointIsNeverHandedOff() async throws {
+        let relayed = try Self.environment("""
+        echo '{"ready":true,"lockHeld":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=w"}' >&3
+        """)
+        let winner = try await AcpmuxDaemonLauncher.launchReporting(relayed, deadline: .seconds(20))
+        #expect(winner.endpoint.token == "w")
+        #expect(!winner.startedHere)
+        #expect(!AcpmuxHost.mayHandOff(after: winner))
+
+        let own = try Self.environment("echo '\(Self.readyLine)' >&3")
+        let started = try await AcpmuxDaemonLauncher.launchReporting(own, deadline: .seconds(20))
+        #expect(started.startedHere)
+        #expect(AcpmuxHost.mayHandOff(after: started))
+        #expect(AcpmuxReadyLine.parse(#"{"ready":true,"lockHeld":true}"#)?.lockHeld == true)
     }
 
     @Test func aDaemonThatExitsFailsAtOnce() async throws {
