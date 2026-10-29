@@ -921,6 +921,9 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
+    if let Some(c) = managed_unit_connect(&path, || Client::connect(&path)).await? {
+        return Ok(c);
+    }
     start_and_connect(&path, || Client::connect(&path)).await
 }
 
@@ -929,6 +932,12 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     let path = socket_path();
     if let Ok(stream) = crate::local_stream::connect(&path).await {
+        return Ok(stream);
+    }
+    if let Some(stream) =
+        managed_unit_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) })
+            .await?
+    {
         return Ok(stream);
     }
     start_and_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) }).await
@@ -942,6 +951,78 @@ const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+
+/// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
+/// from a session shell) while its daemon is owned by the user systemd unit.
+/// In that case never call [`spawn_detached`]: the unit may use a supervised
+/// state directory while the default home is a symlink, and the private-state
+/// guard must continue to reject that symlink. Ask systemd to start its unit
+/// and wait for the socket instead.
+async fn managed_unit_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<Option<T>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    #[cfg(target_os = "linux")]
+    {
+        managed_unit_connect_with("systemctl", path, connect).await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (path, connect);
+        Ok(None)
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn managed_unit_connect_with<S, T, F, Fut>(
+    systemctl: S,
+    path: &std::path::Path,
+    connect: F,
+) -> Result<Option<T>>
+where
+    S: AsRef<std::ffi::OsStr> + Clone,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    const PROBE_BUDGET: Duration = Duration::from_secs(1);
+    let show = tokio::process::Command::new(systemctl.clone())
+        .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
+        .output();
+    let loaded =
+        tokio::time::timeout(PROBE_BUDGET, show).await.ok().and_then(Result::ok).is_some_and(
+            |output| output.status.success() && output.stdout.trim_ascii() == b"loaded",
+        );
+    if !loaded {
+        return Ok(None);
+    }
+
+    let start = tokio::process::Command::new(systemctl.clone())
+        .args(["--user", "start", "acpmux.service"])
+        .output();
+    let output = tokio::time::timeout(PROBE_BUDGET, start)
+        .await
+        .map_err(|_| anyhow!("systemd did not start acpmux.service within {PROBE_BUDGET:?}"))??;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("systemd could not start acpmux.service: {}", detail.trim()));
+    }
+
+    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    loop {
+        if let Ok(value) = connect().await {
+            return Ok(Some(value));
+        }
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Err(anyhow!(
+                "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
+                path.display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
+    }
+}
 
 /// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
 /// line says `lockHeld`), another daemon is stopping (the app's handover to its bundled build,

@@ -34,3 +34,52 @@ fn daemon_log_refuses_a_symlink() {
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn managed_unit_start_avoids_a_symlinked_default_home() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-managed-start-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(dir.join("supervised")).unwrap();
+    let link = dir.join(".acpmux");
+    std::os::unix::fs::symlink(dir.join("supervised"), &link).unwrap();
+    let socket = link.join("acpmux.sock");
+
+    // The safety invariant stays in force; the managed path must not call it
+    // for the CLI's symlinked default home.
+    assert!(crate::config::private_state_dir(&link).is_err());
+
+    let systemctl = dir.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        "#!/bin/sh\nif [ \"$2\" = show ]; then echo loaded; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let started = dir.join("started");
+    let result = managed_unit_connect_with(&systemctl, &socket, {
+        let started = started.clone();
+        move || {
+            let started = started.clone();
+            async move {
+                if started.exists() {
+                    Ok(())
+                } else {
+                    Err(anyhow!("the managed unit has not started"))
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(result, Some(()));
+    assert!(started.exists(), "the CLI did not start the managed unit");
+    assert!(!socket.exists(), "the test should not need a detached socket");
+    let _ = std::fs::remove_dir_all(&dir);
+}
