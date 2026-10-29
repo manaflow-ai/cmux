@@ -298,7 +298,11 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     let messages: Vec<&Value> =
         page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
     let by_id = |id: &str| *messages.iter().find(|m| m["promptId"] == id).expect(id);
-    let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id});
+    // A names its proven caller's session and harness family over the link (display only).
+    let meta = a.resolve(&lane_id).unwrap().meta();
+    let family = meta.family.clone().unwrap_or(meta.harness.clone());
+    let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id,
+                         "fromSessionId": lane_id, "fromHarness": family});
     assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
 }
