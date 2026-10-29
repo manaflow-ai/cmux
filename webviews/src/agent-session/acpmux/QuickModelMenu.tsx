@@ -400,11 +400,13 @@ export function QuickModelMenu({
       // The current model is already selected. Apply its effort through the reported
       // option so the harness updates the same config as the Effort submenu. A different
       // model still uses the combo path, which waits for that model to be reported first.
-      // A searched combo that asks for Fast takes the combo path even on the running model: it maps
-      // "fast" onto the option's plain tier, where the Fast toggle would restore a remembered higher one.
-      if (running && effort?.onPick && !model.fast) {
+      if (running && effort?.onPick) {
         onOpenChange(false);
         effort.onPick(value);
+        // A searched combo can also ask for Fast. It goes through the combo path, which maps "fast"
+        // onto the option's plain tier (the Fast toggle would restore a remembered higher one); the
+        // effort went through the reported option above, so a session-only level (Ultracode) lands too.
+        if (model.fast) pickRow({ ...model, effort: undefined });
         return;
       }
       pickRow({ ...model, effort: value });

@@ -316,7 +316,10 @@ test("inline effort picks a different model and its level together; model names 
   expect(labels(list())).toContain("Effort");
 });
 
-test("current-model inline effort pick sends a searched Fast request as one combo", async () => {
+test.each([
+  ["Low", "low"],
+  ["Ultracode", "ultracode"],
+])("current-model inline %s pick keeps a searched Fast request on its plain tier", async (name, level) => {
   const container = installDom();
   await loadQuickModelMenu();
   const effortPicks: string[] = [];
@@ -341,6 +344,7 @@ test("current-model inline effort pick sends a searched Fast request as one comb
             levels: [
               { id: "low", name: "Low" },
               { id: "high", name: "High" },
+              { id: "ultracode", name: "Ultracode" },
             ],
             current: "high",
             onPick: (value) => effortPicks.push(value),
@@ -370,12 +374,14 @@ test("current-model inline effort pick sends a searched Fast request as one comb
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
-  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
-  // The combo maps Fast onto the option's plain tier; the toggle would restore a remembered ultrafast.
+  await act(async () => (document.querySelector(`[aria-label="Model A · ${name}"]`) as HTMLElement).click());
+  // The level goes through the reported option (Ultracode is no catalog effort a combo could land);
+  // Fast goes through the combo, which maps it onto the option's plain tier, never the toggle, which
+  // would restore a remembered ultrafast.
+  expect(effortPicks).toEqual([level]);
   expect(combos.map(({ id, effort, fast }) => ({ id, effort, fast }))).toEqual([
-    { id: "a", effort: "low", fast: true },
+    { id: "a", effort: undefined, fast: true },
   ]);
-  expect(effortPicks).toEqual([]);
   expect(fastPicks).toEqual([]);
 });
 
