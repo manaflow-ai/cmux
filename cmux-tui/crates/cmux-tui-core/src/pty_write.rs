@@ -185,6 +185,9 @@ pub(crate) fn write_cancellable(
             // for no event, only ROOM_POLL or the cancel, as the
             // `pty-writer` does (`wait_writable`), so a slow reader is not a
             // busy loop.
+            // XNU reports a hang-up only for a requested event, so in this
+            // state a hang-up is seen at the next ROOM_POLL check (a write
+            // error) or the cancel: a recheck, never a busy loop.
             let (timeout, events) = if room_wait.is_some() {
                 (input_queue::ROOM_POLL.as_millis().clamp(1, i32::MAX as u128) as i32, 0)
             } else {

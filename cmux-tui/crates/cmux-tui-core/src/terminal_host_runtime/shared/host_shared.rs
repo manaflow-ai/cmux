@@ -282,17 +282,21 @@ impl HostShared {
         self.take_writer_turn(&|| cancel.is_cancelled()).then(|| self.held_writer())
     }
 
-    /// Waits for the writer's turn and takes it; false (and no turn) once
-    /// `ended` says the caller is gone.
+    /// Waits for the writer's turn and takes it; false (and no turn) when
+    /// the turn is taken and `ended` says the caller is gone. A free turn is
+    /// always taken: the caller's end ends only a wait (behind another
+    /// writer here, for the program in `write_cancellable`), never a write
+    /// that can be made at once, so input a client sent before it closed its
+    /// side is still written.
     fn take_writer_turn(&self, ended: &dyn Fn() -> bool) -> bool {
         cmux_hang_watch::invalidate_active();
         let turn = &self.writer_turn;
         let mut busy = turn.busy.lock().recover_poison();
-        while *busy && !ended() {
+        while *busy {
+            if ended() {
+                return false;
+            }
             busy = turn.changed.wait(busy).recover_poison();
-        }
-        if *busy || ended() {
-            return false;
         }
         *busy = true;
         true
