@@ -96,31 +96,5 @@ struct BlockingControlTests {
                 == BlockingControl.report([:], detector: record))
         #expect(BlockingControl.report(["reset": .bool(false)], detector: record).objectValue?["overflow"]?.intValue == 0)
     }
-
-    /// A user-interactive `blockingSync` onto a utility queue is one site under `inversions`, with both classes;
-    /// `reset` zeroes its count.
-    @Test func reportsQoSInversions() async throws {
-        let table = BlockingViolationTable(mode: .record, poolMode: .record)
-        let utility = DispatchQueue(label: "com.cmuxterm.tests.control-qos-utility", qos: .utility)
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            DispatchQueue(label: "com.cmuxterm.tests.control-qos-waiter", qos: .userInteractive).async {
-                BlockingViolationTable.$scoped.withValue(table) { utility.blockingSync {} }
-                done.resume()
-            }
-        }
-        await table.flush()
-        let detector = BlockingDetector(table: table)
-
-        let report = BlockingControl.report(["reset": .bool(true)], detector: detector)
-        let inversions = try #require(report.objectValue?["inversions"]?.objectValue)
-        #expect(inversions["count"]?.intValue == 1)
-        #expect(inversions["overflow"]?.intValue == 0)
-        let site = try #require(inversions["sites"]?.arrayValue?.first?.objectValue)
-        #expect(site["waiter"]?.stringValue == "user-interactive")
-        #expect(site["target"]?.stringValue == "utility")
-        #expect(site["count"]?.intValue == 1)
-        let after = BlockingControl.report([:], detector: detector)
-        #expect(after.objectValue?["inversions"]?.objectValue?["count"]?.intValue == 0)
-    }
 }
 #endif

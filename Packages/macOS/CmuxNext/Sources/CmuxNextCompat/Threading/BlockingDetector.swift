@@ -150,30 +150,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// The call sites where a thread waited on a queue of a lower QoS than its own (``BlockingQoSInversion``), in
-    /// the order they first reached the drain queue, with their current counts. Recorded by the waiting seams
-    /// (``Dispatch/DispatchQueue/blockingSync(fileID:line:execute:)``) on any thread; empty in Release, which
-    /// compiles the check out.
-    public var qosInversions: [BlockingQoSInversion] {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
-        table.qosInversions.inversions
-        #else
-        []
-        #endif
-    }
-
-    /// QoS inversions not recorded as a site: 64 sites per launch were already known, or 64 new ones were waiting
-    /// for the drain. 0 in Release.
-    public var qosInversionOverflow: Int {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
-        table.qosInversions.overflow
-        #else
-        0
-        #endif
-    }
-
-    /// Zeroes every site's count and wall times (between sweep steps), QoS inversion sites included, and adds one
-    /// to ``MainThreadRead/resets``; the sites stay known, so a site that blocks again is counted, not sent to the
+    /// Zeroes every site's count and wall times (between sweep steps) and adds one to
+    /// ``MainThreadRead/resets``; the sites stay known, so a site that blocks again is counted, not sent to the
     /// sink again.
     public func resetCounts() {
         #if DEBUG || CMUX_BLOCKING_CHECKS

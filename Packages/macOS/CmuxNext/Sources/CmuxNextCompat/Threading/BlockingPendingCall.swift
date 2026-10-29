@@ -13,9 +13,6 @@ struct BlockingPendingCall {
     var site: Int
     var fileID: StaticString
     var line: UInt
-    /// At a QoS inversion site (``BlockingQoSInversions``): the waiting thread's class and the waited-on queue's.
-    var waiter: ThreadQoS = .unspecified
-    var target: ThreadQoS = .unspecified
     // Each address in its own field: a fixed-size value, no array allocation on the main thread.
     private var addresses: (UInt, UInt, UInt, UInt, UInt, UInt, UInt, UInt) = (0, 0, 0, 0, 0, 0, 0, 0)
     private var addressCount = 0

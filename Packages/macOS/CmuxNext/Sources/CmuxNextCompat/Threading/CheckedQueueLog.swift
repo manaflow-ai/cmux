@@ -69,7 +69,7 @@ public final class CheckedQueueLog: Sendable {
     /// - Returns: The site's record, this queue counted.
     @discardableResult
     func record(label: String, qos: ThreadQoS, target: DispatchQueue?, site: String, registry: ThreadRegistry) -> CheckedQueueRecord {
-        let targetQoS = target?.runningQoS
+        let targetQoS = target.map { ThreadQoS($0.qos.qosClass) }
         let declaredAs = registry.declaration(for: label)?.name
         let made = CheckedQueueRecord(label: label, declaredAs: declaredAs, qos: ThreadRegistry.effectiveQoS(qos, targetQoS: targetQoS),
                                       target: target?.label, site: site,

@@ -31,9 +31,8 @@ extension DispatchQueue {
         fileID: StaticString = #fileID,
         line: UInt = #line
     ) -> DispatchQueue {
-        let queue = DispatchQueue(label: label, qos: qos, attributes: attributes, autoreleaseFrequency: autoreleaseFrequency, target: target)
-        recordChecked(queue, label: label, qos: qos, target: target, fileID: fileID, line: line)
-        return queue
+        recordChecked(label: label, qos: qos, target: target, fileID: fileID, line: line)
+        return DispatchQueue(label: label, qos: qos, attributes: attributes, autoreleaseFrequency: autoreleaseFrequency, target: target)
     }
 
     /// Makes a serial queue like `DispatchSerialQueue(label:qos:autoreleaseFrequency:target:)`, checked and recorded
@@ -60,17 +59,11 @@ extension DispatchQueue {
         fileID: StaticString = #fileID,
         line: UInt = #line
     ) -> DispatchSerialQueue {
-        let queue = DispatchSerialQueue(label: label, qos: qos, autoreleaseFrequency: autoreleaseFrequency, target: target)
-        recordChecked(queue, label: label, qos: qos, target: target, fileID: fileID, line: line)
-        return queue
+        recordChecked(label: label, qos: qos, target: target, fileID: fileID, line: line)
+        return DispatchSerialQueue(label: label, qos: qos, autoreleaseFrequency: autoreleaseFrequency, target: target)
     }
 
-    private static func recordChecked(
-        _ queue: DispatchQueue, label: String, qos: DispatchQoS, target: DispatchQueue?, fileID: StaticString, line: UInt
-    ) {
-        #if DEBUG || CMUX_BLOCKING_CHECKS || CMUX_BENCH_HOOKS
-        queue.noteRunningQoS(stated: qos, target: target)
-        #endif
+    private static func recordChecked(label: String, qos: DispatchQoS, target: DispatchQueue?, fileID: StaticString, line: UInt) {
         #if DEBUG || CMUX_BENCH_HOOKS
         CheckedQueueLog.app.record(label: label, qos: ThreadQoS(qos.qosClass), target: target, site: "\(fileID):\(line)",
                                    registry: .app)

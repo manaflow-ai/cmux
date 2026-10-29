@@ -3,8 +3,6 @@ public import Dispatch
 extension DispatchQueue {
     /// Runs `work` on the queue and waits for it, like `sync(execute:)`, as a checked blocking
     /// call (``blockingCall(_:fileID:line:_:)``): the caller waits for everything queued before it.
-    /// In Debug and bench-checks builds, a caller whose QoS is above the queue's records one QoS inversion
-    /// at its site (``BlockingDetector/qosInversions``); Release compiles that check out.
     ///
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID`.
@@ -17,10 +15,7 @@ extension DispatchQueue {
     public func blockingSync<T, Failure: Error>(
         fileID: StaticString = #fileID, line: UInt = #line, execute work: () throws(Failure) -> T
     ) throws(Failure) -> T {
-        #if DEBUG || CMUX_BLOCKING_CHECKS
-        BlockingViolationTable.qosWait(onto: self, fileID: fileID, line: line)
-        #endif
-        return try blockingCall(.syncWait, fileID: fileID, line: line) { () throws(Failure) -> T in
+        try blockingCall(.syncWait, fileID: fileID, line: line) { () throws(Failure) -> T in
             try sync { Result(catching: work) }.get()
         }
     }
