@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
-import { attachmentBlocks, attachmentSource, sourceOfFile, withSource, type ComposerAttachment } from "../attachments";
-import { normalizePromptContentPart, restoreInline } from "../inlinePrompt";
+import {
+  attachmentBlocks,
+  attachmentSource,
+  inlineToken,
+  sourceOfFile,
+  withSource,
+  type ComposerAttachment,
+} from "../attachments";
+import { inlinePrompt, normalizePromptContentPart, restoreInline, stripFileDisplay } from "../inlinePrompt";
 import { attachSources } from "./attachmentSources";
 
 const chrome = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -56,18 +63,34 @@ test("a chip's source goes with its prompt block, and comes back from acpmux's p
     data: "AQ==",
     source: chrome,
   };
-  expect(attachmentBlocks(image)).toEqual([
-    { type: "image", mimeType: "image/png", data: "AQ==", name: "a.png", _meta: { cmux: { source: chrome } } },
-  ]);
   const plain: ComposerAttachment = {
     id: "2",
     kind: "image",
     name: "b.png",
     mimeType: "image/png",
     size: 1,
-    data: "AQ==",
+    data: "Ag==",
   };
-  expect(attachmentBlocks(plain)[0]).not.toHaveProperty("_meta");
+  const file: ComposerAttachment = {
+    id: "3",
+    kind: "link",
+    name: "notes.txt",
+    mimeType: "text/plain",
+    size: 4,
+    path: "/tmp/notes.txt",
+    source: { name: "Finder", bundleId: "com.apple.finder" },
+  };
+  // The source goes in the prompt's display metadata, never in a block's own _meta (which the
+  // relay strips before acpmux).
+  const blocks = [image, plain, file].flatMap(attachmentBlocks);
+  for (const block of blocks) expect(block).not.toHaveProperty("_meta");
+  expect(stripFileDisplay(blocks, [image, plain, file])).toEqual([
+    { kind: "image", blockIndex: 0, source: chrome },
+    { kind: "file", blockIndex: 2, name: "notes.txt", mimeType: "text/plain", size: 4, source: file.source },
+  ]);
+  expect(inlinePrompt(`see ${inlineToken(image.id)}`, [image])?.display).toEqual([
+    { kind: "image", blockIndex: 1, name: "a.png", mimeType: "image/png", size: 1, source: chrome },
+  ]);
   expect(normalizePromptContentPart({ kind: "image", id: "x", mimeType: "image/png", source: chrome })).toMatchObject({
     source: chrome,
   });

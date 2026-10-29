@@ -118,19 +118,17 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
     }
-    if let Some(source) = source_of(block) {
-        named.set("source", source);
-    }
     Some((bytes, named))
 }
 
-/// The app an attachment block came from, as the app said it (`_meta.cmux.source`,
-/// AttachmentSource.swift): `{name, bundleId?, site?}`, each field checked the way the app makes
-/// it, so the record never keeps anything else under that name. `None` for no source, or one that
-/// is not one. Leo, 2026-10-29: "Also, I guess it's, like, you know, be interesting to add, like,
-/// attributions for screenshots and attachments and whatnot, right?"
-pub(crate) fn source_of(block: &Value) -> Option<Value> {
-    let raw = block.pointer("/_meta/cmux/source")?.as_object()?;
+/// The app an attachment came from, as the app said it in the prompt's display metadata (an
+/// `inlineParts` entry's `source`, AttachmentSource.swift): `{name, bundleId?, site?}`, each field
+/// checked the way the app makes it, so the record never keeps anything else under that name.
+/// `None` for one that is not one. It rides the request's `_meta`, never a block's: a block's own
+/// `_meta` never reaches the harness. Leo, 2026-10-29: "Also, I guess it's, like, you know, be
+/// interesting to add, like, attributions for screenshots and attachments and whatnot, right?"
+pub(crate) fn checked_source(raw: &Value) -> Option<Value> {
+    let raw = raw.as_object()?;
     let name = raw.get("name")?.as_str()?.trim();
     if name.is_empty() || name.chars().count() > MAX_SOURCE_NAME {
         return None;
@@ -139,14 +137,20 @@ pub(crate) fn source_of(block: &Value) -> Option<Value> {
     if let Some(value) = raw.get("bundleId") {
         let id = value.as_str()?;
         let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_');
-        if id.is_empty() || id.len() > 255 || id.starts_with('.') || !id.contains('.') || !id.chars().all(allowed) {
+        if id.is_empty()
+            || id.len() > 255
+            || id.starts_with('.')
+            || !id.contains('.')
+            || !id.chars().all(allowed)
+        {
             return None;
         }
         source.set("bundleId", json!(id));
     }
     if let Some(value) = raw.get("site") {
         let site = value.as_str()?;
-        let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-');
+        let allowed =
+            |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-');
         if site.is_empty() || site.len() > 253 || !site.chars().all(allowed) {
             return None;
         }
@@ -285,9 +289,6 @@ pub(super) fn inline_parts(
                     if let Some(page_count) = block.get("pageCount").and_then(Value::as_u64) {
                         part.set("pageCount", json!(page_count));
                     }
-                    if let Some(source) = source_of(block) {
-                        part.set("source", source);
-                    }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
                     }
@@ -302,9 +303,6 @@ pub(super) fn inline_parts(
                     let mut part = json!({"kind": "file", "name": name, "uri": uri});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
                         part.set("mimeType", Value::String(mime_type.into()));
-                    }
-                    if let Some(source) = source_of(block) {
-                        part.set("source", source);
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -417,6 +415,9 @@ pub(crate) fn validated_display_parts(
             out.insert("start".into(), Value::Number(start.into()));
             out.insert("end".into(), Value::Number(end.into()));
         }
+        if let Some(source) = object.get("source").and_then(checked_source) {
+            out.insert("source".into(), source);
+        }
         validated.insert(block_index, Value::Object(out));
     }
     validated
@@ -424,7 +425,7 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "source"] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -460,12 +461,25 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
             if let Some(name) = named.get("name") {
                 block.set("name", name.clone());
             }
-            if let Some(source) = named.get("source") {
-                block.set("_meta", json!({"cmux": {"source": source}}));
-            }
             Some(block)
         })
         .collect()
+}
+
+/// Puts each image's source from the prompt's display metadata on its record (`keep`'s
+/// `{id, mimeType, name}`), so the transcript's thumbnail has it after a reload.
+fn name_image_sources(images: &mut [Value], blocks: &[Value], display_parts: Option<&Value>) {
+    let display = validated_display_parts(display_parts, blocks);
+    for (block_index, part) in &display {
+        let Some(source) = part.get("source") else { continue };
+        let Some(id) = blocks.get(*block_index).and_then(id_of) else { continue };
+        for image in images
+            .iter_mut()
+            .filter(|image| image.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        {
+            image.set("source", source.clone());
+        }
+    }
 }
 
 impl Hub {
@@ -479,7 +493,8 @@ impl Hub {
         blocks: &[Value],
         display_parts: Option<&Value>,
     ) {
-        let images = keep(blocks);
+        let mut images = keep(blocks);
+        name_image_sources(&mut images, blocks, display_parts);
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
@@ -554,7 +569,10 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, inline_parts, sniffed_type, source_of, validated_display_parts};
+    use super::{
+        checked_source, decode, inline_parts, name_image_sources, sniffed_type,
+        validated_display_parts,
+    };
     use serde_json::{Value, json};
 
     #[test]
@@ -636,11 +654,23 @@ mod tests {
 
     #[test]
     fn an_attachments_source_is_kept_only_when_it_is_one() {
-        let with = |source: Value| json!({"type": "image", "mimeType": "image/png", "data": "AQID", "_meta": {"cmux": {"source": source}}});
-        let chrome = json!({"name": "Google Chrome", "bundleId": "com.google.Chrome", "site": "github.com"});
-        assert_eq!(source_of(&with(chrome.clone())), Some(chrome.clone()));
-        assert_eq!(decode(&with(chrome.clone())).unwrap().1["source"], chrome);
-        assert_eq!(source_of(&with(json!({"name": " cmux "}))), Some(json!({"name": "cmux"})));
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let link = json!({"type": "resource_link", "uri": "file:///tmp/a.png", "name": "a.png"});
+        let blocks = [image.clone(), link];
+        let chrome =
+            json!({"name": "Google Chrome", "bundleId": "com.google.Chrome", "site": "github.com"});
+        let finder = json!({"name": "Finder", "bundleId": "com.apple.finder"});
+        let display = json!([
+            {"kind": "image", "blockIndex": 0, "source": chrome},
+            {"kind": "file", "blockIndex": 1, "name": "a.png", "source": finder},
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["source"], chrome);
+        assert_eq!(parts[1]["source"], finder);
+        let mut images = vec![decode(&image).unwrap().1];
+        name_image_sources(&mut images, &blocks, Some(&display));
+        assert_eq!(images[0]["source"], chrome);
+        assert_eq!(checked_source(&json!({"name": " cmux "})), Some(json!({"name": "cmux"})));
         for bad in [
             json!({"name": ""}),
             json!({"name": "x".repeat(65)}),
@@ -651,12 +681,14 @@ mod tests {
             json!({"name": "A", "site": "a.com/path"}),
             json!("cmux"),
         ] {
-            assert_eq!(source_of(&with(bad.clone())), None, "{bad}");
-            assert!(decode(&with(bad)).unwrap().1.get("source").is_none());
+            assert_eq!(checked_source(&bad), None, "{bad}");
+            let display = json!([{"kind": "image", "blockIndex": 0, "source": bad}]);
+            let parts = inline_parts(&blocks[..1], &[], Some(&display));
+            assert!(parts[0].get("source").is_none());
         }
-        let link = json!({"type": "resource_link", "uri": "file:///tmp/a.png", "name": "a.png", "_meta": {"cmux": {"source": {"name": "Finder", "bundleId": "com.apple.finder"}}}});
-        let parts = inline_parts(&[link], &[], None);
-        assert_eq!(parts[0]["source"]["name"], "Finder");
+        // A block's own `_meta` names no source: it never reaches the record.
+        let meta = json!({"type": "image", "mimeType": "image/png", "data": "AQID", "_meta": {"cmux": {"source": chrome}}});
+        assert!(decode(&meta).unwrap().1.get("source").is_none());
     }
 
     #[test]

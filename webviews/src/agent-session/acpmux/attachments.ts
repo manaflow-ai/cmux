@@ -79,12 +79,6 @@ export function sourceOfFile(file: File): AttachmentSource | undefined {
   return fileSources.get(file);
 }
 
-/// `_meta.cmux.source` for a block of an attachment with a source: acpmux keeps it with the prompt,
-/// so the transcript's copy wears the icon after a reload (prompt_images.rs).
-type SourceMeta = { _meta?: { cmux: { source: AttachmentSource } } };
-const sourceMeta = (attachment: ComposerAttachment): SourceMeta =>
-  attachment.source ? { _meta: { cmux: { source: attachment.source } } } : {};
-
 export type AttachmentError = {
   name: string;
   reason: "tooLarge" | "unsupported" | "imagesUnsupported";
@@ -94,9 +88,9 @@ export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean }
 
 export type PromptBlock =
   | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
-  | ({ type: "image"; mimeType: string; data: string; name?: string } & SourceMeta)
-  | ({ type: "document"; mimeType: "application/pdf"; data: string; name?: string } & SourceMeta)
-  | ({ type: "resource_link"; uri: string; name: string } & SourceMeta)
+  | { type: "image"; mimeType: string; data: string; name?: string }
+  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
 /** The replacement character stored in the editor for one inline attachment. */
@@ -521,27 +515,14 @@ export function orderedDraftParts(
 
 export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
   const blocks: PromptBlock[] = [];
-  const meta = sourceMeta(attachment);
   if (attachment.kind === "image" && attachment.data)
-    blocks.push({
-      type: "image",
-      mimeType: attachment.mimeType,
-      data: attachment.data,
-      name: attachment.name,
-      ...meta,
-    });
+    blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "document" && attachment.data)
-    blocks.push({
-      type: "document",
-      mimeType: "application/pdf",
-      data: attachment.data,
-      name: attachment.name,
-      ...meta,
-    });
+    blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name, ...meta });
+    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
   if (attachment.kind === "image" && attachment.originalPath)
     blocks.push({
       type: "resource_link",

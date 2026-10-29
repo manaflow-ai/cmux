@@ -5,20 +5,25 @@ import {
   inlineToken,
   orderedDraftParts,
   promptText,
+  type AttachmentSource,
   type ComposerAttachment,
   type PromptBlock,
 } from "./attachments";
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
+/// One attachment block's display metadata (`_meta.acpmux.inlineParts`), which acpmux validates and
+/// keeps with the prompt (prompt_images.rs): its name and size, and the app it came from, so the
+/// transcript's copy wears its source after a reload. A block's own `_meta` never reaches acpmux.
 type DisplayPart = {
   kind: string;
   blockIndex: number;
-  name: string;
+  name?: string;
   mimeType?: string;
   size?: number;
   pageCount?: number;
   companionOf?: number;
+  source?: AttachmentSource;
 };
 export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
   if (!hasInlineMarks(input, attachments)) return undefined;
@@ -45,6 +50,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       size: a.size,
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
+      ...(a.source ? { source: a.source } : {}),
     });
     if (a.kind === "image")
       parts.push({
@@ -289,7 +295,14 @@ export function stripFileDisplay(
         : [],
     ),
   );
+  const sourced = attachments.filter((image) => image.kind === "image" && image.source);
   return blocks.flatMap((block, blockIndex): DisplayPart[] => {
+    if (block.type === "image") {
+      const image = sourced.find(
+        (one) => one.data === block.data && one.name === block.name && one.mimeType === block.mimeType,
+      );
+      return image?.source ? [{ kind: "image", blockIndex, source: image.source }] : [];
+    }
     const previous = blocks[blockIndex - 1];
     if (
       block.type === "resource_link" &&
@@ -311,6 +324,7 @@ export function stripFileDisplay(
             name: file.name,
             ...(file.mimeType ? { mimeType: file.mimeType } : {}),
             ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+            ...(file.source ? { source: file.source } : {}),
           },
         ]
       : [];
