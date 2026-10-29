@@ -224,6 +224,46 @@ import Testing
         #expect(host.activeID == nil)
     }
 
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: [NativePopupAutoHighlight.none, .first])
+    func reopeningSearchStartsWithoutPriorSelectionOrTyping(policy: NativePopupAutoHighlight) throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "same-search", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .start, width: 240,
+                                     rows: [NativePopupRow(id: "first", kind: .action, label: "First")],
+                                     search: NativePopupField(id: "query", value: "", placeholder: "Search", submitOnReturn: true, autoHighlight: policy))
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        func controls() throws -> (NativePopupContent, NSSearchField) {
+            let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+            let content = try #require(descendants(try #require(panel.contentView)).compactMap { $0 as? NativePopupContent }.first)
+            return (content, try #require(content.subviews.compactMap { $0 as? NSSearchField }.first))
+        }
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let (content, search) = try controls()
+        search.stringValue = "typed"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        model.revision += 1
+        model.search?.value = "typed"
+        host.update(model)
+        if policy == .none { _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))) }
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(events.last?["type"] as? String == "submit")
+        #expect(events.last?["id"] as? String == "first")
+        host.hide()
+        model.revision += 1
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let (reopened, field) = try controls()
+        _ = reopened.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(events.last?["type"] as? String == "submit")
+        #expect(events.last?["value"] as? String == "typed")
+        #expect(events.last?["id"] == nil, "a reopened popup inherited its prior selection")
+        #expect(events.last?["reason"] as? String == "none")
+    }
+
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func aTrailingRootSubmenuFlipsAtTheScreenEdgeOnUpdate() throws {
         let (window, page) = try Self.page()

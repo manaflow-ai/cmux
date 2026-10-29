@@ -139,7 +139,7 @@ import Testing
         else { #expect(window.firstResponder is NSSlider) }
     }
 
-    @Test(arguments: [NativePopupRowKind.choice, .slider])
+    @Test(arguments: [NativePopupRowKind.choice, .slider, .toggle])
     func descriptorRebuildKeepsTheFocusedEditableControl(kind: NativePopupRowKind) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -153,12 +153,13 @@ import Testing
                                      minimum: kind == .slider ? 0 : nil, maximum: kind == .slider ? 1 : nil)]
         content.update(model)
         window.makeKeyAndOrderFront(nil)
-        let original = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider })
+        let original = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
         #expect(window.makeFirstResponder(original))
         model.revision += 1
         model.rows[0].value = kind == .choice ? "1" : "0.5"
+        if kind == .toggle { model.rows[0].checked = true }
         content.update(model)
-        let replacement = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider })
+        let replacement = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
         #expect(replacement !== original)
         #expect(window.firstResponder === replacement, "the descriptor update dropped control focus")
     }
