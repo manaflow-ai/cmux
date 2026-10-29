@@ -114,6 +114,10 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        // A cancelled compaction may never emit its terminal result. Its flag
+                        // belongs to that abandoned request and must not be consumed by this
+                        // new prompt's result.
+                        self.cancelled_compaction.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()

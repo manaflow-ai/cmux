@@ -136,6 +136,43 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delayed_remote_floor_cancel_cannot_cancel_the_next_turn() {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "until-cancel"})], "test", false)
+                .await
+        })
+    };
+    let started = async {
+        while s.meta().status != SessionStatus::Running {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, started).await.expect("the first turn runs");
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.cancel_write_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    hub.remote_floor_cancel(&s, "test.delayed");
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    let next = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "slow"})], "test", false).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    release.send(()).unwrap();
+    let _ = tokio::time::timeout(WAIT, running).await.unwrap();
+    let result = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
+    assert_eq!(
+        result["stopReason"], "end_turn",
+        "the delayed policy cancel hit the next turn: {result}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_while_a_turns_copies_are_made_keeps_its_prompt_from_the_agent() {
     let (hub, s) = chat(&[], false).await;
     let (arrived, release) = arm(&hub);

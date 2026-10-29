@@ -240,6 +240,30 @@ async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
     assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(result), .. } if id == &json!(2) && result["stopReason"] == "end_turn")), "{new:?}");
 }
 
+#[tokio::test]
+async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let result = t
+        .inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"}))
+        .await;
+    assert!(result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn')), "{result:?}");
+}
+
 /// A `/compact` that fails: the compacting status, then a status clearing it
 /// with a failed `compact_result`, and the same zero-turn success result. The
 /// failed status is the turn's output, so the result ends the prompt rather

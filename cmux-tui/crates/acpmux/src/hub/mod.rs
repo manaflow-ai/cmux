@@ -515,7 +515,7 @@ pub struct Hub {
     pub(super) copy_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
-    pub(super) cancel_write_seam: full_access_bound::WriteSeam,
+    pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -674,7 +674,7 @@ impl Hub {
             #[cfg(test)]
             copy_seam: Default::default(),
             #[cfg(test)]
-            cancel_write_seam: Default::default(),
+            cancel_write_seam: Arc::new(Default::default()),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
