@@ -119,21 +119,21 @@ extension CMUXCLI {
     static var kiroGlobalRequiresKiroMessage: String {
         String(
             localized: "cli.hooks.error.globalRequiresKiro",
-            defaultValue: "--global is only supported for Kiro. Usage: cmux hooks setup kiro --global"
+            defaultValue: "--global is only supported for Kiro. Usage: cmux hooks setup kiro --global", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
     }
 
     static var kiroBothInstallsNote: String {
         String(
             localized: "cli.hooks.kiro.global.bothInstalledNote",
-            defaultValue: "Note: the cmux agent config and the Kiro CLI V3 global hooks are both installed. Kiro CLI V3 merges hooks from every scope, so a `--agent cmux` session on V3 can report each session start, prompt and stop twice. On V3, start Kiro without `--agent cmux`, or remove the global file with `cmux hooks uninstall kiro --global`."
+            defaultValue: "Note: the cmux agent config and the Kiro CLI V3 global hooks are both installed. Kiro CLI V3 merges hooks from every scope, so a `--agent cmux` session on V3 can report each session start, prompt and stop twice. On V3, start Kiro without `--agent cmux`, or remove the global file with `cmux hooks uninstall kiro --global`.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
     }
 
     static var kiroGlobalHelpSummary: String {
         String(
             localized: "cli.hooks.kiro.global.postInstallNote",
-            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`."
+            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         )
     }
 
@@ -181,7 +181,7 @@ extension CMUXCLI {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.error.configDirectoryIsFile",
-                    defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+                    defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 ),
                 hooksDir
             ))
@@ -189,16 +189,16 @@ extension CMUXCLI {
 
         var document: [String: Any] = [:]
         var foreignEntries: [[String: Any]] = []
-        let oldData = fm.contents(atPath: filePath)
+        let oldData = try kiroGlobalHooksData(atPath: filePath)
         if let oldData {
             guard let json = try? JSONSerialization.jsonObject(with: oldData) as? [String: Any] else {
-                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.invalidJSON", defaultValue: "%@ exists but is not valid JSON. Fix or remove it before installing hooks."), filePath))
+                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.invalidJSON", defaultValue: "%@ exists but is not valid JSON. Fix or remove it before installing hooks.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             }
             // Adopt only a file that already holds cmux's entries, so a
             // same-named file someone else wrote is never rewritten.
             guard let entries = json["hooks"] as? [[String: Any]],
                   entries.contains(where: Self.isCmuxOwnedKiroGlobalHookEntry) else {
-                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.notOwned", defaultValue: "%@ exists and was not written by cmux. Rename it, then run `cmux hooks setup kiro --global` again."), filePath))
+                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.notOwned", defaultValue: "%@ exists and was not written by cmux. Rename it, then run `cmux hooks setup kiro --global` again.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             }
             foreignEntries = entries.filter { !Self.isCmuxOwnedKiroGlobalHookEntry($0) }
             document = json
@@ -224,18 +224,18 @@ extension CMUXCLI {
         }()
 
         if oldString == newString {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.alreadyUpToDate", defaultValue: "%@ global hooks already up to date at %@"), def.displayName, filePath))
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.alreadyUpToDate", defaultValue: "%@ global hooks already up to date at %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), def.displayName, filePath))
         } else {
             if !skipConfirm {
                 print(
                     String(
                         localized: "cli.hooks.kiro.global.confirmSummary",
-                        defaultValue: "cmux will update Kiro's global hooks and preserve hooks it did not install."
+                        defaultValue: "cmux will update Kiro's global hooks and preserve hooks it did not install.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                     )
                 )
-                print(String(localized: "cli.hooks.kiro.global.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
+                print(String(localized: "cli.hooks.kiro.global.confirmProceed", defaultValue: "\nProceed? [y/N] ", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), terminator: "")
                 guard readLine()?.lowercased().hasPrefix("y") == true else {
-                    print(String(localized: "cli.hooks.kiro.global.aborted", defaultValue: "Aborted."))
+                    print(String(localized: "cli.hooks.kiro.global.aborted", defaultValue: "Aborted.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
                     return
                 }
             }
@@ -243,12 +243,12 @@ extension CMUXCLI {
             guard try mutateKiroGlobalHooks(atPath: filePath, expected: oldData, replacement: newData) else {
                 return
             }
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.installed", defaultValue: "%@ global hooks installed at %@"), def.displayName, filePath))
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.installed", defaultValue: "%@ global hooks installed at %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), def.displayName, filePath))
         }
 
         print(String(
             localized: "cli.hooks.kiro.global.postInstallNote",
-            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`."
+            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
         ))
         if Self.kiroAgentConfigHasCmuxLifecycleHooks(def) {
             print(Self.kiroBothInstallsNote)
@@ -260,15 +260,15 @@ extension CMUXCLI {
     func uninstallKiroGlobalHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let filePath = Self.kiroGlobalHooksFilePath(for: def)
-        guard let data = fm.contents(atPath: filePath) else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noneFound", defaultValue: "No %@ found at %@"), Self.kiroGlobalHooksFileName, filePath))
+        guard let data = try kiroGlobalHooksData(atPath: filePath) else {
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noneFound", defaultValue: "No %@ found at %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), Self.kiroGlobalHooksFileName, filePath))
             return
         }
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.uninstallInvalidJSON", defaultValue: "%@ is not valid JSON. cmux left it unchanged."), filePath))
+            throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.uninstallInvalidJSON", defaultValue: "%@ is not valid JSON. cmux left it unchanged.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
         }
         guard let entries = json["hooks"] as? [[String: Any]] else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged"), filePath))
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             return
         }
         let remaining = entries.filter { !Self.isCmuxOwnedKiroGlobalHookEntry($0) }
@@ -277,13 +277,13 @@ extension CMUXCLI {
                 && $0["name"] as? String != Self.kiroGlobalOwnershipEntryName
         }.count
         guard removed > 0 else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged"), filePath))
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             return
         }
         let otherKeys = Set(json.keys).subtracting(["version", "hooks"])
         if remaining.isEmpty, otherKeys.isEmpty {
             guard try mutateKiroGlobalHooks(atPath: filePath, expected: data, replacement: nil) else { return }
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removedAndDeleted", defaultValue: "Removed cmux hooks and deleted %@"), filePath))
+            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removedAndDeleted", defaultValue: "Removed cmux hooks and deleted %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             return
         }
         json["hooks"] = remaining + [Self.kiroGlobalOwnershipEntry]
@@ -292,7 +292,7 @@ extension CMUXCLI {
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
         guard try mutateKiroGlobalHooks(atPath: filePath, expected: data, replacement: newData) else { return }
-        print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removed", defaultValue: "Removed cmux hooks from %@"), filePath))
+        print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removed", defaultValue: "Removed cmux hooks from %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
     }
 
     /// Serializes cmux writers and rechecks the exact snapshot after taking the
@@ -306,15 +306,11 @@ extension CMUXCLI {
         repeat { result = flock(descriptor, LOCK_EX) } while result != 0 && errno == EINTR
         guard result == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
         defer { _ = flock(descriptor, LOCK_UN) }
-        let current: Data?
-        do { current = try Data(contentsOf: URL(fileURLWithPath: path)) }
-        catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
-            current = nil
-        }
+        let current = try kiroGlobalHooksData(atPath: path)
         guard current == expected else {
             print(String(
                 localized: "cli.hooks.kiro.global.changedDuringConfirmation",
-                defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+                defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
             ))
             return false
         }
@@ -324,5 +320,12 @@ extension CMUXCLI {
             try FileManager.default.removeItem(atPath: path)
         }
         return true
+    }
+
+    private func kiroGlobalHooksData(atPath path: String) throws -> Data? {
+        do { return try Data(contentsOf: URL(fileURLWithPath: path)) }
+        catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            return nil
+        }
     }
 }

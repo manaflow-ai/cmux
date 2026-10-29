@@ -19,10 +19,7 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         let input = Self.agentInboxHookInput()
         let disabledKey = "CMUX_\(agent.uppercased())_HOOKS_DISABLED"
-        let kiroPID = agent == "kiro"
-            ? (kiroCLIAncestorPID() ?? agentPIDFromHookEnvironment(agentName: agent, env: env))
-            : nil
-        let isGlobalKiroHook = agent == "kiro" && env["CMUX_KIRO_GLOBAL_HOOK"] == "1"
+        let kiroPID = agent == "kiro" ? kiroCLIAncestorPID() : nil
         // Headless `claude -p`, `codex exec` and `kiro-cli chat --no-interactive`
         // runs share the pane's surface id with the interactive session there;
         // they must not claim its messages.
@@ -36,13 +33,11 @@ extension CMUXCLI {
             if subcommand != "inbox-wait", agent != "kiro" { print("{}") }
             return true
         }
-        if isGlobalKiroHook,
-           let kiroPID,
-           !kiroHookMatchesActiveSurface(surfaceId: surfaceId, pid: kiroPID, client: client) {
-            return true
-        }
-        if isGlobalKiroHook, kiroPID == nil {
-            return true
+        if agent == "kiro" {
+            guard let kiroPID,
+                  kiroHookMatchesActiveSurface(surfaceId: surfaceId, pid: kiroPID, client: client) else {
+                return true
+            }
         }
         switch (agent, subcommand) {
         case ("kiro", "inbox-drain"):
@@ -111,7 +106,10 @@ extension CMUXCLI {
             params: ["pid": pid, "pid_resolution": "corroborated"],
             responseTimeout: 1
         ),
-        result["surface_id"] as? String == surfaceId else {
+        let resolvedSurface = result["surface_id"] as? String,
+        let resolvedUUID = UUID(uuidString: resolvedSurface),
+        let surfaceUUID = UUID(uuidString: surfaceId),
+        resolvedUUID == surfaceUUID else {
             return false
         }
         return true

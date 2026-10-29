@@ -51,8 +51,9 @@ extension CMUXCLI {
     /// True when the hook runs under a `kiro-cli chat --no-interactive` run, or under a `kiro-cli`
     /// started from inside another one. Neither should take the pane's agent messages.
     func kiroHookIsHeadlessOrNested() -> Bool {
-        guard let kiroCLI = kiroCLIPID(above: getppid()) else { return false }
-        if processArguments(for: kiroCLI)?.contains("--no-interactive") == true { return true }
+        guard let kiroCLI = kiroCLIPID(above: getppid()),
+              let arguments = processArguments(for: kiroCLI) else { return true }
+        if arguments.contains("--no-interactive") { return true }
         let parent = parentPID(of: kiroCLI)
         return parent > 1 && kiroCLIPID(above: parent) != nil
     }
