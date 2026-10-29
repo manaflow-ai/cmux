@@ -105,6 +105,10 @@ export function Combobox({
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
+  const cancel = () => {
+    if (native) setNativeSessionOpen(false);
+    onCancel();
+  };
   const nativePopup = useNativePopup({
     open:
       native !== undefined &&
@@ -134,9 +138,8 @@ export function Combobox({
       } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");
     },
     onDismiss: () => {
-      setNativeSessionOpen(false);
       native?.onDismiss?.();
-      onCancel();
+      cancel();
     },
   });
   const attachField = useCallback(
@@ -225,6 +228,8 @@ export function Combobox({
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    onCommand?.(event);
+    if (event.defaultPrevented) return;
     if (
       native &&
       (event.key === "ArrowDown" ||
@@ -232,8 +237,6 @@ export function Combobox({
         (event.ctrlKey && (event.key === "n" || event.key === "p")))
     )
       setNativeSessionOpen(true);
-    onCommand?.(event);
-    if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {
@@ -264,7 +267,7 @@ export function Combobox({
       event.preventDefault();
       event.stopPropagation();
       event.preventBaseUIHandler?.();
-      onCancel();
+      cancel();
     } else if (event.key === "Tab" && !event.shiftKey && enabledSuggestions.length) {
       const highlighted = highlightedRef.current;
       const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
@@ -384,7 +387,7 @@ export function Combobox({
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {
           if (cancelOnBlur && !pressingList.current && !listRef.current?.contains(event.relatedTarget as Node | null))
-            onCancel();
+            cancel();
         }}
       />
       {!nativeOnly &&

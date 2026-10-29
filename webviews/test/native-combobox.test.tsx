@@ -256,9 +256,16 @@ test.each([
     root = createRoot(container);
     root.render(
       <UiProvider container={container} popupHost={host}>
-        <Combobox inline label="Projects" suggestions={["alpha"]} onQuery={() => {}}
-          onSubmit={() => {}} onCancel={() => {}} onCommand={(event) => event.preventDefault()}
-          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }} />
+        <Combobox
+          inline
+          label="Projects"
+          suggestions={["alpha"]}
+          onQuery={() => {}}
+          onSubmit={() => {}}
+          onCancel={() => {}}
+          onCommand={(event) => event.preventDefault()}
+          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }}
+        />
       </UiProvider>,
     );
   });
@@ -269,7 +276,9 @@ test.each([
   });
   expect(listeners.size).toBe(0);
   const field = container.querySelector<HTMLInputElement>("input")!;
-  await act(async () => field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true })));
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true })),
+  );
   expect(shown).toHaveLength(1);
   expect(listeners.size).toBe(0);
 });
@@ -280,16 +289,26 @@ test.each(["Escape", "blur"] as const)("page %s cancels a pending native combobo
   const pending: { resolve?: (reply: { shown: boolean }) => void } = {};
   host.native!.show = (model) => {
     shown.push(model);
-    return new Promise((resolve) => { pending.resolve = resolve; });
+    return new Promise((resolve) => {
+      pending.resolve = resolve;
+    });
   };
   let canceled = 0;
   await act(async () => {
     root = createRoot(container);
     root.render(
       <UiProvider container={container} popupHost={host}>
-        <Combobox inline label="Projects" suggestions={["alpha"]} onQuery={() => {}}
-          onSubmit={() => {}} onCancel={() => { canceled++; }}
-          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }} />
+        <Combobox
+          inline
+          label="Projects"
+          suggestions={["alpha"]}
+          onQuery={() => {}}
+          onSubmit={() => {}}
+          onCancel={() => {
+            canceled++;
+          }}
+          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }}
+        />
       </UiProvider>,
     );
   });
@@ -549,7 +568,8 @@ test.each(["escape", "outside"])("native popover preserves %s cancellation detai
 });
 
 test.each(["escape", "outside", "pick", "controlled", "unmount"] as const)(
-  "native popover honors explicit finalFocus on %s close", async (close) => {
+  "native popover honors explicit finalFocus on %s close",
+  async (close) => {
     const container = installDom();
     const { host, shown, listeners } = nativeHost();
     const target = document.createElement("input");
@@ -560,26 +580,47 @@ test.each(["escape", "outside", "pick", "controlled", "unmount"] as const)(
     const finalFocus = { current: target };
     function Fixture() {
       const [open, setOpen] = useState(true);
-      return <>
-        <button data-close onClick={() => setOpen(false)}>Close</button>
-        <Popover open={open} onOpenChange={setOpen} anchor={container} label="Details"
-          finalFocus={finalFocus} native={{ model: menuModel, anchor: () => container }}>No page rows</Popover>
-      </>;
+      return (
+        <>
+          <button data-close onClick={() => setOpen(false)}>
+            Close
+          </button>
+          <Popover
+            open={open}
+            onOpenChange={setOpen}
+            anchor={container}
+            label="Details"
+            finalFocus={finalFocus}
+            native={{ model: menuModel, anchor: () => container }}
+          >
+            No page rows
+          </Popover>
+        </>
+      );
     }
     await act(async () => {
       root = createRoot(container);
-      root.render(<UiProvider container={container} popupHost={host}><Fixture /></UiProvider>);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Fixture />
+        </UiProvider>,
+      );
     });
     expect(document.activeElement).toBe(opener);
     const sent = shown[0]!;
     await act(async () => {
       if (close === "controlled") container.querySelector<HTMLButtonElement>("[data-close]")!.click();
       else if (close === "unmount") root!.render(null);
-      else for (const listener of listeners) listener(close === "pick"
-        ? { type: "pick", popupId: sent.id, revision: sent.revision, id: "done" }
-        : { type: "dismiss", popupId: sent.id, revision: sent.revision, reason: close });
+      else
+        for (const listener of listeners)
+          listener(
+            close === "pick"
+              ? { type: "pick", popupId: sent.id, revision: sent.revision, id: "done" }
+              : { type: "dismiss", popupId: sent.id, revision: sent.revision, reason: close },
+          );
     });
-    expect(document.activeElement).toBe(target);
+    expect(target.isConnected).toBe(true);
+    expect(document.activeElement === target).toBe(true);
   },
 );
 

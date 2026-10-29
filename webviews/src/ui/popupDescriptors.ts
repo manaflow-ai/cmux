@@ -8,9 +8,13 @@ export type PopupDescription = NativePopupDescription;
 type ResolvedAction = NativePopupAction & { value?: string };
 
 /** Domain values are unbounded; native row identities are short, nonempty protocol keys. */
-function optionIds(values: readonly string[], namespace: string): Map<string, string> {
+function optionIds(
+  values: readonly string[],
+  namespace: string,
+  reserved: readonly string[] = [],
+): Map<string, string> {
   const result = new Map<string, string>();
-  const used = new Set<string>();
+  const used = new Set(reserved);
   // Sorting makes collision suffixes independent of the caller's display order.
   for (const value of [...new Set(values)].sort()) {
     let first = 0x811c9dc5;
@@ -78,7 +82,7 @@ export function textRow(id: string, label: string, description?: string): PopupR
   return { id, kind: "text", label, ...(description ? { description } : {}) };
 }
 export function separatorId(itemId: string): string {
-  return `separator:${itemId}`;
+  return optionIds([itemId], "separator").get(itemId)!;
 }
 export interface SelectDescriptorInput {
   options: readonly { value: string; label: string; shortcut?: string; disabled?: boolean; disabledReason?: string }[];
@@ -160,8 +164,13 @@ export function contextDescription(
   options: { width?: number; title?: string } = {},
 ): PopupDescription {
   const rows: PopupRow[] = [];
+  const separators = optionIds(
+    items.filter((item) => item.separatorBefore).map((item) => item.id),
+    "separator",
+    items.map((item) => item.id),
+  );
   for (const item of items) {
-    if (item.separatorBefore) rows.push(separatorRow(separatorId(item.id)));
+    if (item.separatorBefore) rows.push(separatorRow(separators.get(item.id)!));
     const { separatorBefore: _separatorBefore, ...row } = item;
     rows.push(actionRow(row));
   }
