@@ -8,9 +8,9 @@ publish-release-assets.py staged and reported.
 
 `adopt` repairs a tag that is already in that state (v0.65.2, v0.65.2.2, both
 tagged from a checkout whose release workflow still published by tag): it
-deletes the published duplicate (empty, or holding only copies of draft
-assets), moves the tag onto the staged draft and
-publishes the draft through `publish`.
+deletes the published duplicate (empty, or holding copies of only some draft
+assets; a duplicate holding every draft asset is refused), moves the tag onto
+the staged draft and publishes the draft through `publish`.
 """
 from __future__ import annotations
 

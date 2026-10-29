@@ -662,6 +662,8 @@ class FakeReleases:
         return [dict(release) for release in [*self.table.values(), *self.stale.values()]]
 
     def assets(self, release_id):
+        if release_id not in self.table:
+            raise finalize.RequestError("HTTP 404", status=404)
         stored = self.stored.get(release_id, [])
         # A name maps to its own bytes unless the test gives (name, digest[, size]).
         entries = [(*entry, 1)[:3] if isinstance(entry, tuple) else (entry, f"sha256:{entry}", 1) for entry in stored]
@@ -877,8 +879,8 @@ class AdoptTests(unittest.TestCase):
         client = self.client()
         client.table[2]["body"] = "Full Changelog"
         self.adopt(client, generate_notes=False)
-        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
-        self.assertEqual(writes[:2], [("PATCH", "/1"), ("DELETE", "/2")])
+        writes = [call for call in client.calls if call[0] != "GET"]
+        self.assertEqual(writes[:2], [("PATCH", "/1", {"body": "Full Changelog"}), ("DELETE", "/2", None)])
 
     def test_an_asset_without_a_digest_is_not_assumed_a_copy(self):
         client = self.client(extra_assets={2: [("cmux-macos.dmg", None)]})
@@ -949,11 +951,25 @@ class AdoptTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "finish it with `publish`"):
             self.adopt(client)
 
-    def test_adopt_parses_from_the_command_line(self):
+    def test_adopt_help_lists_the_dry_run_option(self):
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/ci/finalize-release.py"), "adopt", "--help"],
             capture_output=True, text=True, check=True)
         self.assertIn("--dry-run", result.stdout)
+
+    def test_adopt_command_line_dispatches_a_write_free_dry_run(self):
+        client = self.client()
+        before = {key: dict(value) for key, value in client.table.items()}
+        argv = ["finalize-release.py", "adopt", "--repo", "o/r", "--tag", "v1.2.3",
+                "--release-id", "1", "--expect-count", "2", "--dry-run"]
+        output = io.StringIO()
+        with patch.object(sys, "argv", argv), patch.object(sys, "stdout", output), \
+                patch.object(finalize.publisher, "client_from_env", return_value=client) as client_from_env:
+            self.assertEqual(finalize.main(), 0)
+        client_from_env.assert_called_once_with("o/r")
+        self.assertIn("Adopting draft 1", output.getvalue())
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
 
 
 if __name__ == "__main__":
