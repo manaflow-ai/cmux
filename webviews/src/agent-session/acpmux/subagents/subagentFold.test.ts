@@ -328,16 +328,18 @@ describe("lineage from a Codex chat's records", () => {
       {
         seq: 2,
         at: 2000,
-        msg: { params: { update, _meta: { acpmux: { subagents: [
-          { id: "native-worker", model: null, effort: null, lastMessage: null },
-        ] } } } },
+        msg: {
+          params: {
+            update,
+            _meta: { acpmux: { subagents: [{ id: "native-worker", model: null, effort: null, lastMessage: null }] } },
+          },
+        },
       },
       update,
     );
-    expect(fold.all().find((agent) => agent.id === "native-worker")).not.toMatchObject({
-      model: expect.any(String),
-      effort: expect.any(String),
-      lastMessage: expect.any(String),
-    });
+    const cleared = fold.all().find((agent) => agent.id === "native-worker")!;
+    expect(cleared).not.toHaveProperty("model");
+    expect(cleared).not.toHaveProperty("effort");
+    expect(cleared).not.toHaveProperty("lastMessage");
   });
 });
