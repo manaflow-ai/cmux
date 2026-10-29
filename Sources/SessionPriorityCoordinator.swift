@@ -445,11 +445,21 @@ final class SessionPriorityCoordinator {
     ) -> SessionPrioritySnapshot {
         let paneSnapshots: [SessionPrioritySnapshot.Pane] = enabled ? panes.map { pane in
             let record = state.records[pane.panelId]
+            let launchCommand = pane.snapshot?.launchCommand
+            let paneState = Workspace.isSessionPriorityApplyInFlight(panelId: pane.panelId)
+                ? .applying
+                : state.reportedPaneState(
+                    panelId: pane.panelId,
+                    workspaceMarkedManual: workspace.sessionPriorityState.isManual,
+                    launchArguments: launchCommand?.arguments ?? [],
+                    launchEnvironment: launchCommand?.environment ?? [:],
+                    workspaceEnvironment: workspace.workspaceEnvironment
+                )
             return SessionPrioritySnapshot.Pane(
                 surfaceId: pane.panelId,
                 sessionId: pane.snapshot?.sessionId ?? record?.sessionId,
-                currentEffort: ClaudeEffortLevel(rawValue: pane.snapshot?.launchCommand?.environment?["CLAUDE_CODE_EFFORT_LEVEL"] ?? ""),
-                state: Workspace.isSessionPriorityApplyInFlight(panelId: pane.panelId) ? .applying : record?.state ?? .upToDate,
+                currentEffort: ClaudeEffortLevel(rawValue: launchCommand?.environment?["CLAUDE_CODE_EFFORT_LEVEL"] ?? ""),
+                state: paneState,
                 detail: record?.lastResultDescription
             )
         } : []

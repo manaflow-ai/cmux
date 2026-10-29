@@ -109,4 +109,101 @@ struct SessionPriorityStatusSnapshotTests {
         #expect(!snapshot(manualFlag: true, panes: [.upToDate]).isAdjustable)
         #expect(!snapshot(panes: [.upToDate], enabled: false).isAdjustable)
     }
+
+    // MARK: - Before the coordinator first decides a pane (ruling R37)
+
+    private func reported(
+        _ state: SessionPriorityCoordinatorState,
+        panelId: UUID,
+        arguments: [String] = ["claude", "--session-id", "s1"],
+        environment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:]
+    ) -> SessionPriorityPaneState {
+        state.reportedPaneState(
+            panelId: panelId,
+            workspaceMarkedManual: false,
+            launchArguments: arguments,
+            launchEnvironment: environment,
+            workspaceEnvironment: workspaceEnvironment
+        )
+    }
+
+    /// A fresh `claude --effort max` has no pane record until its first turn end; its launch
+    /// already says cmux leaves it alone, so the rating hook's probe says not adjustable.
+    @Test
+    func freshLaunchSignalPaneIsNotAdjustable() {
+        let state = SessionPriorityCoordinatorState()
+        let launchedWithEffort = reported(state, panelId: UUID(), arguments: ["claude", "--session-id", "s1", "--effort", "max"])
+        let launchVariable = reported(state, panelId: UUID(), environment: [ClaudeEffortLevel.environmentKey: "max"])
+        let workspaceVariable = reported(state, panelId: UUID(), workspaceEnvironment: [ClaudeEffortLevel.environmentKey: "high"])
+
+        #expect(launchedWithEffort == .manual(.launchArgumentEffort))
+        #expect(!snapshot(panes: [launchedWithEffort]).isAdjustable)
+        #expect(launchVariable == .manual(.launchEnvironmentEffort))
+        #expect(!snapshot(panes: [launchVariable]).isAdjustable)
+        #expect(workspaceVariable == .manual(.workspaceEnvironmentEffort))
+        #expect(!snapshot(panes: [workspaceVariable]).isAdjustable)
+    }
+
+    /// A plain launch, or one carrying the level cmux set and marked, is adjusted from the start.
+    @Test
+    func freshPlainPaneIsAdjustable() {
+        let state = SessionPriorityCoordinatorState()
+        let plain = reported(state, panelId: UUID())
+        let cmuxOwnLevel = reported(state, panelId: UUID(), environment: [
+            ClaudeEffortLevel.environmentKey: "high",
+            ClaudeEffortLevel.sessionPriorityMarkerKey: "high",
+        ])
+
+        #expect(plain == .upToDate)
+        #expect(snapshot(panes: [plain]).isAdjustable)
+        #expect(cmuxOwnLevel == .upToDate)
+        #expect(snapshot(panes: [cmuxOwnLevel]).isAdjustable)
+    }
+
+    /// Turning the feature off drops the pane records; on again, the pane's launch still says
+    /// cmux leaves it alone before its next turn.
+    @Test
+    func launchSignalPaneStaysNotAdjustableAfterOffAndOn() {
+        var state = SessionPriorityCoordinatorState()
+        let panelId = UUID()
+        let decided = state.noteDecision(.leave(.manual(.launchArgumentEffort)), panelId: panelId, workspaceId: workspaceId, sessionId: "s1")
+        #expect(decided == .manual(.launchArgumentEffort))
+
+        _ = state.disable()
+        let afterReenable = reported(state, panelId: panelId, arguments: ["claude", "--effort", "max"])
+
+        #expect(state.records[panelId] == nil)
+        #expect(afterReenable == .manual(.launchArgumentEffort))
+        #expect(!snapshot(panes: [afterReenable]).isAdjustable)
+    }
+
+    /// A session end keeps only the pane's last restart attempt; the next Claude started in the
+    /// pane is not decided yet, so its own launch counts.
+    @Test
+    func paneKeptOnlyForItsLastAttemptReportsItsNewLaunch() {
+        var state = SessionPriorityCoordinatorState()
+        let panelId = UUID()
+        let target = SessionPriorityTarget(effort: .high)
+        state.noteRestartStarted(panelId: panelId, sessionId: "s1", target: target, nowMs: 0)
+        _ = state.noteResult(panelId: panelId, .applied(sessionID: "s1"), nowMs: 1_000)
+        state.noteSessionStarted(panelId: panelId, sessionId: "s1", occurredAtMs: 2_000)
+        state.noteSessionEnded(panelId: panelId, occurredAtMs: 3_000)
+        #expect(state.records[panelId]?.lastAttempt != nil)
+
+        let relaunched = reported(state, panelId: panelId, arguments: ["claude", "--effort", "max"])
+
+        #expect(relaunched == .manual(.launchArgumentEffort))
+    }
+
+    /// Once the coordinator decided the pane, its record is what the status reports.
+    @Test
+    func decidedPaneReportsItsRecord() {
+        var state = SessionPriorityCoordinatorState()
+        let panelId = UUID()
+        _ = state.noteDecision(.leave(.upToDate), panelId: panelId, workspaceId: workspaceId, sessionId: "s1")
+        state.records[panelId]?.state = .held(.draft)
+
+        #expect(reported(state, panelId: panelId) == .held(.draft))
+    }
 }

@@ -383,6 +383,17 @@ struct SessionPriorityCoordinatorState: Equatable {
         return record.state
     }
 
+    /// The state a status read reports for a pane: its record's.
+    func reportedPaneState(
+        panelId: UUID,
+        workspaceMarkedManual: Bool,
+        launchArguments: [String],
+        launchEnvironment: [String: String],
+        workspaceEnvironment: [String: String]
+    ) -> SessionPriorityPaneState {
+        records[panelId]?.state ?? .upToDate
+    }
+
     /// Forgets panes that no longer exist.
     mutating func retainPanes(_ panelIds: Set<UUID>) {
         records = records.filter { panelIds.contains($0.key) }
