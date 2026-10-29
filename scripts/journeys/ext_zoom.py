@@ -321,8 +321,35 @@ def analyze_press(samples, start_ms, end_ms, refresh_ms, browser, max_ms=150.0, 
         for p in set(a) & set(b):
             if (a[p][5] > 0.01) != (b[p][5] > 0.01) or (_area(a[p][1:5]) > 0) != (_area(b[p][1:5]) > 0):
                 problems.append(f"pane {p} shows or hides at once {t} ms after the press")
-    # The browser page: on screen while its pane is not wholly covered; never a page window over the zooming pane.
+    # Every page (the browser's, Home's): on screen while its pane is not wholly covered, and never drawn over the
+    # zooming pane. Builds with felt 1d's sampler give each page row its host's place, its cutouts' area and whether
+    # it draws in its own window: a page window over the zooming pane is its overlap less what its cutouts leave out.
+    placed_over = placed_blank = 0
+    for s in seq:
+        panes = _panes(s)
+        zrow = panes.get(zooming) if zooming else None
+        for row in s.get("page") or []:
+            if not isinstance(row, list) or len(row) < 10:
+                continue
+            host = (row[6], row[7], row[0], row[1])
+            owner = next((p for p, r in panes.items() if abs(r[7] - host[0]) < 40 and abs(r[8] - host[1]) < 60
+                          and abs(r[9] - host[2]) < 40), None)
+            if owner == zooming or not zrow:
+                continue
+            if row[9] == 1 and row[5] == 0:
+                overlap = _area(_inter(zrow[1:5], host))
+                if overlap - row[8] > 64:
+                    placed_over += 1
+            under = _area(_inter(zrow[1:5], host))
+            if row[5] == 1 and _area(host) - under > 64:
+                placed_blank += 1
+    if placed_over:
+        problems.append(f"a page window draws over the zooming pane in {placed_over} page frames (its cutouts miss it)")
+    if placed_blank:
+        problems.append(f"a page is hidden in {placed_blank} page frames while part of its pane shows (a blank tab)")
+    # Old builds: the browser page only, by size.
     blank = over = 0
+    placed = any(isinstance(r, list) and len(r) >= 10 for s in seq for r in s.get("page") or [])
     for s in seq:
         panes = _panes(s)
         brow = panes.get(browser)
@@ -338,7 +365,7 @@ def analyze_press(samples, start_ms, end_ms, refresh_ms, browser, max_ms=150.0, 
         shown = any(len(row) > 5 and row[5] == 0 for row in pages)
         if uncovered > 4 and not pages:
             blank += 1
-        if page_in_window and zrow and covered > 4 and any(len(row) > 5 and row[2] > 0 and row[5] == 0 for row in pages):
+        if not placed and page_in_window and zrow and covered > 4 and any(len(row) > 5 and row[2] > 0 and row[5] == 0 for row in pages):
             over += 1
         if uncovered > 4 and pages and not shown:
             blank += 1
