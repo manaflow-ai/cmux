@@ -125,8 +125,18 @@ if ! rustup component add clippy rustfmt; then
   echo "error: rustup component add clippy rustfmt failed; no cargo command ran" >&2
   exit 3
 fi
-echo "rust toolchain: $(rustup show active-toolchain)"
+active_toolchain="$(rustup show active-toolchain)" || { echo "error: rustup show active-toolchain failed; no cargo command ran" >&2; exit 3; }
+echo "rust toolchain: $active_toolchain"
 rustup component list --installed
+# The toolchain cmux-tui/rust-toolchain.toml pins, the one the component add
+# above covers. A mode whose workspace has no toolchain file of its own
+# (optchat-chief, screen) runs under it through RUSTUP_TOOLCHAIN
+# (use_pinned_toolchain). Without it the cargo-clippy and cargo-fmt proxies there
+# fell back to the step RUSTUP_HOME's default, which differs by host
+# (2026-10-29, step 7a7dfb66 on aws-m4pro-3: a minimal `stable` with no
+# clippy or rustfmt; clippy and fmt failed in 0 s).
+pinned_toolchain="${active_toolchain%% *}"
+use_pinned_toolchain() { export RUSTUP_TOOLCHAIN="$pinned_toolchain"; }
 # Run the pinned toolchain's own cargo, whose bin dir also holds cargo-fmt and
 # cargo-clippy. The cargo on the step's PATH is not always the rustup proxy;
 # then `cargo fmt` looks for cargo-fmt on PATH only (2026-10-05: step fafed265
@@ -714,6 +724,7 @@ if [[ "$mode" == optchat-chief ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
   cd "$root/Native/OptChat/optchat-chief"
+  use_pinned_toolchain
   warm_target_guard
   # Its tests bind Unix sockets under the temp dir; the step's own TMPDIR is
   # longer than SUN_LEN (step b1563a89: "path must be shorter than SUN_LEN").
@@ -783,6 +794,7 @@ if [[ "$mode" == screen ]]; then
   fi
   export CARGO_TARGET_DIR="$root/.build/cmux-screen-target"
   cd "$root/cmux-screen"
+  use_pinned_toolchain
   warm_target_guard
   step "screen go" ensure_screen_go
   step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
