@@ -12,6 +12,8 @@ mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
+mod bg_tasks;
+mod bounded;
 mod btw;
 mod exit_reason;
 pub(crate) mod session_auth;
@@ -31,6 +33,7 @@ pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
+mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 mod handoff;
@@ -48,6 +51,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod mesh_rows;
 pub(crate) mod subagent_transcript;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
@@ -86,6 +90,7 @@ pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
+mod github_owner;
 mod lane_reports;
 mod offer_results;
 mod offers;
@@ -395,6 +400,13 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
+    /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
+    pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
+    pub(super) github_owners: github_owner::Owners,
+    /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
+    pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -452,6 +464,10 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
+    pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
+    /// Background-task starts, one at a time (`bg_tasks.rs`).
+    pub(super) bg_starts: tokio::sync::Mutex<()>,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -602,6 +618,9 @@ impl Hub {
             remote_sessions: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_config_gen: std::sync::atomic::AtomicU64::new(0),
+            github_owners: Default::default(),
+            github_app: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
@@ -626,6 +645,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            bg_runner: StdMutex::new(None),
+            bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -840,6 +861,30 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
+        let after =
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
+        let mut results = Vec::new();
+        let restored = self.store.scan_back(
+            &session.id,
+            after,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || kind != b"turn_result",
+            &mut |record| {
+                let success =
+                    record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
+                results.push(record);
+                // A success settles everything before it; the bounded window settles the rest
+                // (a streak older than it reads as starting at the window's oldest result).
+                !success && results.len() < crate::session_liveness::RESTORE_RESULTS
+            },
+        );
+        let rebuilt = restored.is_ok() && !results.is_empty();
+        if rebuilt {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            for record in results.into_iter().rev() {
+                meta.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
+        }
         let last_seq = session.meta.lock().unwrap().last_seq;
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
@@ -851,6 +896,10 @@ impl Hub {
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+        // Kept, so the next start scans only past what this one read.
+        if rebuilt {
+            self.save_meta(session);
         }
     }
 
@@ -1089,6 +1138,9 @@ impl Hub {
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
+            if record.dir == "mux" && record.kind == "turn_result" {
+                m.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
         }
         if matches!(
             kind,

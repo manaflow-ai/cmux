@@ -591,7 +591,10 @@ def hibernate_main(args, daemon: Daemon, scratch):
         rows = [c for c in chats if c["harness"] == h]
         results[h] = {"runs": rows}
     log = open(os.path.join(daemon.home, "daemon.log"), errors="replace").read()
-    results["_log"] = [line for line in log.splitlines() if "hibernated" in line or "woke" in line or "wake failed" in line][-40:]
+    # The hibernations and wakes, and why an idle harness stayed up (`idle_census.rs` `note_refusal`):
+    # with no hibernation, the refusal names the process that kept it.
+    marks = ("hibernated", "woke", "wake failed", "idle harness stays up")
+    results["_log"] = [line for line in log.splitlines() if any(m in line for m in marks)][-40:]
     results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n, "mode": "hibernate",
                         "idle_wait": args.idle_wait, "host": socket.gethostname(), "load": os.getloadavg()}
     if args.json:

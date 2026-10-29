@@ -7147,7 +7147,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
@@ -24477,7 +24477,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 250,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -25038,7 +25038,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 600,
+      "default" : 1500,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -37029,7 +37029,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -37080,7 +37080,7 @@
       "accepts" : [
 
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
