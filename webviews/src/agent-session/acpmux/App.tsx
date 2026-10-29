@@ -2818,8 +2818,6 @@ export function VirtualTranscript({
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
-  /// Logical target accumulated from wheel deltas until the browser acknowledges its physical offset.
-  const wheelLogicalTarget = useRef<number | undefined>(undefined);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3230,7 +3228,6 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       readerUpPending.current = false;
-      wheelLogicalTarget.current = undefined;
       previousSession.current = sessionId;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3771,14 +3768,6 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     checkOlderNow.current();
     const node = event.currentTarget;
-    const wheelTarget = wheelLogicalTarget.current;
-    if (wheelTarget !== undefined) {
-      wheelLogicalTarget.current = undefined;
-      // Reapply the requested logical wheel target through the bounded origin writer. WebKit may
-      // quantize the physical scrollTop by half a pixel; retaining that residual keeps row boxes
-      // on the requested coordinate through the paint rather than leaking it into anchor drift.
-      writeAnchorScrollTop(node, wheelTarget);
-    }
     const next = node.scrollTop;
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
@@ -3919,11 +3908,6 @@ export function VirtualTranscript({
     const reader = (event?: Event) => {
       const pointer = event?.type === "pointermove" ? (event as PointerEvent) : undefined;
       const touch = event?.type === "touchmove" ? (event as TouchEvent).touches[0] : undefined;
-      if (event?.type === "wheel") {
-        const delta = (event as WheelEvent).deltaY;
-        if (Number.isFinite(delta))
-          wheelLogicalTarget.current = (wheelLogicalTarget.current ?? layoutScrollTop(node!)) + delta;
-      }
       const movingUp =
         event !== undefined &&
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
