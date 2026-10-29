@@ -3,7 +3,7 @@ import AppKit
 extension NativePopupContent {
     func bind(_ control: NSControl, action: @escaping (NSControl) -> Void) {
         let target = NativePopupControlTarget { [weak self] sender in
-            guard let self, sender.isEnabled, sender.isDescendant(of: self) else { return }
+            guard let self, sender.isEnabled, owns(sender) else { return }
             action(sender)
         }
         targets.append(target)
@@ -12,7 +12,7 @@ extension NativePopupContent {
     }
 
     func activate(_ row: NativePopupRow, view: NSView) {
-        guard row.disabled != true, view.superview === self else { return }
+        guard row.disabled != true, owns(view) else { return }
         if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
         else if row.kind == .submenu { openSubmenu(row, view) }
         else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
@@ -34,7 +34,7 @@ extension NativePopupContent {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control.isEnabled, fields.values.contains(where: { $0 === control }), !textView.hasMarkedText() else { return false }
+        guard isPresentationActive, control.isEnabled, fields.values.contains(where: { $0 === control }), !textView.hasMarkedText() else { return false }
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
@@ -59,7 +59,7 @@ extension NativePopupContent {
         }
     }
     func controlTextDidChange(_ notification: Notification) {
-        guard let field = notification.object as? NSTextField,
+        guard isPresentationActive, let field = notification.object as? NSTextField,
               field.isEnabled,
               let id = fields.first(where: { $0.value === field })?.key else { return }
         if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }

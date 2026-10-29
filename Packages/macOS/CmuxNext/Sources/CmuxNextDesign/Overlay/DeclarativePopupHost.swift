@@ -22,6 +22,7 @@ final class DeclarativePopupHost {
     private var sideBySide = false
     private var retired: [String: Int] = [:]
     private var editSequence = 0
+    private var presentationGeneration = 0
 
     init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
          isAppActive: @escaping () -> Bool = { NSApp?.isActive ?? false }) {
@@ -54,7 +55,10 @@ final class DeclarativePopupHost {
         content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value, reason: self?.content.selectionReason) }
         content.openSubmenu = { [weak self] row, view in self?.open(row, from: view) }
         content.dismiss = { [weak self] in self?.dismiss(reason: "escape") }
-        content.commit = { [weak self] in self?.root.dismiss(reason: "commit") }
+        content.commit = { [weak self] in
+            guard let self, model != nil, popup.isShown else { return }
+            root.dismiss(reason: "commit")
+        }
         content.allocateEditSequence = { [weak self] floor in
             guard let owner = self?.root else { return floor + 1 }
             owner.editSequence = max(owner.editSequence, floor) + 1
@@ -79,9 +83,16 @@ final class DeclarativePopupHost {
         guard next.revision > (retired[next.id] ?? -1) else { return ["shown": false] }
         if let current = model, current.id == next.id, next.revision < current.revision { return ["shown": false] }
         let opening = !popup.isShown || model?.id != next.id
+        presentationGeneration += 1
+        let generation = presentationGeneration
         if let current = model, current.id != next.id {
             retire(current.id, revision: current.revision)
+            model = nil
+            content.invalidatePresentation()
+            child?.hide()
+            child = nil
             deliver(NativePopupEvent(type: .dismiss, popupId: current.id, revision: current.revision, reason: "replaced"))
+            guard presentationGeneration == generation else { return ["shown": false] }
         }
         if opening {
             if parent == nil { editSequence = 0 }
@@ -153,6 +164,8 @@ final class DeclarativePopupHost {
             // for an already replaced or dismissed revision must not block a later show.
             retire(id, revision: revision)
         } else if id != nil { return }
+        presentationGeneration += 1
+        content.invalidatePresentation()
         if let model { retire(model.id, revision: model.revision) }
         child?.hide()
         child = nil

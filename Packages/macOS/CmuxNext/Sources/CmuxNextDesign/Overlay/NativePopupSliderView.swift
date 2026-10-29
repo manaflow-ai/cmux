@@ -9,7 +9,7 @@ final class NativePopupSliderView: NSView {
     private let minimumLabel: ThemedLabel
     private let maximumLabel: ThemedLabel
     private let recommendedLabel: ThemedLabel
-    private let descriptor: NativePopupSlider
+    private var descriptor: NativePopupSlider
     private var lastEmittedValue: String?
     var change: (String) -> Void = { _ in }
     var commit: () -> Void = {}
@@ -64,6 +64,18 @@ final class NativePopupSliderView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    func update(row: NativePopupRow) {
+        guard let descriptor = row.slider else { return }
+        self.descriptor = descriptor
+        if !slider.isInteracting {
+            let selected = descriptor.stops.firstIndex { $0.value == descriptor.selectedValue }
+            let fallback = descriptor.stops.firstIndex { $0.value == descriptor.defaultValue }
+            slider.doubleValue = Double(row.value.flatMap(Int.init) ?? selected ?? fallback ?? 0)
+            lastEmittedValue = descriptor.selectedValue
+        }
+        refreshValue()
+    }
+
     override func layout() {
         super.layout()
         let width = max(0, bounds.width - 16)
@@ -100,7 +112,24 @@ final class NativePopupSliderView: NSView {
 }
 
 @MainActor
-final class NativePopupDiscreteSlider: NSSlider {
+class NativePopupTrackingSlider: NSSlider {
+    var isInteracting = false
+
+    override func mouseDown(with event: NSEvent) {
+        isInteracting = true
+        defer { isInteracting = false }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        isInteracting = true
+        defer { isInteracting = false }
+        super.keyDown(with: event)
+    }
+}
+
+@MainActor
+final class NativePopupDiscreteSlider: NativePopupTrackingSlider {
     var commitValue: (Bool) -> Void = { _ in }
     var navigate: (UInt16) -> Bool = { _ in false }
     var escape: () -> Void = {}
@@ -113,6 +142,8 @@ final class NativePopupDiscreteSlider: NSSlider {
 
     override func keyDown(with event: NSEvent) {
         guard isEnabled else { return }
+        isInteracting = true
+        defer { isInteracting = false }
         if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
         switch event.keyCode {
         case 36, 76: commitValue(true)
