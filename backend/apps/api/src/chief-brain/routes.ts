@@ -6,7 +6,7 @@ import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
-import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, parseImportBody } from "./memory-import.ts"
+import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -93,7 +93,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
 type MemoryBrain = {
   status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
-  memoryImport(body: ImportBody, brainOn: boolean): Promise<ImportStatus | ImportFail>
+  memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })>
 }
 
 /**
@@ -121,13 +121,15 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   try {
     raw = JSON.parse(text)
   } catch {}
-  const body = parseImportBody(raw)
+  const appendBody = parseAppendBody(raw)
+  const body = appendBody ?? parseImportBody(raw)
   if ("ok" in body) return fail(body)
   const config = (await (settings as MemoryBrain).status()).config
   if (config.brain_impl !== undefined && config.brain_impl !== "pi") return fail({ status: 409, code: "brain_impl", message: "this Chief's brain keeps its own memory elsewhere" })
   const on = config.enabled
   const r = await brain.memoryImport(body, on)
-  return "ok" in r ? fail(r) : ok(r)
+  if ("ok" in r && r.ok === false) return fail(r)
+  return ok(r)
 }
 
 /** The body as text, or null when it is longer than `max` bytes (read with a cap: a large body is never held whole). */

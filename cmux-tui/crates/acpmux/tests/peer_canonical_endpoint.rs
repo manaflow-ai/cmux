@@ -95,7 +95,25 @@ fn saved_url(d: &Daemon, name: &str) -> Option<String> {
 #[test]
 fn host_add_with_no_url_adds_the_canonical_endpoint() {
     let d = start("add");
-    cli(&d, &["host", "add", "box.invalid"]);
+    let out = cli(&d, &["host", "add", "box.invalid"]);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("was saved and will keep reconnecting"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("ssh -o BatchMode=yes box.invalid true"));
+    assert_eq!(saved_url(&d, "box.invalid").as_deref(), Some("ssh://box.invalid"));
+}
+
+#[test]
+fn offline_host_add_exits_zero_with_a_warning() {
+    let d = start("warning");
+    let out = cli(&d, &["--json", "host", "add", "box.invalid"]);
+    let value: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(value["warning"]["reason"], "peer_unreachable");
+    assert_eq!(value["warning"]["try"], "ssh -o BatchMode=yes box.invalid true");
+    assert_eq!(value["warning"]["detail"], "the peer was saved and will keep reconnecting");
     assert_eq!(saved_url(&d, "box.invalid").as_deref(), Some("ssh://box.invalid"));
 }
 

@@ -12,7 +12,7 @@ name: cmux-next fast-tier seed
 #
 # A seed is one cold build of exactly what the Mac fast tier builds (its Swift
 # entries; the cargo entries run on Linux with their own cargo cache), on the
-# pool the fast tier overflows to, plus the input-time manifest the fast tier replays
+# Blacksmith pool the fast tier overflows to, plus the input-time manifest the fast tier replays
 # (scripts/ci/e2e_warm_derived_data.py) so a pull request rebuilds only the
 # files that differ from the seed. It runs when the newest seed is older than
 # SEED_INTERVAL_MINUTES (scripts/cmux-next/fast-tier-seed-due.py), and prunes
@@ -38,22 +38,24 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Is a fast-tier seed due
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
     env:
-      # The pools the cmux-next fast tier lands on (scripts/ci/next_macos_cascade.py):
-      # Blacksmith, then hosted macos-26 when Blacksmith is full or stalled. Each needs
-      # its own seed: the cache key holds the workspace path (fast-tier-cache-key.sh),
-      # and the two pools check out to different paths. 6 vCPU, not 12, for Blacksmith:
-      # same image, Xcode pin and workspace path, and the cascade fills 12 vCPU first
-      # (a seed queued there held the old workflow group 85+ minutes, run 39351410275).
-      # A cold hosted build of CmuxNext took 20 to 28 minutes on 2026-10-20.
+      # The pool the cmux-next fast tier restores a seed on (scripts/ci/next_macos_cascade.py):
+      # Blacksmith. The owned minis keep their builds on their own SSD and read no seed.
+      # The cache key holds the workspace path (fast-tier-cache-key.sh), so a seed is
+      # per pool. 6 vCPU, not 12: same image, Xcode pin and workspace path, and the
+      # cascade fills 12 vCPU first (a seed queued there held the old workflow group 85+
+      # minutes, run 39351410275).
+      # No GitHub-hosted pool: the cascade no longer overflows to hosted macos-26, so
+      # nothing restores a hosted seed (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
+      # THE SLOWEST THINGS"; tests/test_ci_no_github_hosted_macos.py). That pool's seeds
+      # were 21 hosted jobs and 891 hosted minutes a day (2026-10-27).
       SEED_POOLS: >-
-        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},
-        {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
+        [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
     outputs:
       pools: ${{ steps.due.outputs.pools }}
     steps:
@@ -96,6 +98,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -136,6 +149,19 @@ jobs:
         id: tier
         continue-on-error: true
         run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
 
       - name: Check that every build passed
         id: built
@@ -190,5 +216,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-seed-receipt-${{ matrix.pool }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          retention-days: 3
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: ignore

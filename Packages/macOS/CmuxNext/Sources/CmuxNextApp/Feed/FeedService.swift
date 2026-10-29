@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextFeed
 import Foundation
 
@@ -21,10 +22,15 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
-    private let acpmuxEnvironment: AcpmuxEnvironment?
-    private let reportsClient = AcpmuxMailboxClient()
-    private var reportsTask: Task<Void, Never>?
-    private var reportsCursor: UInt64 = 0
+    /// The app's acpmux, resolved once at startup (nil: a mock agent host or no acpmux binary).
+    /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
+    /// check on the main thread).
+    let acpmuxEnvironment: AcpmuxEnvironment?
+    /// The reports reader; a page of a reader that a reset stopped is dropped.
+    private let reports = AcpmuxMailboxSubscription()
+    /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
+    /// never touches the next one's watch): its socket's changes, and app activation or wake.
+    private var reportsWake: RetryWake?
     private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -80,6 +86,8 @@ final class FeedService {
             guard let self else { return }
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
+            // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
+            if forced != false { reportsWake?.fire() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
             MainActorObservation(name, center: center) { update(forced) }
@@ -189,42 +197,25 @@ final class FeedService {
     }
 
     private func resetReports() {
-        reportsTask?.cancel()
-        reportsTask = nil
-        reportsCursor = 0
+        reports.stop()
+        reportsWake = nil
         reportRows.removeAll()
         model.replaceReports([])
     }
 
     /// Reads the quiet reports alias without creating a model attachment. The
     /// mailbox wait is event-driven; quiet delivery notifies this reader but
-    /// never wakes the sender's ACP turn.
+    /// never wakes the sender's ACP turn. The reader runs off the main actor and
+    /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
+    /// missing socket waits for its file-system event, a refusing one is paced.
     private func startReportsIfNeeded() {
-        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath,
+        guard auth.isSignedIn, !reports.isRunning, let socketPath = acpmuxEnvironment?.socketPath,
               let reportsRecipient else { return }
-        let client = reportsClient
-        reportsTask = Task { [weak self] in
-            guard let self else { return }
-            // wakeup-allow: mailbox wait is event-driven and ends on cancellation.
-            while !Task.isCancelled {
-                do {
-                    let page = try await client.wait(
-                        socketPath: socketPath,
-                        recipient: reportsRecipient,
-                        after: self.reportsCursor
-                    )
-                    applyReports(page)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    // The daemon may not be running yet or may be handing off.
-                    // Retry with a bounded delay; the next mailbox wait remains
-                    // the normal event-driven path.
-                    // wakeup-allow: one-shot retry backoff after a failed mailbox request.
-                    try? await ContinuousClock().sleep(for: .seconds(5))
-                }
-            }
-        }
+        let wake = RetryWake(owner: "feed.reports.retry")
+        reportsWake = wake
+        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)
+        // Stopped by resetReports (sign-out, another account, stop); a page already on its way is dropped.
+        reports.start(reader) { [weak self] page in self?.applyReports(page) }
     }
 
     private func applyReports(_ page: AcpmuxMailboxPage) {
@@ -235,11 +226,6 @@ final class FeedService {
                 body: message.body,
                 createdAt: message.createdAt
             )
-        }
-        if let nextCursor = page.nextCursor {
-            reportsCursor = max(reportsCursor, nextCursor)
-        } else if let last = page.messages.last {
-            reportsCursor = max(reportsCursor, last.seq)
         }
         model.replaceReports(Array(reportRows.values))
     }
@@ -294,14 +280,16 @@ final class FeedService {
         for waiter in list { waiter.resume() }
     }
 
-    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`).
-    func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its
+    /// personal team or in `team` (`x-cmux-team`; TeamDO confirms the membership).
+    func call(_ path: String, _ body: [String: Any], team: String? = nil) async throws -> [String: Any] {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
         var request = URLRequest(url: apiBaseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
+        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         // The bearer never goes through the shared, caching session.
         let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)

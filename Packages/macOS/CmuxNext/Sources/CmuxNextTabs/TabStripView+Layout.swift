@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
@@ -275,7 +276,7 @@ extension TabStripView {
         if let move {
             let generation = move.generation
             movesInFlight.insert(generation)
-            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.moveEnded(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
+            CATransaction.setMainCompletion { [weak self] in self?.moveEnded(generation) }
         }
         defer { CATransaction.commit() }
         let tabHeight = min(metrics.tabHeight, bounds.height)

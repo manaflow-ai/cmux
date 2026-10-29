@@ -147,7 +147,28 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
         only: scope.only.clone(),
         measure: !apply,
     };
-    let report = pass::run(&options, store).map_err(|e| anyhow!(e))?;
+    // Acting takes the machine's pass (`schedule`), which a daemon's pass
+    // may hold: two passes over the same worktrees would archive one twice.
+    // Only a pass over every worktree counts as the machine's last.
+    let record = scope.only.is_empty() && scope.roots.is_empty();
+    let claim = if apply {
+        let now = cmux_worktree_care::inventory::now_ms();
+        Some(cmux_worktree_care::schedule::claim(&store.dir, now, None, record).map_err(
+            |refused| match refused {
+                cmux_worktree_care::schedule::Refused::Unavailable(error) => anyhow!(error),
+                _ => anyhow!("a worktree cleanup pass is already running on this machine"),
+            },
+        )?)
+    } else {
+        None
+    };
+    let report = pass::run(&options, store);
+    if let Some(claim) = claim
+        && let Err(error) = claim.finish(cmux_worktree_care::inventory::now_ms())
+    {
+        eprintln!("acpmux: could not record the cleanup pass: {error}");
+    }
+    let report = report.map_err(|e| anyhow!(e))?;
     if json_out {
         print_json(&json!(report));
     } else {

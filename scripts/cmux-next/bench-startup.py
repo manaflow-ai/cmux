@@ -118,10 +118,19 @@ MARKS = [
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
     ("reveal.pane", "pane content revealed"),
+    ("reveal.home", "Home revealed"),
     ("agent_pane.view_created", "first agent pane view made"),
     ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
     (AGENT_MARK, "agent pane handshake answered"),
+    # The last quit's pane images, read off the main thread from main() (slice c): a `missed` row means a pane
+    # asked before its read ended and showed its placeholder.
+    ("agent_pane.launch_images_read", "saved agent pages read and decoded"),
+    ("agent_pane.launch_image_missed", "an agent pane asked before its read ended"),
+    ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
+    ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
+    ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
+    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked

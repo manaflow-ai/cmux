@@ -2,7 +2,7 @@
 ///
 /// One shared path for Toggle React Grab on every entrypoint (palette, View menu, keyboard, and
 /// `cmux browser toggle-react-grab` through `action run`). It works on both engines through
-/// ``BrowserTab/evaluate(_:world:)`` in the page world, where react-grab must run to read React's
+/// ``BrowserTab/evaluate(_:world:gesture:)`` in the page world, where react-grab must run to read React's
 /// internals. The first toggle on a document loads the library from ``ReactGrabScriptSource`` and
 /// turns it on; later toggles flip the loaded library. A new document starts without it.
 ///
@@ -28,9 +28,9 @@ public nonisolated struct ReactGrab: Sendable {
     @MainActor
     @discardableResult
     public func toggle(_ tab: any BrowserTab) async throws -> ReactGrabOutcome {
-        if try await tab.evaluate(Self.toggleScript, world: .page) == .bool(true) { return .toggled }
+        if try await tab.evaluate(Self.toggleScript, world: .page, gesture: .agent) == .bool(true) { return .toggled }
         let library = try await scripts.script()
-        _ = try await tab.evaluate(library + "\n;\n" + Self.activateScript, world: .page)
+        _ = try await tab.evaluate(library + "\n;\n" + Self.activateScript, world: .page, gesture: .agent)
         return .loaded
     }
 

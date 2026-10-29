@@ -36,7 +36,7 @@ extension LayoutRootView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
     /// (`PointerHover`, which recomputes them), then every layout in the

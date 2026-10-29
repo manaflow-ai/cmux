@@ -176,18 +176,22 @@ public struct ChiefSettingsView: View {
     }
 
     /// Messages' call / video / mail circles, with Chief's own real actions:
-    /// Message (back to the conversation, keyboard up) and Stop (Chief's
-    /// running turn; dimmed while there is none, as Messages dims an action
-    /// a contact cannot take).
+    /// Message (back to the conversation, keyboard up), Call (a live voice
+    /// call) and Stop (Chief's running turn; dimmed while there is none, as
+    /// Messages dims an action a contact cannot take).
     private var quickActions: some View {
         HStack(spacing: ChiefInfoGeometry.quickActionSpacing) {
             if let onMessage {
                 ChiefQuickAction(symbol: "message.fill", title: String(localized: "Message"), enabled: true) { onMessage() }
                     .accessibilityIdentifier("chief.settings.message")
             }
+            ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
+                ChiefCallLauncher.shared.call()
+            }
+            .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
-                                 enabled: hasControl && session.isTyping && !stopping,
+                                 enabled: hasControl && session.isWorking && !stopping,
                                  busy: stopping) { Task { await stop() } }
                     .accessibilityIdentifier("chief.settings.stop")
             }
@@ -205,7 +209,8 @@ public struct ChiefSettingsView: View {
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
         }
         let mac = session.macName ?? String(localized: "your Mac")
-        if session.isTyping { return String(localized: "Working on \(mac)") }
+        // A run with tools and no typing is work too (``ChiefSession/isWorking``).
+        if session.isWorking { return String(localized: "Working on \(mac)") }
         return String(localized: "Runs on \(mac)")
     }
 

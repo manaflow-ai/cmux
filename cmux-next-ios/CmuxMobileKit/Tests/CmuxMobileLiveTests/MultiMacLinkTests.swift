@@ -103,6 +103,20 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(policy.decide(macs: macs, focused: "m4", showing: [], lastShown: [:], now: now).linked == ["m4"])
         #expect(policy.decide(macs: macs, focused: "m1", showing: ["m4", "m2"], lastShown: [:], now: now).linked == ["m1", "m2"])
     }
+
+    /// The Mac a held pairing code names comes next after the focused one, ahead of the
+    /// Macs on screen, and never past `maxLinks`.
+    @Test func thePinnedMacComesNextAfterTheFocusedOne() {
+        let policy = MacLinkPolicy(maxLinks: 2)
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m1", "m2", "m3"], lastShown: [:], now: now,
+                              pinned: "m3").linked == ["m1", "m3"])
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
+                              pinned: "m1").linked == ["m1", "m2"])
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
+                              pinned: "m9").linked == ["m1", "m2"])
+        #expect(MacLinkPolicy(maxLinks: 1).decide(macs: macs, focused: "m1", showing: [], lastShown: [:], now: now,
+                                                  pinned: "m3").linked == ["m1"])
+    }
 }
 
 // The coordinator is iOS-only: these run in the iOS simulator test pass.

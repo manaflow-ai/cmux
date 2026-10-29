@@ -18,6 +18,12 @@ public nonisolated enum ShortcutFamily: Sendable, Hashable {
 public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public let id: ActionID
     public var title: String
+    /// What the action does, what it needs and what a CLI or agent run gets
+    /// back, in a sentence or two. English, like the MCP tool text it heads:
+    /// `action.list` and `action.describe` carry it as `description`, and the
+    /// cmux MCP server puts it first in the action's tool description. The GUI
+    /// does not show it. Nil when the catalog has none yet.
+    public var description: String?
     public var keywords: [String]
     public var defaultShortcut: Shortcut?
     /// Display text for shortcuts a `Shortcut` cannot express, such as the
@@ -111,6 +117,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public init(
         id: ActionID,
         title: String,
+        description: String? = nil,
         keywords: [String] = [],
         defaultShortcut: Shortcut? = nil,
         shortcutLabel: String? = nil,
@@ -130,6 +137,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     ) {
         self.id = id
         self.title = title
+        self.description = description
         self.keywords = keywords
         self.defaultShortcut = defaultShortcut
         self.shortcutLabel = shortcutLabel

@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -6,8 +7,9 @@ import Foundation
 import Observation
 
 /// The people and Chiefs behind the Home page's New Message and New Chief
-/// (home-messaging.md 4.2 and 16): the members of the user's team
-/// (TeamDO `team.members.list`) and the user's Chiefs (UserDO `chief.*`).
+/// (home-messaging.md 4.2 and 16): the members of every team the user is in
+/// (UserDO `user.teams.list`, then each TeamDO's `team.members.list`) and the
+/// user's Chiefs (UserDO `chief.*`).
 /// Reads and writes go to the API Worker as the signed-in user through
 /// `call` (`FeedService.call`, whose origin is `FeedService.apiBaseURL`,
 /// `CMUX_NEXT_FEED_API_URL` overrides it), like Add Server's pairing.
@@ -16,8 +18,10 @@ import Observation
 @Observable @MainActor
 final class HomeDirectory {
     typealias Call = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
+    /// `call` acting in `team` (`x-cmux-team`); a session acts in its personal team otherwise.
+    typealias TeamCall = @MainActor (_ path: String, _ body: [String: Any], _ team: String) async throws -> [String: Any]
 
-    private(set) var teamMembers: [HomeContact] = []
+    var teamMembers: [HomeContact] = []
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
     var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs) }
@@ -33,22 +37,73 @@ final class HomeDirectory {
     /// own default is not listed), for the Home list's badges: read by `HomeService.refreshChiefHarnesses()`.
     var chiefHarnesses: [String: String] = [:]
     @ObservationIgnored private let call: Call
+    @ObservationIgnored private let teamCall: TeamCall?
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
 
-    init(call: @escaping Call, me: @escaping @MainActor () -> String?) {
+    init(call: @escaping Call, teamCall: TeamCall? = nil, me: @escaping @MainActor () -> String?) {
         self.call = call
+        self.teamCall = teamCall
         self.me = me
     }
+
+    /// Reads the team and the Chiefs again each time the signed-in session changes: `session` is
+    /// a key of the account and its teams, nil while signed out or while the stored sign-in is
+    /// still being restored at launch. Home's first read runs before that restore ends and fails
+    /// as signed out, so without this the team stayed unlisted until a New Message was opened.
+    /// Signing out (nil) or another account drops the last account's team at once.
+    func follow(session: @escaping @MainActor @Sendable () -> String?) {
+        sessionWatch?.cancel()
+        // task-owner: lives as long as the directory (HomeService's); event-driven (Observation)
+        sessionWatch = Task { [weak self] in
+            var account: Substring?
+            for await key in ObservationStream(session) {
+                guard let self else { return }
+                let next = key?.split(separator: "|", maxSplits: 1).first
+                if next != account { teamMembers = [] }
+                account = next
+                if key != nil { await refresh() }
+            }
+        }
+    }
+
+    @ObservationIgnored private var sessionWatch: Task<Void, Never>?
 
     /// Reads the team members and the Chiefs again; a read that fails keeps
     /// the last list (signed out, offline).
     func refresh() async {
-        if let reply = try? await call("v1/read", ["op": "team.members.list", "params": ["limit": 200]]),
-           let value = try? Self.value(reply) {
-            teamMembers = Self.members(from: value, excluding: me())
-        }
+        if let members = await readTeamMembers() { teamMembers = members }
         await refreshChiefs()
+    }
+
+    /// The members of the personal team and of each shared team `user.teams.list` names, each
+    /// person once. Home chats are not team-scoped and the Worker's reach rule checks every
+    /// team of the user, so a teammate from any team can be messaged. A team whose role may not
+    /// list members (a guest), or whose read fails, is left out; nil when no team could be read.
+    private func readTeamMembers() async -> [HomeContact]? {
+        let body: [String: Any] = ["op": "team.members.list", "params": ["limit": 200]]
+        var lists: [[HomeContact]] = []
+        if let personal = try? Self.value(try await call("v1/read", body)) { lists.append(Self.members(from: personal, excluding: me())) }
+        if let teamCall,
+           let teams = try? Self.value(try await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])) {
+            for team in Self.sharedTeams(from: teams) {
+                guard let value = try? Self.value(try await teamCall("v1/read", body, team)) else { continue }
+                lists.append(Self.members(from: value, excluding: me()))
+            }
+        }
+        guard !lists.isEmpty else { return nil }
+        var seen = Set<ParticipantID>()
+        return lists.joined().filter { seen.insert($0.id).inserted }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// The shared (not personal) team ids of a `user.teams.list` value.
+    static func sharedTeams(from value: Any?) -> [String] {
+        let list = (value as? [String: Any])?["teams"] as? [[String: Any]] ?? []
+        return list.compactMap { team in
+            guard let id = team["id"] as? String, !id.isEmpty, team["kind"] as? String != "personal" else { return nil }
+            return id
+        }
     }
 
     func refreshChiefs() async {

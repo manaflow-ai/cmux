@@ -85,6 +85,10 @@ impl JournalIngressSender {
         if !self.accepts_effects() {
             return EffectSend::NotQueued(intent);
         }
+        if self.state.disk_full.is_full() {
+            self.state.disk_full.refused_waiter(&self.state);
+            return EffectSend::Sent(Err(anyhow::anyhow!(super::disk_full::WAITER_ERROR)));
+        }
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));

@@ -198,6 +198,18 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
     assert!(r.get("error").is_some(), "a peer cannot stop a subagent: {r}");
     let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_stop", stop).await;
     assert!(!err(&r).contains("only from the local unix socket"), "{r}");
+    // A subagent's transcript is read by the daemon from the chat's Claude store, for the app and
+    // the unix socket only: never for a Web client.
+    let read = json!({"sessionId": id, "runId": "wf_4fe", "agentId": "a01"});
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/subagent_transcript", read.clone()).await;
+    assert!(err(&r).contains("transcriptRead.remote"), "{r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_transcript", read).await;
+    assert!(!err(&r).contains("transcriptRead.remote"), "{r}");
+    // The daemon's workflows (they name its chats and their workflows' args): never for the Web.
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/workflows", json!({})).await;
+    assert!(err(&r).contains("workflows.remote"), "{r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/workflows", json!({})).await;
+    assert_eq!(r["result"]["workflows"], json!([]), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);
 }
 

@@ -103,9 +103,9 @@ test("a prompt edited in place forks the chat through the turn before it and sen
   expect(sent.length).toBe(2);
 });
 
-test("only a chat that can fork through an earlier turn offers Edit", async () => {
+test("Claude and Codex chats that can fork through an earlier turn offer Edit", async () => {
   const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
   expect([...editableTurns(rows, "claude")]).toEqual([["user-4", 3]]);
-  // Other agents fork only at a chat's end, so no earlier turn can be edited.
-  expect(editableTurns(rows, "codex").size).toBe(0);
+  expect([...editableTurns(rows, "codex")]).toEqual([["user-4", 3]]);
+  expect(editableTurns([...rows.slice(0, 3), { ...rows[3]!, steer: "waiting" }], "claude").size).toBe(0);
 });

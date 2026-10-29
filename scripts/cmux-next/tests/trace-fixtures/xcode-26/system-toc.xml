@@ -1,0 +1,91 @@
+<?xml version="1.0"?>
+
+<trace-toc>
+    <run number="1">
+        <info>
+            <target>
+                <device platform="macOS" model="Mac Mini" name="Fleet Mac" os-version="27.0 (26A425)" uuid="5D5850FE-EED1-5869-9D71-8FDC7057CCFF"/>
+                <process type="launched" return-exit-status="0" name="fixture-emitter" pid="70247" termination-reason="exit(0)"/>
+            </target>
+            <summary>
+                <start-date>2026-10-24T07:43:51.081-07:00</start-date>
+                <end-date>2026-10-24T07:43:53.041-07:00</end-date>
+                <duration>1.959569</duration>
+                <end-reason>Target app exited</end-reason>
+                <instruments-version>16.0 (17F113)</instruments-version>
+                <template-name>System Trace</template-name>
+                <recording-mode>Windowed (5 seconds)</recording-mode>
+                <time-limit>30 seconds</time-limit>
+                <intruments-recording-settings>
+                    <instrument name="Hangs">
+                        <array>
+                            <dictionary>
+                                <key name="Reporting Threshold">Include Microhangs (&gt;250ms)</key>
+                            </dictionary>
+                        </array>
+                    </instrument>
+                </intruments-recording-settings>
+            </summary>
+        </info>
+        <processes>
+            <process name="kernel" pid="0" path="Unknown"/>
+            <process name="fixture-emitter" pid="70247" path="/tmp/trace-fixtures/fixture-emitter"/>
+        </processes>
+        <data>
+            <table exclude-os-logs="0" schema="global-poi-layout" target-pid="SINGLE" documentation="A point of interest that can be laid out on a graph view."/>
+            <table schema="syscall" target-pid="SINGLE" documentation="A system call that was active on a given thread for a given interval of time."/>
+            <table schema="hang-risks" detect-priority-inversions="0" target-pid="SINGLE"/>
+            <table schema="runloop-events" target-pid="SINGLE"/>
+            <table category="PointsOfInterest" schema="os-signpost-arg" documentation="Holds a signpost metadata argument from the OS's Unified Logging and Tracing component."/>
+            <table codes="&quot;33,0x11&quot;" target="SINGLE" schema="kdebug-strings" documentation="Associates numeric arguments with strings in kdebug trace points."/>
+            <table codes="&quot;0x2b,0x65&quot;" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;33,0x11&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;46,2&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0x30&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table schema="context-switch" target-pid="SINGLE" documentation="Tracks a context switch for a given thread."/>
+            <table target-pid="SINGLE" schema="potential-hangs" hangs-threshold="250"/>
+            <table category="PointsOfInterest" schema="os-log-arg" documentation="Holds a metadata argument from the OS's Unified Logging and Tracing component."/>
+            <table codes="&quot;0x7,0x0&quot;" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0x40&quot;" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0xc&quot; &quot;0x4,0xc&quot;" schema="kdebug" target="SINGLE" callstack="user" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x2d,*&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x2b,0xd8&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x07,0x00&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0x25&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1f,0x7&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x2b,0x87&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x2b,0xdc&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x31,0xca&quot;" target="SINGLE" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0xa&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x21,0xa&quot;" schema="kdebug" callstack="user" target="SINGLE" documentation="Tracing the kernel and some system frameworks."/>
+            <table codes="&quot;0x1,0x9&quot; &quot;0x1,0x5&quot;" schema="kdebug" documentation="Tracing the kernel and some system frameworks."/>
+            <table schema="virtual-memory" target-pid="SINGLE" documentation="Describes a virtual memory fault happening on the thread over a period of time."/>
+            <table schema="thread-info" documentation="Associates threads with their owning process."/>
+            <table schema="device-thermal-state-intervals" documentation="Denotes the current thermal state of the device."/>
+            <table schema="thread-narrative" documentation="Describes what a thread is doing at a given interval of time in natural language."/>
+            <table schema="global-roi-layout" target-pid="SINGLE" documentation="Layout information for graphing regions of interest."/>
+            <table sample-rate-micro-seconds="1000" target="SINGLE" schema="time-sample" callstack="user" all-thread-states="NO" documentation="Holds a raw CPU profiling sample."/>
+            <table schema="thread-snapshot" documentation="Captures the state of a thread at an instant in time."/>
+            <table schema="os-signpost" dynamic-tracing-enabled-subsystems="&quot;com.apple.neappprivacy&quot;" category="PointsOfInterest" documentation="Holds a signpost event from the OS's Unified Logging and Tracing component."/>
+            <table schema="os-signpost" category="InduceCondition" subsystem="&quot;com.apple.ConditionInducer.LowSeverity&quot;" documentation="Holds a signpost event from the OS's Unified Logging and Tracing component."/>
+            <table schema="system-load" target-pid="SINGLE" documentation="Determines how much work is piling up for a target system."/>
+            <table schema="kdebug-signpost" target-pid="SINGLE" documentation="Marks a point in time denoted by a special type of kdebug trace."/>
+            <table target-pid="SINGLE" context-switch-sampling="0" high-frequency-sampling="0" schema="time-profile" needs-kernel-callstack="0" record-waiting-threads="0" documentation="When combined with other time-profile samples, creates a statistical picture of where your application is spending its time."/>
+            <table enable-priority-inversion-detection="0" target-pid="SINGLE" message-type="Fault" schema="os-log" category="&quot;Hang Risk&quot; &quot;Severe Hang Risk&quot; CFNetwork Contacts CoreML" subsystem="&quot;com.apple.runtime-issues&quot;" documentation="Holds a message from the OS's Unified Logging and Tracing component."/>
+            <table category="PointsOfInterest" schema="os-log" documentation="Holds a message from the OS's Unified Logging and Tracing component."/>
+            <table exclude-os-logs="0" schema="roi-metadata" target-pid="SINGLE" documentation="Describes details about a given region of interest."/>
+            <table schema="cpu-state" target-pid="SINGLE" documentation="Determines that state of a logical CPU during a given interval of time."/>
+            <table schema="tick" frequency="100" documentation="Provides modelers with a regular reference time for modeling fixed time-based statistics. The ticks are evenly spaced with a configurable frequency specifying the number of events to generate per second, so a tick schema with a frequency of 10 will generate a row every 100ms."/>
+            <table schema="tick" frequency="1" documentation="Provides modelers with a regular reference time for modeling fixed time-based statistics. The ticks are evenly spaced with a configurable frequency specifying the number of events to generate per second, so a tick schema with a frequency of 10 will generate a row every 100ms."/>
+            <table schema="cpu-narrative" documentation="Describes what a logical CPU is doing at a given interval of time in natural language."/>
+            <table target-pid="SINGLE" schema="region-of-interest" exclude-os-logs="0" documentation="Determined by the modelers and represent a focus area that the developer is likely to be intereseted in."/>
+            <table schema="syscall-name-map" documentation="Maps the ktrace codes for system calls to developer friendly system call names."/>
+            <table schema="life-cycle-period" target-pid="SINGLE" documentation="Identifies where an application is in its lifecycle."/>
+            <table schema="target-capability" documentation="Describes a capability the target device supports for this recording."/>
+            <table schema="thread-state" target-pid="SINGLE" documentation="Determines that state of a thread during a given interval of time."/>
+            <table schema="process-info" documentation="Associates processes with their process names."/>
+            <table schema="gcd-perf-event" target-pid="SINGLE" documentation="Find sub-optimal uses of Grand Central Dispatch."/>
+        </data>
+        <tracks/>
+    </run>
+</trace-toc>

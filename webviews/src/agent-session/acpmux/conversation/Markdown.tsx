@@ -22,6 +22,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
@@ -38,6 +39,8 @@ import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
+import { isAgentMotionOff } from "../../shared/motion";
+import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -64,9 +67,43 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string): MdBlock[] {
+export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  return parseLines(lines);
+  const blocks = parseLines(lines);
+  return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
+}
+
+function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
+  return blocks.map((block) => {
+    switch (block.type) {
+      case "heading":
+      case "paragraph":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "blockquote":
+        return { ...block, children: decorateBlocks(block.children, messageAt) };
+      case "list":
+        return {
+          ...block,
+          items: block.items.map((item) => ({
+            ...item,
+            text: decorateTimes(item.text, messageAt),
+            children: decorateBlocks(item.children, messageAt),
+          })),
+        };
+      case "table":
+        return {
+          ...block,
+          header: block.header.map((cell) => decorateTimes(cell, messageAt)),
+          rows: block.rows.map((row) => row.map((cell) => decorateTimes(cell, messageAt))),
+        };
+      case "footnote":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "code":
+      case "math":
+      case "hr":
+        return block;
+    }
+  });
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
@@ -276,6 +313,10 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Link a bare `#N` too (default). Off in a quote: quoted words are someone else's, whose `#1`
+   *  is rarely this repository's pull request (Leo 2026-10-29: "these auto render to the pr
+   *  instead of just #1 #2..."). `owner/repo#N` and addresses still link there. */
+  linkBareReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
   /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
@@ -395,6 +436,7 @@ function linkedGithubText(
   repository?: string,
   enabled = true,
   quietCommits = false,
+  bare = true,
 ): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
@@ -408,7 +450,7 @@ function linkedGithubText(
   const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
   const outside = (ref: { start: number; end: number }) =>
     !spans.some((span) => ref.start < span.end && span.start < ref.end);
-  const refs = [...issues.filter((issue) => !issue.bare || outside(issue)), ...commits.filter(outside)]
+  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -462,42 +504,59 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
     if (commit.href) return commit;
     const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
     const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
-    return repo ? { ...commit, href: `https://github.com/${repo}/commit/${commit.sha}` } : commit;
+    const text = commit.sha.length > 10 ? commit.sha.slice(0, 8) : commit.text;
+    return repo ? { ...commit, text, href: `https://github.com/${repo}/commit/${commit.sha}` } : { ...commit, text };
   });
 }
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
-  const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
-  return pieces.flatMap((piece, index): ReactNode[] =>
-    typeof piece === "string"
-      ? linkedGithubText(
-          piece,
-          `${key}-${index}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-          opts.commits === "quiet",
-        )
-      : [
-          <StartedSessionChip
-            key={`${key}-${index}`}
-            mention={piece.mention}
-            text={piece.text}
-            onOpen={opts.started!.open}
-          />,
-        ],
-  );
+  const out: ReactNode[] = [];
+  let index = 0;
+  for (const part of splitTimeTokens(text)) {
+    if (typeof part !== "string") {
+      out.push(<TimeHover key={`${key}-${index++}`} token={part} />);
+      continue;
+    }
+    const pieces = opts.started?.mentions.length ? splitMentions(part, opts.started.mentions) : [part];
+    out.push(
+      ...pieces.flatMap((piece): ReactNode[] => {
+        const current = `${key}-${index++}`;
+        return typeof piece === "string"
+          ? softBreakNodes(
+              linkedGithubText(
+                piece,
+                current,
+                opts.githubRepository,
+                opts.linkGithubReferences !== false,
+                opts.commits === "quiet",
+                opts.linkBareReferences !== false,
+              ),
+              current,
+            )
+          : [
+              <StartedSessionChip
+                key={current}
+                mention={piece.mention}
+                text={piece.text}
+                onOpen={opts.started!.open}
+              />,
+            ];
+      }),
+    );
+  }
+  return out;
 }
 
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
 // paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"
 // and "echo $$ prints the shell's PID, and echo $$" stay text while
-// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space inside either dollar and no digit
-// after the closer, so "$5 and $10" stays text; a `$` never ends one, so "$10 and echo $$" does
-// too; no backtick inside, so "$5 or `$PATH`" does too), a backslash escape (`\$`, `\*`) that
+// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space, `(` or `{` after the opener, no
+// space before or letter/digit after the closer, so "$PATH and $HOME" and
+// `$(cmd)` stay text; no backtick inside, so "$5 or `$PATH`" does too), explicit `\(…\)`, a backslash escape (`\$`, `\*`) that
 // draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?![({])(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?![A-Za-z0-9])|\\\(.+?\\\))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
@@ -519,7 +578,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
         ) : (
           <code key={k++} className="cv-code">
-            {t.slice(1, -1)}
+            <SoftBroken text={t.slice(1, -1)} />
           </code>
         ),
       );
@@ -580,7 +639,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
-    else if (m[8]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
+    else if (m[8])
+      out.push(<MathInline key={k++} tex={t.startsWith("\\(") ? t.slice(2, -2).trim() : t.slice(1, -1)} />);
     else if (m[9]) out.push(t.slice(1));
     else if (m[10]) {
       const id = t.slice(2, -1);
@@ -593,7 +653,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             <button
               type="button"
               aria-describedby={anchor}
-              onClick={() => document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+              onClick={() =>
+                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
+              }
             >
               {number}
             </button>
@@ -605,6 +667,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+/// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
+/// (ui.animations) or the system's Reduce Motion, in one frame, as Jump to latest does (hq#3581).
+function noteScroll(): ScrollBehavior {
+  const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduce ? "auto" : "smooth";
 }
 
 /// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
@@ -763,7 +832,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
+          <Blocks blocks={block.children} opts={quoted(opts)} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -831,6 +900,15 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
 
 /// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
 /// (`plainCode`) inside them too: no diagram or render card at any depth.
+/// A quote's options: the same object for the same `opts`, so its memoized blocks stay drawn.
+const quotedOptions = new WeakMap<InlineOptions, InlineOptions>();
+function quoted(opts: InlineOptions): InlineOptions {
+  if (opts.linkBareReferences === false) return opts;
+  let kept = quotedOptions.get(opts);
+  if (!kept) quotedOptions.set(opts, (kept = { ...opts, linkBareReferences: false }));
+  return kept;
+}
+
 function Blocks({
   blocks,
   opts,
@@ -894,6 +972,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  /** Epoch timestamp of the message, used to date bare UTC clock times. */
+  messageAt?: number;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -912,10 +992,11 @@ export function Markdown({
   plainCode = false,
   commits,
   thumbnails,
+  messageAt,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
+  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));

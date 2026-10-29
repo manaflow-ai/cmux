@@ -12,7 +12,7 @@ enum CEFLinkText {
         (() => { const u = \(quoted); for (const a of document.links) { if (a.href === u) \
         return (a.innerText || a.textContent || '').trim().slice(0, 4096); } return ''; })()
         """
-        guard case .string(let text)? = try? await tab.evaluate(script, world: .page) else { return "" }
+        guard case .string(let text)? = try? await tab.evaluate(script, world: .page, gesture: .cmux) else { return "" }
         return text
     }
 }

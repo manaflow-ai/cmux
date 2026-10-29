@@ -5,10 +5,13 @@ import argparse
 import datetime as dt
 import hashlib
 import hmac
+import http.client
 import json
 import mimetypes
 import os
+import signal
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -187,11 +190,11 @@ def _read_existing_object(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload one object to Cloudflare R2 using AWS SigV4.")
-    parser.add_argument("--file", required=True, help="Local file to upload")
+    parser.add_argument("--file", help="Local file to upload (required for an upload)")
     parser.add_argument("--endpoint-url", required=True, help="R2 S3 endpoint URL")
     parser.add_argument("--bucket", required=True, help="R2 bucket name")
     parser.add_argument("--key", required=True, help="Object key inside the bucket")
-    parser.add_argument("--cache-control", required=True, help="Cache-Control metadata")
+    parser.add_argument("--cache-control", help="Cache-Control metadata (required for an upload)")
     parser.add_argument(
         "--content-type",
         help="Content-Type metadata (default: infer from file extension, otherwise application/octet-stream)",
@@ -216,7 +219,18 @@ def main() -> int:
              "--conflict-exit-code (default 1).",
     )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
+    parser.add_argument(
+        "--download-to",
+        metavar="PATH",
+        help="Read the object into PATH (written whole or not at all) instead of uploading. Straight "
+             "from R2: files.cmux.com served a 31 MB binary at 4-35 KB/s to a publish job that keeps an "
+             "earlier publication (run 40637082673).",
+    )
     args = parser.parse_args()
+    if args.download_to:
+        return _download(args)
+    if not args.file or not args.cache_control:
+        parser.error("--file and --cache-control are required for an upload")
     if args.replace_sha256 and args.write_once:
         parser.error("--replace-sha256 and --write-once are exclusive")
     if not args.content_type:
@@ -276,25 +290,129 @@ def main() -> int:
             sys.stderr.write(f"R2 upload failed: {error}\n")
             return 1
 
-    try:
-        if args.write_once and _read_existing_object(
-            args,
-            amz_date=amz_date,
-            expected_digest=body_digest,
-        ):
-            print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
-            return 0
+    # A transfer that stalls or drops (a write timeout, a reset, a 5xx) is
+    # retried: one stalled PUT failed the whole cmux-tui tree publication
+    # (run 40629788539, "The write operation timed out"). Each attempt signs
+    # afresh. A write-once retry first reads the object back, so a PUT that
+    # landed before its response was lost reads as already present.
+    attempts = max(1, int(os.environ.get("CMUX_R2_UPLOAD_ATTEMPTS", "4")))
+    retry_delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY", "5"))
+    for attempt in range(1, attempts + 1):
+        if attempt > 1 and not os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE"):
+            amz_date = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            return _upload_once(args, body, amz_date, body_digest)
+        except (urllib.error.HTTPError, OSError, http.client.HTTPException) as error:
+            if attempt == attempts or not _transient(error):
+                return _report_upload_error(args, error, amz_date, body_digest)
+            sys.stderr.write(
+                f"R2 upload of s3://{args.bucket}/{args.key} attempt {attempt} of {attempts} failed "
+                f"({error}); retrying in {retry_delay * attempt:g}s\n"
+            )
+            time.sleep(retry_delay * attempt)
+        except RuntimeError as error:
+            return _report_upload_error(args, error, amz_date, body_digest)
+    return 1
 
-        request = _build_signed_request(
-            args,
-            body,
-            amz_date,
-            extra_headers={"if-none-match": "*"} if args.write_once else None,
+
+class DownloadDeadline(Exception):
+    """A download attempt ran past its deadline. Not an OSError: the socket
+    layer (create_connection over several addresses, urllib's open) catches
+    OSError and would go on past an expired one-shot alarm."""
+
+
+def _download(args: argparse.Namespace) -> int:
+    attempts = max(1, int(os.environ.get("CMUX_R2_UPLOAD_ATTEMPTS", "4")))
+    retry_delay = float(os.environ.get("CMUX_R2_UPLOAD_RETRY_DELAY", "5"))
+    partial = f"{args.download_to}.partial"
+    # A read that trickles (files.cmux.com at 4-35 KB/s) never trips the idle
+    # socket timeout: each attempt also has a whole-attempt deadline, from
+    # before the request opens to the last byte, enforced by SIGALRM so no
+    # blocking connect, header wait or read outlives it.
+    deadline = float(os.environ.get("CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS", "300"))
+
+    def expire(_signum, _frame):
+        raise DownloadDeadline(f"the download did not finish within {deadline:g}s, too slow")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    try:
+        return _download_attempts(args, attempts, retry_delay, partial, deadline)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _download_attempts(args: argparse.Namespace, attempts: int, retry_delay: float, partial: str,
+                       deadline: float) -> int:
+    for attempt in range(1, attempts + 1):
+        amz_date = os.environ.get("CMUX_R2_UPLOAD_AMZ_DATE") or dt.datetime.now(dt.timezone.utc).strftime(
+            "%Y%m%dT%H%M%SZ"
         )
-        with _open_signed_request(request, timeout=30) as response:
-            response.read()
-            print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
+        try:
+            signal.setitimer(signal.ITIMER_REAL, deadline)
+            try:
+                get = _build_signed_request(args, b"", amz_date, method="GET")
+                with _open_signed_request(get, timeout=60) as response, open(partial, "wb") as out:
+                    expected = response.headers.get("Content-Length")
+                    size = 0
+                    while chunk := response.read1(1 << 16):
+                        out.write(chunk)
+                        size += len(chunk)
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            if expected is not None and size != int(expected):
+                raise ConnectionError(f"read {size} of {expected} bytes")
+            os.replace(partial, args.download_to)
+            print(f"Downloaded s3://{args.bucket}/{args.key} to {args.download_to} ({size} bytes)")
             return 0
+        except (urllib.error.HTTPError, OSError, http.client.HTTPException, DownloadDeadline) as error:
+            try:
+                os.remove(partial)
+            except FileNotFoundError:
+                pass
+            if attempt == attempts or not _transient(error):
+                detail = f"HTTP {error.code} {error.reason}" if isinstance(error, urllib.error.HTTPError) else error
+                sys.stderr.write(f"R2 download of s3://{args.bucket}/{args.key} failed: {detail}\n")
+                return 22 if isinstance(error, urllib.error.HTTPError) and error.code == 404 else 1
+            sys.stderr.write(
+                f"R2 download of s3://{args.bucket}/{args.key} attempt {attempt} of {attempts} failed "
+                f"({error}); retrying in {retry_delay * attempt:g}s\n"
+            )
+            time.sleep(retry_delay * attempt)
+    return 1
+
+
+def _transient(error: BaseException) -> bool:
+    """A failure a later attempt can get past: no answer, or a 5xx or 429."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500 or error.code == 429
+    return isinstance(error, (OSError, http.client.HTTPException, DownloadDeadline))
+
+
+def _upload_once(args: argparse.Namespace, body: bytes, amz_date: str, body_digest: str) -> int:
+    if args.write_once and _read_existing_object(
+        args,
+        amz_date=amz_date,
+        expected_digest=body_digest,
+    ):
+        print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
+        return 0
+
+    request = _build_signed_request(
+        args,
+        body,
+        amz_date,
+        extra_headers={"if-none-match": "*"} if args.write_once else None,
+    )
+    with _open_signed_request(request, timeout=30) as response:
+        response.read()
+        print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
+        return 0
+
+
+def _report_upload_error(args: argparse.Namespace, error: BaseException, amz_date: str, body_digest: str) -> int:
+    try:
+        raise error
     except urllib.error.HTTPError as error:
         if args.write_once and error.code == 412:
             try:
@@ -305,7 +423,7 @@ def main() -> int:
                 ):
                     print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
                     return 0
-            except (urllib.error.HTTPError, RuntimeError) as retry_error:
+            except (urllib.error.HTTPError, RuntimeError, OSError, http.client.HTTPException) as retry_error:
                 if isinstance(retry_error, ImmutableConflict):
                     if args.conflict_exit_code is not None:
                         sys.stderr.write(f"another publisher wrote it first: {retry_error}\n")
@@ -316,7 +434,7 @@ def main() -> int:
         sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
         sys.stderr.write(error.read().decode("utf-8", errors="replace"))
         return 1
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, http.client.HTTPException) as error:
         if isinstance(error, ImmutableConflict):
             if args.conflict_exit_code is not None:
                 sys.stderr.write(f"another publisher wrote it first: {error}\n")

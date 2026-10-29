@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -32,7 +33,8 @@ struct CloudMoveTests {
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
             #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-                                                     "--to-socket", move.vmSocket, "--cwd", synced])
+                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--vm-kind", "none"],
+                    "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
             // The machine shows the chat: bound to the moved session through that machine's store.
             let tab = try #require(moved.machineTab, "no chat tab on the machine")
@@ -674,7 +676,8 @@ struct CloudMoveTests {
         let api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
         let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test")
-        return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link)
+        return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.
