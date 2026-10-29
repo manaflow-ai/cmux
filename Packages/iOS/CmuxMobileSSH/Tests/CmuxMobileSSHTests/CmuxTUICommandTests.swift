@@ -6,14 +6,15 @@ import Testing
 /// schema command marked `clients: ios`, and every `clients: ios` command is a case, so the schema
 /// meta that assign-ipc-method-ids.py writes from this table cannot drift from what the phone sends.
 @Suite struct CmuxTUICommandTests {
-    /// The repository's `cmux-tui/spec/sdk-schema.json`, found from this file's path.
+    /// The repository's `cmux-tui/spec/sdk-schema.json`: the nearest directory above this file
+    /// that holds `cmux-tui/spec`, the way the CmuxNext schema goldens find it.
     private static func schemaCommands() throws -> [String: [String: Any]] {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // CmuxMobileSSHTests
-            .deletingLastPathComponent() // Tests
-            .deletingLastPathComponent() // CmuxMobileSSH
-            .deletingLastPathComponent() // iOS
-            .deletingLastPathComponent() // Packages
+        var root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while !FileManager.default.fileExists(atPath: root.appending(path: "cmux-tui/spec").path) {
+            let parent = root.deletingLastPathComponent()
+            try #require(parent.path != root.path, "no cmux-tui/spec above the test")
+            root = parent
+        }
         let data = try Data(contentsOf: root.appending(path: "cmux-tui/spec/sdk-schema.json"))
         let schema = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         return try #require(schema["commands"] as? [String: [String: Any]])
