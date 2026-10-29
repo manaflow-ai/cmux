@@ -173,3 +173,93 @@ fn request_writes_an_unsaved_answer() {
     let refused = answer("x", Err(RpcError::invalid_params("bad")), false).unwrap_err();
     assert_eq!(refused.data, None);
 }
+
+/// Second review, item 4: showing an unread chat (`_acpmux/attach` visible, `_acpmux/view`)
+/// logs its seen mark for the clients; that is bookkeeping, not what the answer acknowledges,
+/// and must not make the chat switch wait for a log write.
+#[tokio::test]
+async fn request_writes_showing_an_unread_chat_is_not_waited_for() {
+    let hub = hub_on(Box::new(MemoryStore::default()));
+    let session = chat(&hub, "s1");
+    // `_acpmux/attach` with `visible`, then `_acpmux/view`.
+    for view in [false, true] {
+        session.meta.lock().unwrap().unread = true;
+        let before = session.seq.load(Ordering::SeqCst);
+        let ((), writes) = scope(Box::pin(async {
+            if view {
+                hub.set_visible(&session, true);
+            } else {
+                hub.attach_count(&session, 1, true);
+            }
+        }))
+        .await;
+        assert!(session.seq.load(Ordering::SeqCst) > before, "the seen mark is logged");
+        assert!(writes.logs.is_empty(), "a seen mark made the answer wait: {writes:?}");
+    }
+}
+
+/// A store whose log progress the test holds: queued and not written until the test says.
+struct HeldStore {
+    inner: MemoryStore,
+    progress: Arc<std::sync::Mutex<Option<tokio::sync::watch::Sender<crate::store::Progress>>>>,
+}
+
+impl Store for HeldStore {
+    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        self.inner.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<crate::store::Progress>> {
+        self.progress.lock().unwrap().as_ref().map(tokio::sync::watch::Sender::subscribe)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+}
+
+/// Waits for a request's write while the store forgets the log (its session deleted): the
+/// answer is `saved` when the session is `deleted`, and not saved when it still exists.
+async fn wait_while_the_log_is_forgotten(deleted: bool) -> bool {
+    let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+    let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+    let hub = hub_on(Box::new(HeldStore { inner: MemoryStore::default(), progress: held.clone() }));
+    let session = chat(&hub, "s1");
+    let ((), writes) = scope(Box::pin(async {
+        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+    }))
+    .await;
+    assert!(!writes.logs.is_empty());
+    if deleted {
+        session.purged.store(true, Ordering::SeqCst);
+        hub.sessions.lock().unwrap().remove("s1");
+    }
+    let waiting = tokio::spawn({
+        let hub = hub.clone();
+        async move { hub.wait_written(writes).await }
+    });
+    // The wait subscribes to the log's progress before the store forgets it.
+    while held.lock().unwrap().as_ref().is_some_and(|tx| tx.receiver_count() == 0) {
+        tokio::task::yield_now().await;
+    }
+    held.lock().unwrap().take();
+    waiting.await.unwrap()
+}
+
+/// Second review, item 5: a request whose session is deleted while it waits answered a false
+/// `log.failed` (its log's progress closed). Nothing of a deleted session is kept.
+#[tokio::test]
+async fn request_writes_a_session_deleted_while_waiting_is_not_a_failed_log() {
+    assert!(wait_while_the_log_is_forgotten(true).await, "a deleted chat answered log.failed");
+    assert!(!wait_while_the_log_is_forgotten(false).await, "a live chat's lost log was saved");
+}
