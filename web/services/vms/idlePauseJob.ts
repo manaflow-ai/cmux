@@ -47,7 +47,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const candidates = repo.idlePauseCandidates;
-    if (!candidates || !repo.recordIdleObservation || !providers.pause) {
+    if (!candidates || !repo.recordIdleObservation || !repo.recordIdleCheck || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
@@ -114,10 +114,13 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
     // A pause candidate that lost its row fence must keep the prior idle
     // stretch. Writing a null observation here would restart the timeout on
     // every run when unrelated metadata keeps changing updatedAt.
-    if (decision.pause) return "active" as const;
+    if (decision.pause) {
+      const repo = yield* VmRepository;
+      yield* repo.recordIdleCheck!({ id: vm.id, providerVmId, probedAt: checkedAt });
+      return "active" as const;
+    }
     // Every checked machine records when it was checked, so the next run starts with the others.
     yield* recordObservation(vm.id, providerVmId, decision.observation, checkedAt);
-    // A pause skipped because the row moved: something used the machine since the candidate read.
     return outcomeOf(decision);
   });
 }
@@ -136,9 +139,8 @@ function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
     // its lifecycle fence until the complete claim protocol is ported.
     if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
     if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
-    // Addresses are probe inputs. Generic updatedAt writes (renames,
-    // reservation bookkeeping, provider metadata) do not invalidate a check,
-    // but an address change does.
+    // Addresses are probe inputs; reject a change even if its writer did not
+    // advance the lifecycle timestamp.
     if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return null;
     return current;
   });
