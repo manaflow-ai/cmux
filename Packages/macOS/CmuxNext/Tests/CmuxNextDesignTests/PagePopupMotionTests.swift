@@ -110,9 +110,10 @@ import Testing
     func aChildPopupTakesKeyboardAndReturnsItToItsParent() async throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
-        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { _ in }, isAppActive: { true })
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }
-        let model = NativePopupModel(schemaVersion: 1, id: "submenu-focus", revision: 1,
+        var model = NativePopupModel(schemaVersion: 1, id: "submenu-focus", revision: 1,
                                      anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
                                      side: .bottom, align: .start, width: 240,
                                      rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
@@ -133,6 +134,21 @@ import Testing
         childContent.dismiss()
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
         #expect(parentPanel.firstResponder === parentContent)
+        #expect(events.isEmpty, "closing a child must not dismiss the React root")
+
+        parentContent.keyDown(with: rightArrow)
+        let disabledChild = try #require(parentPanel.childWindows?.compactMap { $0 as? NativePopupPanel }.first { $0.isKeyWindow })
+        let disabledContent = try #require(disabledChild.firstResponder as? NativePopupContent)
+        let oldRow = model.rows[0]
+        model.revision += 1
+        model.rows[0].disabled = true
+        host.update(model)
+        #expect(await GUIAnimationTestSupport.settle { !disabledChild.isVisible })
+        disabledContent.emit(.pick, "pick", nil)
+        parentContent.openSubmenu(oldRow, parentContent)
+        #expect(events.isEmpty, "a disabled ancestor or stale row must not authorize a child action")
+        #expect(host.activeID == model.id)
+        #expect(parentPanel.childWindows?.contains { $0.isVisible } != true)
         host.hide()
         #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
     }
