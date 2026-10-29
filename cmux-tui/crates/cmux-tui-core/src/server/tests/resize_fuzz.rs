@@ -41,9 +41,11 @@
 //!   checked). The child prints a burst in chunks and waits before each
 //!   chunk after the first until the test lets it go (a file handshake, no
 //!   timing): the test runs one mid-burst action (a resize, or the mirror
-//!   attach) after each chunk's bytes, so every action lands with output
-//!   still to come (the stream is past the chunk's end and before the
-//!   burst's end).
+//!   attach) after each chunk's bytes, releasing the next chunk first, so
+//!   the next chunk can stream (written but not yet parsed) during the
+//!   action; whether it does is timing, the outcome checks are not. A gated
+//!   tail chunk keeps the stream before the burst's end until every action
+//!   ran.
 //!
 //! The test runs one scripted case (each kind of step once, a few seconds)
 //! and then `CMUX_RESIZE_FUZZ_SEEDS` seeded random cases (default 0 here) of
@@ -1154,28 +1156,32 @@ impl Case {
                 // The marker is in every view before the burst starts.
                 self.settle(&format!("{why}: before the burst"));
                 // The mid-burst actions: each resize, and the mirror attach
-                // after the first resize (first when there is none). One
-                // chunk of output before each action and one after the last.
+                // after the first resize (first when there is none). The
+                // burst has one chunk before each action, one chunk that
+                // is released as each action starts (so output can be in
+                // flight, written but not yet parsed, during it), and a tail
+                // chunk that stays gated until every action ran, so the burst
+                // cannot end before the last action.
                 let mut actions = resizes.into_iter().map(Some).collect::<Vec<_>>();
                 if mirror.is_some() {
                     actions.insert(actions.len().min(1), None);
                 }
                 let pauses = actions.len() as u64;
-                let lines = lines.max(pauses + 1);
-                let (tag, from, until) = self.start_output(lines, pauses + 1);
+                let chunks = pauses + 2;
+                let lines = lines.max(chunks);
+                let (tag, from, until) = self.start_output(lines, chunks);
                 self.begin_burst_window(&tag, lines);
-                // The child's chunks are `lines / (pauses + 1)` lines each, the
-                // last one with the rest.
-                let chunk = (until - from) / lines * (lines / (pauses + 1));
+                // The child's chunks are `lines / chunks` lines each, the last
+                // one with the rest.
+                let chunk = (until - from) / lines * (lines / chunks);
                 for (index, action) in actions.into_iter().enumerate() {
                     let end = from + (index as u64 + 1) * chunk;
                     let at =
                         self.wait_stream_at(end, &format!("{why}: chunk {index} of burst {tag}"));
-                    // The child waits for the next chunk's release, so the
-                    // action lands after this chunk's bytes and before the
-                    // burst's end. (Not exactly at the chunk's end: other
-                    // bytes may share the stream, such as a reply to a
-                    // resize; the burst-line check catches lost or reordered
+                    // The tail chunk is still gated, so the action lands
+                    // after this chunk's bytes and before the burst's end.
+                    // (Not exactly at the chunk's end: the next chunk streams
+                    // now; the burst-line check catches lost or reordered
                     // output.)
                     if at >= until {
                         self.fail(&format!(
@@ -1183,6 +1189,9 @@ impl Case {
                              at or past the burst's end o{until}: the child did not wait"
                         ));
                     }
+                    // Release the next chunk first: the action runs while it
+                    // streams.
+                    self.release_chunk(&tag, index as u64 + 1);
                     match action {
                         Some((viewer, size)) => {
                             let viewer = viewer.min(self.viewers.len() - 1);
@@ -1195,8 +1204,9 @@ impl Case {
                         }
                     }
                     self.pump();
-                    self.release_chunk(&tag, index as u64 + 1);
                 }
+                // Every action ran: release the tail.
+                self.release_chunk(&tag, pauses + 1);
                 self.wait_output_done(&tag, until);
                 self.settle(&why);
             }
