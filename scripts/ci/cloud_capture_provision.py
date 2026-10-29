@@ -58,12 +58,26 @@ class ProvisionError(Exception):
     pass
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: it would carry the server key (or the password) to another URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
+
+
 def http(method, url, headers, body, timeout=REQUEST_SECONDS):
-    """One HTTPS request; (status, headers, parsed JSON or None). Never raises for an HTTP status."""
+    """One HTTPS request to Stack's API host only, no redirects; (status, headers, parsed JSON or None).
+    Never raises for an HTTP status (a 3xx comes back as its status)."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != urllib.parse.urlsplit(STACK_API).hostname:
+        raise ProvisionError("refusing a request outside Stack's API host")
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with OPENER.open(request, timeout=timeout) as response:
             status, reply_headers, text = response.status, dict(response.headers), response.read()
     except urllib.error.HTTPError as error:
         status, reply_headers, text = error.code, dict(error.headers or {}), error.read()

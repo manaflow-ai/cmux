@@ -30,7 +30,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/feat-cmux-next
+          # The dispatched commit itself, never a later tip: the server key goes only to code that was reviewed.
+          ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: true

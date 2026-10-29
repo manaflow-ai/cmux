@@ -151,6 +151,22 @@ class Guards(unittest.TestCase):
         self.assertIn("HTTP 500 (SOMETHING)", str(caught.exception))
         self.assertNotIn("body-detail", str(caught.exception))
 
+    def test_requests_go_only_to_stack_and_never_follow_a_redirect(self):
+        with self.assertRaisesRegex(provision.ProvisionError, "outside Stack's API host"):
+            provision.http("GET", "https://example.com/api/v1/users", {}, None)
+        with self.assertRaisesRegex(provision.ProvisionError, "outside Stack's API host"):
+            provision.http("GET", "http://api.stack-auth.com/api/v1/users", {}, None)
+        request = provision.urllib.request.Request(provision.STACK_API + "/users")
+        self.assertIsNone(provision.NoRedirect().redirect_request(request, None, 302, "Found", {},
+                                                                  "https://elsewhere.example/"))
+        self.assertTrue(any(isinstance(h, provision.NoRedirect) for h in provision.OPENER.handlers))
+
+    def test_a_redirect_answer_is_an_error_naming_only_its_status(self):
+        def transport(method, url, headers, body, timeout=None):
+            return 302, {"location": "https://elsewhere.example/"}, None
+        with self.assertRaisesRegex(provision.ProvisionError, "HTTP 302"):
+            stack(transport).find(provision.EMAIL)
+
     def test_the_password_is_masked_in_actions_logs(self):
         stdout = io.StringIO()
         with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), contextlib.redirect_stdout(stdout):

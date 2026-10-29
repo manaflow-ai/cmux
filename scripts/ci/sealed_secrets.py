@@ -53,6 +53,9 @@ def sodium():
             lib = ctypes.CDLL(name)
         except OSError:
             continue
+        lib.sodium_init.restype = ctypes.c_int
+        lib.crypto_box_seal.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulonglong, ctypes.c_char_p)
+        lib.crypto_box_seal.restype = ctypes.c_int
         if lib.sodium_init() < 0:
             raise SealError("libsodium did not initialise")
         return lib
@@ -143,7 +146,9 @@ def gh(args, run=subprocess.run):
 
 
 def put(bundle, run=subprocess.run, log=print):
-    """Store every sealed value in the bundle's environment, after checking the live public key."""
+    """Store every sealed value in the bundle's environment, after checking the live public key. Each secret is
+    its own PUT, so a failure part way leaves the earlier ones stored; rerunning `put` with the same bundle (or
+    the producer, for a fresh one) finishes the set."""
     base = f"repos/{bundle['repo']}/environments/{bundle['environment']}/secrets"
     live = gh([f"{base}/public-key"], run) or {}
     if str(live.get("key_id")) != bundle["key_id"] or live.get("key") != bundle["key"]:
