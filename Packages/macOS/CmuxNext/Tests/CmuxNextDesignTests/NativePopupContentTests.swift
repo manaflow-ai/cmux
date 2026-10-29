@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextIcons
 import Testing
 
 @MainActor @Suite(.serialized) struct NativePopupContentTests {
@@ -47,21 +48,33 @@ import Testing
     @Test func iconRowsKeepTheirCheckmarkAndSharedColumns() throws {
         let content = NativePopupContent(frame: NSRect(x: 0, y: 0, width: 320, height: 100))
         var model = Self.model()
-        model.rows = [NativePopupRow(id: "selected", kind: .action, label: "Selected", icon: "check", checked: true),
-                      NativePopupRow(id: "other", kind: .action, label: "Other", icon: "check", checked: false)]
+        model.rows = [NativePopupRow(id: "selected", kind: .action, label: "Selected", icon: "permission.ask", checked: true),
+                      NativePopupRow(id: "other", kind: .action, label: "Other", icon: "permission.auto", checked: false)]
         content.update(model)
         content.layoutSubtreeIfNeeded()
         let selected = try #require(content.rowView(id: "selected") as? PopupRowView)
         let other = try #require(content.rowView(id: "other") as? PopupRowView)
         let columns = try #require(selected.leadingView as? NSStackView)
         let otherColumns = try #require(other.leadingView as? NSStackView)
-        #expect((columns.arrangedSubviews.first as? NSTextField)?.stringValue == "✓")
+        #expect((columns.arrangedSubviews.first as? ThemedLabel)?.stringValue == "✓")
         #expect(columns.arrangedSubviews.first?.isHidden == false)
         #expect(otherColumns.arrangedSubviews.first?.isHidden == true)
         #expect(columns.arrangedSubviews.last is NSImageView)
         #expect(selected.rowLayout.leadingColumn == other.rowLayout.leadingColumn)
         #expect(content.convert(selected.titleLabel.bounds, from: selected.titleLabel).minX ==
                 content.convert(other.titleLabel.bounds, from: other.titleLabel).minX)
+    }
+
+    @Test func permissionModeGlyphsRenderDistinctly() throws {
+        var drawings = Set<Data>()
+        for name in [IconName.permissionAsk, .permissionAuto, .permissionFullAccess] {
+            #expect(IconCatalog.bundled.entry(for: name) != nil)
+            let image = try #require(CGImage.icon(name, size: 16, scale: 2, tint: CGColor(gray: 0, alpha: 1)))
+            let pixels = try #require(image.dataProvider?.data) as Data
+            #expect(pixels.contains { $0 != 0 }, "the mode glyph is empty")
+            drawings.insert(pixels)
+        }
+        #expect(drawings.count == 3, "the three modes must keep their distinct existing glyphs")
     }
 
     @Test(arguments: ["rows", "rail", "footer"])
