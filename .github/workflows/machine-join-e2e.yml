@@ -116,11 +116,65 @@ jobs:
             echo "base=$base"
             echo "home=$base/home"
           } >> "$GITHUB_OUTPUT"
-          chmod 755 "$base"
+          # acpmux refuses a state directory with an ancestor owned by anyone but root or its own user
+          # (config.rs validate_private_state_ancestors), and the disposable user must not be able to
+          # replace the binary: the base is root's, 0755, before the user exists.
+          sudo chown root:root "$base"
+          sudo chmod 0755 "$base"
           sudo useradd --create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
-          echo "uid=$(id -u "$user")" >> "$GITHUB_OUTPUT"
+          uid="$(id -u "$user")"
+          echo "uid=$uid" >> "$GITHUB_OUTPUT"
           sudo install -d -o root -g root -m 0755 "$base/bin"
           sudo install -o root -g root -m 0755 cmux-tui/target/debug/acpmux "$base/bin/acpmux"
+          # Every ancestor of the home and of the binary: owned by root or the user, and no group or
+          # other write unless sticky (as /tmp is), the rule acpmux applies to its state ancestors.
+          for start in "$base/home" "$base/bin/acpmux"; do
+            path="$start"
+            while :; do
+              read -r owner mode < <(sudo stat -c '%u %a' -- "$path")
+              if [ "$owner" != 0 ] && [ "$owner" != "$uid" ]; then
+                echo "::error::$path is owned by uid $owner, not root or the disposable user"
+                exit 1
+              fi
+              if [ $((8#$mode & 8#022)) -ne 0 ] && [ $((8#$mode & 8#1000)) -eq 0 ]; then
+                echo "::error::$path ($mode) is writable by group or others and not sticky"
+                exit 1
+              fi
+              [ "$path" = / ] && break
+              path="$(dirname -- "$path")"
+            done
+          done
+
+      # Real acpmux as the disposable user, with no secret in reach: a join takes its lock, and so makes
+      # and checks its state directory and every ancestor, before it reads stdin. Malformed stdin then
+      # ends it with exit 2 (join.malformed) before any request; exit 5 (join.store) is the directory refusal.
+      - name: Smoke-test acpmux as the disposable user
+        env:
+          JOIN_USER: ${{ steps.user.outputs.user }}
+          JOIN_BASE: ${{ steps.user.outputs.base }}
+          JOIN_HOME: ${{ steps.user.outputs.home }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/machine-join-smoke.txt"
+          printf 'not-a-join-token\n' | sudo -n -u "$JOIN_USER" -- /usr/bin/env -i -C "$JOIN_HOME" \
+            HOME="$JOIN_HOME" USER="$JOIN_USER" LOGNAME="$JOIN_USER" \
+            PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+            "$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN" --name ci-join-smoke --json >"$out" 2>&1
+          code=$?
+          cat -- "$out"
+          if [ "$code" -eq 5 ]; then
+            echo "::error::acpmux refused its state directory as the disposable user (exit 5, join.store)"
+            exit 1
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "::error::the malformed-input join exited $code, not 2"
+            exit 1
+          fi
+          read -r owner mode < <(sudo stat -c '%U %a' -- "$JOIN_HOME/.acpmux")
+          if [ "$owner" != "$JOIN_USER" ] || [ "$mode" != 700 ]; then
+            echo "::error::the state directory is $owner $mode, not $JOIN_USER 700"
+            exit 1
+          fi
 
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke

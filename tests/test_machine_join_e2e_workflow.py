@@ -8,7 +8,10 @@ secrets reach exactly one step, through `env`; no `set -x`; the platform origin
 is development's; the runner is an ephemeral Blacksmith label (never a runner
 variable that can name a persistent host); the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
-check found the evidence clean; nothing else is uploaded.
+check found the evidence clean; nothing else is uploaded. The disposable
+user's base is root:root 0755 before the user exists (acpmux refuses a state
+directory with another user's ancestor), and the real binary joins with
+malformed stdin as that user before any secret is in reach.
 """
 
 from __future__ import annotations
@@ -112,6 +115,39 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertTrue(remove["if"].startswith("always()"))
         self.assertIn("userdel --remove", remove["run"])
         self.assertIn('sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1', remove["run"])
+
+    def test_disposable_base_is_roots_before_the_user_exists(self) -> None:
+        # acpmux refuses a state directory whose ancestor another user owns; a runner-owned base also
+        # leaves the binary's directory replaceable. root:root 0755 before useradd, then every ancestor checked.
+        run = step("Create the disposable user")["run"]
+        useradd = run.index("sudo useradd")
+        chown = run.index('sudo chown root:root "$base"')
+        chmod = run.index('sudo chmod 0755 "$base"')
+        self.assertLess(chown, useradd)
+        self.assertLess(chmod, useradd)
+        self.assertNotRegex(run[:useradd], r"(?m)^\s*chmod ")
+        self.assertIn('for start in "$base/home" "$base/bin/acpmux"', run)
+        self.assertIn("8#022", run)
+        self.assertIn("8#1000", run)
+        self.assertIn('[ "$owner" != 0 ] && [ "$owner" != "$uid" ]', run)
+
+    def test_real_binary_smoke_runs_as_the_user_before_the_secrets(self) -> None:
+        names = [s.get("name") for s in steps()]
+        smoke_at = names.index("Smoke-test acpmux as the disposable user")
+        self.assertLess(names.index("Create the disposable user"), smoke_at)
+        self.assertLess(smoke_at, names.index("Mint, join, verify and revoke"))
+        smoke = steps()[smoke_at]
+        self.assertNotIn("secrets", str(smoke))
+        self.assertNotIn("CMUX_UITEST_STACK", str(smoke))
+        self.assertNotIn("if", smoke)
+        run = smoke["run"]
+        self.assertIn("printf 'not-a-join-token\\n' | sudo -n -u \"$JOIN_USER\"", run)
+        self.assertIn("/usr/bin/env -i", run)
+        self.assertIn('"$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN"', run)
+        self.assertNotIn("cmj_", run)
+        self.assertIn('if [ "$code" -eq 5 ]', run)
+        self.assertIn('if [ "$code" -ne 2 ]', run)
+        self.assertIn('"$JOIN_HOME/.acpmux"', run)
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
