@@ -1,0 +1,45 @@
+.acpmux-scroll-evidence {
+  width: 320px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px;
+  overflow: auto;
+  background: var(--agent-surface, #1c1c1e);
+  color: var(--agent-text, #f5f5f7);
+}
+
+.acpmux-scroll-evidence[data-height="short"] {
+  height: 360px;
+}
+
+.acpmux-scroll-evidence[data-height="tall"] {
+  height: 900px;
+}
+
+.acpmux-scroll-evidence__label {
+  margin: 0 0 8px;
+  color: var(--agent-muted, #999);
+  font-size: var(--text-detail, 12px);
+}
+
+.acpmux-scroll-evidence__section {
+  margin: 0 0 12px;
+}
+
+.acpmux-scroll-evidence__section > h2 {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: var(--text-detail, 12px);
+  font-weight: 500;
+}
+
+/* Experimental arm only: model the outer-only alternative without changing production CSS. */
+.acpmux-scroll-evidence[data-arm="outer-only"] .acpmux-chat-inspector-scroll {
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+.acpmux-scroll-evidence[data-arm="outer-only"] {
+  overflow-y: auto;
+}
