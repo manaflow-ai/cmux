@@ -479,6 +479,25 @@ fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
 
 /// A server that silently truncates a full list can no longer make restore appear complete.
 #[test]
+fn a_short_legacy_trajectory_list_can_still_use_recency_order() {
+    struct LegacyShort;
+    impl Api for LegacyShort {
+        fn call(&mut self, action: &str, _: &Value) -> Answer {
+            assert_eq!(action, "list");
+            // Older servers list newest first, independent of lexical session ID.
+            ok(json!({ "sessions": [
+                { "session": "chat-z", "generation": CREATED, "last_seq": 1,
+                  "meta": { "id": "chat-z" }, "native": [] },
+                { "session": "chat-a", "generation": CREATED, "last_seq": 1,
+                  "meta": { "id": "chat-a" }, "native": [] },
+            ] }))
+        }
+    }
+    let m = Machine::new();
+    assert_eq!(m.mirror().prime(&mut LegacyShort).unwrap(), 0);
+}
+
+#[test]
 fn legacy_500_session_reply_without_cursor_fails_closed() {
     struct LegacyList;
     impl Api for LegacyList {
