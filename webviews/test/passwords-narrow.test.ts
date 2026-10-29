@@ -53,7 +53,12 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
       const rows = [...document.querySelectorAll(".pw-site .pw-row")].map((row) => {
         const name = row.querySelector<HTMLElement>(".pw-username")!;
         const actions = box(row.querySelector(".pw-actions")!);
-        return { name: box(name).width, wants: name.scrollWidth, nameTop: box(name).top, actionsTop: actions.top };
+        return {
+          name: box(name).width,
+          wants: name.scrollWidth,
+          nameTop: box(name).top,
+          actionsTop: actions.top,
+        };
       });
       return {
         header: { left: header.left, right: header.right },
@@ -71,8 +76,7 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
     for (const theme of ["light", "dark"] as const) {
       test(`${theme}: only row buttons highlight on hover, press and keyboard focus`, async () => {
         const page = await open(900, theme);
-        const background = (element: Locator) =>
-          element.evaluate((node) => getComputedStyle(node).backgroundColor);
+        const background = (element: Locator) => element.evaluate((node) => getComputedStyle(node).backgroundColor);
         try {
           for (const section of ["pw-passwords", "pw-passkeys", "pw-exceptions"]) {
             const row = page.locator(`[aria-labelledby="${section}"] .pw-row`).first();
