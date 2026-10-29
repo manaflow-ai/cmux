@@ -1,0 +1,41 @@
+{
+ "id": "stale-view-first-steps",
+ "priority": "P3",
+ "title": "A new terminal's view follows its daemon screen: the typed command's output shows in the app's own text and frame, not only in the daemon's",
+ "why": "v2.2.7-opt (ef0b040d): the app's view of a new terminal kept its first, cut line while the daemon had the shell's output (5 of 9 runs; 0 of 3 on v2.2.6-opt). Decides regression or not; the expect step saves debug.surfaces, the budgets and a 3 s sample at that failure.",
+ "source": "dogfood v2.2.7-opt gate, 2026-10-29",
+ "budget_seconds": 60,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-load-${nonce}",
+   "title": "set-up, before the load: a working terminal"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo before-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "before"
+  },
+  {
+   "do": "expect",
+   "title": "the typed command's output shows in the daemon, in the app's own text and in the frame",
+   "since": "before",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "before-${nonce}-42"
+    },
+    {
+     "app_text_line": "before-${nonce}-42"
+    },
+    {
+     "frame_text": "before-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}
