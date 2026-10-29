@@ -482,6 +482,12 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* A shell sibling must leave the offered native tab row clear, including when the narrow
+   preview covers the chat. Its background belongs below the row, never in its tools hole. */
+.acpmux-shell[data-tab-row] > .acpmux-artifact {
+  margin-top: var(--acpmux-tab-row-height);
+  max-height: calc(100% - var(--acpmux-tab-row-height));
+}
 @media (max-width: 720px) {
   .acpmux-artifact {
     position: absolute;
