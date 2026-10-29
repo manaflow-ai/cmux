@@ -138,7 +138,7 @@ import Testing
         window.zoomHoldsContent = true
         window.zoom(nil)
         #expect(Motion.holdsContentResize(window), "the zoom's steps resize the terminals")
-        runUntil { !Motion.holdsContentResize(window) }
+        runUntil("zoom lands", window, seconds: 30) { !Motion.holdsContentResize(window) }
         #expect(!Motion.holdsContentResize(window), "the zoom held its window's grids after it landed")
         #expect(window.frame.width > start.width, "the zoom did not land")
     }
@@ -156,7 +156,7 @@ import Testing
         coordinator.submit(terminal, size: CellSize(cols: 130, rows: 40), window: window)
         while coordinator.tick() {}
         #expect(terminal.applied == [CellSize(cols: 130, rows: 40)], "a mid-zoom grid waited for the landing: \(terminal.applied)")
-        runUntil { window.frame.width > start.width + 1 && window.isZoomed }
+        runUntil("zoom lands", window, seconds: 30) { window.frame.width > start.width + 1 && window.isZoomed }
         #expect(window.frame.width > start.width, "the zoom did not land")
     }
 }

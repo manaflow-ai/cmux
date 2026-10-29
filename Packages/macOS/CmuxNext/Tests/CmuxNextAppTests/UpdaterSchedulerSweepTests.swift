@@ -23,7 +23,6 @@ import Testing
                                      work: BackgroundWork(label: "test.updater-sweep"), deadlines: rig.deadlines, checkNode: checkNode)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
-        updater.tipCheck.downloadsInBackground = { true }
         updater.stagedRefresh.replaceable = { true }
         return updater
     }

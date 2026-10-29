@@ -7,6 +7,7 @@ import CmuxNextPages
 import CmuxNextPagesTestSupport
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A link clicked in a lone agent chat (Leo 2026-10-21, screenshots): the chat docks left in a new
@@ -80,7 +81,7 @@ struct ChatDockLinkSplitMotionTests {
                       case let file = root.appending(path: "index.html"),
                       let chat = AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoChatHost()),
                                                work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
-                                               webUI: WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry()),
+                                               webUI: WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: .testing()),
                                                gestures: .testing()) else { return NSView() }
                 self.chat = chat
                 return chat

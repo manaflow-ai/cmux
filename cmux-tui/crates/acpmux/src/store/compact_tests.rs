@@ -108,7 +108,10 @@ fn log(store: &LocalStore, id: &str) -> Vec<EventRecord> {
     store.events(id, 0, usize::MAX).unwrap()
 }
 
+/// The log's files as written: the store's writer appends on a thread of its own, so every line
+/// queued before is on disk first (`LocalStore::segments` settles the same way).
 fn bytes(store: &LocalStore, id: &str) -> Vec<(PathBuf, Vec<u8>)> {
+    store.log.settle(id);
     let mut files: Vec<_> = std::fs::read_dir(store.dir(id).join("events"))
         .unwrap()
         .map(|e| e.unwrap().path())

@@ -356,7 +356,7 @@ struct HomeNewMessageTests {
         let one = HomeContact(id: ParticipantID("agent_one"), name: "Chief", source: .agent)
         let two = HomeContact(id: ParticipantID("agent_two"), name: "Chief", source: .agent)
         let three = HomeContact(id: ParticipantID("agent_three"), name: "Chief", source: .agent)
-        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 300))
+        let list = HomeRecipientSuggestionsView(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 380, height: 300))
         list.look = { recipient in
             guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
             let activity: String? = contact == one ? "Active 2h ago" : contact == two ? "Active yesterday" : "Active yesterday"

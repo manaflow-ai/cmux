@@ -3,6 +3,7 @@
 import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 @MainActor
@@ -19,7 +20,8 @@ struct LaunchPolishVisibilityTests {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
+        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [],
+                                    mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         #expect(!settings.previewFeatures)
         #expect(settings.updates.showWhatsNew == true)
@@ -33,7 +35,8 @@ struct LaunchPolishVisibilityTests {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
+        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [],
+                                    mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         settings.updates.showWhatsNew = false
         center.isItemEnabled = settings.updates.showWhatsNew

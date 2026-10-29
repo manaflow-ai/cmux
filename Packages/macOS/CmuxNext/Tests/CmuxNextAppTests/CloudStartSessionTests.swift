@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): its arguments are checked
@@ -245,6 +246,7 @@ struct CloudStartSessionTests {
             return true
         })
         var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", endpoint: { throw CancellationError() },
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()),
                                       servesKeyedReason: servesKeyedReason, approvals: approvals)
         host.start = { _, _, key in
             steps.note(key == nil ? "start" : "start keyed")

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDaemon
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Testing
 
 /// Leo 2026-10-21 (#89): the Chief settings showed raw ids (`claude-sr2-pipe`,
@@ -125,7 +126,7 @@ import Testing
     /// Two ids that read as one name (`claude-cr`, `claude-cr-`) stay two items, and the chosen one is selected.
     @Test func twoIdsWithOneNameStayTwoItems() {
         let home = FileManager.default.temporaryDirectory
-        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let button = NSPopUpButton(frame: .zero, pullsDown: false)
         let name = "claude-cr".chiefHarnessName
         view.fill(button, [(value: "claude-cr", title: name)], current: "claude-cr-", defaultTitle: "Default", title: { _ in name })
@@ -137,7 +138,7 @@ import Testing
     /// The Backend popup shows a chosen route by name and keeps its id in the item's tooltip.
     @Test func theBackendPopupShowsAChosenRouteByName() {
         let home = FileManager.default.temporaryDirectory
-        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         view.show(HomeChiefSnapshot(harness: "claude-sr2-pipe", model: nil, effort: nil, avatar: nil, turns: []))
         #expect(view.harness.selectedItem?.title == "\(ChiefBackend.claude.title) (SR2 Pipe)")
         #expect(view.harness.selectedItem?.toolTip == "claude-sr2-pipe")

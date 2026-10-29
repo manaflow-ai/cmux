@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 @testable import CmuxNextApp
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 @MainActor
@@ -39,7 +40,8 @@ struct CloudCredentialRecoveryTests {
 
     @Test func remoteHandshakeCarriesProviderVMIdentitySeparatelyFromSession() async throws {
         var host = AgentTabRemoteHost(surface: 7, session: "chat-1", machine: "Workspace",
-                                      endpoint: { throw CancellationError() })
+                                      endpoint: { throw CancellationError() },
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(try await host.handshake(sessionId: nil).cloudMachineID == nil)
         host.cloudMachineID = "provider-vm-1"
         let handshake = try await host.handshake(sessionId: nil)

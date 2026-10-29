@@ -74,7 +74,7 @@ import UniformTypeIdentifiers
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let home = folder.appending(path: "brain")
-        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let uploads = ChiefAvatarUploads(folder: folder.appending(path: "uploads"))
         let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: Self.chief), uploads: uploads)

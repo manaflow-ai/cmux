@@ -49,4 +49,7 @@ private nonisolated final class GatedSpawner: ComputerUseHelperV2Spawning {
     }
 
     func terminate(_ pid: pid_t) {}
+
+    /// Its spawns all fail, so no helper exits to watch.
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void { {} }
 }

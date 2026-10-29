@@ -57,8 +57,9 @@ async fn busy(steering: bool) -> Busy {
     let hub = Hub::new(cfg, store);
     let tag =
         format!("{}-{}", std::process::id(), &uuid::Uuid::now_v7().simple().to_string()[20..]);
-    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
-    let socket = PathBuf::from("/tmp").join(format!("acpmux-steer-{tag}.sock"));
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path. In a folder of its
+    // own, which `bind_unix` makes owner-only: it binds only in a private directory.
+    let socket = PathBuf::from("/tmp").join(format!("acpmux-steer-{tag}")).join("s.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
     let scratch = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("steer-{tag}"));

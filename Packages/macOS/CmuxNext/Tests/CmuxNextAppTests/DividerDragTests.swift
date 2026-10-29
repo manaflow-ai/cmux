@@ -100,6 +100,8 @@ import Testing
                 case .sampled: "sampled"
                 case .moved: "moved"
                 case .ended: "ended"
+                case .modifiersChanged: "modifiersChanged"
+                case .cancelled: "cancelled"
                 case .doubleClick: "doubleClick"
                 }
             }
@@ -199,8 +201,9 @@ import Testing
         var latestOnly = drag
         latestOnly.velocity = 0
         latestOnly.pointer = nil
-        latestOnly.sample(screen.contentPoint(fromWindow: points[6], kind: .split("x")), at: t0 + 0.014)
-        latestOnly.sample(screen.contentPoint(fromWindow: points[7], kind: .split("x")), at: t0 + 0.016)
+        let content = DividerDrag(screen: screen)
+        latestOnly.sample(content.contentPoint(fromWindow: points[6], kind: .split("x")), at: t0 + 0.014)
+        latestOnly.sample(content.contentPoint(fromWindow: points[7], kind: .split("x")), at: t0 + 0.016)
         #expect(drag.velocity != latestOnly.velocity, "the velocity used the whole frame's samples")
 
         for harness in [coalesced, perEvent] {

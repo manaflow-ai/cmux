@@ -63,7 +63,7 @@ struct AgentCursorTagLinkTests {
         // Reduce Transparency pinned off: under the shared one's `override` (set by suites that run
         // alongside) the tag is opaque at rest and on hover, so the highlight would not show.
         let stack = AgentCursorStack(hostLayer: CALayer(), resolver: Visible(), label: { links.label(for: $0) },
-                                     reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()))
+                                     reduceTransparency: ReduceTransparency(system: { false }))
         return (links, stack, AgentCursorWindowTags(links: links, host: { stack.host }))
     }
 

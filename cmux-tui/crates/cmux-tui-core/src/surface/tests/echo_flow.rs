@@ -108,7 +108,8 @@ fn check_holder_echo_flow(granted: Option<u32>) {
     let marks: Vec<_> = frames.iter().filter(|frame| frame.kind == Kind::Write as u16).collect();
     if granted.is_some_and(|granted| granted & capability::WRITE_FLOW != 0) {
         assert_eq!(marks.len(), 1, "one flow mark: {frames:?}");
-        assert_eq!((marks[0].flags, marks[0].chan), (wire::FLAG_FLOW, 5));
+        // Every frame of this build states its descriptor count (none for a WRITE).
+        assert_eq!((marks[0].flags, marks[0].chan), (wire::FLAG_FLOW | wire::FLAG_FDS_STATED, 5));
         assert_eq!(
             wire::split_write(marks[0].flags, &marks[0].payload).unwrap(),
             (&[][..], Some(42)),

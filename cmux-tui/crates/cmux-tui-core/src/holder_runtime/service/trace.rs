@@ -215,7 +215,8 @@ mod tests {
         assert_eq!(TraceStart::decode(&seen[0].payload).unwrap(), start);
         assert_eq!(
             (seen[1].kind, seen[1].flags, seen[1].chan),
-            (Kind::Write as u16, wire::FLAG_FLOW, 5)
+            // Every frame of this build states its descriptor count (none for a WRITE).
+            (Kind::Write as u16, wire::FLAG_FLOW | wire::FLAG_FDS_STATED, 5)
         );
         assert_eq!(
             wire::split_write(seen[1].flags, &seen[1].payload).unwrap(),

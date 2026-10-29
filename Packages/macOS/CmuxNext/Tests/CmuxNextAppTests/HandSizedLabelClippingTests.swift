@@ -91,7 +91,7 @@ import Testing
         let chip = HomeRecipientChip(token: HomeRecipientToken(text: "Lawrence Chen", recipient: nil))
         let window = Self.host(chip, size: NSSize(width: chip.preferredWidth, height: HomeRecipientChip.height))
         #expect(Self.clipped(in: chip) == [])
-        let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let field = HomeRecipientField(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         let fieldWindow = Self.host(field, size: NSSize(width: 480, height: 44))
         #expect(Self.clipped(in: field) == [])
         _ = (window, fieldWindow)

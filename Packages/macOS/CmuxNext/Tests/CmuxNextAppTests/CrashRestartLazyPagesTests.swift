@@ -2,6 +2,8 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextDaemon
+import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -11,8 +13,8 @@ import Testing
 /// so a restart never loads every page at once.
 @MainActor @Suite(.serialized) struct CrashRestartLazyPagesTests {
     private func cache() -> TabContentCache {
-        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: NoFileInput())
-        cache.browserTabs.cefUnavailable = { .notBundled }
+        let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        cache.browserTabs.cefUnavailable = { CEFUnavailableReason.notBundled }
         return cache
     }
 

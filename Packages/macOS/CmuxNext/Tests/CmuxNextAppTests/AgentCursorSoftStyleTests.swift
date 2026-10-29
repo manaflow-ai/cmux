@@ -20,7 +20,7 @@ struct AgentCursorSoftStyleTests {
 
     /// This Mac's Reduce Transparency pinned off for these cursors only: the shared one's
     /// `override` is set by suites that run alongside (an opaque tag, alpha 1).
-    static let clearGlass = ReduceTransparency(system: { false }, changes: NotificationCenter())
+    static let clearGlass = ReduceTransparency(system: { false })
 
     private func placed(_ session: String = "cmux-browser-cli:Claude") throws -> AgentCursorLayer {
         let stack = AgentCursorStack(hostLayer: CALayer(), resolver: Visible(), reduceTransparency: Self.clearGlass)

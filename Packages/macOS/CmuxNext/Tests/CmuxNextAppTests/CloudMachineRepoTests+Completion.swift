@@ -2,6 +2,7 @@
 @testable import CmuxNextCloud
 import Foundation
 import Observation
+import CmuxNextWakeups
 import Testing
 
 /// The bootstrap's end for GUI callers (`CloudMachineBootstrap.Completion`): the New Cloud Workspace
@@ -182,7 +183,7 @@ extension CloudMachineRepoTests {
     @MainActor final class Flag { var on = false }
 
     @MainActor @Test func theFlowOpensWithoutWaitingAndTheWaitOutlivesTheRow() async {
-        let creations = CloudCreations(), fake = GatedMachine(), opened = Flag()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget())), fake = GatedMachine(), opened = Flag()
         let creation = repoCreation(creations)
         // The flow's task, as `CloudCreationFlow.run` makes it: the hook, then the open, then it waits
         // for the workspace's mirror (here: until the row's removal cancels it).
@@ -206,7 +207,7 @@ extension CloudMachineRepoTests {
     }
 
     @MainActor @Test func tearingTheCreationDownStopsTheWait() async {
-        let creations = CloudCreations(), fake = GatedMachine()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget())), fake = GatedMachine()
         let creation = repoCreation(creations)
         await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
         await fake.untilRead()
@@ -226,7 +227,7 @@ extension CloudMachineRepoTests {
     }
 
     @MainActor @Test func aCallerWaitingOnTheCompletionWakesWhenTheCreationEnds() async {
-        let creations = CloudCreations(), fake = GatedMachine(), fired = Fired()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget())), fake = GatedMachine(), fired = Fired()
         let creation = repoCreation(creations)
         await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
         await fake.untilRead()
@@ -244,7 +245,7 @@ extension CloudMachineRepoTests {
         var request = CloudMachineRequest(repo: Self.repo)
         request.script = withRepo
         request.machineConfig = CloudMachineConfig(contents: nil)
-        let creation = CloudCreations().begin(window: nil, request: request), others = Fired()
+        let creation = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget())).begin(window: nil, request: request), others = Fired()
         let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in }, exec: { command in
             // The start goes out, then the flow is cancelled (a Retry) before it comes back.
             if command.contains("echo started") { withUnsafeCurrentTask { $0?.cancel() } }

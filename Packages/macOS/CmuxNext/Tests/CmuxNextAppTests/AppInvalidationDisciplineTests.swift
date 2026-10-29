@@ -22,7 +22,7 @@ import Testing
     /// A notification row selected again paints nothing; a new selection repaints its fill.
     @Test func aNotificationRowSelectedAgainPaintsNothing() {
         let row = NotificationsPanelRow(id: "n1", title: "Build finished", subtitle: nil, body: "All green", level: .info,
-                                        workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
+                                        source: "terminal", workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
                                         surface: nil, terminal: nil)
         let view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60), node: VisibilityNode(root: "test.row", own: .visible),
                                        callbacks: .init(open: {}, dismiss: {}, menu: { NSMenu() }))

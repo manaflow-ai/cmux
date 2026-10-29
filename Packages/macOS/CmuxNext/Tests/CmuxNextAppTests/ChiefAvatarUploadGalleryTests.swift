@@ -61,7 +61,7 @@ import Testing
                                 over: HomeChiefPetSetting.defaultMascot)
         }
         let home = folder.appending(path: "brain")
-        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief), uploads: uploads)
         rows.install(in: popover, node: shownNode(), mainWork: linklessMainWork(), addRow: { popover.addAppearanceRow($0, control: $1) },

@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 /// A create cmux Pro would allow fails its creation and offers Pro once, with
@@ -9,7 +10,7 @@ import Testing
     private func run(failingWith error: any Error, startedByPerson: Bool = true) async -> (CloudMachineCreation, [CloudMachineCreation.ProRefusal]) {
         var offers: [CloudMachineCreation.ProRefusal] = []
         let flow = CloudCreationFlow(
-            creations: CloudCreations(),
+            creations: CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
             create: { _ in throw error },
             open: { _ in "" },
             show: { _, _ in },

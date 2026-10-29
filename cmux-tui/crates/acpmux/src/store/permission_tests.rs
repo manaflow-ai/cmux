@@ -89,6 +89,8 @@ fn a_strict_read_fails_when_the_log_cannot_be_listed() {
         host_seq: None,
     };
     store.append("session-1", &record).unwrap();
+    // The store's writer appends on a thread of its own: the segment is on disk once it settles.
+    store.log.settle("session-1");
     let events = root.join("session-1").join("events");
     std::fs::remove_dir_all(&events).unwrap();
     std::fs::write(&events, "not a directory").unwrap();

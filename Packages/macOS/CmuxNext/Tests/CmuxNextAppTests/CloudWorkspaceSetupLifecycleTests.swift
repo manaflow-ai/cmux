@@ -1,12 +1,13 @@
 @testable import CmuxNextApp
 import CmuxNextCloudUI
 import CmuxNextCompat
+import CmuxNextWakeups
 import Testing
 
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct CloudWorkspaceSetupLifecycleTests {
     @Test func failedAttemptCanRetryAndOpenItsWorkspace() async {
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let creation = creations.begin(window: nil)
         creation.note(.failed("Connection failed"))
         #expect(CloudHandlers.workspaceSetupReadiness(creation, in: creations) == .waiting)
@@ -21,7 +22,7 @@ struct CloudWorkspaceSetupLifecycleTests {
     }
 
     @Test func dismissedAttemptEndsReadinessObservation() async {
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let creation = creations.begin(window: nil)
         var events = ObservationStream { CloudHandlers.workspaceSetupReadiness(creation, in: creations) }.makeAsyncIterator()
         _ = await events.next()
@@ -31,7 +32,7 @@ struct CloudWorkspaceSetupLifecycleTests {
     }
 
     @Test func mirroredRowKeepsCloneWaitButTeardownWakesIt() async {
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let creation = creations.begin(window: nil)
         creation.opened("workspace")
         creations.remove(creation)
@@ -48,7 +49,7 @@ struct CloudWorkspaceSetupLifecycleTests {
     }
 
     @Test func accountChangeTearsDownBeforeMachineAttach() {
-        let creations = CloudCreations()
+        let creations = CloudCreations(work: BackgroundWork(label: "test.cloud-creations"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let creation = creations.begin(window: nil)
         do {
             try CloudHandlers.checkCreationScope(creation, in: creations, expectedUserID: "before", expectedTeamID: "team",

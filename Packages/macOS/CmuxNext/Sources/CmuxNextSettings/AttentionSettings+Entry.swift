@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 nonisolated extension AttentionSettings {
     /// Whether reading a pane by `trigger` flashes its ring as it goes: going into it (a click, a

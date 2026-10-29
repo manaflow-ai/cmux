@@ -75,7 +75,7 @@ struct AppRunMarkerLaunchRecoveryTests {
         #expect(afterOne.marker.recovery, "the run after a crash watches for a restart loop")
         try Self.crash(folder)
         let afterTwo = try Self.launch(folder)
-        #expect(afterTwo.recovery.skipsBrowserPages, "two quick crashes: \(afterTwo.recovery)")
+        #expect(afterTwo.recovery.isSafeRestart, "two quick crashes: \(afterTwo.recovery)")
     }
 
     @Test("A requested quit that was killed is clean")

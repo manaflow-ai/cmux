@@ -613,8 +613,10 @@ async fn an_agent_a_web_turn_drove_sends_no_files_from_its_shell_or_its_tools() 
     let child = p.ok(START, json!({"prompt": "echo child"})).await;
     let child = child["sessionId"].as_str().unwrap().to_owned();
     app.wait_ready(&child).await;
-    let socket = PathBuf::from("/tmp").join(format!("acpmux-webshell-{}.sock", std::process::id()));
-    let _ = std::fs::remove_file(&socket);
+    // In a folder of its own, which `bind_unix` makes owner-only: it binds only in a private directory.
+    let socket = PathBuf::from("/tmp")
+        .join(format!("acpmux-webshell-{}-{}", std::process::id(), uuid::Uuid::now_v7().simple()))
+        .join("s.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
     let as_parent = |cmd: &mut tokio::process::Command| {

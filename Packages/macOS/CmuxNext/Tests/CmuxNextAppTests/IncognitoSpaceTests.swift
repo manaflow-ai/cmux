@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 /// Incognito spaces (Lawrence 14223, plans/cmux-next/spaces-overhaul-DESIGN.md rule 2): New Incognito
@@ -43,7 +44,8 @@ struct IncognitoSpaceTests {
     @Test func theLedgerKeepsTheIncognitoSpaces() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "incognito-space-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let ledger = IncognitoWorkspaceLedger(url: directory.appending(path: "incognito-workspaces.json"))
+        let url = directory.appending(path: "incognito-workspaces.json"), work = BackgroundWork(label: "test.incognito-space")
+        let ledger = IncognitoWorkspaceLedger(url: url, leftovers: IncognitoWorkspaceLedger.startLaunchRead(at: url, on: work), work: work)
         await ledger.record([], spaces: ["prof_a"])?.value
         #expect(ledger.hasLeftovers)
         #expect(await ledger.loadSpaces() == ["prof_a"])

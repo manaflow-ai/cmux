@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Modifier keys held while dragging a divider or a column edge pick how the drag resizes
@@ -23,7 +24,7 @@ struct DividerModifierDragTests {
 
         init(_ layout: ScreenLayout, focus: PaneID = "p1") {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focus)
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root

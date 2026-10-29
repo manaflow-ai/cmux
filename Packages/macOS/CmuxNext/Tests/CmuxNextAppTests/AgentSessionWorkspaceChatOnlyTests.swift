@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 /// `agent.openSessionWorkspace` (`cmux agent open`, the Chief's subagents, Start Agent's Return) on the
@@ -16,6 +17,7 @@ struct AgentSessionWorkspaceChatOnlyTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-chat-only-\(UUID().uuidString.prefix(8))")
         let session = "cn-chat-only-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
