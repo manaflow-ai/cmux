@@ -54,6 +54,9 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
   /// when it is but nothing changes (↑ on the oldest).
   const step = (direction: -1 | 1, current: string): string | null | undefined => {
     const browsing = showing(() => current) ? anchorGroup() : undefined;
+    // Text that no longer shows the recalled prompt ends browsing: drop the anchor so a later
+    // edit back to that text is the caret's, not history's.
+    if (!browsing) recalled.current = undefined;
     if (!browsing && current.trim()) return undefined;
     const index = (browsing ? history.groups.indexOf(browsing) : history.groups.length) + direction;
     // ↑ on the oldest keeps it; ↓ with nothing recalled is the caret's.

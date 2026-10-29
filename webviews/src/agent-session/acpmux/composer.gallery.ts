@@ -98,7 +98,12 @@ async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 const historyPageB = user("B: update the retry helper", 6);
 const historyPageC = user("C: add the 429 test", 3);
-const historyPageRows = [historyPageB, assistant("Updated the helper.", 5), historyPageC, assistant("Added the test.", 2)];
+const historyPageRows = [
+  historyPageB,
+  assistant("Updated the helper.", 5),
+  historyPageC,
+  assistant("Added the test.", 2),
+];
 const historyPageOlderRows = [
   user("A: inspect the backoff path", 9),
   assistant("Inspected the path.", 8),
@@ -1442,9 +1447,11 @@ export default agentPaneEntry({
         // Model the transcript page arriving after the user has started browsing. Row ids for B and
         // C are kept from the mounted snapshot; only the older A turn is prepended.
         await new Promise((resolve) => setTimeout(resolve, 120));
-        const bridge = (ctx.document.defaultView as unknown as {
-          cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
-        }).cmuxAcpmuxBridge;
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+          }
+        ).cmuxAcpmuxBridge;
         if (!bridge) throw new Error("gallery pane bridge is unavailable");
         bridge.receive(chat(historyPageOlderRows));
         await ctx.press("ArrowUp");

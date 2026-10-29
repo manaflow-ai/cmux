@@ -109,4 +109,13 @@ describe("prompt history paging", () => {
     expect(currentHistory().step(-1, "")).toBe("B");
     expect(currentHistory().step(-1, "edited draft")).toBeUndefined();
   });
+
+  test("an edit that ends browsing drops the anchor, so undoing the edit stays a draft", () => {
+    render([prompt("a", "A"), prompt("b", "B")]);
+    expect(currentHistory().step(-1, "")).toBe("B");
+    expect(currentHistory().step(-1, "Bx")).toBeUndefined();
+    // Deleting the "x" again shows "B", but it is now the person's draft: ↓ must not erase it.
+    expect(currentHistory().showing(() => "B")).toBe(false);
+    expect(currentHistory().step(1, "B")).toBeUndefined();
+  });
 });
