@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4081171433501",
+  "notes": "notes/4081171433501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27188,
+      "title": "ci: kept SwiftPM builds drop their resource bundles before a job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27145,
+      "title": "fix(gallery): Minimal Mode incoming-message plays open the received-message fold first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27169,
+      "title": "cmux cloud client-session: --quiet prints nothing, --jsonl prints JSON",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26096,
+      "title": "Agent chat: remove the duplicate floating copy button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27146,
+      "title": "fix(next): prefer below placement for location pickers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26988,
+      "title": "feat(inspector): summarize agent work in Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27000,
+      "title": "feat(next): add Labs workflow side tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27130,
+      "title": "fix(next): remove plates behind trailing header and output controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27164,
+      "title": "fix(needs-you): keep hover feedback on controls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26370,
+      "title": "fix(agent-chat): keep the composer edge fade compact",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26954,
+      "title": "NEXT: accept phone uploads of any size in the mobile host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26909,
+      "title": "acpmux: with no gh keyring login, the Mac runs a lent GitHub action with a cmux GitHub App token",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
