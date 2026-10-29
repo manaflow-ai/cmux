@@ -31,16 +31,15 @@ extension TerminalSurfaceView {
 }
 
 /// An IOSurface handed to the snapshot renderer. IOSurfaces are safe to read
-/// from any thread (the SDK declares `IOSurface` Sendable); the preview may show a frame Ghostty is
-/// replacing.
-struct SendableSurface: Sendable {
+/// from any thread; the preview may show a frame Ghostty is replacing.
+// crash-allow: one immutable IOSurface reference; IOSurface is a kernel-backed buffer read here only through CoreImage
+struct SendableSurface: @unchecked Sendable {
     let surface: IOSurface
 }
 
 enum TerminalSnapshotRenderer {
-    /// One context for every snapshot: CIContext objects are immutable and shared among threads (the SDK
-    /// declares `CIContext` Sendable).
-    static let context = CIContext(options: [.cacheIntermediates: false, .name: "cmux-next.terminal.snapshot"])
+    // crash-allow: an immutable constant; Apple documents CIContext objects as immutable and safe to share among threads
+    static nonisolated(unsafe) let context = CIContext(options: [.cacheIntermediates: false, .name: "cmux-next.terminal.snapshot"])
 
     /// ``render(_:maxPixelSize:)`` off the caller's actor, at the caller's priority: the render waits for the GPU.
     @concurrent nonisolated static func renderOffMain(_ frame: SendableSurface, maxPixelSize: CGFloat) async -> CGImage? {
