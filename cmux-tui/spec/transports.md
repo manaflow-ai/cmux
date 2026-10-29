@@ -672,8 +672,7 @@ whenever the SDK generator loads the schema.
 ### Assigning method ids
 
 `sdk-schema.json` declares `families`, so every command has `method_id` and
-`priority` and every event has `event_id` and `priority` (queue Q6 of
-`scripts/cmux-next/ipc-census.py` is empty). `cmux-tui/scripts/assign-ipc-method-ids.py`
+`priority` and every event has `event_id` and `priority`. `cmux-tui/scripts/assign-ipc-method-ids.py`
 writes them. Run it after adding a command or event; run it with `--check`
 to see that the schema is current. It never changes an existing id, family,
 `priority`, `ordering` or `durability`, so a second run gives no diff. It

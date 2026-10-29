@@ -217,13 +217,15 @@ public struct CmuxNextApp {
         let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
         let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
         let featureHello = environment.daemonFeatureHello, terminalStreams = Self.terminalStreams(features)
+        let wireUpgrades = Self.wireUpgrades(features)
         let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
             let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
                                                   resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                   terminalEnvironmentProvider: terminalEnvironmentProvider,
                                                   resolvesShellIntegration: resolvesShellIntegration,
                                                   echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
-                                                  featureHello: featureHello, terminalStreams: terminalStreams)
+                                                  featureHello: featureHello, terminalStreams: terminalStreams,
+                                                  wireUpgrades: wireUpgrades)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
                 launchCaches.safeMode.readsLaunchCaches ? LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory) : .missing
@@ -307,5 +309,15 @@ public struct CmuxNextApp {
     nonisolated static func terminalStreams(_ features: FeatureList) -> TerminalStreamsDevice? {
         guard features.isEnabled(.terminalStreams) else { return nil }
         return { await DaemonTerminalIO.sizingDevice.value }
+    }
+
+    /// The framed IPC the local daemon connection asks for while feature `ipcFrames` is on:
+    /// REQUEST frames from this build's method table and schema identity, and, with
+    /// `terminalStreams`, the stream grant, so a terminal view's keys go as INPUT frames on its stream. Off
+    /// asks for nothing and the connection keeps JSON lines.
+    nonisolated static func wireUpgrades(_ features: FeatureList) -> DaemonWireUpgrades {
+        guard features.isEnabled(.ipcFrames) else { return .none }
+        return DaemonWireUpgrades(frames: DaemonFrameSchema(table: .schema, identity: .built),
+                                  streams: features.isEnabled(.terminalStreams))
     }
 }
