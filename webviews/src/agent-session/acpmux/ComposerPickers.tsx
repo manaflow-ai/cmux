@@ -1768,7 +1768,9 @@ export function Picker({
                           if (at !== selected) setActive(at);
                         }}
                         onMouseDown={(event) => {
+                          // Keep focus on the combobox even when an auxiliary press does not pick.
                           event.preventDefault();
+                          if (event.button !== 0) return;
                           pick(at);
                         }}
                       >
