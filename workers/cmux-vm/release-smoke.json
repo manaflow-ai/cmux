@@ -13,6 +13,8 @@
     { "name": "snapshot capture cancellation", "method": "POST", "path": "/v1/snapshot-creations/by-key/cancel", "expect": [401], "sources": ["src/api/snapshots.ts", "src/handlers/snapshots.ts", "src/handlers/snapshot-key-cancellation.ts", "src/limits/snapshot-capture.ts", "src/proofs/snapshot-capture.ts"] },
     { "name": "snapshots", "method": "GET", "path": "/v1/snapshots", "expect": [401], "sources": ["src/api/snapshots.ts", "src/handlers/snapshots.ts", "src/db/snapshots.ts", "src/upstream/*snapshots*.ts"] },
     { "name": "meshes", "method": "GET", "path": "/v1/meshes", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/db/mesh*.ts", "src/mesh/**", "src/upstream/*mesh*.ts"] },
+    { "name": "agent keys", "method": "POST", "path": "/v1/agent-keys", "body": "{}", "expect": [401], "sources": ["src/api/agents.ts", "src/handlers/agents.ts", "src/handlers/agent-sandboxes.ts", "src/db/agents.ts", "src/agents/**"] },
+    { "name": "client sessions", "method": "POST", "path": "/v1/vms/vm_smoke/client-session", "body": "{}", "expect": [401], "sources": ["src/api/agents.ts", "src/handlers/agents.ts", "src/upstream/live-client-sessions.ts"] },
     { "name": "device peers", "method": "GET", "path": "/v1/devices/dev_smoke/peers", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/proofs/device-*.ts"] }
   ]
 }

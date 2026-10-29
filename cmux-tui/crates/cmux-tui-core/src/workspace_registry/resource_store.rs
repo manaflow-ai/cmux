@@ -3853,6 +3853,9 @@ fn tombstone_resource_tab_row(
          WHERE active_tab_id = ?2 AND deleted_revision IS NULL",
         params![revision, tab_id],
     )?;
+    // tab-attention-v1: a closed tab no longer needs the person; a reopen
+    // keeps the tab id, so the mark must not come back with it.
+    crate::state::tab_state_store::clear_closed_tab_attention(transaction, tab_id)?;
     tombstone_resource_identity(transaction, tab_id, revision)
 }
 
@@ -5106,16 +5109,9 @@ fn upsert_resource_identity(
 }
 
 fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let violation = transaction
-        .query_row("PRAGMA foreign_key_check", [], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })
-        .optional()?;
+    // The registry state tables only: the receipt ledgers and journal history
+    // are validated when read, and walking them made a large registry's open slow.
+    let violation = first_state_foreign_key_violation(transaction)?;
     if let Some((table, rowid, parent, index)) = violation {
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"

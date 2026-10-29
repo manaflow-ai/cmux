@@ -75,6 +75,27 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     expect((await a.mint(other.id)).status).toBe(403)
   })
 
+  it("stop at once when the chief is deleted", async () => {
+    const a = await installFor("chief-tok-del")
+    await op(a.session, "chief.create", {})
+    const chief = (await op(a.session, "chief.create", { display_name: "Doomed" })).json.value
+    const tok = await a.mint(chief.id)
+    expect(tok.status).toBe(200)
+    const muxRes = await worker.fetch(`https://api.test/v1/wire/mux/${chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${tok.json.access_token}` } })
+    expect(muxRes.status).toBe(101)
+    const ws = muxRes.webSocket!
+    let closed: number | undefined
+    ws.addEventListener("close", (e) => (closed = e.code))
+    ws.accept()
+    await new Promise((r) => setTimeout(r, 100))
+    const deleted = await op(a.session, "chief.delete", { chief: chief.id, expected_rev: chief.rev })
+    expect(deleted.json.ok, JSON.stringify(deleted.json)).toBe(true)
+    expect((await op(tok.json.access_token, "feed.post", { type: "notice", kind: "notice", title: "after delete" })).status).toBe(403)
+    for (let i = 0; i < 100 && closed === undefined; i++) await new Promise((r) => setTimeout(r, 10))
+    expect(closed).toBe(4401)
+    expect((await a.mint(chief.id)).status).toBe(403)
+  })
+
   it("cannot read or subscribe the owner's inbox; the owner session still can (cx-59n8.11)", async () => {
     const a = await installFor("chief-tok-inbox")
     const chief = (await op(a.session, "chief.create", { display_name: "Helper" })).json.value

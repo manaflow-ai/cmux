@@ -7,9 +7,9 @@ Each table below is wider or taller than the pane. Scroll each one sideways
 
 | #   | Agent | Title              | Group            | Branch         | Status  | Started          | Updated          | Commits | Tests | Fleet run    | Host    | CPU | Memory | Disk | Owner | Priority | Notes                            | Link             | Verified |
 | --- | ----- | ------------------ | ---------------- | -------------- | ------- | ---------------- | ---------------- | ------- | ----- | ------------ | ------- | --- | ------ | ---- | ----- | -------- | -------------------------------- | ---------------- | -------- |
-| 1   | a207  | Sidebar scroll lag | Performance      | feat-cmux-next | running | 2026-10-20 04:10 | 2026-10-20 04:55 | 3       | 12/12 | 7239a6431560 | cmux10s | 42% | 1.2 GB | 81%  | Chief | high     | measuring 10/100/500 workspaces  | example.com/a207 | no       |
-| 2   | a208  | Inspect Element    | Browser & parity | feat-cmux-next | running | 2026-10-20 04:20 | 2026-10-20 04:58 | 1       | 4/6   | 5ea63eb78f91 | cmux11s | 18% | 900 MB | 92%  | Chief | medium   | DevTools commands in Cmd+Shift+P | example.com/a208 | no       |
-| 3   | a210  | Tab min width      | Sidebar & tabs   | feat-cmux-next | queued  | 2026-10-20 04:30 | 2026-10-20 04:31 | 0       | 0/0   | —            | cmux20  | 3%  | 200 MB | 40%  | Chief | low      | first-principles minimum width   | example.com/a210 | no       |
+| 1   | a207  | Sidebar scroll lag | Performance      | feat-cmux-next | running | 2026-10-20 04:10 | 2026-10-20 04:55 | 3       | 12/12 | 7239a6431560 | mini-10 | 42% | 1.2 GB | 81%  | Chief | high     | measuring 10/100/500 workspaces  | example.com/a207 | no       |
+| 2   | a208  | Inspect Element    | Browser & parity | feat-cmux-next | running | 2026-10-20 04:20 | 2026-10-20 04:58 | 1       | 4/6   | 5ea63eb78f91 | mini-11 | 18% | 900 MB | 92%  | Chief | medium   | DevTools commands in Cmd+Shift+P | example.com/a208 | no       |
+| 3   | a210  | Tab min width      | Sidebar & tabs   | feat-cmux-next | queued  | 2026-10-20 04:30 | 2026-10-20 04:31 | 0       | 0/0   | —            | mini-20 | 3%  | 200 MB | 40%  | Chief | low      | first-principles minimum width   | example.com/a210 | no       |
 
 ## 2. One very long cell
 

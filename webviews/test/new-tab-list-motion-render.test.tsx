@@ -55,7 +55,9 @@ beforeAll(async () => {
   originalAnimate = dom.window.HTMLElement.prototype.animate;
   dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
     measureReads.set(this, (measureReads.get(this) ?? 0) + 1);
-    return new dom.window.DOMRect(0, 0, 100, 20);
+    // A row sits one row height under the one before it, so a row arriving above it moves it.
+    const index = this.classList.contains("row") ? [...this.parentElement!.children].indexOf(this) : 0;
+    return new dom.window.DOMRect(0, index * 20, 100, 20);
   };
   dom.window.HTMLElement.prototype.animate = function () {
     animationCalls += 1;
@@ -148,7 +150,8 @@ test("a live resize reads no row on its frames, then once when the size settles"
 });
 
 // A row arriving resizes the list itself, and the observer reports that size after the effect read
-// it. That is no resize: the next row arriving right after (two tabs closed in a row) still animates.
+// it. That is no resize: the next row arriving right after (two tabs closed in a row) still slides
+// the rows under it. (The arriving row itself appears at once: no entry animations on the New Tab.)
 test("the list's own size change from a row arriving leaves the next change animated", async () => {
   await act(async () => root.render(createElement(Probe, { keys: ["one"], tick: 0 })));
   const list = host.firstElementChild as HTMLElement;
@@ -158,10 +161,10 @@ test("the list's own size change from a row arriving leaves the next change anim
   const measured = [{ borderBoxSize: [{ inlineSize: 100, blockSize: 20 }] }];
   tick(measured); // the observer's first call: the size the list mounted at
 
-  await act(async () => root.render(createElement(Probe, { keys: ["one", "two"], tick: 1 })));
+  await act(async () => root.render(createElement(Probe, { keys: ["two", "one"], tick: 1 })));
   const first = animationCalls;
   expect(first).toBeGreaterThan(0);
   tick(measured); // the list's new height, as the effect just read it
-  await act(async () => root.render(createElement(Probe, { keys: ["one", "two", "three"], tick: 2 })));
+  await act(async () => root.render(createElement(Probe, { keys: ["three", "two", "one"], tick: 2 })));
   expect(animationCalls).toBeGreaterThan(first);
 });

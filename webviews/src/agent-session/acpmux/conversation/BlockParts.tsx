@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { useBlockWrap, type BlockKind } from "./blockWrap";
 import { WrapLines } from "./icons";
 import { watchSideways } from "./sideways";
+import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
 /// Lines a closed block shows; past them it fades out and offers Show all.
 export const PREVIEW_LINES = 8;
@@ -75,6 +76,10 @@ export function useSidewaysEdge(ref: RefObject<HTMLElement | null>) {
     return node ? watchSideways(node) : undefined;
   }, [ref]);
 }
+
+/// The props of a block body that scrolls sideways itself (a Shell block's, a call output's): its
+/// scrollbar is the thin one, with its thumb shown at rest, from the moment it is made (scrollers.ts).
+export const SIDEWAYS_SCROLLER = { [SIDEWAYS_SCROLLER_ATTRIBUTE]: "" } as const;
 
 /// The ref a block body watches its right edge through.
 export function useSidewaysRef<T extends HTMLElement>() {

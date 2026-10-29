@@ -11,6 +11,8 @@ public nonisolated enum SurfacePause: String, Sendable {
     case windowOccluded = "window_occluded"
     /// The surface or an ancestor view is hidden.
     case hidden
+    /// An ancestor is parked without being hidden (``ParkingContainer``).
+    case parked
     /// The App paused it (an unselected tab, an off-screen column).
     case suspended
 }
@@ -22,17 +24,20 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
     /// plays no part: a visible window of an inactive app draws.
     public var windowVisible: Bool
     public var hidden: Bool
+    /// An ancestor is parked off screen but not hidden (``ParkingContainer``).
+    public var parked: Bool
     public var suspended: Bool
     /// A consumer needs pixels whatever else holds (live hover mirrors).
     public var forced: Bool
     /// ``WindowDrawPolicy/drawsWhenOccluded`` holds for this launch.
     public var drawWhenOccluded: Bool
 
-    public init(inWindow: Bool, windowVisible: Bool, hidden: Bool, suspended: Bool, forced: Bool = false,
+    public init(inWindow: Bool, windowVisible: Bool, hidden: Bool, parked: Bool = false, suspended: Bool, forced: Bool = false,
                 drawWhenOccluded: Bool = false) {
         self.inWindow = inWindow
         self.windowVisible = windowVisible
         self.hidden = hidden
+        self.parked = parked
         self.suspended = suspended
         self.forced = forced
         self.drawWhenOccluded = drawWhenOccluded
@@ -43,6 +48,7 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
         if forced { return nil }
         guard inWindow else { return .notInWindow }
         if hidden { return .hidden }
+        if parked { return .parked }
         if suspended { return .suspended }
         if !windowVisible, !drawWhenOccluded { return .windowOccluded }
         return nil
@@ -100,6 +106,7 @@ public struct WindowDrawPolicy {
             inWindow: view.window != nil,
             windowVisible: view.window.map(isOnScreen) ?? false,
             hidden: view.isHiddenOrHasHiddenAncestor,
+            parked: view.isParkedOrHasParkedAncestor,
             suspended: suspended,
             forced: forced,
             drawWhenOccluded: drawsWhenOccluded

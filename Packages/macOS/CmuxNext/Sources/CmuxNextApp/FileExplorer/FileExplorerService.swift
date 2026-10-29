@@ -1,13 +1,19 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFilesUI
 
 /// Makes each window's file explorer (the right sidebar's Files section) and
-/// finds the one an action runs on: the active window's. The tree roots at
+/// finds the one an action runs on: the right-clicked one for a row's menu (its
+/// `explorer` argument), else the active window's. The tree roots at
 /// the focused terminal's folder when it is on this Mac, else the home folder.
 @MainActor
 final class FileExplorerService {
     private weak var services: AppServices?
     private let sections = NSMapTable<WindowController, FileExplorerSectionView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
+    /// Each section by the id its row menu passes (`explorer`), so a menu in a back window acts on its own tree.
+    private let sectionsByID = NSMapTable<NSString, FileExplorerSectionView>(keyOptions: .strongMemory, valueOptions: .weakMemory)
+    /// The argument a row menu's actions carry: the id of the tree it was opened in.
+    nonisolated static let explorerArgument = "explorer"
     let effects: any FileExplorerEffects
     /// Find tabs (Open Find as Pane).
     private(set) lazy var findPanes = FindPaneService(services: services)
@@ -19,16 +25,19 @@ final class FileExplorerService {
 
     /// The Files section of `controller` (made once per window by ``RightSidebarSections``).
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
+        let id = UUID().uuidString
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
-            openWith: { [weak self] app in self?.perform("fileExplorerOpenWith", arguments: ["app": .string(app)]) },
+            rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection, explorer: id) },
+            openWith: services.map { FileExplorerOpenWithMenu(registry: $0.registry) },
             effects: effects,
             showError: { [weak self, weak controller] reason in
                 self?.services?.refusalHUD.show(reason, in: controller?.window)
             })
         sections.setObject(view, forKey: controller)
+        sectionsByID.setObject(view, forKey: id as NSString)
         return view
     }
 
@@ -42,6 +51,25 @@ final class FileExplorerService {
     /// Focus moved in `controller`: its Files tree follows the newly focused terminal's folder.
     func focusChanged(in controller: WindowController) {
         sections.object(forKey: controller)?.follow()
+    }
+
+    /// A Files row's right-click menu: the registry's `fileExplorerRow` menu, only New File and
+    /// New Folder (in the root) for the empty area. Its rows run on the tree `explorer` names.
+    func rowMenu(hasSelection: Bool, explorer: String? = nil) -> NSMenu? {
+        let empty: [ContextMenuEntry] = [.action("fileExplorerNewFile"), .action("fileExplorerNewFolder")]
+        let arguments: [String: ActionValue] = explorer.map { [Self.explorerArgument: .string($0)] } ?? [:]
+        return services?.registry.makeContextMenu(for: .fileExplorerRow, entries: hasSelection ? nil : empty, arguments: arguments)
+    }
+
+    /// The tree `invocation` runs on: the one its `explorer` argument names (a row's menu), else
+    /// the active window's. Nil when the named tree is gone.
+    func runTarget(for invocation: ActionInvocation) -> FileExplorerRunTarget? {
+        let section = if let id = invocation[Self.explorerArgument]?.stringValue {
+            sectionsByID.object(forKey: id as NSString)
+        } else {
+            services?.windows.active.flatMap { sections.object(forKey: $0) }
+        }
+        return section?.runTarget
     }
 
     /// The active window's explorer, once its Files section was shown.
@@ -68,11 +96,12 @@ final class FileExplorerService {
         return URL(fileURLWithPath: cwd, isDirectory: true)
     }
 
-    /// Runs an explorer action from the explorer itself (a key, a double-click, its menu): the
-    /// list has the keyboard, so `fileExplorerFocused` holds for this run.
-    private func perform(_ id: ActionID, arguments: [String: ActionValue] = [:]) {
+    /// Runs an explorer action from the explorer itself (a key, a double-click): the list has
+    /// the keyboard, so `fileExplorerFocused` holds for this run. Its right-click menu is the
+    /// registry's `fileExplorerRow` menu, whose rows imply the same fact.
+    private func perform(_ id: ActionID) {
         guard let registry = services?.registry else { return }
-        var invocation = ActionInvocation(arguments: arguments)
+        var invocation = ActionInvocation()
         invocation.keyContext = registry.context.union(.fileExplorerFocused)
         registry.perform(id, invocation: invocation)
     }

@@ -294,6 +294,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             return
         }
         if let textFrame = cell.cellLayout?.textFrame, textFrame.contains(local), let url = link(in: model, at: cell.textLabel.convert(local, from: cell)) {
+            if onOpenLink?(url) == true { return }
             UIApplication.shared.open(url)
         }
     }

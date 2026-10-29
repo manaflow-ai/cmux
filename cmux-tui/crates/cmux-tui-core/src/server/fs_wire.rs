@@ -186,7 +186,7 @@ fn read_first_line(stream: &UnixStream, deadline: Duration) -> Option<(Vec<u8>, 
                 stream.set_read_timeout(None).ok()?;
                 return Some((buffer, Vec::new()));
             }
-            Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+            Ok(read) => buffer.extend_from_slice(chunk.get(..read)?),
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return None,
         }
@@ -283,9 +283,11 @@ struct Prefixed {
 
 impl Read for Prefixed {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        if self.at < self.prefix.len() {
-            let count = buffer.len().min(self.prefix.len() - self.at);
-            buffer[..count].copy_from_slice(&self.prefix[self.at..self.at + count]);
+        if let Some(rest) = self.prefix.get(self.at..).filter(|rest| !rest.is_empty()) {
+            let count = buffer.len().min(rest.len());
+            for (slot, byte) in buffer.iter_mut().zip(rest) {
+                *slot = *byte;
+            }
             self.at += count;
             return Ok(count);
         }

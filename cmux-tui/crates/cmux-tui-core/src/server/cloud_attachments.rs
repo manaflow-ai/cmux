@@ -16,6 +16,7 @@
 //! The person's own clients only (the app, an authenticated page), like every
 //! command that uses the lease.
 
+use crate::panic_free::JsonFields;
 use base64::Engine;
 use serde_json::{Value, json};
 
@@ -153,20 +154,25 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
                 ("duration_ms", declaration.duration_ms),
             ] {
                 if let Some(value) = value {
-                    intent[field] = json!(value);
+                    intent.insert(field, json!(value));
                 }
             }
             for (field, image) in
                 [("poster", &declaration.poster), ("preview", &declaration.preview)]
             {
                 if let Some(image) = image {
-                    intent[field] = json!({"sha256": image.sha256, "byte_count": image.byte_count,
-                                           "mime_type": image.mime_type.to_lowercase()});
+                    intent.insert(
+                        field,
+                        json!({"sha256": image.sha256, "byte_count": image.byte_count,
+                                           "mime_type": image.mime_type.to_lowercase()}),
+                    );
                 }
             }
             let plan = service.attachment_intent(&conversation, &intent)?;
             if plan.get("state").and_then(Value::as_str) == Some("exists") {
-                return Ok(json!({"upload": null, "needs": [], "stored": plan["attachment"]}));
+                return Ok(
+                    json!({"upload": null, "needs": [], "stored": plan.field("attachment")}),
+                );
             }
             let actor = mux.conversation_principal(client);
             let (upload, needs) = mux.with_conversations(|store| {
@@ -194,7 +200,7 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
         "commit" => {
             let upload = required(params.upload, "upload")?;
             let taken = mux.with_conversations(|store| store.cloud_upload_take(client, &upload))?;
-            // The files are read after the store lock is released.
+            // The files are opened after the store lock is released.
             Ok(json!({"stored": send_upload(service, taken)?}))
         }
         "cancel" => {
@@ -235,29 +241,34 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
     let conversation = upload.conversation.clone();
     let plan = upload.plan.clone();
     let record = upload.record.clone();
-    let pieces = upload.bytes()?;
+    // The partial files stay until both PUTs are done.
+    let (pieces, _partial) = upload.bodies()?;
     let mut original = None;
-    for (piece, bytes) in pieces {
+    for (piece, body) in pieces {
         match variant_name(piece) {
-            None => original = Some(bytes),
+            None => original = Some(body),
             Some(variant) => {
-                let slot = &plan[format!("{variant}_upload")];
-                let url = slot["upload_url"]
+                let slot = plan.field(&format!("{variant}_upload"));
+                let url = slot
+                    .field("upload_url")
                     .as_str()
                     .ok_or_else(|| CloudError::Unavailable(format!("no {variant} upload slot")))?;
-                service.attachment_put(url, &plan_headers(&slot["headers"]), bytes, true)?;
+                service.attachment_put(url, &plan_headers(slot.field("headers")), body, true)?;
             }
         }
     }
-    let bytes = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
-    let url = plan["upload_url"]
+    let body = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
+    let url = plan
+        .field("upload_url")
         .as_str()
         .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
-    let presigned = plan["mode"] == "presigned";
+    let presigned = plan.field("mode") == "presigned";
     // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
-    let answer = service.attachment_put(url, &plan_headers(&plan["headers"]), bytes, !presigned)?;
+    let answer =
+        service.attachment_put(url, &plan_headers(plan.field("headers")), body, !presigned)?;
     let committed = if presigned {
-        let slot = plan["slot"]
+        let slot = plan
+            .field("slot")
             .as_str()
             .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
         service.attachment_commit(&conversation, slot)?

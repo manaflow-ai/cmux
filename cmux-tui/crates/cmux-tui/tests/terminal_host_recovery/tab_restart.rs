@@ -357,7 +357,10 @@ fn on_exit_shell_drops_the_tab_into_a_shell_after_the_command() {
         .args(["--json", "--session", &harness.session, "workspace", workspace, "run"])
         .args(["--on-exit", "shell", "--socket"])
         .arg(&harness.socket)
-        .args(["--", "/bin/sh", "-c", "printf 'shell-exit-marker\\n'; exit 9"])
+        // The command lives a moment, so the test sees its own incarnation
+        // before the respawn into the shell replaces it (a create now answers
+        // after its terminal's output is released, new-terminal-100x).
+        .args(["--", "/bin/sh", "-c", "printf 'shell-exit-marker\\n'; sleep 0.5; exit 9"])
         .output()
         .expect("run the CLI");
     let stdout = String::from_utf8_lossy(&run.stdout);

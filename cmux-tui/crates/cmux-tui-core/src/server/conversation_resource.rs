@@ -11,6 +11,7 @@
 //! relay refuses every resource-protocol frame before dispatch
 //! (remote_relay/gate.rs), so a paired device never reaches these.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -276,7 +277,7 @@ pub(super) fn publish_draft(
         });
         for optional in ["truncated", "harness"] {
             if let Some(value) = fields.get(optional) {
-                item[optional] = value.clone();
+                item.insert(optional, value.clone());
             }
         }
         mux.emit(MuxEvent::Conversation(Arc::new(ConversationEvent::Draft {

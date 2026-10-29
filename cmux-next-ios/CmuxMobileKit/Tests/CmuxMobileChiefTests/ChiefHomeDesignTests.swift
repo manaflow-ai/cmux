@@ -120,29 +120,24 @@ import SwiftUI
     /// F6: Chief's unseen question shows on the pin and counts as Needs You.
     @Test func unseenQuestionIsNeedsYou() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: file))
+        let preferences = ChiefPreferences(defaults: try #require(UserDefaults(suiteName: "chief-seen-\(UUID().uuidString)")))
+        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
         try await waitUntil("Chief's first message") { session.lastMessage != nil }
         #expect(session.isWaitingOnYou)
         #expect(session.needsYou)
         session.markSeen()
         #expect(!session.isWaitingOnYou)
+        // QA 2026-10-27: after a relaunch the question seen before stays seen
+        // (the marker was in memory only, so every old question came back).
+        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), preferences: preferences, outbox: ChiefOutbox(file: file))
+        try await waitUntil("Chief's first message after a relaunch") { relaunched.lastMessage != nil }
+        #expect(!relaunched.isWaitingOnYou)
     }
     #endif
 }
 
 #if os(iOS)
 @Suite @MainActor struct HomeDesignTests {
-    private func tab(_ id: String, _ title: String) -> WorkspaceTab {
-        WorkspaceTab(id: id, kind: .agent, title: title, subtitle: nil, harness: title.lowercased())
-    }
-
-    /// SPEC 1.2: rows read by workspace; a second agent tab adds the agent.
-    @Test func rowTitlesAreTheWorkspace() {
-        let ids = ["a", "b"]
-        #expect(ConversationsHome<EmptyToolbar>.title(of: tab("a", "Claude"), in: "cmux", agentIDs: ids) == "cmux")
-        #expect(ConversationsHome<EmptyToolbar>.title(of: tab("b", "Codex"), in: "cmux", agentIDs: ids) == "cmux · Codex")
-    }
-
     /// SPEC 4: recent turns read as words, never raw ids.
     @Test func recentTurnsAreReadable() {
         let report = ChiefEngineReport(engine: .init(harness: "codex"),

@@ -19,6 +19,8 @@ extension HomeChiefSettingsView {
         avatarButton.action = #selector(showPictureMenu)
         avatarButton.setAccessibilityLabel(HomeEngineStrings.changePicture)
         avatarButton.themedToolTip = HomeEngineStrings.changePicture
+        // A picture dropped on the avatar is chosen as Choose Picture… chooses one.
+        avatarButton.onDropPicture = { [weak self] in self?.usePicture($0) }
         nameField.target = self
         nameField.action = #selector(renamed)
         // Leaving the field (a click elsewhere, the popover closing) keeps the name, as Return does.
@@ -34,7 +36,7 @@ extension HomeChiefSettingsView {
         hostSwitch.isBordered = false
         hostSwitch.bezelStyle = .inline
         hostSwitch.font = Typography.caption
-        hostSwitch.contentTintColor = Palette.accent
+        hostSwitch.contentTintColor = Palette.litGlyph
         hostSwitch.target = self
         hostSwitch.action = #selector(switchHost)
         hostSwitch.isHidden = true
@@ -81,6 +83,15 @@ extension HomeChiefSettingsView {
         let note = Self.footnote(HomeEngineStrings.nextTurn)
         note.preferredMaxLayoutWidth = Self.innerWidth
         brainCard.add(note)
+    }
+
+    /// The Reactions card (a416): whether a tapback the person puts on a Chief message may start a
+    /// turn, and the classifier that decides it behind its own closed disclosure
+    /// (``HomeChiefReactionRows``).
+    func buildReactionsCard() {
+        reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
+        reactionRows.onResize = { [weak self] in self?.onResize() }
+        reactionsCard.add(reactionRows)
     }
 
     /// The Memory card (this Mac's brain): what the Chief remembers, and Show Memory (the

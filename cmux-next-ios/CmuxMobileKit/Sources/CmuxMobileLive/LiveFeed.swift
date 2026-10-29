@@ -30,6 +30,8 @@ public final class LiveFeed: FeedActions {
     weak var terminal: TerminalFeed?
     var place: @MainActor (String) -> Place?
     let now: @MainActor () -> Date
+    /// The Mac this feed reads (`MacSession`): every item it makes names it.
+    var macID: String?
     /// Open asks per session (resolved when the session reports none pending).
     private(set) var openAsks: [String: Set<String>] = [:]
     /// Every ask's session, by Feed item id.
@@ -77,11 +79,13 @@ public final class LiveFeed: FeedActions {
                 return
             }
             let id = "ask-\(permissionID)"
-            guard store.item(id: id) == nil else { return }
-            log.info("feed ask \(id, privacy: .public)")
+            // This Mac answers the ask even when the Feed already lists it (read
+            // again on a new link or a refresh), so its answer is routed here.
             openAsks[sessionID, default: []].insert(id)
             askSessions[id] = sessionID
             askKinds[id] = waits
+            guard store.item(id: id) == nil else { return }
+            log.info("feed ask \(id, privacy: .public)")
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
                               quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
@@ -132,12 +136,14 @@ public final class LiveFeed: FeedActions {
     func item(id: String, kind: FeedItem.Kind, sessionID: String, session: AcpmuxSession?, markdown: String, quote: FeedItem.Quote?) -> FeedItem {
         let place = place(sessionID)
         let harness = session?.harness ?? "agent"
-        return FeedItem(
+        var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
             agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )
+        item.macID = macID
+        return item
     }
 
     // MARK: FeedActions

@@ -3,6 +3,7 @@
 //! method returns the requests to send now; [`Session::answered`] takes
 //! each answer back.
 
+use crate::json::JsonField;
 use serde_json::Value;
 
 use super::sender::{Answer, EventOutcome, EventQueue, OpRequest, Reporter};
@@ -66,20 +67,20 @@ impl Session {
         };
         let mut out = Vec::new();
         let mut note = None;
-        if msg["activity"].is_object() {
-            let change = ActivityChange::from_json(&msg["activity"]);
+        if msg.field("activity").is_object() {
+            let change = ActivityChange::from_json(msg.field("activity"));
             out.extend(self.reporter.update(&change, now));
         }
-        if msg["event"].is_object() {
-            let event = &msg["event"];
-            let kind = event["kind"].as_str().unwrap_or("");
-            let at = event["at"].as_u64().unwrap_or(0);
-            match self.events.emit(kind, at, event["data"].clone()) {
+        if msg.field("event").is_object() {
+            let event = msg.field("event");
+            let kind = event.field("kind").as_str().unwrap_or("");
+            let at = event.field("at").as_u64().unwrap_or(0);
+            match self.events.emit(kind, at, event.field("data").clone()) {
                 Ok(req) => out.extend(req),
                 Err(e) => note = Some(format!("socket line refused: {e}")),
             }
         }
-        if msg["resume"] == true {
+        if *msg.field("resume") == true {
             out.extend(self.reporter.trigger("resume", now));
         }
         (out, note)
@@ -120,8 +121,8 @@ impl Session {
 /// `report <reason> applied|held|failed[ HTTP n]` (the smoke greps it).
 pub fn report_note(reason: &str, answer: &Answer) -> String {
     match answer {
-        Answer::Http { status: 200, body } if body["ok"] == true => {
-            let applied = body["value"]["applied"] == true;
+        Answer::Http { status: 200, body } if *body.field("ok") == true => {
+            let applied = *body.field("value").field("applied") == true;
             format!("report {reason} {}", if applied { "applied" } else { "held" })
         }
         Answer::Http { status, .. } => format!("report {reason} failed HTTP {status}"),

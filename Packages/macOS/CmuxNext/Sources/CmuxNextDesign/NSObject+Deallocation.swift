@@ -1,5 +1,10 @@
 public import AppKit
 
+// Looked up once: the hover index asks every target's window on each key change (Cmd-Tab), and
+// NSSelectorFromString per call was a tenth of that cost in a large session.
+// crash-allow: ARC marks allowsWeakReference unavailable, so #selector cannot name it; NSObject always implements it.
+private let allowsWeakReferenceSelector = NSSelectorFromString("allowsWeakReference")
+
 extension NSObject {
     /// Whether the object is in deallocation now, so a `weak` reference to it aborts the runtime
     /// ("Cannot form weak reference to instance ... in the process of deallocation").
@@ -14,8 +19,7 @@ extension NSObject {
     /// The runtime's own test before it forms a weak reference (`-[NSObject allowsWeakReference]`,
     /// which ARC headers mark unavailable), called through its implementation.
     public var isBeingDeallocated: Bool {
-        // crash-allow: ARC marks allowsWeakReference unavailable, so #selector cannot name it; NSObject always implements it.
-        let selector = NSSelectorFromString("allowsWeakReference")
+        let selector = allowsWeakReferenceSelector
         guard let method = method(for: selector) else { return false }
         typealias AllowsWeakReference = @convention(c) (NSObject, Selector) -> Bool
         return !unsafeBitCast(method, to: AllowsWeakReference.self)(self, selector)

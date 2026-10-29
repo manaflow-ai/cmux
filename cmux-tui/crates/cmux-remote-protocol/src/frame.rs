@@ -135,8 +135,9 @@ impl SessionId {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut output = String::with_capacity(self.0.len() * 2);
         for byte in self.0 {
-            output.push(HEX[(byte >> 4) as usize] as char);
-            output.push(HEX[(byte & 0x0f) as usize] as char);
+            for nibble in [byte >> 4, byte & 0x0f] {
+                output.push(char::from(HEX.get(usize::from(nibble)).copied().unwrap_or(b'0')));
+            }
         }
         output
     }
@@ -244,32 +245,36 @@ impl WireFrame {
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, FrameDecodeError> {
-        let Some(header) = encoded.first_chunk::<HEADER_BYTES>() else {
+        let Some((header, payload)) = encoded.split_first_chunk::<HEADER_BYTES>() else {
             return Err(FrameDecodeError::Truncated {
                 expected: HEADER_BYTES,
                 actual: encoded.len(),
             });
         };
-        if encoded[..4] != MAGIC {
+        let mut fields = HeaderFields(header);
+        let magic: [u8; 4] = fields.take();
+        if magic != MAGIC {
             return Err(FrameDecodeError::BadMagic);
         }
-        if encoded[4] != REMOTE_PROTOCOL_VERSION {
-            return Err(FrameDecodeError::UnsupportedVersion(encoded[4]));
+        let [version]: [u8; 1] = fields.take();
+        if version != REMOTE_PROTOCOL_VERSION {
+            return Err(FrameDecodeError::UnsupportedVersion(version));
         }
 
-        let lane = Lane::from_wire(encoded[5])?;
-        let flags = FrameFlags::from_wire(u16::from_be_bytes([encoded[6], encoded[7]]))?;
-        let mut session = [0_u8; 16];
-        session.copy_from_slice(&encoded[8..24]);
-        let generation = u64::from_be_bytes(header_bytes(header, 24));
-        let sequence = u64::from_be_bytes(header_bytes(header, 32));
-        let acknowledgement = u64::from_be_bytes(header_bytes(header, 40));
-        let stream = u64::from_be_bytes(header_bytes(header, 48));
-        let payload_len = u32::from_be_bytes(header_bytes(header, 56)) as usize;
+        let [lane_byte]: [u8; 1] = fields.take();
+        let lane = Lane::from_wire(lane_byte)?;
+        let flags = FrameFlags::from_wire(u16::from_be_bytes(fields.take()))?;
+        let session: [u8; 16] = fields.take();
+        let generation = u64::from_be_bytes(fields.take());
+        let sequence = u64::from_be_bytes(fields.take());
+        let acknowledgement = u64::from_be_bytes(fields.take());
+        let stream = u64::from_be_bytes(fields.take());
+        let wire_payload_len = u32::from_be_bytes(fields.take());
+        let payload_len = usize::try_from(wire_payload_len).unwrap_or(usize::MAX);
         if payload_len > MAX_FRAME_PAYLOAD {
             return Err(FrameDecodeError::PayloadTooLarge(payload_len));
         }
-        let expected = HEADER_BYTES + payload_len;
+        let expected = HEADER_BYTES.saturating_add(payload_len);
         if encoded.len() != expected {
             return Err(FrameDecodeError::LengthMismatch { expected, actual: encoded.len() });
         }
@@ -287,7 +292,7 @@ impl WireFrame {
             sequence,
             acknowledgement,
             stream,
-            payload: encoded[HEADER_BYTES..].to_vec(),
+            payload: payload.to_vec(),
         })
     }
 }
@@ -335,11 +340,20 @@ fn validate_heartbeat(
     Ok(())
 }
 
-/// The `N` header bytes at `at` (constant offsets inside the header).
-fn header_bytes<const N: usize>(header: &[u8; HEADER_BYTES], at: usize) -> [u8; N] {
-    let mut bytes = [0_u8; N];
-    bytes.copy_from_slice(&header[at..at + N]);
-    bytes
+/// Reads the fixed header fields in wire order. The field widths add up to
+/// `HEADER_BYTES`, so a read past the end cannot happen; it would yield zeros.
+struct HeaderFields<'a>(&'a [u8]);
+
+impl HeaderFields<'_> {
+    fn take<const N: usize>(&mut self) -> [u8; N] {
+        match self.0.split_first_chunk::<N>() {
+            Some((field, rest)) => {
+                self.0 = rest;
+                *field
+            }
+            None => [0; N],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

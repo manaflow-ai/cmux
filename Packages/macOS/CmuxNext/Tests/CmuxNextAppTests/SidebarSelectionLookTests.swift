@@ -42,7 +42,7 @@ import Testing
         root.wantsLayer = true
         window.contentView = root
         // The app's theme too, as the app sets it: a lifted row is configured before it joins the window.
-        _ = ThemeStore.shared.apply(try input(name))
+        _ = ThemeScope.app.store.apply(try input(name))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(name), input: try input(name), animated: false)
         scope.root(root)
@@ -75,8 +75,8 @@ import Testing
 
     /// A dragged selected row keeps its selection fill on the lifted card.
     @Test func aLiftedSelectedRowKeepsItsFill() throws {
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         let (list, window, ids) = try Self.sidebar("Clay Orange Light")
         defer { window.close() }
         let row = try #require(list.displayed.rows.first { $0.key == .workspace(ids[1]) })
@@ -99,8 +99,8 @@ import Testing
 
     @Test func galleryOfSelectedRows() async throws {
         guard let out = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_SELECTION_GALLERY"] else { return }
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var shots: [(CGImage, CGImage)] = []
         for name in ["Default"] + Self.themes {
             let (list, window, ids) = try Self.sidebar(name)

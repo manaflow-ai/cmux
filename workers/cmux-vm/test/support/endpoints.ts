@@ -85,6 +85,16 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     path: (id) => `/v1/vms/${id}/terminals/1`,
     scope: "vm:terminal",
   },
+  // Client sessions (agent keys); test/workers/agent-keys.test.ts covers the rest.
+  { name: "listClientSessions", method: "GET", template: "/v1/vms/{vmId}/client-sessions", path: (id) => `/v1/vms/${id}/client-sessions`, scope: "vm:exec" },
+  { name: "createClientSession", method: "POST", template: "/v1/vms/{vmId}/client-session", path: (id) => `/v1/vms/${id}/client-session`, scope: "vm:exec", json: {} },
+  {
+    name: "revokeClientSession",
+    method: "DELETE",
+    template: "/v1/vms/{vmId}/client-sessions/{sessionId}",
+    path: (id) => `/v1/vms/${id}/client-sessions/vcs_00000000000000000000000000`,
+    scope: "vm:exec",
+  },
 ];
 
 /** Endpoints that act on one snapshot (slice S3a); test/workers/snapshots.test.ts runs the isolation cases. */
@@ -113,6 +123,9 @@ export const TENANT_ENDPOINTS = [
   { name: "createApiKey", method: "POST", template: "/v1/api-keys", scope: "admin" },
   { name: "listApiKeys", method: "GET", template: "/v1/api-keys", scope: "admin" },
   { name: "revokeApiKey", method: "DELETE", template: "/v1/api-keys/{keyId}", scope: "admin" },
+  // Agent keys; test/workers/agent-keys.test.ts runs the isolation cases.
+  { name: "createAgentKey", method: "POST", template: "/v1/agent-keys", scope: "vm:write" },
+  { name: "revokeAgentKey", method: "DELETE", template: "/v1/agent-keys/{keyId}", scope: "vm:write" },
 ] as const;
 
 export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;

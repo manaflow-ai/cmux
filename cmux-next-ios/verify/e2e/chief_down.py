@@ -83,12 +83,17 @@ def send_to_chief(sim, text):
 
 
 def open_settings_shot(sim, name):
-    sim.tap_q(ident="conversation.header.trailing")
+    # The header's name opens Chief's info (the trailing button is Invite to cmux).
+    sim.tap_q(ident="conversation.header.name")
     sim.wait(timeout=10, ident="chief.settings")
     time.sleep(2.5)
     path = sim.shot(name)
     texts = visible_texts(sim)
-    sim.tap_q(ident="chief.settings.done")
+    # Chief's info is pushed (Back); older builds showed a sheet (Done).
+    done = sim.wait(timeout=10, label="Back", kind="Button") or sim.wait(timeout=2, ident="chief.settings.done")
+    if done is None:
+        raise LookupError("no Back (or Done) on Chief's info")
+    sim.tap_el(done)
     time.sleep(1.0)
     return path, texts
 

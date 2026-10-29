@@ -77,3 +77,29 @@ the open conversation streams `/v1/wire/conv/<id>` → `cloud-conversation-chang
 Not in this branch (reported as open): cloud attachments upload/fetch (6), mention
 autocomplete (7), message requests UI (a111), an app-to-app test against staging with two real
 accounts (needs staging credentials).
+
+## 4. Team use (2026-10-24, a625)
+
+Ask (Lawrence): team group chats in cmux-next, so the team uses them instead of another chat app;
+run them on Durable Objects unless there is a concrete blocker.
+
+Storage decision: Durable Objects, already in place; no migration. Each conversation (DM, group,
+Chief) is one `ConversationDO` (SQLite class since migration v6): one writer orders every op, the
+ledger and history live in its SQLite, its hibernatable sockets (`/v1/wire/conv/<id>`) fan out
+changes and typing to members, and an outbox bumps each member's `UserDO` inbox (unread, mentions,
+mute, push). No blocker found. The one per-group piece not built is people presence (online or
+last seen); the DO's socket list can answer it (an attachment per member socket, the way typing
+works) when it is built.
+
+Fixed here:
+- Reach (`home-reach.ts`): the rule asked only the request's team, which is a session's personal
+  team unless it names another, so two members of a shared Stack team got `not_reachable` for a DM
+  by id or a group. It now also checks each team of the caller's `UserDO` team index (16.7), each
+  confirmed by its TeamDO (`test/home-reach-shared-team.test.ts`).
+- New Message (`HomeDirectory`): read `team.members.list` with no team, so it listed only the
+  personal team. It now lists the members of every team from `user.teams.list`, each person once
+  (`HomeDirectoryTeamMembersTests`).
+
+Still open for team use: online presence per member; a team-wide group made from the roster in one
+step (today: pick the members); the `chief.create` and `question.answer` cloud op kinds; an
+app-to-app check on staging with two real accounts in one shared team (needs their sign-ins).

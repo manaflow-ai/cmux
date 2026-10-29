@@ -130,6 +130,14 @@ Unread) on any tab, separate from notification markers. The daemon keeps it on
 the tab record until a frontend clears it, which the Mac app does when the tab
 comes into view.
 
+`tab-attention-v1` adds `attention` (a one-line reason, or null to clear) to
+`tab.update` and, while set, `attention: {reason, at_ms}` to the tab's `extra`.
+An agent sets it when the person must act in that tab (confirm, log in,
+approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
+`cmux attention clear --tab <tab_…>` send it. It never moves focus. Viewing
+the tab keeps it; the agent's clear, a browser tab's navigation to another
+URL, or the tab's close clears it.
+
 `workspace-description-v1` adds `description` (string, 1-4096 characters, line
 breaks allowed; null clears it) to `workspace.update` and, while set,
 `description` to the workspace's `extra`. `workspace-status-v1` adds

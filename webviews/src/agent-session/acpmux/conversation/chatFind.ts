@@ -8,9 +8,27 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { plainText } from "./messageMenu";
+import { drawnThought } from "./thoughts";
+import { shellOutput } from "./toolFailure";
+import { toolResult } from "./toolResult";
+import { stripsEnvelopeImages } from "../toolImages";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
+
+export type FindMatchesCache = {
+  needle: string;
+  rows: readonly AcpmuxRow[];
+  matches: FindMatch[];
+};
+
+export type FindMatchesResult = {
+  matches: FindMatch[];
+  cache: FindMatchesCache;
+  /** Number of rows whose searchable text was inspected for this result. */
+  scannedRows: number;
+};
 
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
@@ -24,11 +42,25 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 /// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  if (!tool) return item.text;
+  // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
+  if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
   const call = mcpCall(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  // A finished call's envelope images show in its strip, not its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
+  // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
+  // without injected context (toolResult.ts), and Markdown as its words, without the marks
+  // (messageMenu.ts plainText).
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
+  const output = shell
+    ? shellOutput(tool)
+    : !result
+      ? tool.output
+      : result.lang === "markdown"
+        ? plainText(result.text)
+        : result.text;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
@@ -72,18 +104,39 @@ function searchableText(row: AcpmuxRow): string | undefined {
 }
 
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
-export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+export function findMatchesIncremental(
+  rows: readonly AcpmuxRow[],
+  query: string,
+  previous?: FindMatchesCache,
+): FindMatchesResult {
   const needle = query.toLocaleLowerCase();
-  if (!needle) return [];
-  const matches: FindMatch[] = [];
-  rows.forEach((row, rowIndex) => {
+  if (!needle) {
+    return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
+  }
+
+  let prefix = 0;
+  if (previous?.needle === needle) {
+    while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
+  }
+
+  if (previous?.needle === needle && prefix === rows.length && rows.length === previous.rows.length) {
+    return { matches: previous.matches, cache: { needle, rows, matches: previous.matches }, scannedRows: 0 };
+  }
+
+  const matches = previous?.needle === needle ? previous.matches.filter(({ rowIndex }) => rowIndex < prefix) : [];
+  for (let rowIndex = prefix; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
     const text = searchableText(row);
-    if (!text) return;
+    if (!text) continue;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
-  });
-  return matches;
+  }
+  return { matches, cache: { needle, rows, matches }, scannedRows: rows.length - prefix };
+}
+
+export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+  return findMatchesIncremental(rows, query).matches;
 }
 
 export type ChatFind = {
@@ -111,7 +164,13 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [query, setQueryState] = useState("");
   const [active, setActive] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
-  const matches = useMemo(() => (open ? findMatches(rows, query) : []), [open, rows, query]);
+  const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
+  const matches = useMemo(() => {
+    if (!open) return [];
+    const result = findMatchesIncremental(rows, query, matchesCache.current);
+    matchesCache.current = result.cache;
+    return result.matches;
+  }, [open, rows, query]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
   // Where focus was when the bar opened, so closing it puts the reader back there.
@@ -210,6 +269,33 @@ function registry(): HighlightRegistry | undefined {
   return (globalThis.CSS as unknown as { highlights?: HighlightRegistry } | undefined)?.highlights;
 }
 
+/** The text a highlight searches, in runs: each text node on its own, except that consecutive ones
+ * inside one `data-find-join` element (a tool row's label, its verb in the column apart from its
+ * subject, ToolVerb.tsx) are one run, so a match may span them as it spans the words they draw. */
+function findRuns(walker: TreeWalker): Node[][] {
+  const runs: Node[][] = [];
+  let join: Element | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const owner = node.parentElement?.closest("[data-find-join]") ?? null;
+    if (owner && owner === join) runs[runs.length - 1]!.push(node);
+    else runs.push([node]);
+    join = owner;
+  }
+  return runs;
+}
+
+/** Where offset `at` of a run's joined text lies: its node and the offset in it. An end that falls
+ * on a boundary stays in the node before it; a start moves to the node after it. */
+function nodeAt(nodes: readonly Node[], at: number, end: boolean): [Node, number] {
+  let rest = at;
+  for (const [index, node] of nodes.entries()) {
+    const length = node.textContent?.length ?? 0;
+    if (rest < length || (end && rest === length) || index === nodes.length - 1) return [node, rest];
+    rest -= length;
+  }
+  return [nodes[0]!, 0];
+}
+
 /** Clears the find highlights. */
 export function clearFindHighlights() {
   const highlights = registry();
@@ -238,29 +324,50 @@ export function paintFindHighlights(
   const all: Range[] = [];
   let current: Range | undefined;
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
-    const ranges: Range[] = [];
+    // Alternate presentations share one indexed value. Prefer Markdown only when its light-DOM
+    // ranges cover every Raw occurrence of this query. Otherwise use Raw for the whole value:
+    // mixing copies by ordinal would misidentify a hidden URL preceding a visible occurrence.
+    const alternatives = new Map<string, { primary: number; fallback: number }>();
+    for (const fallback of row.querySelectorAll<HTMLElement>("[data-find-fallback]")) {
+      alternatives.set(fallback.dataset.findFallback!, { primary: 0, fallback: 0 });
+    }
+    const candidates: { range: Range; pair?: string; kind?: "primary" | "fallback" }[] = [];
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) =>
         node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
     });
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const text = node.textContent?.toLocaleLowerCase() ?? "";
+    for (const nodes of findRuns(walker)) {
+      // A run's nodes share one presentation (a label's verb and subject sit in one element).
+      const presentation = nodes[0]!.parentElement?.closest<HTMLElement>("[data-find-primary], [data-find-fallback]");
+      const pair = presentation?.dataset.findPrimary ?? presentation?.dataset.findFallback;
+      const kind = presentation?.hasAttribute("data-find-primary") ? "primary" : "fallback";
+      const counts = pair === undefined ? undefined : alternatives.get(pair);
+      const text = nodes
+        .map((node) => node.textContent ?? "")
+        .join("")
+        .toLocaleLowerCase();
       for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
         const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + needle.length);
-        ranges.push(range);
+        const [startNode, startAt] = nodeAt(nodes, at, false);
+        const [endNode, endAt] = nodeAt(nodes, at + needle.length, true);
+        range.setStart(startNode, startAt);
+        range.setEnd(endNode, endAt);
+        if (counts) counts[kind]++;
+        candidates.push({ range, pair, kind });
       }
     }
+    const ranges = candidates
+      .filter(({ pair, kind }) => {
+        const counts = pair === undefined ? undefined : alternatives.get(pair);
+        if (!counts) return true;
+        return kind === (counts.primary === counts.fallback ? "primary" : "fallback");
+      })
+      .map(({ range }) => range);
     all.push(...ranges);
     // The row that draws the match (an edit and its edited-files card share an id).
-    if (
-      active &&
-      row.dataset.rowId === active.rowId &&
-      (row.dataset.rowCard === "true") === active.card &&
-      ranges.length
-    )
-      current = ranges[Math.min(active.occurrence, ranges.length - 1)];
+    if (active && row.dataset.rowId === active.rowId && (row.dataset.rowCard === "true") === active.card) {
+      if (ranges.length) current = ranges[Math.min(active.occurrence, ranges.length - 1)];
+    }
   }
   highlights.set(FIND_HIGHLIGHT, new Highlight(...all.filter((range) => range !== current)));
   if (current) highlights.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(current));

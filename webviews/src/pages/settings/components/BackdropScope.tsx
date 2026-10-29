@@ -67,8 +67,8 @@ export function BackdropScopePicker({
 const FOLLOW_OPACITY = 0.5;
 /** How long keyboard steps pause before the tint is saved. */
 const KEY_SAVE_MS = 400;
-/** At 1 the glass hides the art (the host caps a workspace's tint the same way). */
-const MAX_OPACITY = 0.95;
+/** At 1 the window turns opaque and hides the art, like the host's cap. */
+const MAX_OPACITY = 1;
 
 /**
  * This Workspace's Opacity over art: the slider previews the tint while it moves (never written)

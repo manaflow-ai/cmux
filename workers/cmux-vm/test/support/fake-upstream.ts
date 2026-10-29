@@ -54,10 +54,22 @@ export type UpstreamOperation =
   | "update"
   | "listTlsRules"
   | "replaceTlsRule"
-  | "getSnapshot";
+  | "getSnapshot"
+  | "createIdentity"
+  | "grantVmPermission"
+  | "createAccessToken"
+  | "deleteIdentity";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
+const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(permissions\/vm|tokens))?$/;
+
+/** A provider identity: its VM grants and access tokens (client sessions). */
+interface FakeIdentity {
+  readonly id: string;
+  readonly grants: Array<{ readonly vmId: string; readonly allowedLinuxUsers: ReadonlyArray<string> | null }>;
+  readonly tokens: Array<{ readonly id: string; readonly token: string }>;
+}
 
 const vmBody = (vm: FakeVm) => ({
   id: vm.id,
@@ -93,6 +105,7 @@ export function makeFakeUpstream(apiKey: string) {
   const files = new Map<string, Uint8Array>();
   const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
+  const identities = new Map<string, FakeIdentity>();
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
   const execReplies = new Map<string, () => Response>();
@@ -112,7 +125,35 @@ export function makeFakeUpstream(apiKey: string) {
     const failure = takeFailure(operation);
     if (failure !== null) return failure;
     const vm = vmId === null ? undefined : vms.get(vmId) ?? [...vms.values()].find((v) => v.slug === vmId);
+    const identityMatch = IDENTITY_PATH.exec(url.pathname);
+    const identity = identityMatch?.[1] === undefined ? undefined : identities.get(decodeURIComponent(identityMatch[1]));
     switch (operation) {
+      case "createIdentity": {
+        const created: FakeIdentity = { id: `id-${crypto.randomUUID()}`, grants: [], tokens: [] };
+        identities.set(created.id, created);
+        return Response.json({ id: created.id, managed: false });
+      }
+      case "grantVmPermission": {
+        if (identity === undefined) return notFound();
+        const body: unknown = await request.json();
+        const grantVm: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "vmId") : undefined;
+        const users: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "allowedLinuxUsers") : undefined;
+        if (typeof grantVm !== "string" || !vms.has(grantVm)) return notFound();
+        const allowedLinuxUsers = Array.isArray(users) ? users.filter((user): user is string => typeof user === "string") : null;
+        identity.grants.push({ vmId: grantVm, allowedLinuxUsers });
+        return Response.json({ id: `perm-${crypto.randomUUID()}`, identityId: identity.id, vmId: grantVm, allowedLinuxUsers, grantedAt: "2026-10-21T00:00:00Z", grantedBy: "acct" });
+      }
+      case "createAccessToken": {
+        if (identity === undefined) return notFound();
+        const token = { id: `tok-${crypto.randomUUID()}`, token: `fs_identity_${crypto.randomUUID()}` };
+        identity.tokens.push(token);
+        return Response.json(token);
+      }
+      case "deleteIdentity": {
+        if (identity === undefined) return notFound();
+        identities.delete(identity.id);
+        return new Response(null, { status: 204 });
+      }
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
       case "create": {
@@ -312,6 +353,14 @@ export function makeFakeUpstream(apiKey: string) {
     if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
+    if (url.pathname === "/v5/identities" && method === "POST") return { operation: "createIdentity", vmId: null };
+    const identity = IDENTITY_PATH.exec(url.pathname);
+    if (identity !== null) {
+      if (identity[2] === "permissions/vm" && method === "POST") return { operation: "grantVmPermission", vmId: null };
+      if (identity[2] === "tokens" && method === "POST") return { operation: "createAccessToken", vmId: null };
+      if (identity[2] === undefined && method === "DELETE") return { operation: "deleteIdentity", vmId: null };
+      return null;
+    }
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "GET") return { operation: "getSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
@@ -393,6 +442,12 @@ export function makeFakeUpstream(apiKey: string) {
       snapshots.set(snapshot.id, snapshot);
       return snapshot;
     },
+    /** How many provider identities exist (client sessions not revoked). */
+    identityCount: () => identities.size,
+    /** Whether an access token still works: its identity exists. */
+    tokenValid: (token: string) => [...identities.values()].some((id) => id.tokens.some((t) => t.token === token)),
+    /** The VM grants of the identity holding `token`. */
+    identityGrants: (token: string) => [...identities.values()].find((id) => id.tokens.some((t) => t.token === token))?.grants ?? [],
     /** Upstream calls of one operation kind, in order. */
     callsTo(method: string, pathPattern: RegExp) {
       return calls.filter((call) => call.method === method && pathPattern.test(call.path));

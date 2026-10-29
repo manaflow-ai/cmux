@@ -132,6 +132,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     if len(manifest.get("frames") or []) < 2 or not shutil.which("ffmpeg"):
         return None, None
     mp4 = into / "tour.mp4"
+    env = pr_media.tool_env()
     done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
                 "-i", str(directory / "frames/frame-%05d.jpg"),
                 "-frames:v", str(MAX_FRAMES),
@@ -139,13 +140,13 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
-               capture_output=True, text=True)
+               capture_output=True, text=True, env=env)
     if done.returncode != 0 or not mp4.is_file():
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
         return None, None
     gif = into / "tour.gif"
     for width in GIF_WIDTHS:
-        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True)
+        done = run(pr_media.gif_argv(mp4, gif, GIF_FPS, width), capture_output=True, text=True, env=env)
         if done.returncode == 0 and gif.is_file() and gif.stat().st_size <= pr_media.INLINE_MAX_BYTES - 512 * 1024:
             return mp4, gif
     return mp4, None

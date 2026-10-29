@@ -35,10 +35,10 @@ extension IconHistory {
         inActiveWindow(ctx) { id, update in
             for daemon in ctx.services.machines.daemons {
                 guard let screen = daemon.store.workspaces.lazy.flatMap(\.screens).first(where: { $0.id == id }) else { continue }
-                guard daemon.supports(DaemonCapabilities.shared.screenMetadata) else {
-                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.screenMetadata))
+                guard daemon.supports(DaemonCapability.screenMetadata.rawValue) else {
+                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.screenMetadata.rawValue))
                 }
-                ScreenCommands.setIcon(screen, update.icon, daemon: daemon)
+                ctx.services.registry.settle(ScreenCommands.setIcon(screen, update.icon, daemon: daemon), of: "screen.setIcon", ActionInvocation())
                 return true
             }
             return false
@@ -49,8 +49,8 @@ extension IconHistory {
     static func screenGroup(_ ctx: AppActionContext) -> Self {
         inActiveWindow(ctx) { id, update in
             guard let found = GroupOwnership.screenGroup(CmuxNextDaemon.ScreenGroupID(rawValue: id), machines: ctx.services.machines) else { return false }
-            guard found.daemon.supports(DaemonCapabilities.shared.screenGroupIcon) else {
-                throw ActionFailure(message: found.daemon.missingCapabilityMessage(DaemonCapabilities.shared.screenGroupIcon))
+            guard found.daemon.supports(DaemonCapability.screenGroupIcon.rawValue) else {
+                throw ActionFailure(message: found.daemon.missingCapabilityMessage(DaemonCapability.screenGroupIcon.rawValue))
             }
             ScreenGroupCommands.update(found.group.id, icon: update, daemon: found.daemon)
             return true
@@ -62,8 +62,8 @@ extension IconHistory {
         inActiveWindow(ctx) { id, update in
             let group = CmuxNextDaemon.TabGroupID(rawValue: id)
             guard let (pane, daemon) = GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines) else { return false }
-            guard daemon.supports(DaemonCapabilities.shared.tabGroupIcon) else {
-                throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabGroupIcon))
+            guard daemon.supports(DaemonCapability.tabGroupIcon.rawValue) else {
+                throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabGroupIcon.rawValue))
             }
             GroupIconHandlers.send(update, toTabGroup: group, in: pane, daemon: daemon, ctx)
             return true

@@ -96,7 +96,8 @@ describe("client team-scoped token issuance", () => {
     // Seed a serving connection; its provisioning is covered by team-sso-login. The policy RPC and mint gates run normally.
     await inDO(stub, async (owner) => {
       const state = owner.boundEngine.currentState
-      state.domains = { "client-sso.test": { domain: "client-sso.test", state: "verified" } }
+      // A verified claim carries its times: without them the weekly re-check time is NaN and the TeamDO alarm throws.
+      state.domains = { "client-sso.test": { domain: "client-sso.test", state: "verified", requested_at: Date.now(), verified_at: Date.now() } }
       state.sso_connections = { ssoc_test: { id: "ssoc_test", kind: "oidc", state: "active", domains: ["client-sso.test"], oidc: { issuer: "https://idp.test", client_id: "test", scopes: ["openid"], authorization_endpoint: "https://idp.test/auth", token_endpoint: "https://idp.test/token", jwks_uri: "https://idp.test/jwks" }, secret_set: true, jit: { enabled: false, default_role: "member" }, created_at: Date.now(), updated_at: Date.now() } }
     })
     const changed = await call("/v1/ops", f.creator.token, { op: "team.policy.update", params: { changes: ["sso.enforce", "sso.enforceForOwners"].map((key) => ({ key, value: { value: true, mode: "enforced" } })), expected_version: 0, reason: "test" }, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": f.team })

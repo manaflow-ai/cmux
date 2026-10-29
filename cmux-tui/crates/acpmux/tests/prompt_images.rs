@@ -456,3 +456,336 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     assert_eq!(sent["text"], "🦀 fix\na log");
     assert_eq!(sent["pasted"], range, "{sent}");
 }
+
+/// A store that counts the records it hands a reader (`scan`, `scan_back`, `scan_kinds`,
+/// `events`): a file store parses each of those, and passes a line `scan_back`'s skip names on its
+/// header. Every other call goes to the store it wraps.
+struct Counting {
+    inner: Box<dyn acpmux::store::Store>,
+    parsed: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Counting {
+    fn count(&self) {
+        self.parsed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl acpmux::store::Store for Counting {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.inner.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        let events = self.inner.events(id, after, limit)?;
+        self.parsed.fetch_add(events.len(), std::sync::atomic::Ordering::SeqCst);
+        Ok(events)
+    }
+    fn scan(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan(id, after, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan_back(id, after, before, skip, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn tail_after(&self, id: &str, after: u64) -> anyhow::Result<(u64, u64)> {
+        self.inner.tail_after(id, after)
+    }
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan_kinds(id, kinds, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn flush(&self) -> anyhow::Result<()> {
+        self.inner.flush()
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+    fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        self.inner.session_dir(id)
+    }
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.inner.handoff_dir()
+    }
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.inner.peer_cache_dir()
+    }
+}
+
+/// Reading a sent image back costs the records that can name it, newest first, not the whole
+/// chat (Leo, 2026-10-21: a pasted image showed as an empty box; reading one image of his 701 MB
+/// coordinator chat took 16.7 s, as `_acpmux/attachment` parsed every record from the first).
+#[tokio::test]
+async fn reading_a_sent_image_back_parses_only_the_records_that_can_name_it() {
+    let dir = store("image-read-cost");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let parsed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counting =
+        Counting { inner: acpmux::store::open(&cfg.store, &dir).unwrap(), parsed: parsed.clone() };
+    // A long chat: an image prompt early on, then thousands of the agent's own records.
+    let session = "01a1-image-read-cost";
+    let bytes = b"image-read-cost: a pasted screenshot";
+    let id = sha256_hex(bytes);
+    let attachments = acpmux::config::home().join("attachments");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join(&id), bytes).unwrap();
+    let record = |seq: u64, dir: &str, kind: &str, msg: Value| acpmux::store::EventRecord {
+        seq,
+        at: seq,
+        dir: dir.into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    use acpmux::store::Store as _;
+    counting
+        .append(
+            session,
+            &record(
+                1,
+                "mux",
+                "user_message",
+                json!({"text": "look", "images": [{"id": id, "mimeType": "image/png"}]}),
+            ),
+        )
+        .unwrap();
+    for seq in 2..=4000 {
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "words "}}}});
+        counting.append(session, &record(seq, "in", "agent_message_chunk", update)).unwrap();
+    }
+    counting
+        .append(session, &record(4001, "mux", "user_message", json!({"text": "and now?"})))
+        .unwrap();
+    counting.flush().unwrap();
+    let hub = Hub::new(cfg, Box::new(counting));
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    let image = hub.prompt_image(session, &id).unwrap();
+    use base64::Engine;
+    assert_eq!(image["data"], json!(base64::engine::general_purpose::STANDARD.encode(bytes)));
+    let cost = parsed.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(cost <= 2, "reading one image parsed {cost} of the chat's 4001 records");
+    // An image the chat never sent is refused without reading its log.
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    assert!(hub.prompt_image(session, &sha256_hex(b"never sent")).is_err());
+    assert_eq!(parsed.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+/// A hub over its own local store under `name`, its sessions' logs holding `records`.
+fn hub_with(name: &str, records: &[(&str, acpmux::store::EventRecord)]) -> Arc<Hub> {
+    let dir = store(name);
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let local = acpmux::store::open(&cfg.store, &dir).unwrap();
+    for (session, record) in records {
+        local.append(session, record).unwrap();
+    }
+    local.flush().unwrap();
+    Hub::new(cfg, local)
+}
+
+fn mux_record(seq: u64, kind: &str, msg: Value) -> acpmux::store::EventRecord {
+    acpmux::store::EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    }
+}
+
+/// Keeps `bytes` where prompts keep their images, and returns their id. The home is set first
+/// (`root`), so they land where the hub reads them.
+fn kept(bytes: &[u8]) -> String {
+    root();
+    let id = sha256_hex(bytes);
+    let attachments = acpmux::config::home().join("attachments");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join(&id), bytes).unwrap();
+    id
+}
+
+/// One image is one set of bytes, whichever prompts sent it and however each labelled it: it
+/// reads back as the type its bytes are, whichever record the newest-first read finds. Bytes of
+/// no known type keep the newest label. An id named twice in one prompt reads back once.
+#[tokio::test]
+async fn a_sent_image_reads_back_as_the_type_its_bytes_are_whatever_its_prompts_said() {
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD.decode(PNG).unwrap();
+    let png_id = kept(&png);
+    let plain = b"conflicting-types: bytes of no known image type";
+    let plain_id = kept(plain);
+    let named = |id: &str, mime: &str| json!({"id": id, "mimeType": mime, "name": "image.png"});
+    let prompt = |seq: u64, images: Vec<Value>| {
+        mux_record(seq, "user_message", json!({"text": "look", "images": images}))
+    };
+    let hub = hub_with(
+        "conflicting-types",
+        &[
+            // Sent first as a JPEG, then as a PNG: newest first finds the PNG label.
+            ("png-then", prompt(1, vec![named(&png_id, "image/jpeg")])),
+            ("png-then", prompt(2, vec![named(&png_id, "image/png")])),
+            // Sent first as a PNG, then (queued) as a WebP: newest first finds the WebP label.
+            ("png-now", prompt(1, vec![named(&png_id, "image/png")])),
+            ("png-now", mux_record(2, "queued", json!({"images": [named(&png_id, "image/webp")]}))),
+            // Bytes no header names, labelled twice, and named twice in the newest prompt.
+            ("plain", prompt(1, vec![named(&plain_id, "image/png")])),
+            (
+                "plain",
+                prompt(2, vec![named(&plain_id, "image/gif"), named(&plain_id, "image/gif")]),
+            ),
+        ],
+    );
+    for session in ["png-then", "png-now"] {
+        let image = hub.prompt_image(session, &png_id).unwrap();
+        assert_eq!(image["mimeType"], json!("image/png"), "{session}");
+        assert_eq!(image["data"], json!(PNG), "{session}");
+    }
+    let image = hub.prompt_image("plain", &plain_id).unwrap();
+    assert_eq!(image["mimeType"], json!("image/gif"));
+    assert_eq!(image["data"], json!(base64::engine::general_purpose::STANDARD.encode(plain)));
+}
+
+/// The newest-first read takes a log in 64 KiB blocks from its end: a record whose text has a
+/// multibyte character cut by a block edge still parses whole, so its image reads back.
+#[tokio::test]
+async fn a_sent_image_whose_record_spans_a_block_edge_mid_character_reads_back() {
+    use base64::Engine;
+    let png = base64::engine::general_purpose::STANDARD.decode(PNG).unwrap();
+    let mut bytes = png.clone();
+    bytes.extend_from_slice(b"block-edge");
+    let id = kept(&bytes);
+    // The prompt's text is 3-byte characters, longer than a block. One of three paddings of the
+    // record after it puts the block edge inside a character.
+    let text = "€".repeat(40_000);
+    let mut found = false;
+    for pad in 0..3 {
+        let session = format!("block-edge-{pad}");
+        let hub = hub_with(
+            &format!("block-edge-{pad}"),
+            &[
+                (
+                    session.as_str(),
+                    mux_record(
+                        1,
+                        "user_message",
+                        json!({"text": text, "images": [{"id": id, "mimeType": "image/png"}]}),
+                    ),
+                ),
+                (session.as_str(), mux_record(2, "user_message", json!({"text": "x".repeat(pad)}))),
+            ],
+        );
+        let segment =
+            root().join(format!("block-edge-{pad}")).join("sessions").join(&session).join("events");
+        let files: Vec<_> =
+            std::fs::read_dir(&segment).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files.len(), 1, "one segment");
+        let log = std::fs::read(&files[0]).unwrap();
+        let edge = log.len() - 64 * 1024;
+        if !(0x80..0xc0).contains(&log[edge]) {
+            continue;
+        }
+        found = true;
+        let image = hub.prompt_image(&session, &id).unwrap();
+        assert_eq!(image["data"], json!(base64::engine::general_purpose::STANDARD.encode(&bytes)));
+        assert_eq!(image["mimeType"], json!("image/png"));
+    }
+    assert!(found, "no padding put the block edge inside a character");
+}
+
+/// Older records that name the image sit behind the newest one that does: the read stops at
+/// the newest and parses none of them.
+#[tokio::test]
+async fn reading_a_sent_image_back_stops_at_the_newest_record_that_names_it() {
+    let dir = store("image-read-newest");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let parsed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counting =
+        Counting { inner: acpmux::store::open(&cfg.store, &dir).unwrap(), parsed: parsed.clone() };
+    let session = "01a1-image-read-newest";
+    let id = kept(b"image-read-newest: sent three times");
+    let names = json!({"text": "again", "images": [{"id": id, "mimeType": "image/png"}]});
+    use acpmux::store::Store as _;
+    // Sent in a prompt, queued, sent again, then the agent's own records, then sent once more.
+    counting.append(session, &mux_record(1, "user_message", names.clone())).unwrap();
+    counting.append(session, &mux_record(2, "queued", json!({"images": names["images"]}))).unwrap();
+    counting.append(session, &mux_record(3, "user_message", names.clone())).unwrap();
+    for seq in 4..=1000 {
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "words "}}}});
+        counting
+            .append(
+                session,
+                &acpmux::store::EventRecord {
+                    seq,
+                    at: seq,
+                    dir: "in".into(),
+                    kind: "agent_message_chunk".into(),
+                    msg: update,
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    }
+    counting.append(session, &mux_record(1001, "user_message", names.clone())).unwrap();
+    counting.flush().unwrap();
+    let hub = Hub::new(cfg, Box::new(counting));
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    assert!(hub.prompt_image(session, &id).is_ok());
+    assert_eq!(parsed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

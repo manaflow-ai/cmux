@@ -1,5 +1,6 @@
 public import AppKit
 import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The cmux chevron on the window glass while a launch has nothing to show
 /// yet. Drawn with layers from `CGPath.launchMark(in:)`, so it needs no asset,

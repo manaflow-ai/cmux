@@ -306,6 +306,12 @@ impl ReceiverCore {
                             break;
                         }
                         // Give the gap up: restart at a keyframe.
+                        tracing::debug!(
+                            next,
+                            highest,
+                            hole,
+                            "media receiver: gave a gap up; asking for a keyframe"
+                        );
                         self.stats.frames_dropped += 1;
                         self.request_keyframe();
                     }
@@ -402,6 +408,7 @@ pub(crate) async fn run(
 ) {
     let epoch = std::time::Instant::now();
     let mut core = ReceiverCore::new(config);
+    let mut overflows = 0u64;
     let mut path = carrier.path_changes();
     loop {
         if let Some(rtt) = rtt.as_ref().and_then(|r| *r.borrow()) {
@@ -458,6 +465,14 @@ pub(crate) async fn run(
             }
             if overflow {
                 // The consumer fell behind; restart its decoder at a keyframe.
+                overflows += 1;
+                if overflows.is_power_of_two() {
+                    tracing::info!(
+                        source,
+                        overflows,
+                        "media lane: a viewer is not reading its frames; asking for a keyframe"
+                    );
+                }
                 core.request_keyframe();
             }
         }

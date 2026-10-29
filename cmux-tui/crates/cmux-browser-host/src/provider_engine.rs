@@ -5,7 +5,7 @@
 //! names one by `targetId` in every call. Tab lifecycle calls (`tabs.open`,
 //! `tabs.close`, `tabs.activate`) go to the source, which owns tabs. Every
 //! call that names a tab passes the source's refusal rules first (browser
-//! pages, the interim extension rule). The ownership rules live here, once
+//! pages). The ownership rules live here, once
 //! for every source: created tabs close at the session's end unless kept,
 //! automation leases, the session's request filter, its events.
 
@@ -14,6 +14,7 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use crate::tab_source::{TabCall, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -355,7 +356,7 @@ impl ProviderEngine {
                 let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
                     "timeoutMs": SESSION_END_CLOSE_MS});
                 if let Some(timeout) = params.get("timeoutMs") {
-                    close["timeoutMs"] = timeout.clone();
+                    close.set("timeoutMs", timeout.clone());
                 }
                 return self.provider.call("tabs.close", &close).map(Reply::Value);
             }

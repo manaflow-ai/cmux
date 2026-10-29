@@ -329,6 +329,16 @@ class AdvisoryVerdictTests(unittest.TestCase):
         self.assert_green(self.verdict(1, MARKER, needed="false"), warned=False)
         self.assert_green(self.verdict(0, "", client=False), warned=True)
 
+    def test_it_never_takes_the_required_compiles_gateway(self) -> None:
+        # Each gateway job holds a fleet runner while its client waits on the controller, so the advisory
+        # check has its own label; on the required compile's it starved cmux-next app compile (2026-10-22).
+        job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
+        self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", job)
+        runs_on = re.search(r"^    runs-on: (.*)$", job, re.M).group(1)
+        condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
+        self.assertIn("vars.CI_TEST_COMPILE_GATEWAY", runs_on)
+        self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
+
     def test_the_job_outlasts_the_client_so_a_slow_fleet_never_reads_red(self) -> None:
         # A GitHub job timeout concludes as a failure: the client's queue and run
         # timeouts must end first, with room for the client to report.

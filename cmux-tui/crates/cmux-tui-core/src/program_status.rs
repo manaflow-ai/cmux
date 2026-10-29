@@ -446,7 +446,7 @@ pub(crate) fn shown_text(text: &str, limit: usize) -> String {
 /// Bidi controls, zero-width characters, word joiners, invisible operators,
 /// the BOM and interlinear annotation marks (Unicode Cf characters that can
 /// hide or reorder shown text).
-fn is_invisible_format(character: char) -> bool {
+pub(crate) fn is_invisible_format(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'

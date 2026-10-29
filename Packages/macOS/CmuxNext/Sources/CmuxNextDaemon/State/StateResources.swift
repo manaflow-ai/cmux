@@ -106,6 +106,10 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     /// Every member's screens, one list per member (`ClosedMemberRecord`);
     /// empty for a v1 item, whose `screens` are the whole item.
     public var memberScreens: [[Screen]]
+    /// Every member's name, one per member (a workspace's or screen's name;
+    /// nil for a member with none); empty for a v1 item. One close gesture
+    /// over several workspaces is one item of several members.
+    public var memberNames: [String?]
     /// Set when the item is a deleted personal workspace group.
     public var group: Group?
     /// The window record (`install/window`) the group left, or, for a
@@ -121,11 +125,12 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
 
     private struct Member: Decodable {
         var screens: [Screen]?
+        var name: String?
     }
 
     public init(id: String, kind: Kind, name: String? = nil, workspaceID: ResourceID? = nil, paneID: ResourceID? = nil,
                 index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = [],
-                group: Group? = nil) {
+                memberNames: [String?] = [], group: Group? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -135,6 +140,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         self.closedAtMs = closedAtMs
         self.screens = screens
         self.memberScreens = memberScreens
+        self.memberNames = memberNames
         self.group = group
     }
 
@@ -148,7 +154,9 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         closedAtMs = try StateDecimal.decode(c, .closedAtMs) ?? 0
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
-        memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
+        let members = try c.decodeIfPresent([Member].self, forKey: .members) ?? []
+        memberScreens = members.map { $0.screens ?? [] }
+        memberNames = members.map(\.name)
         group = try c.decodeIfPresent(Group.self, forKey: .group)
         window = try c.decodeIfPresent(String.self, forKey: .window)
     }

@@ -63,6 +63,12 @@ public struct TerminalTabPage: View {
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
+            // Only a page on screen, settled and taking input sizes the Mac's
+            // terminal; the grid, a swipe away, another tab or leaving the
+            // workspace release it (PROTOCOL.md, "Terminal size claims").
+            .onAppear { host.model.setPageShown(isInteractive) }
+            .onChange(of: isInteractive) { _, interactive in host.model.setPageShown(interactive) }
+            .onDisappear { host.model.setPageShown(false) }
             .ignoresSafeArea()
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
@@ -141,8 +147,10 @@ public struct TerminalTabCard: View {
                     if let image = model.snapshot {
                     let scale = geo.size.width / max(1, image.size.width)
                     // A still holds the rows only (qa11): the card ends just under the
-                    // last row, which rests on the composer card's top at rest.
-                    let composer = ComposerMetrics().restingCardHeight(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+                    // last row, which rests on the dock's top (the key row) at rest.
+                    let composer = TerminalDockMetrics().restingStackHeight(
+                        lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+                        visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
                                                 bottomTrim: max(0, insets.bottom + composer - 6) * scale)
                     // The newest rows and the prompt at the card's bottom edge (V5-6).

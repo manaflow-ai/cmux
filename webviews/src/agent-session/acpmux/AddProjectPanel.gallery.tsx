@@ -63,7 +63,7 @@ const host: ProjectDirectoryHost = {
 const base = {
   host,
   localName: "This Mac",
-  peers: ["big-red", "Office Mac"],
+  peers: ["lab-box", "Office Mac"],
   onPick: () => undefined,
   onClose: () => undefined,
 };

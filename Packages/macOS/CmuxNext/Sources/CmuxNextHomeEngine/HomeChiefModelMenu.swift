@@ -21,7 +21,7 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     nonisolated struct Item: Equatable {
         var value: String
         var title: String
-        /// The model's catalog description, or what an alias runs (the row's tooltip).
+        /// The row's tooltip: the model's catalog description, then the id a pick writes.
         var detail: String?
     }
 
@@ -130,6 +130,8 @@ nonisolated struct HomeChiefModelMenu: Equatable {
         /// The release id this row stands for (a variant's base), which dedupes and orders it.
         var key: String
         var variant: Bool
+        /// The catalog's description of the model, the first line of its tooltip.
+        var description: String?
     }
 
     /// One row per offered model: acpmux's own `default` is the popup's Default item; an alias
@@ -147,9 +149,9 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             let key = ((release?.family != nil ? release?.id : nil) ?? base) + model.id.dropFirst(base.count)
             var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? readable(model)
             if variant { title = variantTitle(base: title, id: model.id) }
-            let detail: String? = isPlan ? model.name : (model.description ?? release?.description ?? (title == model.id ? nil : model.id))
-            let row = Row(item: Item(value: model.id, title: title, detail: detail), family: release?.family,
-                          release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant)
+            let row = Row(item: Item(value: model.id, title: title, detail: isPlan ? planDetail(model, title: title) : nil), family: release?.family,
+                          release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant,
+                          description: model.description ?? release?.description)
             if let index = seen[key] {
                 // The alias wins the row unless the Chief is set on the other id.
                 let keepsNew = model.id == chosen || (rows[index].item.value != chosen && isAlias(model, of: models))
@@ -161,8 +163,15 @@ nonisolated struct HomeChiefModelMenu: Equatable {
         }
         if let chosen, chosen != "default", !rows.contains(where: { $0.item.value == chosen }) {
             // Named by its id made readable; the id itself is the row's tooltip.
-            rows.append(Row(item: Item(value: chosen, title: chosen.chiefModelName, detail: chosen), family: nil, release: nil,
-                            kind: .model, key: chosen, variant: false))
+            rows.append(Row(item: Item(value: chosen, title: chosen.chiefModelName), family: nil, release: nil,
+                            kind: .model, key: chosen, variant: false, description: nil))
+        }
+        // The tooltip names the id the row writes once an alias and its release share the row.
+        for index in rows.indices where rows[index].kind == .model {
+            let item = rows[index].item
+            let id = item.title == item.value ? nil : item.value
+            let lines = [rows[index].description, id].compactMap { $0 }
+            rows[index].item.detail = lines.isEmpty ? nil : lines.joined(separator: "\n")
         }
         return rows
     }
@@ -196,7 +205,18 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     }
 
     /// Claude Code's `opusplan`: Opus plans, Sonnet carries the plan out.
+    /// Another plan reads by its own name, or by its id made readable (``readable(_:)``).
     private static func planTitle(_ model: ChiefEngineReport.Model) -> String {
-        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : model.name
+        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : readable(model)
+    }
+
+    /// A plan row's tooltip: the harness's own name for it, then the id the row writes.
+    private static func planDetail(_ model: ChiefEngineReport.Model, title: String) -> String? {
+        var lines: [String] = []
+        for line in [model.name.trimmingCharacters(in: .whitespacesAndNewlines), model.id]
+        where !line.isEmpty && line != title && !lines.contains(line) {
+            lines.append(line)
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

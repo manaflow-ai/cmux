@@ -74,6 +74,8 @@ public struct FeedArchive: Sendable {
         var replies: [String]
         /// A terminal agent's event (nil in archives before it existed).
         var opensTerminal: Bool?
+        /// The Mac that sent it (nil in archives before it existed).
+        var macID: String?
 
         init?(_ item: FeedItem) {
             switch item.kind {
@@ -97,6 +99,7 @@ public struct FeedArchive: Sendable {
             resolution = item.resolution
             replies = item.replies
             opensTerminal = item.opensTerminal ? true : nil
+            macID = item.macID
         }
 
         var item: FeedItem? {
@@ -115,6 +118,7 @@ public struct FeedArchive: Sendable {
             item.resolution = resolution
             item.replies = replies
             item.opensTerminal = opensTerminal == true
+            item.macID = macID
             return item
         }
     }

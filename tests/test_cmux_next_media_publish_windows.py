@@ -11,6 +11,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("media_publish", ROOT / "scripts/cmux-next/media/publish.py")
@@ -42,6 +44,12 @@ class FakePrMedia:
 
     def raw_url(self, repo, branch, remote):
         return f"https://raw.githubusercontent.com/{repo}/{branch}/{remote}"
+
+    def tool_env(self):
+        return {"PATH": "/usr/bin"}
+
+    def gif_argv(self, source, destination, fps, width):
+        return ["ffmpeg", str(source), str(destination)]
 
 
 STEP = {
@@ -98,6 +106,22 @@ class PublishWindowsTests(unittest.TestCase):
         self.assertIn("shots/01-open-the-pet.png", text)
         self.assertIn("shots/01-open-the-pet--w9.png", text)
         self.assertNotIn("--w7.png", text)
+
+class MakeVideoTests(unittest.TestCase):
+    def test_ffmpeg_gets_only_the_tool_environment(self):
+        envs = []
+
+        def run(argv, **kwargs):
+            envs.append(kwargs.get("env"))
+            Path(argv[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            mp4, gif = publish.make_video(Path(scratch), {"frames": [1, 2]}, Path(scratch), FakePrMedia(), run=run)
+        self.assertIsNotNone(mp4)
+        self.assertIsNotNone(gif)
+        self.assertEqual(envs, [{"PATH": "/usr/bin"}] * 2)
 
 
 if __name__ == "__main__":

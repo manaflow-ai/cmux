@@ -2,11 +2,12 @@ import Foundation
 
 /// Live preview for list pages (`PalettePageSpec.onHighlight`/`onLeave`):
 /// the page hears which row is highlighted (the hovered row, else the
-/// selected one) and when it is left without choosing.
+/// selected one; the selected one after a key moved it, until the pointer
+/// moves) and when it is left without choosing.
 extension PaletteModel {
     func reportHighlight() {
         guard let state = current, case .list(let page) = state.kind, let onHighlight = page.onHighlight else { return }
-        let id = hoveredRowID ?? selectedRowID
+        let id = keyboardLeads ? selectedRowID : hoveredRowID ?? selectedRowID
         guard id != state.highlightedItemID else { return }
         state.highlightedItemID = id
         // The row selected as the page opens previews nothing (a theme

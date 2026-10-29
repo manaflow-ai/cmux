@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// A toolbar row that shows the arrow over its whole frame and the I-beam
 /// over the omnibar's text area (`OmnibarPointer`).
@@ -76,8 +77,9 @@ public class ArrowCursorView: NSView {
     /// event: the row under the pointer in a window that is not key sets its
     /// cursor again, last. Reads no event. With a top-level key window it
     /// returns after one property read; otherwise it compares the pointer
-    /// with each row's visible rect and asks the window server for the window
-    /// under the pointer only when a row contains it. No allocation.
+    /// with each row's visible rect, returns when the cursor already is the
+    /// row's, and only then asks the window server for the window under the
+    /// pointer. No allocation.
     public static func pointerDidMove() {
         guard let key = NSApp.keyWindow, key.parent != nil else { return }
         #if DEBUG
@@ -89,17 +91,33 @@ public class ArrowCursorView: NSView {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
-            guard NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber else { return }
+            // Nothing to set: the row's tracking area already set this cursor, and no other
+            // handling of the move replaced it.
+            let cursor = OmnibarPointer.cursor(atWindowPoint: point, in: row)
+            if NSCursor.current === cursor.cursor {
+                row.trackedCursor = cursor
+                return
+            }
+            guard isTopWindow(window, at: location) else { return }
             row.setCursor(at: point)
             return
         }
+    }
+
+    /// Whether `window` is the top window at `location` (screen coordinates). The window server
+    /// answers synchronously (`SLSCopyWindowRoutingRecordsForScreenLocation`), which blocked the
+    /// main thread for about half of every pointer move over a browser toolbar on a loaded Mac
+    /// (sample of the live app, 2026-10-21): callers ask only when the cursor is not already the
+    /// row's. The answer is never kept, since any window of any app can move over the toolbar.
+    fileprivate static func isTopWindow(_ window: NSWindow, at location: NSPoint) -> Bool {
+        NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber
     }
 }
 
 extension ArrowCursorView {
     // MARK: A still pointer, while a child window has the key
 
-    private static var cursorKeeper: CFRunLoopObserver?
+    private static var cursorKeeper: MainRunLoopObserver?
 
     /// One main run loop observer, after every other observer of the pass
     /// (AppKit's display cycle runs in Core Animation's commit, before it).
@@ -111,11 +129,10 @@ extension ArrowCursorView {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_KEEPER"] == "off" { return }
         #endif
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
-            MainActor.assumeIsolated { ArrowCursorView.keepCursor() } // main-proof: an observer of the main run loop
+        // It sets the cursor only, so the commit-boundary audit does not count it as late.
+        cursorKeeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max, drawsNothingAfterCommit: true) { _ in
+            ArrowCursorView.keepCursor()
         }
-        cursorKeeper = observer
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
     /// With a top-level key window it returns after one property read. While
@@ -131,7 +148,7 @@ extension ArrowCursorView {
             let point = window.convertPoint(fromScreen: location)
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             guard NSCursor.current !== (row.trackedCursor ?? OmnibarPointer.cursor(.toolbar)).cursor else { return }
-            guard NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0) == window.windowNumber else { return }
+            guard isTopWindow(window, at: location) else { return }
             row.setCursor(at: point)
             return
         }

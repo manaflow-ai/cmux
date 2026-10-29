@@ -8,6 +8,9 @@ public nonisolated enum RemotePath: String, Sendable, Hashable, CaseIterable, Co
     case viaCloudRegion
     /// Through the Durable Object relay: the weakest path for video.
     case relayed
+    /// An RFB (VNC) compatibility host: a TCP connection over the tailnet
+    /// or LAN, outside the overlay (plans/cmux-next/remote-desktop.md 12).
+    case compatibility
 }
 
 /// Live session status from the transport. The pane derives every visible

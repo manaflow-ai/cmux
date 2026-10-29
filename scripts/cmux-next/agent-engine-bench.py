@@ -20,6 +20,7 @@ import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, te
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
+from bench_launch import LaunchError, launch_app, bundle_id  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -34,13 +35,15 @@ parser.add_argument("--open", action="store_true",
                     help="launch through LaunchServices (`open -n`), for a shell outside the console's GUI session (ssh)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--shots", help="a folder: light and dark screen captures of the open session in each mode, with the window glass on")
 opts = parser.parse_args()
 # LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
 TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-TUNABLES = {"own": {}, "page": {"agent.pageHost": True}, "chromium": {"agent.chromium": True}}
+TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True}}
 app = None
 
 
@@ -136,10 +139,29 @@ def typing():
             "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
 
 
+def screen_shots(mode):
+    """The screen with the chat's session open, light then dark: the screen, not the app's own snapshot,
+    since only the window server composites a Chromium page window over the glass under it."""
+    if not opts.shots:
+        return None
+    os.makedirs(opts.shots, exist_ok=True)
+    taken = {}
+    for look in ("light", "dark"):
+        rpc("debug.appearance", {"mode": look})
+        time.sleep(3)  # test harness: the theme reload and the page's repaint land
+        # screencapture takes one file per display; a single-display mini writes only d1.
+        names = [os.path.join(opts.shots, f"{mode}-{look}-d{n}.png") for n in (1, 2)]
+        done = subprocess.run(["/usr/sbin/screencapture", "-x", "-o", *names], capture_output=True, text=True, timeout=30)
+        taken[look] = {"files": [n for n in names if os.path.exists(n)], "error": done.stderr.strip() or None}
+    rpc("debug.appearance", {"mode": "system"})
+    taken["windows"] = rpc("debug.window_list")
+    return taken
+
+
 def focus_probe():
     if not opts.activate:
         return None
-    subprocess.run(["osascript", "-e", f'tell application id "com.cmuxterm.app.debug.{TAG}" to activate'], capture_output=True, timeout=30)
+    subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
     time.sleep(1)  # test harness: activation settles
     focused = pane("focus_composer").get("focused")
     time.sleep(0.5)  # test harness: focus settles
@@ -162,12 +184,16 @@ class Launched:
 
 
 def launch(mode, scratch):
-    global app
+    global app, SOCKET
     config = os.path.join(scratch, "cmux.json")
     json.dump({"browser": {"defaultEngine": "chromium"}}, open(config, "w"))
     tunables = os.path.join(scratch, "debug-tunables.json")
     json.dump({"version": 1, "values": TUNABLES[mode]}, open(tunables, "w"))
-    open(os.path.join(scratch, "ghostty"), "w").close()
+    with open(os.path.join(scratch, "ghostty"), "w") as ghostty:
+        if opts.shots:
+            # The window glass (Liquid Glass under a 0.7 theme tint), so the captures show what a page does over it;
+            # an empty config is an opaque window.
+            ghostty.write("background-opacity = 0.7\nbackground-blur = macos-glass-regular\n")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local",
            "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables,
@@ -188,8 +214,18 @@ def launch(mode, scratch):
             return None
         app = Launched(pid)
     else:
-        log = open(log_path, "a")
-        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        if opts.activate:
+            env["CMUX_NEXT_NO_ACTIVATE"] = None  # bench_launch: not its default no-activate launch
+
+        def started(process):
+            global app
+            app = process
+        # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+        try:
+            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+        except LaunchError:
+            return False
+        return True
     return wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120)
 
 
@@ -224,6 +260,7 @@ def run_mode(mode):
     result["one_chat"] = memory("one chat", 1)
     result["session"] = open_session()
     result["focus"] = focus_probe()
+    result["shots"] = screen_shots(mode)
     result["typing"] = typing()
     pane("seed_rows", count=5000, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out

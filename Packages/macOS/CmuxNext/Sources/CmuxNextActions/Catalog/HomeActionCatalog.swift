@@ -9,7 +9,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
@@ -144,6 +144,26 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
+            // Chief zoom: Cmd-= (and Cmd-+), Cmd-- and Cmd-0 on Home (KeyBindingDefaults.scopedDefaults) step
+            // the Agent Chat Zoom setting (`agentPane.zoom`), which the Chief transcript follows like an agent chat.
+            ActionDescriptor(
+                id: "home.zoomIn", title: t("action.home.zoomIn", "Chief: Zoom In"),
+                keywords: ["home", "chief", "chat", "zoom", "bigger", "text size", "font"],
+                category: .window, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomOut", title: t("action.home.zoomOut", "Chief: Zoom Out"),
+                keywords: ["home", "chief", "chat", "zoom", "smaller", "text size", "font"],
+                category: .window, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomReset", title: t("action.home.zoomReset", "Chief: Actual Size"),
+                keywords: ["home", "chief", "chat", "zoom", "reset", "actual size", "text size"],
+                category: .window, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
@@ -173,6 +193,10 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "agent", "subchief", "new", "create", "orchestrator"],
                 category: .window, symbol: "sparkles", surfaces: [.palette, .menu],
                 arguments: [ActionArgument(name: "name", title: t("argument.home.chief.name", "Chief Name"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "harness", title: t("argument.home.chief.harness", "Harness"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "engine", title: t("argument.home.chief.engine", "Engine"), kind: .string,
                                            isRequired: false)],
                 cliName: "home new-chief", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
@@ -185,17 +209,40 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
-            // No keys: Cmd-Shift-[ / ] are Chrome tab keys everywhere, Home too (KeyBindingDefaults.tabSwitching).
+            // Deleting cannot be undone (Archive Chief can): it asks first.
+            ActionDescriptor(
+                id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
+                keywords: ["home", "chief", "delete", "remove", "agent"],
+                category: .window, symbol: "trash", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home delete-chief", destructive: true,
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
+            // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
+            // (KeyBindingDefaults.homeChatSwitching); a Chief opened as a pane tab keeps the tab keys.
             ActionDescriptor(
                 id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
-                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],
+                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.up", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
                 id: "home.nextConversation", title: t("action.home.nextConversation", "Next Conversation"),
-                keywords: ["home", "conversation", "next", "person", "people", "chief", "down"],
+                keywords: ["home", "conversation", "next", "person", "people", "chief", "down", "cycle", "tab"],
+                defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .window, symbol: "chevron.down", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
+            ActionDescriptor(
+                id: "home.selectConversationByNumber",
+                title: t("action.home.selectConversationByNumber", "Select Conversation 1…9"),
+                keywords: ["home", "conversation", "chief", "number", "index", "switch", "jump"],
+                defaultShortcut: Shortcut("1", modifiers: [.control]), shortcutFamily: .digits,
+                category: .window, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
@@ -301,6 +348,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // A chat's own bubble and text colours (user 2026-10-28): the row's Chat Colors… and the
+            // palette open the picker; `cmux chat colors --conversation <id> --sent "#34C759"` sets one
+            // (`default` clears a role, `--reset` clears them all). Looks only, kept on this Mac.
+            ActionDescriptor(
+                id: "home.chatColors", title: t("action.home.chatColors", "Chat Colors…"),
+                keywords: ["home", "chat", "colors", "colours", "bubble", "text", "background", "theme", "imessage", "conversation"],
+                category: .window, symbol: "paintpalette", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            Self.color("sent", t("argument.home.chatColors.sent", "My Bubble Color")),
+                            Self.color("sentText", t("argument.home.chatColors.sentText", "My Text Color")),
+                            Self.color("received", t("argument.home.chatColors.received", "Their Bubble Color")),
+                            Self.color("receivedText", t("argument.home.chatColors.receivedText", "Their Text Color")),
+                            ActionArgument(name: "reset", title: t("argument.home.chatColors.reset", "Reset to Default"), kind: .bool,
+                                           isRequired: false)],
+                cliName: "chat colors",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -340,6 +404,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
                                            ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
                        isRequired: isRequired)
+    }
+
+    /// One bubble colour of `home.chatColors`: `#RRGGBB`, or `default` for the default for every chat.
+    private static func color(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .string, isRequired: false)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

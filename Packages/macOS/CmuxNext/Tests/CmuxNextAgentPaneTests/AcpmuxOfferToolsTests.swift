@@ -1,12 +1,14 @@
 import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with the Debug Settings toggle
-/// `agent.suggestedTasks` on, the acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every
-/// local session gets the cmux-sessions MCP server (the default); off it does not. The toggle is
-/// read at each daemon start, so a change applies to the next daemon this app starts.
+/// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with suggested tasks on (the setting
+/// `sessions.promptSuggestions`, on by default, or the Debug Settings toggle `agent.suggestedTasks`
+/// forcing them on), the acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every local
+/// session gets the cmux-sessions MCP server; off it does not. Both are read at each daemon start,
+/// so a change applies to the next daemon this app starts.
 @Suite(.serialized)
 struct AcpmuxOfferToolsTests {
     /// A short temp root with a stand-in `acpmux` that appends the `ACPMUX_OFFER_TOOLS` it was
@@ -48,16 +50,18 @@ struct AcpmuxOfferToolsTests {
         return store
     }
 
-    /// The host as the app makes it: the toggle read from `store` at each daemon start.
-    static func host(_ environment: AcpmuxEnvironment, _ store: TunableStore) -> AcpmuxHost {
+    /// The host as the app makes it (``AgentPaneSuggestedTasks/isOn``): the setting, or the toggle
+    /// read from `store`, at each daemon start.
+    static func host(_ environment: AcpmuxEnvironment, _ store: TunableStore,
+                     setting: Bool = SessionSettings.promptSuggestionsDefault) -> AcpmuxHost {
         AcpmuxHost(resolve: { environment },
-                   offersSessionTools: { AgentPaneTunables.suggestedTasks.value(in: store) })
+                   offersSessionTools: { setting || AgentPaneTunables.suggestedTasks.value(in: store) })
     }
 
     @Test func suggestedTasksGiveTheDaemonTheSessionOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let host = Self.host(fixture.environment, Self.tunables(true))
+        let host = Self.host(fixture.environment, Self.tunables(true), setting: false)
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
@@ -76,7 +80,7 @@ struct AcpmuxOfferToolsTests {
     @Test func turnedOffTheDaemonGetsNoOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let host = Self.host(fixture.environment, Self.tunables(false))
+        let host = Self.host(fixture.environment, Self.tunables(nil), setting: false)
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")
@@ -85,8 +89,8 @@ struct AcpmuxOfferToolsTests {
     @Test func aToggleAppliesToTheNextDaemonStart() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let store = Self.tunables(false)
-        let host = Self.host(fixture.environment, store)
+        let store = Self.tunables(nil)
+        let host = Self.host(fixture.environment, store, setting: false)
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         store.set(AgentPaneTunables.suggestedTasks.key, .bool(true))

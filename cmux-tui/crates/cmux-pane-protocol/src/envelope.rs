@@ -231,8 +231,7 @@ impl Envelope {
 pub fn check_name(name: &str) -> Result<(), EnvelopeError> {
     let labels: Vec<&str> = name.split('.').collect();
     let valid_label = |label: &&str| {
-        !label.is_empty()
-            && label.as_bytes()[0].is_ascii_alphanumeric()
+        label.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
             && label.bytes().all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
     };
     if name.len() <= 256 && labels.len() >= 3 && labels.iter().all(valid_label) {

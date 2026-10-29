@@ -8,10 +8,13 @@ path in FAKE_AGENT) plus two prompts it lacks:
                  reports it as an ACP `edit` tool call with a `diff` block, so
                  the phone's diff viewer and artifacts browser see a real edit
   "stream: N"    streams N short chunks, 120 ms apart, then ends the turn
+  "multi: Q"     asks Q as Claude Code's AskUserQuestion with multiSelect and
+                 three options, and echoes the answers (verify/push-matrix.md)
 
 Every other prompt (`ask:`, `question:`, `slow`, echo, ...) is fake_agent's.
 """
 import importlib.util
+import json
 import os
 import time
 
@@ -30,7 +33,7 @@ def handle_prompt(rid, params):
     sid = params["sessionId"]
     text = "".join(b.get("text", "") for b in params.get("prompt", []))
     # The phone's keyboard capitalizes the first letter.
-    if text[:1].isupper() and text.split(":")[0].lower() in ("edit", "stream", "ask", "question", "slow"):
+    if text[:1].isupper() and text.split(":")[0].lower() in ("edit", "stream", "ask", "question", "slow", "multi"):
         text = text[0].lower() + text[1:]
         params = dict(params, prompt=[{"type": "text", "text": text}])
     if text.startswith("edit:"):
@@ -45,6 +48,29 @@ def handle_prompt(rid, params):
                 "content": [{"type": "diff", "path": full, "oldText": old, "newText": new}]}
         fake.update(sid, dict(call, sessionUpdate="tool_call"))
         chunk(sid, f"Edited `{path}`: one line added.")
+        fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("multi:"):
+        res = fake.request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "q1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[6:].strip(), "header": "Checks",
+                                                         "multiSelect": True,
+                                                         "options": [{"label": "lint"}, {"label": "unit tests"},
+                                                                     {"label": "e2e"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        res = res or {}
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
+        chunk(sid, f"chose {chosen} {json.dumps(answers, sort_keys=True)}")
         fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("stream:"):

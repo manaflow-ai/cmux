@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import SwiftUI
+import UIKit
 
 /// A small lexical highlighter for code cards (SPEC 2.1 syntax palette). It
 /// recognises comments, strings, numbers, keywords, capitalised types and
@@ -34,8 +35,14 @@ public struct SyntaxHighlighter: Sendable {
         }
     }
 
-    public func highlight(_ code: String) -> AttributedString {
-        var output = AttributedString()
+    /// What a highlighted piece of code is.
+    public enum Token: Sendable {
+        case comment, string, number, keyword, function, type
+    }
+
+    /// `code` as pieces in order, each with its token (nil: plain text). Pure, so it runs off the main thread.
+    public func pieces(_ code: String) -> [(text: String, token: Token?)] {
+        var output: [(text: String, token: Token?)] = []
         let keywords = keywords
         let comment = lineComment
         let chars = Array(code)
@@ -43,15 +50,13 @@ public struct SyntaxHighlighter: Sendable {
         var plain = ""
         func flushPlain() {
             if !plain.isEmpty {
-                output += AttributedString(plain)
+                output.append((plain, nil))
                 plain = ""
             }
         }
-        func emit(_ text: String, _ color: Color) {
+        func emit(_ text: String, _ token: Token) {
             flushPlain()
-            var piece = AttributedString(text)
-            piece.foregroundColor = color
-            output += piece
+            output.append((text, token))
         }
         let commentChars = Array(comment)
         while index < chars.count {
@@ -61,7 +66,7 @@ public struct SyntaxHighlighter: Sendable {
                Array(chars[index..<index + commentChars.count]) == commentChars {
                 var end = index
                 while end < chars.count, chars[end] != "\n" { end += 1 }
-                emit(String(chars[index..<end]), .cmuxMobileSyntaxComment)
+                emit(String(chars[index..<end]), .comment)
                 index = end
                 continue
             }
@@ -73,7 +78,7 @@ public struct SyntaxHighlighter: Sendable {
                     end += 1
                 }
                 end = min(end + 1, chars.count)
-                emit(String(chars[index..<end]), .cmuxMobileSyntaxString)
+                emit(String(chars[index..<end]), .string)
                 index = end
                 continue
             }
@@ -81,7 +86,7 @@ public struct SyntaxHighlighter: Sendable {
             if c.isNumber, index == 0 || !(chars[index - 1].isLetter || chars[index - 1] == "_") {
                 var end = index
                 while end < chars.count, chars[end].isNumber || chars[end] == "." || chars[end] == "_" || chars[end] == "x" { end += 1 }
-                emit(String(chars[index..<end]), .cmuxMobileSyntaxNumber)
+                emit(String(chars[index..<end]), .number)
                 index = end
                 continue
             }
@@ -91,11 +96,11 @@ public struct SyntaxHighlighter: Sendable {
                 while end < chars.count, chars[end].isLetter || chars[end].isNumber || chars[end] == "_" { end += 1 }
                 let word = String(chars[index..<end])
                 if keywords.contains(word) || word.hasPrefix("@") || (word.hasPrefix("#") && word.count > 1 && language == "swift") {
-                    emit(word, .cmuxMobileSyntaxKeyword)
+                    emit(word, .keyword)
                 } else if end < chars.count, chars[end] == "(" {
-                    emit(word, .cmuxMobileSyntaxFunction)
+                    emit(word, .function)
                 } else if let first = word.first, first.isUppercase {
-                    emit(word, .cmuxMobileSyntaxType)
+                    emit(word, .type)
                 } else {
                     plain += word
                 }
@@ -107,6 +112,39 @@ public struct SyntaxHighlighter: Sendable {
         }
         flushPlain()
         return output
+    }
+
+    public func highlight(_ code: String) -> AttributedString {
+        var output = AttributedString()
+        for piece in pieces(code) {
+            var run = AttributedString(piece.text)
+            if let token = piece.token { run.foregroundColor = Self.color(token) }
+            output += run
+        }
+        return output
+    }
+
+    static func color(_ token: Token) -> Color {
+        switch token {
+        case .comment: .cmuxMobileSyntaxComment
+        case .string: .cmuxMobileSyntaxString
+        case .number: .cmuxMobileSyntaxNumber
+        case .keyword: .cmuxMobileSyntaxKeyword
+        case .function: .cmuxMobileSyntaxFunction
+        case .type: .cmuxMobileSyntaxType
+        }
+    }
+
+    /// The same palette as UIKit colors.
+    public static func uiColor(_ token: Token) -> UIColor {
+        switch token {
+        case .comment: .cmuxMobileSyntaxComment
+        case .string: .cmuxMobileSyntaxString
+        case .number: .cmuxMobileSyntaxNumber
+        case .keyword: .cmuxMobileSyntaxKeyword
+        case .function: .cmuxMobileSyntaxFunction
+        case .type: .cmuxMobileSyntaxType
+        }
     }
 }
 #endif

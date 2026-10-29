@@ -33,7 +33,7 @@ extension MessagesWindowView {
         let st = store.state
         let loaded = max(1, st.conversation.messages.count)
         let estimated = model.total * CGFloat(max(st.total, loaded)) / CGFloat(loaded)
-        return min(1, max(0.02, (anchorY - Fixture.headerHeight) / max(1, estimated)))
+        return min(1, max(0.02, (anchorY - visibleTop) / max(1, estimated)))
     }
 }
 

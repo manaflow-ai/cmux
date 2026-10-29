@@ -2,13 +2,14 @@ import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConversationId, ConversationKind, InboxEntry, ParticipantId, Seq, Timestamp } from "./ops-home-schemas.ts"
 import { HostId, InstallId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Inbox (UserDO stream `inbox:<user>`), chiefs (UserDO), the chief wake queue (MuxDO) and Home
  * search (PlanetScale projection), home-messaging.md sections 4.2, 4.3 and 8.
  */
 const inboxErrors = [...mutationErrors, "unknown_conversation", "invalid_params", "forbidden"]
-const AgentId = Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)).annotate({ identifier: "AgentId" })
+const AgentId = Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)).annotate({ identifier: "AgentId" })
 
 const inboxOp = (name: string, params: Schema.Top, docs: string) =>
   def({
@@ -83,7 +84,7 @@ export const InboxDmPeer = def({
 })
 
 const ChiefName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))
-const ChiefId = Schema.String.check(Schema.isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
+const ChiefId = Schema.String.check(isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
 /**
  * Where a chief's brain runs (brains/DESIGN-cmux-lawrence.md G8): a paired server's host and its
  * daemon install. Set by the user's session only; the placed install's chief token gets the chief's
@@ -157,6 +158,21 @@ export const ChiefArchive = def({
   errors: [...mutationErrors, "selector.not_found", "chief_is_default"],
   docs: "Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.",
   cli: { path: "chief archive", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const ChiefDelete = def({
+  name: "chief.delete",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "chief",
+  principals: ["session"],
+  params: Schema.Struct({ chief: ChiefId, expected_rev: Schema.Number }),
+  result: Chief,
+  errors: [...mutationErrors, "selector.not_found", "chief_is_default"],
+  docs: "Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.",
+  cli: { path: "chief delete", visible: true },
   mcp: { expose: "never", group: "home" }
 })
 
@@ -279,6 +295,7 @@ export const homeInboxOps = [
   ChiefCreate,
   ChiefUpdate,
   ChiefArchive,
+  ChiefDelete,
   ChiefList,
   HomeSettingsSet,
   MuxAck,
@@ -314,6 +331,7 @@ export const homeInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("mux.bind", "cloud:MuxDO", "chief", "Internal: binds a MuxDO to its chief and owner when the chief is created."),
   internal("mux.wake", "cloud:MuxDO", "chief", "Internal: a ConversationDO queues a wake for a chief."),
   internal("invite.delivery.report", "cloud:ConversationDO", "invite", "Internal: an AddressDO reports an invite's delivery state (forward only)."),
+  internal("chief.rename", "cloud:ConversationDO", "chief", "Internal: the owner's UserDO renames a Chief's main conversation (its title and the Chief's name) after chief.update."),
   internal("address.ensure", "cloud:AddressDO", "address", "Internal: stores a normalized address; returns its id, linked user and suppression."),
   internal("address.deliver", "cloud:AddressDO", "address", "Internal: sends an invite through the provider after the invite commit (suppression, limits, environment policy)."),
   internal("address.delivery.record", "cloud:AddressDO", "address", "Internal: records a provider delivery callback."),

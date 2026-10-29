@@ -1,4 +1,5 @@
-public import Foundation
+public import AppKit
+public import CmuxNextWakeups
 
 /// Byte transport for one terminal, the seam between a Ghostty surface and
 /// whatever owns the PTY.
@@ -25,6 +26,14 @@ public nonisolated protocol TerminalIO: Sendable {
     /// one that does not must apply the size itself (the surface keeps
     /// fitting the view).
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async
+
+    /// Requests this view's grid on the main actor, in the caller's turn, instead of through the
+    /// ordered ``resize(cols:rows:pixelWidth:pixelHeight:)``. `final`: the grid the view will have
+    /// when its pane's layout spring lands, sent at the spring's start (a split or a close resizes
+    /// the program in the terminal before the motion ends). Returns false when the IO has no
+    /// main-actor path; the session then sends `resize` in order. `window`: the view's window, whose
+    /// full screen transition holds the grid.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool
 
     /// True when the owner keeps its own VT state and answers terminal
     /// queries (DA, DSR, OSC color queries). The cmux-tui daemon does, so the
@@ -60,15 +69,22 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// The name the typing probe gives this IO's terminal (``TypingLatencyProbe/Source``): the same one
+    /// the attachment that sends its keys uses, so an echo counts only for the terminal that typed.
+    /// Nil (the default): the probe takes no echo hop from this IO while a press is tied to a terminal.
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { get }
 }
 
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
 }
 
 /// One event from a ``TerminalIO``.

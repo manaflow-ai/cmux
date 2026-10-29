@@ -6,7 +6,7 @@
 //! authenticated datagram, exactly as a listening WireGuard peer does.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use ip_network::IpNetwork;
 use tokio::net::UdpSocket;
@@ -17,6 +17,10 @@ use crate::config::{Endpoint, InterfaceAddress, WgConfig};
 pub mod sim;
 
 /// A fresh Curve25519 keypair as `(private, public)`.
+#[allow(
+    clippy::expect_used,
+    reason = "test support: without operating system randomness no key, and so no test, can exist"
+)]
 pub fn random_keypair() -> ([u8; 32], [u8; 32]) {
     let mut private = [0u8; 32];
     getrandom::fill(&mut private).expect("operating system randomness");
@@ -67,17 +71,22 @@ pub async fn loopback_pair() -> io::Result<LoopbackPair> {
 /// Freestyle-shaped configs for both sides: MTU 1200, one IPv4 and one IPv6
 /// address each, dual-family allowed networks, and a client keepalive. The
 /// client's endpoint is `server_addr`; the server has none and answers.
+#[allow(
+    clippy::expect_used,
+    reason = "10.200.0.0/24 and fdcc::/64 are valid prefixes with no host bits set"
+)]
 pub fn config_pair(server_addr: SocketAddr) -> ConfigPair {
     let (client_private, client_public) = random_keypair();
     let (server_private, server_public) = random_keypair();
 
-    let client_v4: IpAddr = "10.200.0.1".parse().expect("literal");
-    let server_v4: IpAddr = "10.200.0.2".parse().expect("literal");
-    let client_v6: IpAddr = "fdcc::1".parse().expect("literal");
-    let server_v6: IpAddr = "fdcc::2".parse().expect("literal");
+    let client_v4 = IpAddr::V4(Ipv4Addr::new(10, 200, 0, 1));
+    let server_v4 = IpAddr::V4(Ipv4Addr::new(10, 200, 0, 2));
+    let client_v6 = IpAddr::V6(Ipv6Addr::new(0xfdcc, 0, 0, 0, 0, 0, 0, 1));
+    let server_v6 = IpAddr::V6(Ipv6Addr::new(0xfdcc, 0, 0, 0, 0, 0, 0, 2));
     let allowed = vec![
-        IpNetwork::new("10.200.0.0".parse::<IpAddr>().expect("literal"), 24).expect("prefix"),
-        IpNetwork::new("fdcc::".parse::<IpAddr>().expect("literal"), 64).expect("prefix"),
+        IpNetwork::new(Ipv4Addr::new(10, 200, 0, 0), 24).expect("10.200.0.0/24 has no host bits"),
+        IpNetwork::new(Ipv6Addr::new(0xfdcc, 0, 0, 0, 0, 0, 0, 0), 64)
+            .expect("fdcc::/64 has no host bits"),
     ];
 
     let client = WgConfig {

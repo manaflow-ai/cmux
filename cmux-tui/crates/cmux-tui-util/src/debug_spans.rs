@@ -218,6 +218,69 @@ pub fn terminal_mark(terminal: &str, name: &'static str) {
     }));
 }
 
+/// OSC 133;A, the shell's prompt start (`ShellMark::PromptStart`).
+const PROMPT_START: &[u8] = b"\x1b]133;A";
+
+/// The first output, first printable output and first prompt mark of
+/// `terminal`, when its create follows it: called with each chunk of
+/// output the daemon reads for it, from its terminal host or from the
+/// holder. A mark split across two chunks is missed.
+pub fn output_marks(terminal: &str, output: &[u8]) {
+    if !following() {
+        return;
+    }
+    terminal_mark(terminal, "host.first_output");
+    if owes(terminal, "first_printable_output") && has_printable_text(output) {
+        terminal_mark(terminal, "first_printable_output");
+    }
+    if owes(terminal, "first_prompt_mark")
+        && output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START)
+    {
+        terminal_mark(terminal, "first_prompt_mark");
+    }
+}
+
+/// Whether `output` has a printable byte outside escape sequences (CSI, OSC,
+/// DCS/SOS/PM/APC strings, and escapes with intermediates such as `ESC ( B`).
+/// Printable is ASCII graphic or a UTF-8 lead byte; C1 controls are not. A
+/// sequence split across two chunks may be misread; this only times a debug
+/// mark.
+fn has_printable_text(output: &[u8]) -> bool {
+    let mut bytes = output.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            0x1b => match bytes.next() {
+                Some(b'[') => {
+                    for byte in bytes.by_ref() {
+                        if (0x40..=0x7e).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                Some(b']' | b'P' | b'X' | b'^' | b'_') => {
+                    while let Some(byte) = bytes.next() {
+                        if byte == 0x07 || (byte == 0x1b && bytes.next_if_eq(&b'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                // Intermediates, then one final byte.
+                Some(0x20..=0x2f) => {
+                    for byte in bytes.by_ref() {
+                        if !(0x20..=0x2f).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            0x21..=0x7e | 0xc2..=0xf4 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Append `trace` to the marks file.
 pub fn finish(trace: Option<Trace>) {
     let Some(trace) = trace else { return };

@@ -71,6 +71,17 @@ import Testing
         while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
     }
 
+    /// A text field of Home for a test to focus. Typed, so that focusing it does not make AppKit's
+    /// AutoFill heuristic ask the ViewBridge service for one-time codes: an untyped field does that
+    /// synchronously on the main thread, and on a host with no console session the call blocks
+    /// about 10 s per focus (the omnibar's `AddressField` declares `.URL` for the same reason).
+    /// Where the keys go does not depend on the type: the key path checks `NSTextField`.
+    private static func field() -> NSTextField {
+        let field = NSTextField(string: "")
+        field.contentType = .URL
+        return field
+    }
+
     /// Home in `container`, beside another pane, in a window; once its message box exists.
     private static func harness(_ container: Container) async throws -> Harness {
         _ = NSApplication.shared
@@ -172,7 +183,7 @@ import Testing
     func aHiddenFieldThatKeptTheKeyboardDoesNotSwallowTyping(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
-        let field = NSTextField(string: "")
+        let field = Self.field()
         field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
         h.surface.addSubview(field)
         try #require(h.window.makeFirstResponder(field))
@@ -191,7 +202,7 @@ import Testing
     func aVisibleFieldKeepsItsTyping(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
-        let field = NSTextField(string: "")
+        let field = Self.field()
         field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
         h.surface.addSubview(field)
         try #require(h.window.makeFirstResponder(field))
@@ -243,7 +254,7 @@ import Testing
     func aPaneFocusTakesTheKeyboardFromAHiddenField(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
-        let field = NSTextField(string: "")
+        let field = Self.field()
         h.surface.addSubview(field)
         try #require(h.window.makeFirstResponder(field))
         field.isHidden = true

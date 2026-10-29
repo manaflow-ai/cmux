@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextMacScreen
 import CmuxNextSettings
 import Foundation
 
@@ -17,6 +18,8 @@ nonisolated enum NewTabSubmit: Equatable {
     case browser(URL)
     /// A prompt: an agent chat that sends it, on `harness` when given.
     case chat(prompt: String, harness: String?)
+    /// Nothing opens; the person reads why (a pairing link: Mac Screen's refusal).
+    case refused(String)
 
     static let action: ActionID = "newTab.submit"
 
@@ -31,11 +34,12 @@ nonisolated enum NewTabSubmit: Equatable {
         switch intent {
         case .url, .prompt:
             if fixesHostTypos, !search, let fixed = resolver.commitTypoFix(for: text) { return .browser(fixed) }
-        case .none, .terminal:
+        case .none, .terminal, .refused:
             break
         }
         switch intent {
         case .none: return .page
+        case .refused: return .refused(MacScreenPages.pairingLinkRefusal)
         case .terminal(let command): return .terminal(command: command)
         case .url(let address) where !search: return URL(string: address).map(NewTabSubmit.browser) ?? .page
         case .prompt(let prompt) where !search: return .chat(prompt: prompt, harness: agent.flatMap { $0.isEmpty ? nil : $0 })
@@ -71,6 +75,8 @@ extension NewTabSubmit {
         switch plan {
         case .page:
             pane.newTabPage(reusingShown: true)
+        case .refused(let reason):
+            services.registry.refuse(reason)
         case .terminal(let command):
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):

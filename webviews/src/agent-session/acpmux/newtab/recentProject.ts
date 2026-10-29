@@ -59,7 +59,7 @@ export function rememberedRecentFolders(): string[] {
 export function initialRecentProject(
   sessions: AcpmuxSnapshot["sessions"],
   home: string | undefined,
-  known: readonly string[] | undefined,
+  known: readonly string[] | null | undefined,
 ): string | undefined {
   return (
     firstProject(recentLocalFolders(sessions), home, known) ??

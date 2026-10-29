@@ -4,14 +4,16 @@
 //! PTY poll handle, the drain waker pair (`HostStream::pair`), the accept
 //! waker and the PTY readiness wait.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
+use cmux_kitty_media::KittyMediaRewriter;
 use cmux_pty::MasterPty;
 use ghostty_vt::Terminal;
 
@@ -79,13 +81,13 @@ pub(crate) fn start_host_runtime(
         // reaches only this parser: replies to queries it holds are dropped,
         // never written to the running program.
         term.vt_write(seed);
-        signals.pending_responses.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        signals.pending_responses.lock().recover_poison().clear();
         signals.bell.store(false, Ordering::Release);
     }
     if let Some(snapshot) = program_status {
         // `restore` re-applies the record rules and keeps `updated_seq`, so
         // a daemon that later adopts this host shows what the owner showed.
-        signals.program_status.lock().unwrap_or_else(PoisonError::into_inner).restore(snapshot);
+        signals.program_status.lock().recover_poison().restore(snapshot);
     }
     // The seed's OSC 9;4 progress (the owner appends its last value) reaches
     // this host's metadata too, so later snapshots keep it.
@@ -171,7 +173,11 @@ pub(crate) fn start_host_runtime(
     let reader_host = shared.clone();
     thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
         reader_host.wait_for_launch_owner_stream_ready();
-        let mut buffer = [0u8; 64 * 1024];
+        let mut buffer = [0u8; PTY_READ_BYTES];
+        // File-medium Kitty images are read here, next to the program, so
+        // every consumer of the stream gets in-band image data.
+        let mut kitty_media = KittyMediaRewriter::new();
+        let mut kitty_scratch = Vec::new();
         let mut forced_at = None;
         let mut pty_drain_waiter = pty_drain_waiter;
         while let Ok(true) = wait_for_pty_readable_or_forced_drain(
@@ -193,28 +199,22 @@ pub(crate) fn start_host_runtime(
                 }
                 Err(_) => break,
             };
-            let bytes = buffer[..count].to_vec();
-            let _source_order = reader_host.source_order_lock.lock().unwrap();
-            reader_host.parser_budget.reserve(count);
-            // Publication deliberately precedes parser enqueue. The
-            // bounded queue limits memory while letting a fast renderer
-            // consume source bytes independently of parser throughput.
-            let source_cursor =
-                reader_host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
-            if !enqueue_parser_output(
-                &reader_host.parser_commands,
-                &reader_host.parser_budget,
-                &reader_host.smart,
-                bytes,
-                source_cursor,
-                count,
+            cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
+            let read = buffer.get(..count).unwrap_or(&buffer);
+            if !publish_pty_output(
+                &reader_host,
+                kitty_media.rewrite_borrowed(read, &mut kitty_scratch),
             ) {
                 break;
             }
         }
+        // An unfinished command at end of stream goes out as it came.
+        let mut held = Vec::new();
+        kitty_media.finish(&mut held);
+        let _ = publish_pty_output(&reader_host, &held);
         // Drain is ordered after the final source byte. The parser worker,
         // rather than the reader, publishes the drained rendezvous.
-        let _source_order = reader_host.source_order_lock.lock().unwrap();
+        let _source_order = reader_host.source_order_lock.lock().recover_poison();
         let _ = reader_host.parser_commands.send(ParserCommand::Drain);
     })?;
     let child_host = shared.clone();
@@ -224,7 +224,7 @@ pub(crate) fn start_host_runtime(
             child_host.mark_child_waitable();
             let mut drain = exited_drain::ExitedDrain::start();
             loop {
-                let signal = child_host.child_signal_lock.lock().unwrap();
+                let signal = child_host.child_signal_lock.lock().recover_poison();
                 let escalation_complete =
                     child_host.group_escalation_complete.load(Ordering::Acquire);
                 #[cfg(unix)]
@@ -243,11 +243,11 @@ pub(crate) fn start_host_runtime(
                     }
                     child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
-                    *child_host.child_exit.0.lock().unwrap() = Some(exit);
+                    *child_host.child_exit.0.lock().recover_poison() = Some(exit);
                     break;
                 }
                 drop(signal);
-                let state = child_host.child_exit.0.lock().unwrap();
+                let state = child_host.child_exit.0.lock().recover_poison();
                 drain.wait(&child_host, state);
             }
             child_host.child_exit.1.notify_all();
@@ -258,11 +258,39 @@ pub(crate) fn start_host_runtime(
             let exit = child.wait_and_disarm();
             child_host.child_reaped.store(true, Ordering::Release);
             child_host.mark_child_waitable();
-            let mut exited = child_host.child_exit.0.lock().unwrap();
+            let mut exited = child_host.child_exit.0.lock().recover_poison();
             *exited = Some(exit);
             child_host.child_exit.1.notify_all();
             child_host.publish_exit_if_drained();
         }
     })?;
     Ok(shared)
+}
+
+/// Bytes per PTY read, and the most one Output frame carries.
+const PTY_READ_BYTES: usize = 64 * 1024;
+
+/// Publishes PTY output to viewers and the parser in frames of at most one
+/// read; a rewritten Kitty image can be larger than the read it came from.
+/// False when the parser is gone.
+pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
+    bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece.to_vec()))
+}
+
+fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
+    let count = bytes.len();
+    let _source_order = host.source_order_lock.lock().recover_poison();
+    host.parser_budget.reserve(count);
+    // Publication deliberately precedes parser enqueue. The bounded queue
+    // limits memory while letting a fast renderer consume source bytes
+    // independently of parser throughput.
+    let source_cursor = host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+    enqueue_parser_output(
+        &host.parser_commands,
+        &host.parser_budget,
+        &host.smart,
+        bytes,
+        source_cursor,
+        count,
+    )
 }

@@ -58,7 +58,9 @@ function programName(step: string): string {
 }
 
 /// `command` in at most `max` characters: its first step that is not setup, its program by name,
-/// an ellipsis where steps or words were left out.
+/// an ellipsis where steps or words were left out. A transcript row passes no `max` (ROW_WIDTH): it
+/// draws the whole step and CSS cuts it at the row's right edge (Leo, 2026-10-22: "shouldnt these
+/// also ellipsis later"); a one-line note with no room keeps the cap.
 export function shortCommand(command: string, max = 60): string {
   const all = steps(command.trim());
   if (all.length === 0) return "";
@@ -70,3 +72,6 @@ export function shortCommand(command: string, max = 60): string {
   else if (more) text = `${text} …`;
   return text;
 }
+
+/// No character cap: the row's CSS ellipsis cuts the line where the row ends.
+export const ROW_WIDTH = Number.POSITIVE_INFINITY;

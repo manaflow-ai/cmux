@@ -19,6 +19,15 @@ export function needsYouLink(permissionId: string, scheme = "cmux"): string | un
   return TOKEN.test(permissionId) ? `${scheme}://needs-you/${permissionId}` : undefined;
 }
 
+/// Whether the header's list is off (data-needs-you="off" on <html>: the Debug choice, or the App
+/// Store's Needs You item not installed); a link then draws as its text. NeedsYou.tsx `needsYouMode`
+/// reads the same attribute; this one stays here so a reply's Markdown does not load the list.
+export function needsYouListOff(
+  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
+): boolean {
+  return root?.dataset.needsYou === "off";
+}
+
 type Opener = (itemId?: string) => void;
 const openers = new Set<Opener>();
 

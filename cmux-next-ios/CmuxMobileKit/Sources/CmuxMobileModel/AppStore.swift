@@ -48,6 +48,16 @@ public final class AppStore {
     /// Optimistic workspaces still being created on their Mac. A tree
     /// refresh keeps them until the creation settles.
     public private(set) var pendingWorkspaceIDs: Set<String> = []
+    /// Group edits (collapse, rename, color, delete, move) the Mac's list
+    /// has not shown back yet: a tree refresh keeps them (`PendingGroupEdits`).
+    @ObservationIgnored var groupEdits = PendingGroupEdits()
+    /// The clock group edits are confirmed against (tests set it).
+    @ObservationIgnored public var now: () -> Date = Date.init
+
+    /// Forgets the group edits not yet shown back (sign-out, another account).
+    public func resetGroupEdits() {
+        groupEdits.removeAll()
+    }
     /// Placeholder id → the real workspace id once its creation succeeds, so
     /// a screen opened on the placeholder follows the real workspace.
     public private(set) var workspaceAliases: [String: String] = [:]
@@ -140,8 +150,23 @@ public final class AppStore {
 
     /// Replaces one Mac's workspaces, keeping the others.
     public func replaceWorkspaces(macID: String, with next: [Workspace]) {
+        var next = next
+        groupEdits.apply(to: &next, now: now())
         let merged = Self.reconciled(workspaces, macID: macID, with: next, keeping: pendingWorkspaceIDs)
         if merged != workspaces { workspaces = merged }
+    }
+
+    /// Reconciles metadata for existing rows without rebuilding or comparing
+    /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    public func updateWorkspaces(macID: String, rows: [Workspace]) {
+        var rows = rows
+        groupEdits.apply(to: &rows, now: now())
+        for row in rows {
+            guard !pendingWorkspaceIDs.contains(row.id),
+                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  workspaces[index] != row else { continue }
+            workspaces[index] = row
+        }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's

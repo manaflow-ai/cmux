@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The find pills are one shared pill (`FindPillView` natively, `FindPill.tsx` in pages; a334,
 /// 2026-10-20). The native pill is a `Glass.makeOverlayPanel` card, so it draws the

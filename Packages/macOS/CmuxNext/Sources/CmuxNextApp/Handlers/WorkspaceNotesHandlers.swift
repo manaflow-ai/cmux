@@ -10,8 +10,8 @@ import CmuxNextDaemon
 /// and hover card follow the daemon's echo.
 enum WorkspaceNotesHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let description = DaemonCapabilities.shared.workspaceDescription
-        let status = DaemonCapabilities.shared.workspaceStatus
+        let description = DaemonCapability.workspaceDescription.rawValue
+        let status = DaemonCapability.workspaceStatus.rawValue
         // The palette, menu and shortcut ask for the text first (the argument is required).
         registry.bind("editWorkspaceDescription", requires: description, daemon: context.services.activeDaemon, run: { invocation in
             let text = invocation["description"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -44,7 +44,7 @@ enum WorkspaceNotesHandlers {
             throw ActionFailure(message: daemon.missingCapabilityMessage(capability))
         }
         guard let resource = daemon.store.stateResourceID(workspace: key) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.stateResources))
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.stateResources.rawValue))
         }
         daemon.send("workspace.update") { connection in
             try await connection.state.updateWorkspace(resource, description: update.description, taskStatus: update.taskStatus)

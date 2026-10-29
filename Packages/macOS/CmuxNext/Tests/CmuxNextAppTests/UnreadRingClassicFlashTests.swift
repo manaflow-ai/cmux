@@ -11,8 +11,8 @@ import Testing
 /// beyond the blink-out of #22678. `notifications.attention.flash` (classic
 /// `notifications.paneFlash`) turns the dismiss flash off and `flashOnTyping` (classic
 /// `paneFlashOnTyping`) keeps typing from flashing; the ring and the flash glow as classic's did
-/// (0.35 opacity, 3 pt at rest; 0.6, 6 pt in the flash); the color defaults to the one
-/// notification blue token.
+/// (0.35 opacity, 3 pt at rest; 0.6, 6 pt in the flash); the color defaults to the theme accent
+/// (Leo, 2026-10-21: themed, never a fixed blue).
 @MainActor @Suite(.serialized) struct UnreadRingClassicFlashTests {
     static func unreadTab() throws -> (NotificationCenterService, TabModel) {
         _ = NSApplication.shared
@@ -66,7 +66,7 @@ import Testing
     @Test func theSettingsLoadFromCmuxJSON() {
         let defaults = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).attention
         #expect(defaults.flashesOnRead && defaults.flashesOnTyping)
-        #expect(defaults.color == nil, "a ring color is set by default (nil takes the notification blue)")
+        #expect(defaults.color == nil, "a ring color is set by default (nil takes the theme accent)")
         let root: CmuxNextSettings.JSONValue = .object(["notifications": .object(["attention": .object([
             "flash": .bool(false), "flashOnTyping": .bool(false), "color": .string("#FF8800"),
         ])])])
@@ -82,9 +82,9 @@ import Testing
         }
     }
 
-    /// The ring and its flash default to the one notification blue token (the unread dot's).
-    @Test func theRingDefaultsToTheNotificationBlue() {
-        #expect(AttentionHighlightLook.subtle.defaultColor == Palette.notificationBlue)
+    /// The ring and its flash default to the theme accent, never the notification blue.
+    @Test func theRingDefaultsToTheThemeAccent() {
+        #expect(AttentionHighlightLook.subtle.defaultColor == Palette.accentFill)
     }
 
     @Test func theRingAndItsFlashGlowAsClassicsDid() throws {
@@ -98,7 +98,7 @@ import Testing
         }
         update(AttentionMark(generation: 7), readByEntry: false)
         #expect(view.attentionGlow == PaneOverlayView.Glow(opacity: 0.35, radius: 3))
-        #expect(view.attentionGlowColor == Palette.notificationBlue.cgColor)
+        #expect(view.attentionGlowColor == Palette.accentFill.cgColor)
         update(nil, readByEntry: true)
         #expect(view.attentionDismissGlow == PaneOverlayView.Glow(opacity: 0.6, radius: 6), "the flash does not glow stronger")
     }

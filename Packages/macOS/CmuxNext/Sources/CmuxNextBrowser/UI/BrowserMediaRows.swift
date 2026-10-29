@@ -12,16 +12,20 @@ public final class BrowserMediaRows {
         public var subtitle: String
         public var media: BrowserMediaState
         public var artwork: NSImage?
+        /// The card offers Picture in Picture for a video (`media.pictureInPicture.enabled`), read
+        /// when the card draws and when its button is pressed.
+        public var pictureInPicture: () -> Bool
         public var onCommand: (BrowserMediaCommand) -> Void
         public var onReveal: () -> Void
 
-        public init(key: String, title: String, subtitle: String, media: BrowserMediaState, artwork: NSImage?,
+        public init(key: String, title: String, subtitle: String, media: BrowserMediaState, artwork: NSImage?, pictureInPicture: @escaping () -> Bool = { true },
                     onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
             self.key = key
             self.title = title
             self.subtitle = subtitle
             self.media = media
             self.artwork = artwork
+            self.pictureInPicture = pictureInPicture
             self.onCommand = onCommand
             self.onReveal = onReveal
         }
@@ -41,12 +45,12 @@ public final class BrowserMediaRows {
             let row: BrowserMediaRowView
             if let existing = rows[card.key] {
                 existing.show(title: card.title, subtitle: card.subtitle, media: card.media, artwork: card.artwork,
-                              onCommand: card.onCommand, onReveal: card.onReveal)
+                              pictureInPicture: card.pictureInPicture, onCommand: card.onCommand, onReveal: card.onReveal)
                 row = existing
             } else {
                 built += 1
                 row = BrowserMediaRowView(title: card.title, subtitle: card.subtitle, media: card.media, artwork: card.artwork,
-                                          onCommand: card.onCommand, onReveal: card.onReveal)
+                                          pictureInPicture: card.pictureInPicture, onCommand: card.onCommand, onReveal: card.onReveal)
             }
             // A view belongs to one menu item: the last menu's item lets go of it.
             row.enclosingMenuItem?.view = nil

@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The live web loop of a Debug or NIGHTLY app (plans/cmux-next/web-live-reload.md): `web-dev.json`
+/// The live web loop of a Debug, NIGHTLY or cmux NEXT DEV app (plans/cmux-next/web-live-reload.md): `web-dev.json`
 /// next to `cmux-next.json` points the app's web surfaces at a loopback Vite server (hot reload)
 /// or at an overlay folder of built bundles, with no app build and no relaunch.
 ///
@@ -20,7 +20,7 @@ import CmuxNextCompat
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
 /// reloads every page and agent pane on a change. Release and RC builds never read the file:
-/// ``isEnabled`` is the DevTools rule (a Debug compile or a nightly bundle).
+/// ``isEnabled`` follows ``isAvailable`` (a Debug compile, a nightly bundle or cmux NEXT DEV).
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
     public var server: PageDevServer?
@@ -35,19 +35,26 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         self.stamp = stamp
     }
 
+    /// Whether pages load from a server or an overlay (an empty override serves the bundle).
+    public var isActive: Bool { server != nil || overlay != nil }
+
     /// The file's name, next to `cmux-next.json`.
     public static let fileName = "web-dev.json"
     /// The file an overlay install writes last.
     public static let manifestName = "manifest.json"
 
-    /// Whether `web-dev.json` is read at all: a Debug compile, or a nightly bundle (tagged or
-    /// not). The rule of `DevTools.isAvailable` (CmuxNextActions, which this module does not use).
+    /// Whether `web-dev.json` is read at all: a Debug compile, a nightly bundle (tagged or not), or
+    /// cmux NEXT DEV, the daily dogfood build (a Release compile with its own id). The rule of
+    /// `DevTools.isAvailable` (CmuxNextActions, which this module does not use), plus that build.
     public static func isAvailable(bundleID: String?, isDebugBuild: Bool) -> Bool {
         if isDebugBuild { return true }
         guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
         let nightly = "com.cmuxterm.app.nightly"
-        return bundle == nightly || bundle.hasPrefix(nightly + ".")
+        return bundle == nightly || bundle.hasPrefix(nightly + ".") || bundle == nextDevBundleID
     }
+
+    /// cmux NEXT DEV's bundle id (docs/cmux-next/dev-daily.md).
+    static let nextDevBundleID = "com.cmuxterm.app.debug.next"
 
     /// This process: decided once from its own bundle.
     public static let isEnabled: Bool = {

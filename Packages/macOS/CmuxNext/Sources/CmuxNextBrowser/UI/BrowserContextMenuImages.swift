@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextIcons
+import CmuxNextDesign
 
 /// The 16 pt images of page menu rows (``BrowserContextMenuIcon``), made
 /// once per icon. Main thread, like the menus that show them.
@@ -38,26 +38,10 @@ final class BrowserContextMenuImages {
         }
     }
 
-    /// `name` drawn in a 16 pt square; a template, so the menu tints it. A pack name (Chrome's
-    /// `browser.menu.*` icons) draws from the pack; an SF Symbol name an extension or page gives
-    /// draws that symbol.
+    /// `name` as a menu row's SF Symbol (`NSImage.menuSymbol`), a template the menu inks like
+    /// its title: an SF Symbol name a page or extension gives, or a pack name (Chrome's
+    /// `browser.menu.*` icons) as the SF Symbol the icon catalog pairs with it.
     private static func symbol(_ name: String) -> NSImage? {
-        if IconCatalog.bundled.name(forSymbol: name).map({ IconPack.bundled.drawing(for: $0) != nil }) == true {
-            return NSImage.icon(symbol: name, size: side)
-        }
-        // chrome-icons: allow an SF Symbol name a page or extension supplies
-        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) else { return nil }
-        let size = NSSize(width: side, height: side)
-        let image = NSImage(size: size, flipped: false) { rect in
-            let fit = base.size
-            let scale = min(rect.width / max(fit.width, 1), rect.height / max(fit.height, 1), 1)
-            let drawn = NSSize(width: fit.width * scale, height: fit.height * scale)
-            base.draw(in: NSRect(x: (rect.width - drawn.width) / 2, y: (rect.height - drawn.height) / 2,
-                                 width: drawn.width, height: drawn.height))
-            return true
-        }
-        image.isTemplate = true
-        return image
+        NSImage.menuSymbol(name)
     }
 }

@@ -60,4 +60,20 @@ import Testing
         #expect(chrome.addressBar.focusModeBadgeView.alphaValue == 1)
         #expect(!chrome.addressBar.focusModeBadgeView.isHidden)
     }
+
+    /// The badge is a lit chip in the theme's accent, never orange (Leo 2026-10-21: "the accent is
+    /// never orange"). It was `systemOrange`, a color no theme sets.
+    @Test func badgeUsesTheThemeAccentNotOrange() {
+        let (chrome, window) = chrome()
+        defer { window.close() }
+        chrome.showsFocusModeIndicator = true
+        let badge = chrome.addressBar.focusModeBadgeView
+        badge.updateLayer()
+        let shown = badge.shownTextColor?.usingColorSpace(.sRGB)
+        let lit = badge.performWithTheme { Palette.litGlyph }.usingColorSpace(.sRGB)
+        let orange = NSColor.systemOrange.usingColorSpace(.sRGB)
+        #expect(shown != nil)
+        #expect(shown != orange)
+        #expect(shown == lit)
+    }
 }

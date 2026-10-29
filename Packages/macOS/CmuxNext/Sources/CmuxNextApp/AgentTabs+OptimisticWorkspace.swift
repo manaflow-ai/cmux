@@ -15,8 +15,9 @@ extension AgentTabStore {
         /// The provisional first tab's key (``ProvisionalTab``).
         let tabKey: String
         let transaction: ClientTransactionID
-        /// Sends the two requests; returns the workspace key. Throws when they failed (the stand-in is gone then).
-        let confirm: @MainActor () async throws -> String
+        /// Sends the two requests, asking again on a late reply until the instant given (the press's
+        /// one budget); returns the workspace key. Throws when they failed (the stand-in is gone then).
+        let confirm: @MainActor (ContinuousClock.Instant) async throws -> String
         /// The create never ran (a close took it first): the stand-in goes.
         let abandon: @MainActor () -> Void
     }
@@ -54,18 +55,18 @@ extension AgentTabStore {
             store.rejectIntent(transaction)
             self?.release(tabKey)
         }
-        let confirm: @MainActor () async throws -> String = { [weak self] in
+        let confirm: @MainActor (ContinuousClock.Instant) async throws -> String = { [weak self] giveUp in
             guard let connection = daemon.connection else { fail(); throw DaemonError.notConnected }
             do {
                 let created: (AgentTabCreated, UInt64?) = try await WorkspaceCreation.createWithFirstTab(
-                    key, name: name, on: connection, repair: repair
+                    key, name: name, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
                     BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
                                                             mutationID: UUID().uuidString)
                     request.transaction = transaction
                     // One mutation id for every send: a tab the daemon made after the deadline replays.
-                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+                    let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { try await connection.request(request) }
                     BenchSpans.mark("cmdN.tab.created")
                     let tab = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                               surface: response.surface)

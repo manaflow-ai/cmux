@@ -83,17 +83,20 @@ extension CEFTab {
     func applyPageBackground() {
         applyHostBackdrop()
         guard let browser = browserID, let shim = runtime.shim else { return }
+        // The color stays the page's color whenever it is not see-through (and on a fork without API 17).
         if let pageThemeSurface {
             _ = shim.browserSetBackgroundColor(browser, PageBackground.themeARGB(in: container, surface: pageThemeSurface))
-            return
+        } else {
+            _ = shim.browserSetBackgroundColor(browser, pageBaseARGB)
         }
-        _ = shim.browserSetBackgroundColor(browser, pageBaseARGB)
+        if pageSeeThrough { _ = shim.tabSetTransparentBackground(browser, 1) }
     }
 
     /// The shared host view under the page window takes this tab's page
     /// color while it shows this tab.
     func applyHostBackdrop() {
         guard host.visibleTab === self else { return }
+        host.hostView.pageSeeThrough = pageSeeThrough
         host.hostView.pageBackdrop = pageBackdropColor
     }
 }

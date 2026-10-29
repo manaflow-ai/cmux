@@ -1,5 +1,6 @@
 public import AppKit
 import SwiftUI
+public import CmuxNextDesignTokens
 
 /// The Motion animations that opted in to settling at sleep
 /// (`MotionGate.animate(_:in:_:settleAtSleep:completion:)`) and are still running.
@@ -84,6 +85,19 @@ extension MotionGate {
                                settleAtSleep: @escaping @MainActor () -> Void,
                                completion: (@MainActor @Sendable () -> Void)? = nil) {
         animateSpring(token, in: view, changes, settleAtSleep: settleAtSleep, completion: completion)
+    }
+
+    /// Tracks a `token` move that runs on the render server (additive springs from
+    /// ``springAnimation(_:_:from:to:)``, not an `animator()` change) the way
+    /// ``animate(_:in:_:settleAtSleep:completion:)`` tracks an AppKit one: when the display goes
+    /// to sleep, or wakes after the move froze in the gap, `settleAtSleep` runs, then
+    /// `completion`. Call the returned closure when the move ends (its transaction's completion
+    /// block); `completion` runs once, whoever gets there first. An entry ends by itself
+    /// ``MotionInFlight/expirySlack`` past the springs' settling time.
+    public func trackMove(_ token: MotionSpring, settleAtSleep: @escaping @MainActor () -> Void,
+                          completion: (@MainActor @Sendable () -> Void)? = nil) -> @MainActor @Sendable () -> Void {
+        MotionInFlight.track(settle: settleAtSleep, seconds: animatesMovement ? spring(token).settlingTime(within: 0.002) : 0,
+                             completion: completion)
     }
 
     func animateSpring(_ token: MotionSpring, in view: NSView?, _ changes: () -> Void,

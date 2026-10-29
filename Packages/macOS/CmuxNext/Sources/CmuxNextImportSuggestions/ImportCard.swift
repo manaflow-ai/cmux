@@ -33,8 +33,7 @@ extension ImportSourceKind {
     nonisolated public var startReadsAnotherApp: Bool { self == .browser || self == .iterm2 }
 }
 
-/// One card as every surface draws it (Home, New Tab, Settings › Import):
-/// every text is already in the person's language.
+/// One card as Settings › Import draws it: every text is already in the person's language.
 public nonisolated struct ImportCard: Codable, Sendable, Equatable, Identifiable {
     public nonisolated enum State: String, Codable, Sendable {
         case ready, running, paused, done, failed

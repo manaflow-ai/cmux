@@ -1,7 +1,7 @@
 // Esc stops a running turn. By default it takes two presses, as in ChatGPT and Claude Code (Leo
 // 2026-10-19: "when we want to cancel chats with escape, I think we want to do a double tap"): the
-// first arms the stop, and the composer's Stop button turns into an Esc hint ("Press Esc again to
-// stop"); a second inside the window stops the turn. Any other key, a click, focus moving or the
+// first arms the stop, and the composer's Stop keeps its glyph, takes the accent and is named
+// "Press Esc again to stop"; a second inside the window stops the turn. Any other key, a click, focus moving or the
 // window ending disarms it and puts Stop back. Debug Settings' "Esc stops a turn on a double press"
 // (Swift AgentPaneTunables.escapeStopDoublePress, the `composer` event's `escapeDoublePress`) turns
 // it off, and one press stops the turn again.
@@ -50,7 +50,7 @@ export function countsPageEscape(target: EventTarget | null): boolean {
 }
 
 export type EscapeStop = {
-  /// Whether the first press armed the stop: Stop shows the Esc hint.
+  /// Whether the first press armed the stop: Stop is named "Press Esc again to stop".
   armed: boolean;
   /// An Esc the composer took (a held key's repeats are not presses).
   press(repeat: boolean): void;

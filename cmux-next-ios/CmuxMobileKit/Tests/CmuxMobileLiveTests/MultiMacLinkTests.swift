@@ -13,9 +13,12 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     private var dials: [String: Int] = [:]
     /// What each Mac's daemon answers (`read-screen` text, workspace keys).
     let screens: [String: String]
+    /// Each Mac's `acpmux` service (by Mac id and request); nil leaves it unanswered.
+    let acpmux: (@Sendable (String, Data) -> [Data])?
 
-    init(screens: [String: String] = [:]) {
+    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil) {
         self.screens = screens
+        self.acpmux = acpmux
     }
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
@@ -24,7 +27,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let mac = endpoint.macDeviceID
         lock.withLock { dials[mac, default: 0] += 1 }
         let screen = screens[mac] ?? mac
+        let acpmux = acpmux
         return MockMacLink(transport: transport) { service, data in
+            if service == "acpmux", let acpmux { return acpmux(mac, data) }
             guard service == "daemon" else { return [] }
             return data.split(separator: 0x0A).compactMap { request -> Data? in
                 guard let object = try? JSONSerialization.jsonObject(with: Data(request)) as? [String: Any],
@@ -97,6 +102,20 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let policy = MacLinkPolicy(maxLinks: 2)
         #expect(policy.decide(macs: macs, focused: "m4", showing: [], lastShown: [:], now: now).linked == ["m4"])
         #expect(policy.decide(macs: macs, focused: "m1", showing: ["m4", "m2"], lastShown: [:], now: now).linked == ["m1", "m2"])
+    }
+
+    /// The Mac a held pairing code names comes next after the focused one, ahead of the
+    /// Macs on screen, and never past `maxLinks`.
+    @Test func thePinnedMacComesNextAfterTheFocusedOne() {
+        let policy = MacLinkPolicy(maxLinks: 2)
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m1", "m2", "m3"], lastShown: [:], now: now,
+                              pinned: "m3").linked == ["m1", "m3"])
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
+                              pinned: "m1").linked == ["m1", "m2"])
+        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
+                              pinned: "m9").linked == ["m1", "m2"])
+        #expect(MacLinkPolicy(maxLinks: 1).decide(macs: macs, focused: "m1", showing: [], lastShown: [:], now: now,
+                                                  pinned: "m3").linked == ["m1"])
     }
 }
 

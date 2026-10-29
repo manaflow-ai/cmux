@@ -89,14 +89,12 @@
       "reason": "planned in cx-b4h.6"
     },
     "create_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "delete_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession", "agents.revokeClientSession", "agents.revokeAgentKey", "vms.deleteVm"]
     },
     "describe_identity": {
       "status": "planned",
@@ -109,9 +107,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "grant_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_vm_permission": {
       "status": "planned",
@@ -134,9 +131,8 @@
       "reason": "planned in cx-b4h.6"
     },
     "create_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["agents.createClientSession"]
     },
     "revoke_access_token": {
       "status": "planned",

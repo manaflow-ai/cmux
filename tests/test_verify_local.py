@@ -301,7 +301,10 @@ class SwiftSyntaxTests(unittest.TestCase):
                 return {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
                         "cancelled": False, "status": "passed", "executed": True,
                         "elapsed_seconds": 0}, ""
-            with patch.object(verify, "execute", side_effect=changed):
+            # execute is faked, so no real swiftc runs; a host without one
+            # (a Linux dev box) must still reach it instead of "unsupported".
+            with patch.object(verify, "execute", side_effect=changed), \
+                    patch.object(verify.shutil, "which", return_value="/nonexistent/swiftc"):
                 result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
                                     swift_files=["Example.swift"])
             self.assertEqual(result["outcome"]["status"], "interrupted")

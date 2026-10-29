@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextLayout
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
 /// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
@@ -33,15 +35,18 @@ enum CmuxAppLinks {
     static func openPath(_ url: URL, services: AppServices) -> Bool {
         guard url.isFileURL, url.path.hasPrefix("/") else { return false }
         let path = url.standardizedFileURL.path
+        let work = services.work
         // task-owner: one disk check, then one open
         Task { @MainActor [weak services] in
-            let isDirectory = await Task.detached(priority: .userInitiated) { () -> Bool in
+            // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
+            // holds a lane thread, never a cooperative-pool one).
+            let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
                 var directory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-            }.value
+                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+            }) ?? false
             guard let services else { return }
-            // A tab of the focused pane (LinkOpener): the pinned Home column, which takes no tabs,
-            // gets the pane on its right or a new split.
+            // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
+            // takes no tabs, gets the pane on its right or a new split.
             let source = services.windows.active?.focusedPane
             if isDirectory {
                 services.linkOpener.openFolder(path, from: source)
@@ -57,9 +62,11 @@ enum CmuxAppLinks {
     /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
     /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme) else { return nil }
+        // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
+        guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme)
+            ?? DeepLink.parseGroupWeb(url) else { return nil }
         switch link.target {
-        case .workspace, .pane, .tab, .session, .agent:
+        case .workspace, .pane, .tab, .session, .agent, .group:
             return link
         case .chiefSession(let home, _):
             return link.machine == nil && chiefHost == "chief:" + home ? link : nil

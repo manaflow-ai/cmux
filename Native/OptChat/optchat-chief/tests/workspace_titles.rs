@@ -268,10 +268,14 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
         "the spawn answer gives the workspace's ws_ id: {answer}"
     );
     assert!(
-        answer.contains(
-            "cmux --session cmux-chief-h0me workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
-        ),
+        answer.contains("cmux workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"),
         "the spawn answer says how to move it: {answer}"
+    );
+    // a423: it is an ordinary workspace in the user's session, so no `--session` or
+    // `cmux-chief-…` session name sets it apart.
+    assert!(
+        !answer.contains("--session") && !answer.contains("cmux-chief-"),
+        "the spawn answer names no separate session: {answer}"
     );
     assert_eq!(
         *recorder.opened.lock().unwrap(),

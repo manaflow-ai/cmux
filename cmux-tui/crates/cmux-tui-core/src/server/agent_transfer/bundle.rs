@@ -2,6 +2,7 @@
 //! scrubbed copies of its `manifest.json` and `session.json` the source
 //! serves in place of acpmux's own.
 
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path};
 use std::sync::Arc;
@@ -57,15 +58,16 @@ pub(super) fn scrub_bundle(
     transfer_id: &str,
     manifest: &mut Value,
 ) -> Result<BundleFiles, Failure> {
-    let entries = manifest["files"].as_array_mut().ok_or(Refusal::Refused)?;
+    let entries =
+        manifest.get_mut("files").and_then(Value::as_array_mut).ok_or(Refusal::Refused)?;
     let mut files = HashMap::new();
     for entry in entries.iter_mut() {
-        let path = entry["path"].as_str().filter(|path| is_bundle_path(path));
+        let path = entry.field("path").as_str().filter(|path| is_bundle_path(path));
         let path = path.ok_or(Refusal::Refused)?.to_owned();
         let scrubbed = if path.eq_ignore_ascii_case(MANIFEST) || path.eq_ignore_ascii_case(SESSION)
         {
-            let bytes = scrubbed_file(call, transfer_id, &path, entry["size"].as_u64())?;
-            entry["size"] = json!(bytes.len());
+            let bytes = scrubbed_file(call, transfer_id, &path, entry.field("size").as_u64())?;
+            entry.insert("size", json!(bytes.len()));
             Some(Arc::new(bytes))
         } else {
             None
@@ -86,7 +88,8 @@ fn scrubbed_file(
     let params =
         json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1)});
     let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
-    let bytes = page["data"]
+    let bytes = page
+        .field("data")
         .as_str()
         .and_then(|data| BASE64.decode(data).ok())
         .filter(|bytes| bytes.len() as u64 == size)
@@ -113,6 +116,8 @@ pub(super) fn page_of(bytes: &[u8], offset: u64, limit: u64) -> Value {
     let len = bytes.len() as u64;
     let start = offset.min(len);
     let end = start.saturating_add(limit).min(len);
-    let data = BASE64.encode(&bytes[start as usize..end as usize]);
+    let range =
+        usize::try_from(start).unwrap_or(usize::MAX)..usize::try_from(end).unwrap_or(usize::MAX);
+    let data = BASE64.encode(bytes.get(range).unwrap_or_default());
     json!({"data": data, "next": end, "eof": end == len})
 }

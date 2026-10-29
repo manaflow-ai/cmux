@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// A chat pane nobody can see gets its frames at most every ``AgentPaneFramePacer/hiddenInterval``.
+/// A chat pane nobody can see gets the frames its page waits on at most every
+/// ``AgentPaneFramePacer/hiddenInterval``, and the rest when it shows (``AgentPaneHiddenHoldTests``).
 /// With twenty mostly hidden chats streaming, each took a main-thread `evaluateJavaScript` per
 /// frame interval, and the app beachballed until it was force-quit (2026-10-20, 22:14-22:27:
 /// deliveries went from about 300 to 2,100 a minute). A visible pane keeps display-frame pacing.
@@ -45,25 +46,31 @@ struct AgentPaneHiddenPacingTests {
 
         init(hidden: Bool) { self.hidden = hidden }
 
-        /// Frames arrive; the flush delivers them in one call.
-        func arrive() {
-            pacer.schedule { [unowned self] in
+        /// Flushes still to report `more` (a backlog).
+        var capped = 0
+
+        /// Frames arrive (`urgent`: the page waits on them); the flush delivers them in one call,
+        /// and says `more` the next `capped` times.
+        func arrive(urgent: Bool = false, capped: Int = 0) {
+            self.capped = capped
+            pacer.schedule(urgent: urgent) { [unowned self] in
                 self.calls += 1
-                return AgentPaneFlush(delivered: true, more: false)
+                self.capped -= 1
+                return AgentPaneFlush(delivered: true, more: self.capped >= 0)
             }
         }
     }
 
-    @Test func aHiddenPaneGetsAStreamAtMostEveryQuarterSecond() {
+    @Test func aHiddenPaneGetsFramesItsPageWaitsOnAtMostEveryQuarterSecond() {
         let rig = Rig(hidden: true)
         // Idle: the first frames go at once.
-        rig.arrive()
+        rig.arrive(urgent: true)
         #expect(rig.calls == 1)
         // The page ran it; more frames come 62.5 ms later and wait out the interval. 1/16 s and the
         // 0.25 s interval are exact in binary, so the wait is exactly 187.5 ms on the fake clock.
         rig.clock += 0.0625
         rig.pacer.delivered()
-        rig.arrive()
+        rig.arrive(urgent: true)
         #expect(rig.calls == 1, "a hidden pane got a second call within its interval")
         #expect(rig.deadline.delay == .nanoseconds(187_500_000))
         rig.clock += 0.2
@@ -83,9 +90,9 @@ struct AgentPaneHiddenPacingTests {
 
     @Test func aPaneThatShowsAgainGetsItsWaitingFramesAtTheDeadline() {
         let rig = Rig(hidden: true)
-        rig.arrive()
+        rig.arrive(urgent: true)
         rig.pacer.delivered()
-        rig.arrive()
+        rig.arrive(urgent: true)
         #expect(rig.calls == 1)
         rig.hidden = false
         rig.clock += 0.25

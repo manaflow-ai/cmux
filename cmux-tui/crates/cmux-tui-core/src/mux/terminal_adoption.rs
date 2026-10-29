@@ -374,13 +374,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.mark_terminal_ended(
-                &terminal.terminal_id,
-                "terminal-record-missing",
-                "missing-host-record",
-                &options,
-            )?;
+            self.adopt_from_holder_or_end(&terminal, &options)?;
         }
+        self.release_unclaimed_holder_terminals(&options);
         Ok(())
     }
 
@@ -841,11 +837,25 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
+                        && !mux
+                            .terminal_adoptions_now
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .contains(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
                         std::thread::sleep(Duration::from_millis(5));
                     }
+                }
+                // Test hook (fault injection, debug builds): the adoption starts
+                // this much later, so a test can act while the terminal adopts.
+                #[cfg(debug_assertions)]
+                if let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPTION_DELAY_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms));
                 }
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
@@ -1055,13 +1065,62 @@ impl Mux {
                 }
                 mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
+                mux.terminal_adoption_ended.notify_all();
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.terminal_adoption_ended.notify_all();
             self.clear_pending_terminal(&cleanup_id);
         }
     }
+
+    /// Waits, at most `bound`, until the adoption of `terminal_id` (a host id)
+    /// ended, and has it start at once instead of after the owner says ready.
+    /// Holds no other lock while it waits.
+    pub(crate) fn wait_for_terminal_adoption(&self, terminal_id: &str, bound: Duration) {
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(terminal_id.to_owned());
+        let deadline = Instant::now() + bound;
+        let mut adoptions = self.terminal_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
+        while adoptions.contains(terminal_id) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            adoptions = self
+                .terminal_adoption_ended
+                .wait_timeout(adoptions, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        drop(adoptions);
+        self.terminal_adoptions_now
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id);
+    }
+
+    /// The running terminal `terminal_id` names, for a reopen that gives it a
+    /// new view instead of a new process. A restarted owner answers before it
+    /// adopted its surviving terminals (#23561): a terminal that still adopts
+    /// is waited for (at most `REOPEN_ADOPTION_WAIT`), not taken for gone.
+    pub(crate) fn resolve_running_terminal(&self, terminal_id: &str) -> Option<TerminalResolution> {
+        let resolution = self.resolve_terminal(terminal_id).ok().flatten()?;
+        let resolution = if resolution.terminal.lifecycle == TerminalLifecycle::Adopting {
+            self.wait_for_terminal_adoption(&resolution.terminal.terminal_id, REOPEN_ADOPTION_WAIT);
+            self.resolve_terminal(terminal_id).ok().flatten()?
+        } else {
+            resolution
+        };
+        (resolution.terminal.lifecycle == TerminalLifecycle::Running).then_some(resolution)
+    }
 }
+
+/// The longest a reopen waits for its terminal's adoption
+/// (`resolve_running_terminal`); after it the reopen starts a new shell.
+const REOPEN_ADOPTION_WAIT: Duration = Duration::from_secs(10);
 
 /// Hosts that may replay into this owner at once (`schedule_terminal_adoption_after`).
 const ADOPTION_SLOTS: usize = 8;

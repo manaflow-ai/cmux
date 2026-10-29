@@ -113,7 +113,7 @@ public final class PointerHover: NSObject {
 
     // MARK: The pointer
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`, tests): the pointer synthesized per window, in
     /// window coordinates (`point` nil: outside the window), and where the
     /// real mouse was then. A window with a synthesized pointer ignores the
@@ -243,7 +243,7 @@ private final class KeyWindowObserver {
                 MainActor.assumeIsolated { PointerHover.keyChanged(window) } // main-proof: observer on queue: .main
             })
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A closed window's synthesized pointer must not pass to a new window
         // that reuses its address.
         tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -354,7 +354,10 @@ private final class TargetIndex {
         for target in found.values {
             if let other = place(target), other !== window, !moved.contains(where: { $0 === other }) { moved.append(other) }
         }
-        let targets = found.values.sorted { ($0.isHovering ? 0 : 1, $0.order) < ($1.isHovering ? 0 : 1, $1.order) }
+        // One integer per target: a tuple compare goes through the runtime's tuple metadata on
+        // every comparison, half of a Cmd-Tab's main-thread time with a few thousand targets.
+        let targets = found.values.map { (key: ($0.isHovering ? 0 : 1 << 63) | $0.order, target: $0) }
+            .sorted { $0.key < $1.key }.map(\.target)
         return (targets, moved)
     }
 

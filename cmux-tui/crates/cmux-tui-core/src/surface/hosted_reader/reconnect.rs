@@ -218,7 +218,10 @@ impl HostedReader {
                     // The host's shell state, or this daemon's when the host
                     // hands over none.
                     match replacement_snapshot.shell_activity {
-                        Some(activity) => replacement_metadata.activity.restore(activity),
+                        Some(activity) => {
+                            replacement_metadata.activity.restore(activity);
+                            replacement_metadata.activity.keep_output_of(&metadata.activity);
+                        }
                         None => replacement_metadata.activity = metadata.activity,
                     }
                     *metadata = replacement_metadata;

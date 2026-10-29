@@ -1,9 +1,17 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
 // hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
-// again with `resend` (acpmux runs a prompt id once), and a late acceptance still lands.
+// again (acpmux runs a prompt id once), and a late acceptance still lands. Every prompt's
+// `_meta.acpmux` holds only keys the host lets through (policy.json `known_params`): Retry once
+// sent `resend`, which only the host may set, and the host refused every Retry.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { JSDOM } from "jsdom";
+
+/// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
+const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
+const allowedPromptMeta: string[] = JSON.parse(readFileSync(policyPath, "utf8")).known_params["session/prompt"].acpmux;
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -68,7 +76,7 @@ test("a prompt goes from sending to delivered to read", async () => {
   }
 });
 
-test("a send with no answer says it is still sending, fails, and Retry resends the same prompt id", async () => {
+test("a send with no answer says it is still sending, fails, and Retry sends the same prompt id again", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
@@ -104,7 +112,12 @@ test("a send with no answer says it is still sending, fails, and Retry resends t
     const promptId = mine()!.delivery!.promptId;
     void client.retryPrompt(mine()!.id).catch(() => undefined);
     await settle(() => prompts.length === 2);
-    expect(prompts[1]._meta.acpmux).toMatchObject({ promptId, resend: true });
+    expect(prompts[1]._meta.acpmux.promptId).toBe(promptId);
+    // The host refuses a page prompt with a key outside its policy (transport.intent_invalid).
+    for (const prompt of prompts) {
+      const unknown = Object.keys(prompt._meta.acpmux).filter((key) => !allowedPromptMeta.includes(key));
+      expect(unknown).toEqual([]);
+    }
     // acpmux takes it late: the row is delivered, not failed.
     hooks!.deliver({
       jsonrpc: "2.0",

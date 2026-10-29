@@ -147,6 +147,47 @@ import Testing
     }
     #endif
 
+    #if DEBUG
+    /// A short main run-loop turn costs the watchdog thread nothing (idle-wakeups.md: an idle
+    /// app wakes 0 times). Before, every main wake woke it twice: the main thread's signal, then
+    /// its own timed check 30 ms later, after the main thread was asleep again, so an app whose
+    /// main thread woke 30 times a second paid about 60 more wakeups in the watchdog. Heartbeats
+    /// driven by hand: 20 turns of microseconds, 80 ms apart (longer than the threshold).
+    @Test func shortMainTurnsDoNotWakeTheWatchdogThread() async throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        watchdog.running.store(true, ordering: .releasing)
+        let thread = Thread { watchdog.watch(sampler: nil) }
+        thread.start()
+        defer { watchdog.stop() }
+        // The thread parks: the main run loop counts as asleep until its first heartbeat.
+        try await Task.sleep(for: .milliseconds(100))
+        let before = watchdog.watchdogWakes.load(ordering: .relaxed)
+        for _ in 0..<20 {
+            watchdog.heartbeat(.afterWaiting)
+            watchdog.heartbeat(.beforeWaiting)
+            // The idle time between two turns is the scenario under test, not a wait for a condition.
+            try await Task.sleep(for: .milliseconds(80))
+        }
+        let wakes = watchdog.watchdogWakes.load(ordering: .relaxed) - before
+        #expect(wakes <= 2, "\(wakes) watchdog wakeups for 20 main turns of microseconds")
+        #expect(watchdog.log.summary.count == 0, "short turns are not stalls")
+    }
+    #endif
+
+    /// `debug.hangs` `main_wakes`: one count per sleep-to-awake transition of the main run loop,
+    /// none for activities inside an awake turn (the idle bench's main-thread wakeups per second).
+    @Test func countsEachMainRunLoopWakeOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        #expect(watchdog.mainRunLoopWakes == 0)
+        for _ in 0..<3 {
+            watchdog.heartbeat(.afterWaiting)
+            watchdog.heartbeat(.beforeTimers)
+            watchdog.heartbeat(.beforeSources)
+            watchdog.heartbeat(.beforeWaiting)
+        }
+        #expect(watchdog.mainRunLoopWakes == 3)
+    }
+
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
         for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), addresses: []) }

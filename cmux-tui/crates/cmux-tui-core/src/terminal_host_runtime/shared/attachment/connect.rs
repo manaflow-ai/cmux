@@ -39,7 +39,10 @@ pub(crate) fn connect_record_with_timeout(
                 handshake_timeout,
                 protocol_version,
                 smart_renderer,
-                stream.take().expect("protocol attempt has a connected stream"),
+                match stream.take() {
+                    Some(stream) => stream,
+                    None => break 'protocols,
+                },
                 intent,
             ) {
                 Ok(attachment) => return Ok(attachment),

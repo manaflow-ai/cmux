@@ -95,3 +95,40 @@ export function withoutQuietThoughts(rows: AcpmuxRow[], live = false): AcpmuxRow
   });
   return changed ? out : rows;
 }
+
+/// One part of a thought's text: a heading line as its own title, or the text between headings.
+export type ThoughtPart = { title: string } | { text: string };
+
+/// A whole-line heading: Codex's reasoning summaries open each part with `**Heading**`, some models
+/// with `# Heading`.
+const HEADING = /^\s*(?:#{1,6}\s+(.+?)\s*#*|\*\*([^*]+?)\*\*)\s*$/;
+
+/// A thought's text in parts: each heading line a title of its own, drawn without its marks (never
+/// `**Heading**` in the text, never glued after "Thought"), and the text around it.
+export function thoughtParts(text: string): ThoughtPart[] {
+  const parts: ThoughtPart[] = [];
+  let lines: string[] = [];
+  const flush = () => {
+    const chunk = lines.join("\n").replace(/^\n+|\s+$/g, "");
+    if (chunk) parts.push({ text: chunk });
+    lines = [];
+  };
+  for (const line of text.split("\n")) {
+    const heading = HEADING.exec(line);
+    const title = (heading?.[1] ?? heading?.[2])?.trim();
+    if (!title) {
+      lines.push(line);
+      continue;
+    }
+    flush();
+    parts.push({ title });
+  }
+  flush();
+  return parts;
+}
+
+/// A thought's text as it draws: its headings without their marks, for Find's count.
+export function drawnThought(text: string): string {
+  const parts = thoughtParts(text);
+  return parts.map((part) => ("title" in part ? part.title : part.text)).join("\n");
+}

@@ -102,6 +102,21 @@ public nonisolated enum HomeEngineStrings {
         }
     }
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .module) }
+    /// The card's Reactions block (a416): whether a tapback can wake the Chief, and its classifier.
+    static var reactionsSection: String { String(localized: "home.engine.reactions", defaultValue: "Reactions", table: "Home", bundle: .module) }
+    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Can Wake the Chief", table: "Home", bundle: .module) }
+    static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .module) }
+    static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .module) }
+    static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .module) }
+    static var reactionHarness: String { String(localized: "home.engine.reactions.harness", defaultValue: "Classifier Harness", table: "Home", bundle: .module) }
+    static var reactionModel: String { String(localized: "home.engine.reactions.model", defaultValue: "Classifier Model", table: "Home", bundle: .module) }
+    static var reactionPrompt: String { String(localized: "home.engine.reactions.prompt", defaultValue: "Instructions", table: "Home", bundle: .module) }
+    /// The harness field's placeholder while neither this Chief nor cmux.json names one.
+    static var reactionHarnessDefault: String { String(localized: "home.engine.reactions.harnessDefault", defaultValue: "Default (Claude route)", table: "Home", bundle: .module) }
+    static var reactionPromptBuiltIn: String { String(localized: "home.engine.reactions.promptBuiltIn", defaultValue: "Built-in instructions", table: "Home", bundle: .module) }
+    static var reactionsNote: String {
+        String(localized: "home.engine.reactions.note", defaultValue: "A cheap model decides whether your reaction on a Chief message needs an answer. Only then does the Chief start typing. Empty fields use your settings.", table: "Home", bundle: .module)
+    }
     /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .module)
@@ -144,6 +159,27 @@ public nonisolated enum HomeEngineStrings {
     static var renameRefused: String {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .module)
+    }
+    /// Why a rename did not take (``HomeChiefRenameFailure``), shown under the name.
+    static func renameFailed(_ failure: HomeChiefRenameFailure) -> String {
+        switch failure {
+        case .noConnection: renameRefused
+        case .signedOut:
+            String(localized: "home.engine.renameSignedOut",
+                   defaultValue: "Sign in to cmux to rename this Chief. It runs in the cloud on your account.", table: "Home", bundle: .module)
+        case .changedElsewhere:
+            String(localized: "home.engine.renameChangedElsewhere",
+                   defaultValue: "This Chief was changed on another device at the same time. Enter the new name again.", table: "Home", bundle: .module)
+        case .invalidName:
+            String(localized: "home.engine.renameInvalidName", defaultValue: "That name can’t be used. Use 1 to 100 characters.",
+                   table: "Home", bundle: .module)
+        case .notFound:
+            String(localized: "home.engine.renameNotFound", defaultValue: "This Chief is no longer on your account, so its name can’t be changed.",
+                   table: "Home", bundle: .module)
+        case .refused(let reason):
+            String(format: String(localized: "home.engine.renameRefusedReason", defaultValue: "The Chief’s name could not be changed (%@).",
+                                  table: "Home", bundle: .module), reason)
+        }
     }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process"
 import { join } from "node:path"
 import { lintFile, lintTree, readJson, updateLock, CONTRACT_PATH, LOCK_PATH, type Lock, type RoleContract, type TreeRoleContract } from "../lint.ts"
 import { REPO_ROOT, TREES } from "../trees.ts"
-import { readText, tempRoot, writeMigration } from "./helpers.ts"
+import { readText, tempRoot, writeMigration, VM_AFTER_NEXT, VM_NEWEST, VM_NEXT } from "./helpers.ts"
 
 const vm = TREES["cmux-vm"]
 const backend = TREES.backend
@@ -121,9 +121,9 @@ describe("tree rules: numbering, lock, base revision", () => {
 
   it("refuses a gap, a duplicate number and a bad name", async () => {
     const root = tempRoot()
-    writeMigration(root, "cmux-vm", "0017_gap.sql", "CREATE TABLE cmux_vm.g (id text);")
+    writeMigration(root, "cmux-vm", `${VM_AFTER_NEXT}_gap.sql`, "CREATE TABLE cmux_vm.g (id text);")
     writeMigration(root, "cmux-vm", "0008_dup.sql", "CREATE TABLE cmux_vm.d (id text);")
-    writeMigration(root, "cmux-vm", "0017_Bad-Name.sql", "CREATE TABLE cmux_vm.b (id text);")
+    writeMigration(root, "cmux-vm", `${VM_AFTER_NEXT}_Bad-Name.sql`, "CREATE TABLE cmux_vm.b (id text);")
     const errors = (await lintTree(vm, optionsFor(root))).errors.join("\n")
     expect(errors).toContain("breaks the numbering")
     expect(errors).toContain("NNNN_lower_snake")
@@ -133,23 +133,23 @@ describe("tree rules: numbering, lock, base revision", () => {
     const root = tempRoot()
     const dir = join(root, "workers/cmux-vm/migrations")
     execFileSync("sh", ["-c", `printf '\\n-- edit\\n' >> ${dir}/0003_cmux_vm_snapshot_parent.sql && rm ${join(root, "backend/db/migrations/0006_home.sql")}`])
-    writeMigration(root, "cmux-vm", "0016_new.sql", "CREATE TABLE cmux_vm.n (id text);")
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_new.sql`, "CREATE TABLE cmux_vm.n (id text);")
     const vmErrors = (await lintTree(vm, optionsFor(root))).errors.join("\n")
     expect(vmErrors).toContain("0003_cmux_vm_snapshot_parent.sql changed after it landed")
-    expect(vmErrors).toContain("0016_new.sql is not in")
+    expect(vmErrors).toContain(`${VM_NEXT}_new.sql is not in`)
     expect((await lintTree(backend, optionsFor(root))).errors.join("\n")).toContain("0006_home.sql is in the lock but missing")
   })
 
   it("--update-lock adds a passing new file and refuses a failing one", async () => {
     const root = tempRoot()
-    writeMigration(root, "cmux-vm", "0016_new.sql", "CREATE TABLE cmux_vm.n (id text);")
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_new.sql`, "CREATE TABLE cmux_vm.n (id text);")
     const { addRequirement } = await import("./helpers.ts")
-    addRequirement(root, '{ table: "cmux_vm.n", migration: "0016" }')
+    addRequirement(root, `{ table: "cmux_vm.n", migration: "${VM_NEXT}" }`)
     const ok = await updateLock([vm], optionsFor(root))
     expect(ok.errors).toEqual([])
-    expect(ok.added).toEqual(["cmux-vm/0016_new.sql"])
-    expect(ok.lock.trees["cmux-vm"].files["0016_new.sql"]).toMatch(/^[0-9a-f]{64}$/)
-    writeMigration(root, "cmux-vm", "0016_new.sql", "DROP TABLE cmux_vm.resources;")
+    expect(ok.added).toEqual([`cmux-vm/${VM_NEXT}_new.sql`])
+    expect(ok.lock.trees["cmux-vm"].files[`${VM_NEXT}_new.sql`]).toMatch(/^[0-9a-f]{64}$/)
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_new.sql`, "DROP TABLE cmux_vm.resources;")
     const bad = await updateLock([vm], optionsFor(root))
     expect(bad.errors.join()).toContain("DROP TABLE")
   })
@@ -159,8 +159,8 @@ describe("tree rules: numbering, lock, base revision", () => {
     // 0004 replaces CHECK constraints (a contract change by today's rules); it predates them and passes.
     expect((await lintTree(vm, optionsFor(root))).errors).toEqual([])
     const lock = readJson<Lock>(join(root, LOCK_PATH))
-    writeMigration(root, "cmux-vm", "0016_drop.sql", "DROP TABLE cmux_vm.audit_log;")
-    lock.trees["cmux-vm"].files["0016_drop.sql"] = (await import("../lint.ts")).sha256(readText(join(root, "workers/cmux-vm/migrations/0016_drop.sql")))
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_drop.sql`, "DROP TABLE cmux_vm.audit_log;")
+    lock.trees["cmux-vm"].files[`${VM_NEXT}_drop.sql`] = (await import("../lint.ts")).sha256(readText(join(root, `workers/cmux-vm/migrations/${VM_NEXT}_drop.sql`)))
     const errors = (await lintTree(vm, { ...optionsFor(root), lock })).errors.join()
     expect(errors).toContain("DROP TABLE")
   })
@@ -174,7 +174,7 @@ describe("tree rules: numbering, lock, base revision", () => {
     const base = git("rev-parse", "HEAD")
     // Base gains 0009 on another branch; this tree adds its own 0009 (same number) and edits the lock entry of 0001.
     git("checkout", "-qb", "other")
-    writeMigration(root, "cmux-vm", "0016_theirs.sql", "CREATE TABLE cmux_vm.theirs (id text);")
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_theirs.sql`, "CREATE TABLE cmux_vm.theirs (id text);")
     git("-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
     git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "theirs")
     const theirs = git("rev-parse", "HEAD")
@@ -182,10 +182,10 @@ describe("tree rules: numbering, lock, base revision", () => {
     const lock = readJson<Lock>(join(root, LOCK_PATH))
     lock.trees["cmux-vm"].files["0001_cmux_vm_ownership.sql"] = "f".repeat(64)
     const errors = (await lintTree(vm, { ...optionsFor(root), lock, base: theirs })).errors.join("\n")
-    expect(errors).toContain("0016_theirs.sql exists at")
+    expect(errors).toContain(`${VM_NEXT}_theirs.sql exists at`)
     expect(errors).toContain("lock entry 0001_cmux_vm_ownership.sql differs")
-    writeMigration(root, "cmux-vm", "0016_mine.sql", "CREATE TABLE cmux_vm.mine (id text);")
-    expect((await lintTree(vm, { ...optionsFor(root), base: theirs })).errors.join("\n")).toContain("new 0016_mine.sql must be numbered above 0016")
+    writeMigration(root, "cmux-vm", `${VM_NEXT}_mine.sql`, "CREATE TABLE cmux_vm.mine (id text);")
+    expect((await lintTree(vm, { ...optionsFor(root), base: theirs })).errors.join("\n")).toContain(`new ${VM_NEXT}_mine.sql must be numbered above ${VM_NEXT}`)
   })
 })
 
@@ -306,10 +306,10 @@ describe("review of 5c20b91a5a4f: bypasses (one fixture each)", () => {
   it("P2-9 the Worker's required migration equals the newest cmux-vm file", async () => {
     const root = tempRoot()
     const { addMigration } = await import("./helpers.ts")
-    addMigration(root, "cmux-vm", "0016_x.sql", "CREATE TABLE cmux_vm.x (id text);\n")
-    expect((await lintTree(vm, optionsFor(root))).errors.join()).toContain("requires migration 0015 but the newest file is 0016")
+    addMigration(root, "cmux-vm", `${VM_NEXT}_x.sql`, "CREATE TABLE cmux_vm.x (id text);\n")
+    expect((await lintTree(vm, optionsFor(root))).errors.join()).toContain(`requires migration ${VM_NEWEST} but the newest file is ${VM_NEXT}`)
     const { addRequirement } = await import("./helpers.ts")
-    addRequirement(root, '{ table: "cmux_vm.x", migration: "0016" }')
+    addRequirement(root, `{ table: "cmux_vm.x", migration: "${VM_NEXT}" }`)
     expect((await lintTree(vm, optionsFor(root))).errors).toEqual([])
   })
 })
@@ -358,10 +358,10 @@ describe("rails-hardening-1: the grandfathered set is fixed in the linter (P2-3)
   it("a lock that moves grandfatheredThrough does not exempt a new file", async () => {
     const root = tempRoot()
     const { addMigration, addRequirement } = await import("./helpers.ts")
-    addMigration(root, "cmux-vm", "0016_drop.sql", "DROP TABLE cmux_vm.audit_log;\n")
-    addRequirement(root, '{ table: "cmux_vm.resources", migration: "0016" }')
+    addMigration(root, "cmux-vm", `${VM_NEXT}_drop.sql`, "DROP TABLE cmux_vm.audit_log;\n")
+    addRequirement(root, `{ table: "cmux_vm.resources", migration: "${VM_NEXT}" }`)
     const lock = readJson<Lock>(join(root, LOCK_PATH))
-    ;(lock.trees["cmux-vm"] as { grandfatheredThrough: string }).grandfatheredThrough = "0016"
+    ;(lock.trees["cmux-vm"] as { grandfatheredThrough: string }).grandfatheredThrough = VM_NEXT
     expect((await lintTree(vm, { ...optionsFor(root), lock })).errors.join()).toContain("DROP TABLE")
   })
   it("a grandfathered name whose content changed is not grandfathered", async () => {

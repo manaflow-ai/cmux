@@ -2,6 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -17,7 +18,8 @@ struct MachineCatalogRegistryTests {
         registry.isFeatureDisabled = { _ in policy.blocked }
         let reach = try ServerReach(hostID: "host_catalog01", installID: "inst_catalog01", name: "Server", route: .unix("/tmp/cmux-catalog-registry.sock"))
         let session = ServerMachineSession(reach: reach, binary: nil,
-            paths: .init(root: URL(fileURLWithPath: "/tmp/cmux-catalog-unused")), environment: { [:] }, localIdentity: { nil })
+            paths: .init(root: URL(fileURLWithPath: "/tmp/cmux-catalog-unused")), environment: { [:] }, localIdentity: { nil },
+            mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         session.daemon.store.noteHandshake(DaemonIdentity(machineResourceID: "machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", generation: "catalog-test"))
         registry.add(session)
         #expect(registry.catalogRecords().count == 1)

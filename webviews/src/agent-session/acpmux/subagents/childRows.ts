@@ -4,10 +4,11 @@
 // row, so nesting reads the same at every level.
 import { appendThought, mergeToolItem, textFromContent } from "../direct";
 import type { AcpmuxRow } from "../model";
+import { hiddenCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
-export type ChildEntry = { event: Event; update?: any; spawned?: string };
+export type ChildEntry = { event: Event; update?: any; spawned?: string; settled?: boolean };
 
 /// The rows of subagent `id`'s view, in the order its updates came.
 /// `version` is the view's version: a group row redraws whenever its subagents change.
@@ -19,11 +20,13 @@ export function childRows(
 ): AcpmuxRow[] {
   const rows = new Map<string, AcpmuxRow>();
   const tools = new Map<string, string>();
+  const hidden = new Set<string>();
   const groups: { row: string; ids: string[] }[] = [];
   let reply: string | undefined;
+  let replyMessageId: string | undefined;
   let activity: string | undefined;
   let group: { row: string; ids: string[] } | undefined;
-  for (const { event, update, spawned } of entries) {
+  for (const { event, update, spawned, settled } of entries) {
     if (spawned) {
       if (!group) {
         group = { row: `${id}:${SUBAGENTS}-${event.seq}`, ids: [] };
@@ -38,6 +41,14 @@ export function childRows(
     const kind = update?.sessionUpdate;
     const text = textFromContent(update?.content);
     if (kind === "agent_message_chunk" && text) {
+      const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
+      if (messageId && replyMessageId && messageId !== replyMessageId) {
+        if (reply) {
+          const prior = rows.get(reply);
+          if (prior) rows.set(reply, { ...prior, version: prior.version + 1, streaming: false });
+        }
+        reply = undefined;
+      }
       const rowId = reply ?? `${id}:assistant-${event.seq}`;
       const existing = rows.get(rowId);
       rows.set(rowId, {
@@ -46,8 +57,10 @@ export function childRows(
         at: existing?.at ?? event.at,
         kind: "assistant",
         text: `${existing?.text ?? ""}${text}`,
+        streaming: false,
       });
       reply = rowId;
+      if (messageId) replyMessageId = messageId;
       activity = undefined;
       group = undefined;
     } else if (kind === "agent_thought_chunk" && text) {
@@ -65,7 +78,18 @@ export function childRows(
       reply = undefined;
     } else if (kind === "tool_call" || kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      // Plumbing (Claude Code's ToolSearch) draws no row here either (hiddenTools.ts).
+      if (hiddenCall(hidden, callId, update)) {
+        if (settled) reply = activity = undefined;
+        continue;
+      }
       const known = tools.get(callId);
+      // An update to a call whose start this view never saw, with no title, names nothing but the
+      // call's raw id (Leo's subagent view opened on "toolu_01Rq…"): it draws no row.
+      if (kind === "tool_call_update" && !known && !update.title) {
+        if (settled) reply = activity = undefined;
+        continue;
+      }
       const rowId = known ?? activity ?? `${id}:activity-${event.seq}`;
       const existing = rows.get(rowId);
       const items = [...(existing?.items ?? [])];
@@ -85,7 +109,9 @@ export function childRows(
       if (!known) activity = rowId;
       reply = undefined;
     }
+    if (settled) reply = activity = undefined;
   }
+  if (reply && agents.get(id)?.state === "running") rows.get(reply)!.streaming = true;
   // Group rows list their subagents as they are now; a change redraws the group.
   for (const { row, ids } of groups) {
     const subagents = ids.flatMap((agent) => {

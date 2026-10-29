@@ -49,9 +49,10 @@ struct PinnedHomeDockTests {
         #expect(two.keyboardClose("t") == .close)
     }
 
-    /// A new agent chat never lands in a pinned chat dock that takes no tabs: from the strip it opens
-    /// where it was asked for, from the dock in the first scrolling pane. With tabs allowed it joins the dock.
-    @Test func aNewChatSkipsAPinnedDockThatTakesNoTabs() {
+    /// A new agent chat never lands in Home's pinned chat dock, whether or not it takes tabs (Home's
+    /// dock takes dragged tabs since 2026-10-21; a new chat still opens beside it): from the strip it
+    /// opens where it was asked for, from the dock in the first scrolling pane.
+    @Test func aNewChatSkipsAPinnedDock() {
         func columns(allowsTabs: Bool) -> [LayoutColumn] {
             [LayoutColumn(id: "home", root: .leaf("dock"),
                           dock: DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: allowsTabs)),
@@ -59,7 +60,18 @@ struct PinnedHomeDockTests {
         }
         #expect(NewChatPlacement.resolve(from: "p1", columns: columns(allowsTabs: false), isLoneChat: false) == .here)
         #expect(NewChatPlacement.resolve(from: "dock", columns: columns(allowsTabs: false), isLoneChat: false) == .dock("p1"))
-        #expect(NewChatPlacement.resolve(from: "p1", columns: columns(allowsTabs: true), isLoneChat: false) == .dock("dock"))
+        #expect(NewChatPlacement.resolve(from: "p1", columns: columns(allowsTabs: true), isLoneChat: false) == .here)
+        #expect(NewChatPlacement.resolve(from: "dock", columns: columns(allowsTabs: true), isLoneChat: false) == .dock("p1"))
+    }
+
+    /// A tool dragged into a chat dock is refused ("holds only agent chats"), except into Home's
+    /// pinned dock while it takes tabs (Leo 2026-10-21): any tab drags into it.
+    @Test func homesDockTakesAnyDraggedTabOtherChatDocksOnlyChats() {
+        #expect(ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat)))
+        #expect(ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat, isPinned: true)), "closed to tabs")
+        #expect(!ChatDockRules.takesOnlyChats(DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: true)))
+        #expect(!ChatDockRules.takesOnlyChats(DockColumn(edge: .right)))
+        #expect(!ChatDockRules.takesOnlyChats(nil))
     }
 
     @Test func refusedCloseOfHomeSaysHomeStays() {

@@ -1,11 +1,12 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxNextFiles
 import Quartz
 import UniformTypeIdentifiers
 
 /// The one right-click menu for a file, shared by Home attachments, Home file links and the
 /// Files pane (plans/cmux-next/files-finder-parity-DESIGN.md, 1):
-/// Open in Right Pane · Open With ▸ · Quick Look · Reveal in Finder · Reveal in cmux Files ·
+/// Open in Right Pane · Open as Text (a rendered page) · Open With ▸ · Quick Look · Reveal in Finder · Reveal in cmux Files ·
 /// Copy as Pathname · Share….
 ///
 /// The rows are built from the file's name, so the menu shows at once; `resolve` gives the file
@@ -25,17 +26,26 @@ public final class FileActionsMenu {
         public var openInCmux: @MainActor (URL) -> Void
         /// Reveal in cmux Files: a Files pane tab on the folder, the file selected.
         public var revealInFiles: @MainActor (URL) -> Void
+        /// Open as Text: cmux shows a rendered page's source (HTML, SVG, Markdown) in the code
+        /// editor; nil leaves the row out.
+        public var openAsText: (@MainActor (URL) -> Void)?
 
-        /// The host's two cmux actions.
+        /// The host's cmux actions.
         ///
         /// - Parameters:
         ///   - openInCmux: opens a file in cmux (``LinkOpener`` in the app).
         ///   - revealInFiles: shows the file selected in a Files pane tab.
-        public init(openInCmux: @escaping @MainActor (URL) -> Void, revealInFiles: @escaping @MainActor (URL) -> Void) {
+        ///   - openAsText: opens a file's text in the code editor; nil (the default) offers no Open as Text.
+        public init(openInCmux: @escaping @MainActor (URL) -> Void, revealInFiles: @escaping @MainActor (URL) -> Void,
+                    openAsText: (@MainActor (URL) -> Void)? = nil) {
             self.openInCmux = openInCmux
             self.revealInFiles = revealInFiles
+            self.openAsText = openAsText
         }
     }
+
+    /// Open as Text's title, as the menus show it.
+    public static var openAsTextTitle: String { FileActionStrings.openAsText }
 
     private let apps: any FileAppsProviding
     private let actions: Actions
@@ -65,6 +75,7 @@ public final class FileActionsMenu {
         let open = actions.openInCmux, reveal = actions.revealInFiles
         if includeOpen {
             rows.append(menuRow(FileActionStrings.openInRightPane, "rectangle.righthalf.inset.filled") { Self.run(resolve, open) })
+            if let text = openAsTextItem(forFileNamed: name, isDirectory: isDirectory, resolve: resolve) { rows.append(text) }
         }
         rows.append(openWithItem(forFileNamed: name, isDirectory: isDirectory, resolve: resolve))
         rows.append(.separator())
@@ -74,6 +85,22 @@ public final class FileActionsMenu {
         rows.append(menuRow(FilesStrings.copyPath, "link") { Self.run(resolve) { FilePasteboard.writePaths([$0], to: .general) } })
         rows.append(shareItem(resolve: resolve))
         return rows
+    }
+
+    /// Open as Text: the file's source in the code editor, for a page cmux renders (HTML, SVG,
+    /// Markdown: ``FileOpenKind/opensAsText``). Nil for another file, or when the host gave no
+    /// ``Actions/openAsText``.
+    ///
+    /// - Parameters:
+    ///   - name: the file's name (its extension says whether it renders).
+    ///   - isDirectory: the item is a folder or package (never offered).
+    ///   - resolve: the file on disk, fetched when the row runs.
+    /// - Returns: the row, or nil.
+    public func openAsTextItem(forFileNamed name: String, isDirectory: Bool = false,
+                               resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem? {
+        guard let open = actions.openAsText, !isDirectory,
+              FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText else { return nil }
+        return menuRow(FileActionStrings.openAsText, "chevron.left.forwardslash.chevron.right") { Self.run(resolve, open) }
     }
 
     /// Share…: the system share picker for the file, at the pointer.
@@ -91,7 +118,7 @@ public final class FileActionsMenu {
     public func openWithItem(forFileNamed name: String, isDirectory: Bool = false,
                              resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem {
         let row = NSMenuItem(title: FileActionStrings.openWith, action: nil, keyEquivalent: "")
-        row.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
+        row.image = NSImage.menuSymbol("arrow.up.forward.app")
         let submenu = NSMenu(title: FileActionStrings.openWith)
         let loading = NSMenuItem(title: FilesStrings.loading, action: nil, keyEquivalent: "")
         loading.isEnabled = false
@@ -176,6 +203,6 @@ private func menuRow(_ title: String, _ symbol: String?, _ run: @escaping @MainA
     let item = NSMenuItem(title: title, action: #selector(RowTarget.fire(_:)), keyEquivalent: "")
     item.target = target
     item.representedObject = target
-    if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+    if let symbol { item.image = NSImage.menuSymbol(symbol) }
     return item
 }

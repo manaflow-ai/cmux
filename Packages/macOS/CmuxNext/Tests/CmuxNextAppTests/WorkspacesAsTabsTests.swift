@@ -80,7 +80,8 @@ import Testing
         let brackets = off.filter { Self.bracketKeys.contains($0["key"]?.stringValue ?? "") }
         let bracketCommands = Set(brackets.compactMap { $0["command"]?.stringValue })
         #expect(scoped.isEmpty, "\(scoped)")
-        #expect(bracketCommands == ["nextSurface", "prevSurface"], "\(bracketCommands)")
+        // The pane tab actions, and on Home the chat list's (HomeChatSwitchingKeyTests).
+        #expect(bracketCommands == ["nextSurface", "prevSurface", "home.nextConversation", "home.previousConversation"], "\(bracketCommands)")
         #expect(on.count == off.count + 2)
     }
 
@@ -139,6 +140,10 @@ import Testing
         options.workspacesAsTabs = true
         options.expanded = expanded
         options.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.directory, .branch, .agentStatus]))
+        // The pull request badge follows `sidebar.workspaceRow.pullRequest` here too (off by default,
+        // Leo 2026-10-21: "REMOVE PR INDICATORS BY DEFAULT").
+        #expect(options.rowContent(Self.busy(), machine: nil).badge == nil)
+        options.workspaceRow.base.shown.insert(.pullRequest)
         let content = options.rowContent(Self.busy(), machine: nil)
         #expect(content.detail == nil)
         #expect(content.status == nil)

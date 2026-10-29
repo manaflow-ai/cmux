@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 ///   that says what it changes; "Default" names what it runs, every value by its name
 ///   (``Swift/String/chiefModelName``, ``Swift/String/chiefHarnessName``), never a raw id. The Model menu groups by family (``HomeChiefModelMenu``)
 ///   and Effort offers only the levels the shown model takes.
+/// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
 /// - Memory (this Mac's brain): what the Chief remembers, and Show Memory.
 /// - Diagnostics: the last turn's engine, time, cost or tokens, cache share and tool calls
 ///   (``HomeChiefLastTurnView``), Show Traces, and the recent replies behind a closed disclosure.
@@ -66,6 +67,12 @@ public final class HomeChiefSettingsView: NSView {
     let identityCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.identity, symbol: "person.crop.circle",
                                              identifier: "cmux.home.chief.card.identity")
     let brainCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.brain, symbol: "brain", identifier: "cmux.home.chief.card.brain")
+    /// Reactions' card: whether a tapback can wake this Chief, and the classifier that decides
+    /// (``HomeChiefReactionRows``, a416).
+    let reactionsCard = HomeChiefSettingsCard(title: HomeEngineStrings.reactionsSection, symbol: "hand.thumbsup",
+                                              identifier: "cmux.home.chief.card.reactions")
+    /// Whether a tapback can wake this Chief, and the classifier that decides (``HomeChiefReactionRows``).
+    let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.innerWidth)
     let memoryCard = HomeChiefSettingsCard(title: HomeChiefCardStrings.memory, symbol: "books.vertical",
                                            identifier: "cmux.home.chief.card.memory")
     /// Diagnostics' card; its header is the disclosure over the recent replies (`diagnosticsRow`).
@@ -95,8 +102,15 @@ public final class HomeChiefSettingsView: NSView {
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
     /// hello turn); true when it passed. The app sets it; unset, every harness passes.
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
-    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
-    public var onRename: @MainActor (String) async -> Bool = { _ in true }
+    /// The ids of this Mac's acpmux harnesses (`_acpmux/harnesses`), which the Harness picker
+    /// offers after the official engines for a Chief whose brain runs on this Mac. The app sets
+    /// it; unset, the picker offers only the official engines.
+    public var listHarnesses: @MainActor () async -> [String] = { [] }
+    /// What ``listHarnesses`` last returned.
+    var listedHarnesses: [String] = []
+    /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
+    /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
+    public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -119,19 +133,24 @@ public final class HomeChiefSettingsView: NSView {
     public var pictureWindow: () -> NSWindow? = { nil }
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
     /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
-    /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
-    /// of it still shows (`fill`).
-    nonisolated static func harnesses(routeConfigured: Bool) -> [String] {
+    /// configured; then every other harness `listed` by this Mac's acpmux
+    /// (`_acpmux/harnesses`), in its order (Lawrence 2026-10-23: "chief can choose between
+    /// literally all the acpmux stuff"). A current choice outside the list still shows (`fill`).
+    nonisolated static func harnesses(routeConfigured: Bool, listed: [String] = []) -> [String] {
         let official = ChiefBackend.official.map(\.id)
-        guard routeConfigured else { return official }
-        return [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+        var offered = routeConfigured
+            ? [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+            : official
+        var seen = Set(offered)
+        for id in listed where !id.isEmpty && seen.insert(id).inserted { offered.append(id) }
+        return offered
     }
 
     /// The harness picker's items: each harness with the name the app shows for it.
-    nonisolated static func harnessItems(routeConfigured: Bool) -> [(value: String, title: String)] {
-        harnesses(routeConfigured: routeConfigured).map { ($0, ChiefBackend.title(for: $0)) }
+    nonisolated static func harnessItems(routeConfigured: Bool, listed: [String] = []) -> [(value: String, title: String)] {
+        harnesses(routeConfigured: routeConfigured, listed: listed).map { ($0, ChiefBackend.title(for: $0)) }
     }
 
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
@@ -162,6 +181,8 @@ public final class HomeChiefSettingsView: NSView {
         addFullWidth(failure)
         buildBrainCard()
         addFullWidth(brainCard)
+        buildReactionsCard()
+        addFullWidth(reactionsCard)
         buildMemoryCard()
         addFullWidth(memoryCard)
         buildDiagnostics()
@@ -266,13 +287,20 @@ public final class HomeChiefSettingsView: NSView {
         guard !name.isEmpty, name != shownName else { return nil }
         let kept = shownName
         shownName = name
-        // task-owner: one rename; ends with the daemon's answer
+        // task-owner: one rename; ends with the owner's answer
         return Task { [weak self] in
-            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
+            guard let self else { return }
+            let failure = await onRename(name)
+            guard shownName == name || shownName == kept else { return }
+            guard let failure else {
+                // A saved name: an earlier rename's note no longer applies.
+                if changeFailed, !self.failure.isHidden { hideNote() }
+                return
+            }
             shownName = kept
             // Still in the field after Return: it shows the kept name too, unless the person typed on.
             if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
-            note(HomeEngineStrings.renameRefused, kept: true)
+            note(HomeEngineStrings.renameFailed(failure), kept: true)
         }
     }
 
@@ -306,6 +334,12 @@ public final class HomeChiefSettingsView: NSView {
         usePicture(nil)
     }
 
+    /// Says `text` on the card's note line (another part's refused change, such as an upload),
+    /// kept until the person's next change, as a refused picture's note is.
+    public func showNote(_ text: String) {
+        note(text, kept: true)
+    }
+
     /// Makes `source` the shown Chief's picture (nil: the default again) through
     /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
     /// then has the header (and this panel's avatar) read it; a picture that could not be
@@ -328,8 +362,7 @@ public final class HomeChiefSettingsView: NSView {
             }
             guard let self else { return }
             if written {
-                failure.isHidden = true
-                onResize()
+                hideNote()
                 onAvatar()
             } else {
                 NSSound.beep()

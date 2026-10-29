@@ -1,10 +1,17 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextFocus
 
 // Browser focus mode's exit gesture (classic cmux parity): Esc Esc. The page
-// owns every other key while focus mode is on (tier 0 aside), so this runs
+// owns every other key while focus mode is on (``focusModeKeptActions`` aside), so this runs
 // before the bare-key and chord paths.
 extension KeyRouter {
+    /// The system actions browser focus mode keeps from the page (Lawrence 2026-10-21: "when in
+    /// focus mode cmd shift p still triggers cmux cmd shift p"): its own toggle, the exit chord
+    /// beside Esc Esc, and Quit, which no page can use. The command palette, Close Tab, New
+    /// Window and the rest go to the page like every other cmux shortcut.
+    nonisolated static let focusModeKeptActions: Set<ActionID> = ["toggleBrowserFocusMode", "quit"]
+
     /// The tab in browser focus mode that has the keyboard, nil when none.
     nonisolated static func focusModeTab(_ focus: FocusState) -> String? {
         guard focus.isBrowserFocusModeActive, case .browserPage(_, let tab) = focus.resolved else { return nil }

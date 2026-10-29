@@ -2,7 +2,7 @@
  * The network of a Cloud Chief's turn machine (turn.ts): what the agent user (`chief`, Claude Code) may
  * reach. The VM itself always has Freestyle's public egress (vm.ts, dual-stack IPv4 and IPv6); this is the
  * in-guest nftables table `inet chiefcc` for the agent's uid, applied as root after boot.sh (which leaves
- * the agent closed until then) and again whenever the Chief changes it with `chief-net` (run.mjs).
+ * the agent closed until then) and again whenever the Chief changes it with `chief-net` (chief-turn-runner).
  *
  * Default (Lawrence, 2026-10-20: "more permissive by default"; 2026-10-21, msg 8200: the tailnet too): the
  * public Internet, DNS and the tailnet (100.64.0.0/10 with its DNS 100.100.100.100, fd7a:115c:a1e0::/48; what

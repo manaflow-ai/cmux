@@ -8,7 +8,7 @@ import os
 /// app-local file (`<Application Support>/<bundle id>/workspace-backgrounds.json`). Values are
 /// `appearance.background`'s: a painting, `daily`, `none`, `desktop`, `system:` or `file:` paths.
 /// A workspace without an entry follows `appearance.background`. A second store
-/// (`workspace-background-opacity.json`) keeps each workspace's own glass tint over art, "0"..."0.95".
+/// (`workspace-background-opacity.json`) keeps each workspace's own glass tint over art, "0"..."1".
 ///
 /// The home daemon's personal workspace rows have no background column yet; when one lands, these
 /// entries move there the way terminal themes did (`ThemeCoordinator.migrateTerminalThemes`).

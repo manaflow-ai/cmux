@@ -62,11 +62,12 @@ async fn run_git(cwd: &Path, arguments: &[&str], limit: usize) -> Result<Output,
             if read == 0 {
                 break;
             }
-            if out.len() + read > limit {
+            let Some(read_bytes) = chunk.get(..read) else { break };
+            if out.len().saturating_add(read) > limit {
                 truncated = true;
                 continue;
             }
-            out.extend_from_slice(&chunk[..read]);
+            out.extend_from_slice(read_bytes);
         }
         let mut err = Vec::new();
         let _ = (&mut stderr).take(16 * 1024).read_to_end(&mut err).await;

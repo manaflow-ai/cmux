@@ -33,7 +33,9 @@ impl SendCredit {
         if bytes == 0 {
             return;
         }
-        *self.available.lock().await += u64::from(bytes);
+        let mut available = self.available.lock().await;
+        *available = available.saturating_add(u64::from(bytes));
+        drop(available);
         self.granted.notify_waiters();
         self.granted.notify_one();
     }
@@ -41,9 +43,11 @@ impl SendCredit {
     /// Take up to `want` bytes of credit without waiting.
     pub async fn try_take(&self, want: usize) -> usize {
         let mut available = self.available.lock().await;
-        let take = (*available).min(want as u64);
-        *available -= take;
-        take as usize
+        let want = u64::try_from(want).unwrap_or(u64::MAX);
+        let take = (*available).min(want);
+        *available = available.saturating_sub(take);
+        // `take` is at most `want`, which came from a usize.
+        usize::try_from(take).unwrap_or(usize::MAX)
     }
 
     /// Wait until some credit exists, then take up to `want` bytes of it.
@@ -94,24 +98,25 @@ impl RecvWindow {
 
     /// Account for `bytes` received; an error when the peer exceeded credit.
     pub fn received(&mut self, bytes: usize) -> Result<(), CreditViolation> {
-        let bytes = bytes as u64;
-        if bytes > self.outstanding {
+        let Some(outstanding) =
+            u64::try_from(bytes).ok().and_then(|bytes| self.outstanding.checked_sub(bytes))
+        else {
             return Err(CreditViolation);
-        }
-        self.outstanding -= bytes;
+        };
+        self.outstanding = outstanding;
         Ok(())
     }
 
     /// The application consumed `bytes`. Returns a grant to send once at
     /// least half the window was consumed, so grants stay infrequent.
     pub fn consumed(&mut self, bytes: usize) -> Option<u32> {
-        self.consumed += bytes as u64;
-        if self.consumed * 2 < u64::from(self.window) {
+        self.consumed = self.consumed.saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX));
+        if self.consumed.saturating_mul(2) < u64::from(self.window) {
             return None;
         }
-        let grant = self.consumed.min(u64::from(u32::MAX)) as u32;
-        self.consumed -= u64::from(grant);
-        self.outstanding += u64::from(grant);
+        let grant = u32::try_from(self.consumed).unwrap_or(u32::MAX);
+        self.consumed = self.consumed.saturating_sub(u64::from(grant));
+        self.outstanding = self.outstanding.saturating_add(u64::from(grant));
         Some(grant)
     }
 }

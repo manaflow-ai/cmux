@@ -4,6 +4,7 @@
 // commands. Real Chromium from Playwright.
 import path from "node:path";
 import type { Browser, Page } from "playwright";
+import type { PluginOption } from "vite";
 import { installPaintedFrames } from "./paintedFrames";
 import { warmViteServer } from "./warmDevServer";
 
@@ -94,8 +95,9 @@ export function papercutEvents({
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open` and `close`. `open` waits for the
-/// last answer, or for `ready` (a selector) when the chat's end shows something else.
+/// Starts the stand-in daemon and the dev server; returns `open`, `close` and `methods`. `open` waits
+/// for the last answer, or for `ready` (a selector) when the chat's end shows something else;
+/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`).
 export async function papercutPane(
   browser: () => Browser,
   options: {
@@ -104,11 +106,14 @@ export async function papercutPane(
     extra?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
+    vitePlugins?: PluginOption[];
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
+  const methods: string[] = [];
   const answer = (method: string): unknown => {
     switch (method) {
       case "initialize":
@@ -123,6 +128,24 @@ export async function papercutPane(
         return null;
     }
   };
+  /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
+  const prompts: Record<string, any>[] = [];
+  let socket: { send(data: string): void; close(): void } | undefined;
+  /// An acpmux record, appended to the log (a later attach replays it) and sent to the attached page.
+  const record = (kind: string, msg: Record<string, unknown>, dir = "mux") => {
+    const event = { sessionId: PAPERCUT_CHAT, seq: events.length + 1, at: Date.now(), dir, kind, msg };
+    events.push(event);
+    (session as { lastSeq: number }).lastSeq = event.seq;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+  };
+  /// The connection drops (acpmux restarted): the page connects again and reads the log again.
+  const drop = () => socket?.close();
+  /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
+  /// more than `after` times (an event, not a poll).
+  const waiters: { method: string; after: number; done: () => void }[] = [];
+  const count = (method: string) => methods.filter((sent) => sent === method).length;
+  const sent = (method: string, after: number) =>
+    count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -131,7 +154,14 @@ export async function papercutPane(
     },
     websocket: {
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+        methods.push(message.method);
+        for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
+          waiters.splice(waiters.indexOf(waiter), 1);
+          waiter.done();
+        }
+        socket = ws;
+        if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
@@ -141,6 +171,7 @@ export async function papercutPane(
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     server: { port: 0, host: "127.0.0.1", strictPort: false },
     logLevel: "error",
+    plugins: options.vitePlugins,
   });
   await vite.listen();
   await warmViteServer(vite, "/");
@@ -184,5 +215,17 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close };
+  return { open, close, methods, prompts, record, drop, sent };
+}
+
+/// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`
+/// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
+export async function inspectorPushAlways(page: Page, on = true) {
+  await page.evaluate(async (on) => {
+    // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
+    // so this is the module the page already loaded.
+    const url = "/chatDisplay.ts";
+    const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
+    display.setChatDisplay({ "agentPane.display.inspector.placement": on ? "push" : "overlay" });
+  }, on);
 }

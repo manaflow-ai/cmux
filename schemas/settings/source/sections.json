@@ -96,6 +96,14 @@
         "text": "Advanced"
       },
       "symbol": "curlybraces"
+    },
+    {
+      "id": "development",
+      "title": {
+        "key": "settings.section.development",
+        "text": "Development"
+      },
+      "symbol": "hammer"
     }
   ]
 }

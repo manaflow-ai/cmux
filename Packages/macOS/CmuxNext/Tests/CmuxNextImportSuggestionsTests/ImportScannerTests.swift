@@ -55,6 +55,38 @@ struct ImportScannerTests {
         #expect(!none.contains { $0.browser == .chrome })
     }
 
+    /// Browser import turned off while a scan runs: the scan reads no further source once told to stop.
+    @Test func aScanToldToStopReadsNoFurtherSource() throws {
+        let home = try Home(["\(Self.chrome)/Default/History", "Library/Application Support/zen/Profiles/a.default/places.sqlite",
+                             ".claude/projects/p/s.jsonl"])
+        let stops = StopAfter(1)
+        var scanner = Self.scanner(home)
+        scanner.shouldStop = { stops.ask() }
+        let found = scanner.scan()
+        #expect(found.map(\.browser) == [.chrome], "only the source before the stop was read: \(found.map(\.id))")
+        // Told to stop before it starts, it reads nothing.
+        scanner.shouldStop = { true }
+        #expect(scanner.scan().isEmpty)
+        // Never told: every source.
+        let all = Self.scanner(home).scan()
+        #expect(all.contains { $0.browser == .zen } && all.contains { $0.kind == .claudeCode }, "\(all.map(\.id))")
+    }
+
+    /// `shouldStop` that answers false `count` times, then true.
+    final class StopAfter: @unchecked Sendable {
+        private var left: Int
+        private let lock = NSLock()
+
+        init(_ count: Int) { left = count }
+
+        func ask() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            left -= 1
+            return left < 0
+        }
+    }
+
     @Test func firefoxFamilyProfilesComeFromTheProfilesFolder() throws {
         let home = try Home([
             "Library/Application Support/zen/Profiles/ab12.Default (release)/places.sqlite",
@@ -97,6 +129,15 @@ struct ImportScannerTests {
         let found = Self.scanner(home, classic: 7) { _ in .missing }.scan()
         #expect(found.first { $0.kind == .ghostty }?.access == .inUse)
         #expect(found.first { $0.kind == .cmuxClassic }?.count == 7)
+    }
+
+    /// Classic has a saved session and all of it is already here: the card stays (Settings ›
+    /// Import offers the import again); no saved session means no card.
+    @Test func classicWithEverythingHereIsStillFound() throws {
+        let home = try Home()
+        let found = Self.scanner(home, classic: 0) { _ in .missing }.scan()
+        #expect(found.first { $0.kind == .cmuxClassic }?.count == 0)
+        #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
     }
 
     @Test func iTermProfilesAndTheirColors() throws {

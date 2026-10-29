@@ -192,14 +192,16 @@ test("no dots loop on the running line; only the word Thinking shimmers, in the 
   expect(css).not.toContain("cv-thinking-sweep");
   expect(css).not.toMatch(/cv-working-mark|cv-working-dot|cv-activity__dots|cv-activity-dot/);
   // The sweep runs only with motion allowed and the status look not static, on the shared clock's
-  // keyframes, its band mixed from the theme accent (never a literal color).
-  const rule = css.match(
-    /@media \(prefers-reduced-motion: no-preference\) \{\s*:root:not\(\[data-status-indicators="static"\]\) \.cv-thinking\.is-shimmer \{([^}]*)\}/,
-  );
-  expect(rule).not.toBeNull();
-  expect(rule![1]).toContain("animation: cmux-shimmer");
-  expect(rule![1]).toContain("var(--agent-accent");
-  expect(rule![1]).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|orange/i);
+  // keyframes (two transform loops, ShimmerText.tsx), its lit words mixed from the theme accent
+  // (never a literal color). working-loops-compositor.test.tsx checks the loops in the engines.
+  const rule = (selector: string) =>
+    css.match(new RegExp(`:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`));
+  const band = rule(".cv-shimmer__band");
+  const lit = rule(".cv-shimmer__lit");
+  expect(band![1]).toContain("animation: cmux-shimmer-band");
+  expect(lit![1]).toContain("animation: cmux-shimmer-lit");
+  expect(lit![1]).toContain("var(--agent-accent");
+  expect(lit![1]).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|orange/i);
 });
 
 // Find counts and visits only transcript rows (findMatches skips the working row), so the status

@@ -56,10 +56,17 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
     case question(AgentQuestion)
     /// `permission_decision`: the prompt was resolved (here or by another client).
-    case permissionDecision(permissionId: String, optionId: String?)
+    /// `answers`: a question's answers as the owner recorded them (harness-shaped).
+    case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// The history a chat opened on leaves out older records (the attach's cap): its first
+    /// turn is not where the session started.
+    case earlierHistory(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
+    /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
+    /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
+    case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
@@ -77,7 +84,7 @@ public enum AgentSessionEvent: Hashable, Sendable {
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
-/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
+/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model` (and Retry with another model),
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
@@ -87,6 +94,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
+    /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
+    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
+    case retryWithModel(model: String, text: String, promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
@@ -124,6 +134,26 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
         if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]), bytes[8...11] == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
         return nil
     }
+
+    /// The attachment as a preview reads it (composer and sent message alike).
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+
+    /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
+    public static let recordedImagePrefix = "acpmux-image:"
+
+    /// An image the Mac's record of a prompt names, without its bytes.
+    /// `index`: its place in the prompt (the same image twice keeps two identities).
+    public static func recordedImage(id: String, name: String?, index: Int = 0) -> AgentAttachment {
+        AgentAttachment(id: recordedImagePrefix + id + (index > 0 ? "#\(index)" : ""), kind: .image, name: name ?? "Photo", data: nil)
+    }
+
+    /// acpmux's id of a recorded image (nil for one this phone holds), without the
+    /// `#n` that keeps two copies of one image in a prompt apart.
+    public var recordedImageID: String? {
+        guard id.hasPrefix(Self.recordedImagePrefix) else { return nil }
+        let rest = id.dropFirst(Self.recordedImagePrefix.count)
+        return String(rest.split(separator: "#", maxSplits: 1).first ?? rest)
+    }
 }
 
 /// The data side of an agent chat. The mock streams a scripted session offline;
@@ -154,6 +184,13 @@ public protocol AgentSessionSource: AnyObject {
     func discardHandoff(_ draft: AgentHandoffDraft) async
     /// Loads the session's referenced files for the artifacts browser.
     var artifactSource: any ArtifactSource { get }
+    /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
+    /// image another device or an earlier launch sent), or nil when the source can't read it.
+    func attachmentData(_ attachment: AgentAttachment) async -> Data?
+}
+
+extension AgentSessionSource {
+    public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
 }
 
 extension AgentSessionSource {

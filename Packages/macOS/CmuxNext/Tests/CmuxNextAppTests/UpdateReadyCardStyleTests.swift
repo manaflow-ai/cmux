@@ -7,9 +7,10 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
-/// switch at the end of its row (Debug Settings brings the checkbox back), Restart to Update is
+/// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
 @MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
@@ -70,18 +71,23 @@ import Testing
         #expect(await eventually { !card.notesAreShown }, "the second click left the preview open")
     }
 
-    @Test func automaticUpdatesIsAThemedSwitchAtTheEndOfItsRow() throws {
+    @Test func automaticUpdatesIsAThemedSwitchInFrontOfItsLabel() throws {
         #expect(SidebarTunables.updateCardAutomaticControl.defaultValue == .switchControl)
-        let control = SidebarUpdateCheckbox(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateCheckbox.height))
+        let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
         control.configure(title: "Automatic Updates", isOn: true)
         control.layoutSubtreeIfNeeded()
         control.updateLayer()
         let track = try #require(control.layer?.sublayers?.first)
         let knob = try #require(control.layer?.sublayers?.dropFirst().first)
-        #expect(track.frame.maxX == control.bounds.maxX, "the switch is not at the end of the row")
+        // The switch on the left, then the label (Leo 2026-10-22: "he preferred the checkbox on the left").
+        #expect(track.frame.minX == 0, "the switch is not at the start of the row")
+        #expect(control.label.frame.minX >= track.frame.maxX + Metrics.space2, "the label is not after the switch")
         #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
         #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
         #expect(control.accessibilitySubrole() == .switch)
+        // The switch's centre is on the label's cap-height midline (2026-10-22), not the row box's centre.
+        let capMid = control.label.frame.minY + control.label.firstBaselineOffsetFromTop - SidebarUpdateToggle.font.capHeight / 2
+        #expect(abs(track.frame.midY - capMid) <= 0.5, "the switch sits off its label's centre line")
         control.configure(title: "Automatic Updates", isOn: false)
         control.layoutSubtreeIfNeeded()
         #expect(knob.frame.midX < track.frame.midX, "an off switch has its knob at the trailing end")
@@ -93,13 +99,52 @@ import Testing
         #expect(knob.isHidden)
     }
 
+    /// The card's first configure (Automatic Updates on, the control fresh at off) puts the knob
+    /// in place: it never slides in from the row's corner.
+    @Test func theSwitchSlidesOnlyOnceLaidOutAndShown() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let control = SidebarUpdateToggle(frame: .zero)
+        control.fixedLook = .switchControl
+        window.contentView?.addSubview(control)
+        #expect(!control.canSlide, "a switch with no laid-out track would slide in from the corner")
+        control.configure(title: "Automatic Updates", isOn: true)
+        let knob = control.layer?.sublayers?.dropFirst().first
+        #expect(knob?.animationKeys() == nil, "the first configure animated the knob")
+        control.frame = NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height)
+        control.layoutSubtreeIfNeeded()
+        #expect(control.canSlide)
+        control.isHidden = true
+        #expect(!control.canSlide, "a hidden switch slides")
+    }
+
+    /// Installing… (disabled) is dimmer than Restart to Update, in the accent and in the neutral
+    /// primary: fading the translucent neutral fill to a fixed alpha made it about 4x as opaque.
+    @Test func aDisabledPrimaryButtonIsDimmerThanAnEnabledOne() {
+        let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
+        button.fixedStyle = .primary
+        button.configure(title: "Restart to Update", enabled: true, help: nil)
+        let enabled = button.fill.alphaComponent
+        button.configure(title: "Installing…", enabled: false, help: nil)
+        let disabled = button.fill.alphaComponent
+        #expect(disabled < enabled, "the disabled button (alpha \(disabled)) is not dimmer than the enabled one (\(enabled))")
+    }
+
     @Test func restartToUpdateIsThePrimaryButton() {
         #expect(SidebarTunables.updateCardButton.defaultValue == .primary)
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
         button.fixedStyle = .primary
         button.configure(title: "Restart to Update", enabled: true, help: nil)
         button.updateLayer()
-        #expect(button.layer?.backgroundColor == button.performWithTheme { Palette.accentFill.cgColor })
+        // The theme's accent when one is chosen; with none, the prominent neutral, never the
+        // primary text as a white slab (2026-10-22: "just make it look better").
+        let (chosen, accent, neutral, slab) = button.performWithTheme {
+            (Palette.hasChosenAccent, Palette.accentFill.cgColor, Palette.selectionFill.cgColor, Palette.textPrimary.cgColor)
+        }
+        #expect(button.layer?.backgroundColor == (chosen ? accent : neutral))
+        if !chosen { #expect(button.layer?.backgroundColor != slab, "Restart to Update is the white slab again") }
         #expect(button.layer?.borderWidth == 0, "the primary button draws the bordered button's hairline")
     }
 

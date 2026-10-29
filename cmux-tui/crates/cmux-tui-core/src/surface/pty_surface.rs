@@ -107,7 +107,13 @@ impl PtySurface {
         TerminalColors::from_terminal(term, defaults)
     }
 
+    /// The hex terminal id flow marks name this terminal by (empty without a host identity).
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        self.host_identity.as_ref().map_or("", |id| id.terminal_id.as_str())
+    }
+
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
+        cmux_flow_trace::hop("daemon.output.attach", 0, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
@@ -257,9 +263,7 @@ impl PtySurface {
     }
 
     pub(super) fn request_frame(&self, generation: u64) {
-        match self.frame_requests.try_send(generation) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
-        }
+        self.frame_requests.request(generation);
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
@@ -523,8 +527,19 @@ impl PtySurface {
         let previous = *geometry;
         let next_pty_size = next.pty_size();
         let previous_pty_size = previous.pty_size();
-        // Hold the terminal lock while resizing and while sending the attach
-        // marker, so mirrors observe bytes and geometry in server order.
+        // Parse queued direct-PTY bytes on the old grid, even if the reader
+        // has not woken yet. Keep the shared parser through the ioctl and
+        // reflow so no read-to-parser gap can cross this boundary. Observers
+        // are queued for the reader to publish without geometry or term held.
+        #[cfg(unix)]
+        let mut local_output = self
+            .local_output
+            .as_ref()
+            .map(|output| output.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        #[cfg(unix)]
+        if let Some(output) = local_output.as_mut() {
+            output.drain(self)?;
+        }
         let mut term = self.term.lock().unwrap();
         let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
         let master = match runtime.as_deref() {

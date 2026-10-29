@@ -202,6 +202,15 @@ struct OmnibarChromeParityTests {
         #expect(resolver.url(for: "swift testing") == nil)
     }
 
+    /// `cmux://stashed` loads (the App opens the Stashed Tabs page); any other `cmux:` link searches.
+    @Test func onlyCmuxAppPagesLoadFromTheCmuxScheme() {
+        let resolver = BrowserURLResolver()
+        #expect(resolver.url(for: "cmux://stashed")?.absoluteString == "cmux://stashed")
+        #expect(resolver.url(for: "CMUX://Stashed/?q=1")?.absoluteString == "cmux://stashed")
+        #expect(resolver.url(for: "cmux://tab/tab_0123") == nil)
+        #expect(resolver.url(for: "cmux:stashed") == nil)
+    }
+
     /// A leading `?` forces a search (Chrome's "?" prefix), and the `?` is
     /// not part of the query.
     @Test func aLeadingQuestionMarkForcesASearch() throws {

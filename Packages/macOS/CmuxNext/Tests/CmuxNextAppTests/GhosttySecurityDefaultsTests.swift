@@ -7,9 +7,27 @@ import Testing
 @MainActor
 @Suite("Ghostty security defaults", .serialized)
 struct GhosttySecurityDefaultsTests {
-    @Test(arguments: ["", "clipboard-write = allow\n", "clipboard-write = ask\n"])
-    func programClipboardWritesRequireConsent(_ text: String) throws {
-        #expect(try resolvedString("clipboard-write", configText: text) == "ask")
+    /// Program clipboard writes (OSC 52, e.g. Claude Code copying text) are
+    /// silent by default, as in Ghostty and classic cmux: no consent dialog.
+    @Test(arguments: ["", "clipboard-write = allow\n"])
+    func programClipboardWritesAreAllowedByDefault(_ text: String) throws {
+        #expect(try resolvedString("clipboard-write", configText: text) == "allow")
+    }
+
+    @Test func explicitClipboardWriteAskStillAsks() throws {
+        #expect(try resolvedString("clipboard-write", configText: "clipboard-write = ask\n") == "ask")
+    }
+
+    @Test func programWriteWithoutConfirmationIsCommittedSilently() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false) == .write)
+    }
+
+    @Test func programWriteGhosttyAsksAboutShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: true) == .confirm)
+    }
+
+    @Test func userCopyNeverShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: true, requiresConfirmation: true) == .write)
     }
 
     @Test func explicitClipboardWriteDenyStaysDenied() throws {

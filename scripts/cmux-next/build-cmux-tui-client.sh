@@ -71,7 +71,9 @@ install -m 755 "$target_dir/release/cmux-tui-host" "$stage/cmux-tui-host"
 
 # The companions this source bundles beside cmux-tui: the ones its bundle
 # scripts name (the fleet recipe decides the same way).
-for name in cmux-app-host cmux-cloud cmux-browser-host cmux-agent-screen-detection; do
+# The terminal holder builds on its own (std and libc only): with cmux-tui its
+# libc features would unify with the daemon's.
+for name in cmux-app-host cmux-cloud cmux-browser-host cmux-holder cmux-agent-screen-detection; do
   named=0
   for script in scripts/cmux-next/bundle-cmux-tui.sh scripts/install-cmux-tui-client.sh; do
     if [[ -f "$repo_root/$script" ]] && grep -q -- "$name" "$repo_root/$script"; then named=1; fi

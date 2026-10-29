@@ -66,7 +66,9 @@ class PrebuildOneTest(unittest.TestCase):
             with self.subTest(package=package):
                 done = self.prebuild(package)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.swift_calls().count("--package-path Packages/macOS/Pkg"), 2, self.swift_calls())
+        # The binary-module guard (swiftpm-binary-module-guard.sh) resolves the package first; count the builds.
+        builds = [line for line in self.swift_calls().splitlines() if line.startswith("swift build ")]
+        self.assertEqual(sum("--package-path Packages/macOS/Pkg" in line for line in builds), 2, self.swift_calls())
 
     def test_a_build_failure_fails_the_step(self):
         done = self.prebuild("Pkg", FAKE_SWIFT_FAIL="1")

@@ -55,6 +55,11 @@ final class AgentPaneDictation {
     /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
     /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
     private var recordsAudio = false
+    /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
+    var recordingFolder: () -> URL? = { nil }
+    /// Capture the chat at start: closing the recording may outlive a pane navigation.
+    var chatSession: () -> String? = { nil }
+    private var recordingChat = ""
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -64,9 +69,9 @@ final class AgentPaneDictation {
     private var held: (keyCode: UInt16, chord: NSEvent.ModifierFlags, pressedAt: TimeInterval)?
     private var keyUpMonitor: Any?
     /// Ends the hold when the app loses focus: the release goes elsewhere.
-    private var resignObserver: (any NSObjectProtocol)?
+    private var resignObserver: MainActorObservation?
     /// Stops the session when the Mac sleeps; observed only while a session runs.
-    private var sleepObserver: (any NSObjectProtocol)?
+    private var sleepObserver: MainActorObservation?
     /// Where sleep is announced (tests post their own).
     var sleepNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
     /// The event clock (`NSEvent.timestamp`'s), for telling a fresh key press from a stale one.
@@ -138,8 +143,8 @@ final class AgentPaneDictation {
             if event.type == .flagsChanged { self?.flagsChanged(event) } else { self?.keyUp(event) }
             return event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endHold() } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.endHold()
         }
     }
 
@@ -179,7 +184,6 @@ final class AgentPaneDictation {
         held = nil
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -203,16 +207,16 @@ final class AgentPaneDictation {
         microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
+        if session.phase.isStartable { recordingChat = chatSession() ?? "" }
         session.start()
         if !phase.isStartable, sleepObserver == nil {
-            sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
+            sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
+                self?.session?.stop()
             }
         }
     }
 
     private func endSleepWatch() {
-        if let sleepObserver { sleepNotifications.removeObserver(sleepObserver) }
         sleepObserver = nil
     }
 
@@ -220,11 +224,14 @@ final class AgentPaneDictation {
         if let session { return session }
         let made = makeSession()
         made.onUpdate = { [weak self] update in self?.deliver(update) }
+        made.recordingFolder = { [weak self] in self?.recordingFolder() }
         session = made
         return made
     }
 
     private func deliver(_ update: DictationUpdate) {
+        var update = update
+        update.chat = recordingChat
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
@@ -244,6 +251,7 @@ final class AgentPaneDictation {
             "level": (Double(update.level) * 1000).rounded() / 1000,
             "cancelled": update.cancelled,
         ]
+        if let chat = update.chat { value["session"] = chat }
         switch update.phase {
         case .denied(let permission):
             value["permission"] = permission.rawValue
@@ -254,8 +262,13 @@ final class AgentPaneDictation {
         default:
             break
         }
+        // A recording that fits a prompt goes as its bytes (an audio block); a longer one as the
+        // file it was written to, which the composer attaches as a saved original.
         if let audio = update.audio {
-            value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
+            var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
+            if let data = audio.data { sent["data"] = data.base64EncodedString() }
+            if let file = audio.file { sent["path"] = file.path }
+            value["audio"] = sent
         }
         if let omitted = update.audioOmitted {
             value["audioOmitted"] = omitted.rawValue

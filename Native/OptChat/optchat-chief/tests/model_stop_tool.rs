@@ -29,6 +29,7 @@ fn serve(home: &Path, seen: Arc<Mutex<Vec<ControlRequest>>>) -> PathBuf {
             inspector: None,
             chief: None,
             turn: None,
+            peers: None,
         },
     )
     .unwrap();

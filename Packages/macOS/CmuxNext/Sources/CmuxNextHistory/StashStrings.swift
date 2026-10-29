@@ -7,7 +7,10 @@ nonisolated enum StashStrings {
     }
 
     static var title: String { t("stash.title", "Stashed Tabs") }
-    static var empty: String { t("stash.empty", "No stashed tabs. Right-click a browser tab and choose Stash Tab to keep it here.") }
+    static var empty: String { t("stash.empty", "No stashed tabs. Right-click a browser tab or a workspace and choose Save and Close to keep it here.") }
+    static var searchPlaceholder: String { t("stash.search", "Search stashed tabs") }
+    static var noMatches: String { t("stash.noMatches", "No stashed tabs match.") }
+    static var untitledWorkspace: String { t("stash.untitledWorkspace", "Untitled Workspace") }
     static var untitled: String { t("stash.untitled", "Untitled Group") }
     static var restoreAll: String { t("stash.restoreAll", "Restore All") }
     static var restoreInNewWorkspace: String { t("stash.restoreInNewWorkspace", "Restore in New Workspace") }

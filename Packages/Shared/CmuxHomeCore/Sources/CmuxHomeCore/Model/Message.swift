@@ -22,7 +22,7 @@ public enum MessagePart: Hashable, Sendable, Codable {
     public var plainText: String {
         switch self {
         case .text(let text, _): text
-        case .work(let work): work.preview ?? work.title
+        case .work(let work): work.shownText ?? ""
         case .approval(let approval): approval.prompt
         case .question(let question): question.transcriptText
         case .attachment(let file): file.name
@@ -68,6 +68,16 @@ public struct WorkRef: Hashable, Sendable, Codable {
         self.title = title
         self.status = status
         self.preview = preview
+    }
+
+    /// What a person reads for this work: its preview, else its title when that is a name of its
+    /// own. Nil when it has neither: the session id (`optchat-<home>-<line>`, a Chief turn's
+    /// acpmux session) is a machine name, never shown (Lawrence 2026-10-21). A Chief turn that
+    /// ends without a reply posts such a part as its done marker.
+    public var shownText: String? {
+        if let preview = preview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty { return preview }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty || title == session ? nil : title
     }
 }
 

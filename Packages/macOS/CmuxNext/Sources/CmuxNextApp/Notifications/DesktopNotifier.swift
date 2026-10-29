@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
 import os
@@ -8,12 +9,13 @@ import UserNotifications
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
-/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts,
-/// so hosts without a bundle identifier (tests) never create it. An
-/// automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
+/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts
+/// (which asks for authorization) or `notifications.status` / `notifications.request` reads or asks for it
+/// (`permission()`, for `cmux setup notifications`), so hosts without a bundle identifier (tests) never
+/// create it. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
-/// request and no system banner cover the host's screen; `posted` still
-/// records each banner for `debug.notifications`.
+/// request and no system banner cover the host's screen, and the two methods answer `unavailable`;
+/// `posted` still records each banner for `debug.notifications`.
 @MainActor
 final class DesktopNotifier: NSObject {
     /// A banner the app asked for (for `debug.notifications`).
@@ -58,12 +60,14 @@ final class DesktopNotifier: NSObject {
     /// "automation" when this launch never asks.
     private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
     private var center: UNUserNotificationCenter?
+    /// Whether this launch asked for authorization (a banner or `notifications.request`).
+    private var askedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
 
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
-    /// played by `NotificationSounds`. `attachment` is a status badge PNG
+    /// played by `NotificationSoundPlayer`. `attachment` is a status badge PNG
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
@@ -115,6 +119,14 @@ final class DesktopNotifier: NSObject {
         }
     }
 
+    /// Whether banner `id` is in Notification Center (an automation launch has none).
+    func isDelivered(_ id: String) async -> Bool {
+        guard let center = configuredCenter() else { return posted.contains { $0.id == id } }
+        return await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in continuation.resume(returning: delivered.contains { $0.request.identifier == id }) }
+        }
+    }
+
     /// Removes banners whose notifications were read or ended, shown or still queued.
     func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
@@ -153,7 +165,22 @@ final class DesktopNotifier: NSObject {
         return true
     }
 
+    /// The center for a banner: the first one asks for authorization.
     private func resolvedCenter() -> UNUserNotificationCenter? {
+        guard let center = configuredCenter() else { return nil }
+        // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
+        if !askedAuthorization, !Self.isGUIJob {
+            askedAuthorization = true
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
+                Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
+            }
+        }
+        return center
+    }
+
+    /// The system center with this app's delegate and banner categories, made once; nil when
+    /// this launch never uses it (an automation launch, or not the main app bundle).
+    private func configuredCenter() -> UNUserNotificationCenter? {
         if let center { return center }
         guard Self.usesSystemCenter, Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
             return nil
@@ -163,13 +190,26 @@ final class DesktopNotifier: NSObject {
         center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(),
                                           IPhonePairNotices.notificationCategory()])
         self.center = center
-        // Asked once (the center is cached); a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
-        if !["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains(where: { ProcessInfo.processInfo.environment[$0] == "1" }) {
-            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
-                Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
+        return center
+    }
+
+    nonisolated private static var isGUIJob: Bool {
+        ["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains { ProcessInfo.processInfo.environment[$0] == "1" }
+    }
+
+    /// The permission `notifications.status` reads and `notifications.request` asks for, on the
+    /// banners' own center. A launch that never asks (an automation launch, a GUI job, not the
+    /// main app bundle) answers `unavailable`.
+    func permission() throws -> any NotificationPermissionCenter {
+        guard !Self.isGUIJob, configuredCenter() != nil else {
+            throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
+        }
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] granted in
+            Task { @MainActor in
+                self?.askedAuthorization = true
+                self?.authorization = granted ? "authorized" : "denied"
             }
         }
-        return center
     }
 
     /// Reply banners' category: one text field whose Send types into the terminal.
@@ -223,24 +263,5 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
             if markRead { self?.markRead(id: id, surface: surface) }
         }
         completionHandler()
-    }
-}
-
-/// Sounds other than the notification's default: a system sound by name
-/// (`/System/Library/Sounds`, for example "Glass") or a file path.
-enum NotificationSounds {
-    @MainActor
-    static func play(_ name: String) {
-        guard name != "none", name != "default" else { return }
-        let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true) : NSSound(named: NSSound.Name(name))
-        sound?.play()
-    }
-
-    /// A poster asked for no banner (`notify --desktop false`): the
-    /// notification's own default sound has no banner to ride, so the
-    /// system alert sound stands in, as classic played one.
-    @MainActor
-    static func playWithoutBanner(_ name: String) {
-        name == "default" ? NSSound.beep() : play(name)
     }
 }

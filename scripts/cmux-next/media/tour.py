@@ -2,6 +2,7 @@
 """Run cmux-next UI tours against a built app and capture each step.
 
     tour.py --app "<path>/cmux DEV ci-media.app" --out "$RUNNER_TEMP/media" tours/core.json [...]
+    tour.py --stop "<path>/cmux DEV ci-media.app" [--stop ...]
 
 Each tour launches the app fresh on a private control socket (the knobs
 scripts/smoke-signed-app-cli.sh uses), drives it only through the bundled
@@ -41,6 +42,12 @@ session as the E2E recorder on main does), never the display, so tours on one
 Mac never capture each other. The app is never activated: the tour drives it
 through its socket, so concurrent tours do not trade focus or the key window.
 
+`--stop` ends what a built app left running and exits: its tagged daemon
+through its own socket, then every process whose executable is in the bundle
+(the app, the chief host and its acpmux daemon and router), SIGKILL after
+STOP_GRACE seconds. The tour job runs it whatever happened before, since a
+cancel can land while the app starts and outlive this process's own cleanup.
+
 The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
 failures keep the process exit status green for compatibility, but result in a
 degraded manifest that publishers and reviewers can distinguish from a full
@@ -78,6 +85,8 @@ DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
+# --stop: seconds a bundle's processes get after SIGTERM before SIGKILL.
+STOP_GRACE = 10.0
 FRAME_INTERVAL = 0.5
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
 # video stops here, so a stuck step cannot fill the runner's disk.
@@ -98,11 +107,19 @@ READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes",
 }
+# The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
+# Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
+# zsh there (ZDOTDIR; Ghostty's wrapper hands it back before `.zshrc` runs) and names the showcase Mac
+# ("Studio Mac") on its panes and its machine picker, so pr-media's privacy check
+# (scripts/ci/pr_media_privacy.py) passes the tour's shots.
+FIXTURE_ZSHRC = "PROMPT='tour@studio-mac %1~ %# '\nRPROMPT=''\n"
 # Inherited caller context a cmux terminal exports. Left in place, a local run
-# inside cmux would route the tour's commands at the caller's own workspace.
+# inside cmux would route the tour's commands at the caller's own workspace, and
+# any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's
+# CMUX_NEXT_SOCKET_PATH and CMUX_CAPTURE_SHELL_HOME as another cmux's.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
                 "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD", "CMUX_TUI_SOCKET", "CMUX_TAG",
-                "CMUX_BUNDLE_ID", "CMUX_SOCKET")
+                "CMUX_BUNDLE_ID", "CMUX_SOCKET", "MUX_AGENT_TOKEN_FILE")
 
 
 class TourError(Exception):
@@ -465,6 +482,7 @@ class App:
         self.executable = app_path / "Contents/MacOS" / info["CFBundleExecutable"]
         self.bundle_tag = clean_tag((info.get("LSEnvironment") or {}).get("CMUX_TAG"))
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
+        self.workdir = workdir
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
         # The tour's own settings file; None keeps the session user's.
@@ -510,13 +528,22 @@ class App:
             self.session.run(["rm", "-rf", str(directory)])
             print(f"fresh state: cleared {directory}", flush=True)
 
+    def write_shell_home(self) -> Path:
+        """The tour's own zsh startup folder (FIXTURE_ZSHRC), readable by the session's user."""
+        home = self.session.shareable(self.workdir / "shell-home")
+        rc = home / ".zshrc"
+        rc.write_text(FIXTURE_ZSHRC, encoding="utf-8")
+        rc.chmod(0o644)
+        return home
+
     def launch(self) -> None:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
+                 f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
@@ -899,6 +926,49 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     return manifest
 
 
+def running_from(session: Session, bundle: Path) -> list[int]:
+    """Processes whose executable is in the bundle: the command starts with its path."""
+    found = session.run(["pgrep", "-f", "^" + re.escape(f"{bundle}/Contents/")]).stdout.split()
+    return [int(pid) for pid in found if pid.isdigit()]
+
+
+def stop_apps(bundles: list[Path], session: Session) -> bool:
+    """End what each built app left running; False when something outlived SIGKILL.
+
+    A cancel can land while the app starts: run 39199091515's chief host started
+    a minute after its capture step was cancelled, and with its parent gone it
+    held cmux10s's DerivedData open for days. Only the command's start is
+    matched, so a process that merely names the bundle in its arguments stays.
+    """
+    clean = True
+    for bundle in bundles:
+        if not (bundle / "Contents/Info.plist").is_file():
+            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            continue
+        workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
+        try:
+            App(bundle, session, workdir).stop_daemon()
+        except (OSError, ValueError, KeyError) as error:
+            # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
+            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        pattern = "^" + re.escape(f"{bundle}/Contents/")
+        left = running_from(session, bundle)
+        if left:
+            session.run(["pkill", "-f", pattern])
+            deadline = time.monotonic() + STOP_GRACE
+            while (left := running_from(session, bundle)) and time.monotonic() < deadline:
+                time.sleep(0.5)
+        if left:
+            session.run(["pkill", "-9", "-f", pattern])
+            time.sleep(1)
+            left = running_from(session, bundle)
+        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        clean = clean and not left
+    return clean
+
+
 def terminated(signum: int, frame: Any) -> None:
     raise SystemExit(128 + signum)
 
@@ -921,13 +991,19 @@ def classify_result(manifest: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("tours", nargs="+", type=Path, help="tour JSON files or directories of them")
+    parser.add_argument("tours", nargs="*", type=Path, help="tour JSON files or directories of them")
     parser.add_argument("--app", type=Path, help="the built app bundle")
     parser.add_argument("--out", type=Path, help="where each tour's folder goes")
     parser.add_argument("--check", action="store_true", help="only validate the tour files")
     parser.add_argument("--fresh-state", action="store_true",
                         help="delete the tagged build's saved workspaces before and after each tour")
+    parser.add_argument("--stop", type=Path, action="append", default=[], metavar="APP",
+                        help="end what this built app left running, then exit (repeatable)")
     args = parser.parse_args(argv)
+    if args.stop:
+        return 0 if stop_apps(args.stop, Session()) else 1
+    if not args.tours:
+        parser.error("give tour files, or --stop")
     files: list[Path] = []
     for path in args.tours:
         files.extend(sorted(path.glob("*.json")) if path.is_dir() else [path])

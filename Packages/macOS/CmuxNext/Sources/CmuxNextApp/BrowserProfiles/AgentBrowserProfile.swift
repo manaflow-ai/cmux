@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
@@ -19,7 +20,7 @@ enum AgentBrowserProfile {
         case agent
     }
 
-    static let id = "a9e70000-0000-4000-8000-00000000c0de"
+    static let id = BrowserPageService.agentBrowserProfileID
 
     static var name: String {
         String(localized: "handlers.misc.agentBrowserProfile.name", defaultValue: "Agents", table: "MiscHandlers", bundle: .module)

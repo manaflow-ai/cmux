@@ -6,10 +6,14 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
-import type { SessionSummary } from "./sessionSummary";
+import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
+import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 import { SummaryTasks } from "./SummaryTasks";
+import { WorkflowSummaries, WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -32,7 +36,7 @@ const ROW_ICON = rowIconSize(12);
 export type SummaryChanges = {
   additions: number;
   deletions: number;
-  files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
+  files?: readonly Pick<TurnFile, "path" | "displayPath" | "canonical" | "additions" | "deletions" | "created">[];
 };
 
 export function SummaryBody({
@@ -44,9 +48,15 @@ export function SummaryBody({
   onOpenGallery,
   onFollow,
   onAttach,
+  tools,
   subagents,
   commands,
   onStopCommand,
+  workflow,
+  workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -58,6 +68,8 @@ export function SummaryBody({
   onFollow?: () => void;
   /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
   onAttach?: () => void;
+  /// Sources' + also offers Use tools: the chat's tools, when acpmux can change them and it has some.
+  tools?: ChatToolsControl;
   /// The Subagents section, when the card draws it (SubagentStatusList.tsx).
   subagents?: ReactNode;
   /// The chat's background commands, the registry's merged in (inspector/processes.ts); without them,
@@ -65,8 +77,17 @@ export function SummaryBody({
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
   onStopCommand?: (processId: string) => Promise<unknown>;
+  /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
+  // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
+  // draws with no sources so the menu has a place.
+  const toolsMenu = tools && tools.rows.length > 0 ? tools : undefined;
   const tasks = commands ?? backgroundCommands([], summary.backgroundTasks, false);
   // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
@@ -88,9 +109,15 @@ export function SummaryBody({
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
+    // When the session has a project root, reject checkpoint paths outside it before matching by
+    // display suffix. Otherwise an unrelated `outside/src/index.ts` could replace the allowed
+    // `project/src/index.ts` output merely because both display as `src/index.ts`.
+    const inProject = summary.cwd === undefined || projectPathAllowed(file.canonical ?? file.path, summary.cwd);
+    if (!inProject) continue;
     const output = outputOf(file);
-    if (output === undefined) checkpointOnly.push(file);
-    else if (!turnOf.has(output)) turnOf.set(output, file);
+    if (output === undefined) {
+      checkpointOnly.push(file);
+    } else if (!turnOf.has(output)) turnOf.set(output, file);
   }
   const outputs = [
     ...summary.outputs.map((output) => {
@@ -101,6 +128,8 @@ export function SummaryBody({
   ];
   const empty =
     !subagents &&
+    !workflow &&
+    !workflows?.length &&
     tasks.length === 0 &&
     outputs.length === 0 &&
     galleryCount === 0 &&
@@ -112,6 +141,13 @@ export function SummaryBody({
   return (
     <>
       <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
+      <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
+      <WorkflowSummaries
+        key={workflows?.[0]?.sessionId}
+        workflows={workflows}
+        actionsFor={workflowActionsFor}
+        daemonCapacity={workflowCapacity}
+      />
       <SummarySection
         title={t("summary.outputs")}
         items={outputs}
@@ -159,16 +195,21 @@ export function SummaryBody({
       <SummarySection
         title={t("summary.sources")}
         items={summary.sources}
+        keep={toolsMenu !== undefined}
         action={
-          onAttach && (
-            <button
-              type="button"
-              className="acpmux-summary-add"
-              aria-label={t("summary.sources.attach")}
-              onClick={onAttach}
-            >
-              <Icon name="action.add" size={ROW_ICON} />
-            </button>
+          toolsMenu ? (
+            <SourcesAddMenu attach={onAttach} tools={toolsMenu} />
+          ) : (
+            onAttach && (
+              <button
+                type="button"
+                className="acpmux-summary-add"
+                aria-label={t("summary.sources.attach")}
+                onClick={onAttach}
+              >
+                <Icon name="action.add" size={ROW_ICON} />
+              </button>
+            )
           )
         }
         row={(source) => (
@@ -240,7 +281,7 @@ export function SummaryBody({
         )}
       />
       {empty && <p className="acpmux-summary-empty">{t("summary.empty")}</p>}
-      {onAttach && summary.sources.length === 0 && (
+      {onAttach && !toolsMenu && summary.sources.length === 0 && (
         <button
           type="button"
           className="acpmux-summary-row acpmux-summary-link acpmux-summary-attach"

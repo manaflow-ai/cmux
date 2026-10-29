@@ -97,7 +97,8 @@ export function installTooltips(
   const win = doc.defaultView;
   if (!win) return () => {};
   const tip = doc.createElement("div");
-  tip.className = "ui-title-tooltip";
+  // The liquid glass, as every tooltip (ui/Tooltip.tsx; glass.css gives it the tooltip's shadow).
+  tip.className = "ui-title-tooltip ui-glass";
   tip.setAttribute("role", "tooltip");
   tip.hidden = true;
   doc.body.append(tip);

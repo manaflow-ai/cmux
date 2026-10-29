@@ -14,6 +14,16 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public var isLive: Bool { self == .running || self == .provisioning }
     }
 
+    /// Why a paused machine is paused: the idle auto-pause (`idle`) or a
+    /// person or caller's Pause Machine (`user`).
+    public enum PauseReason: String, Sendable, Hashable, Decodable {
+        case idle, user
+    }
+
+    /// The idle auto-pause choices, in minutes; 0 is Off. The server
+    /// (`web/services/vms/idlePause.ts`) accepts exactly these.
+    public static let idlePauseChoices = [0, 15, 30, 60, 120]
+
     public struct Address: Sendable, Hashable, Decodable {
         public var ipv4: String?
         public var ipv6: String?
@@ -136,6 +146,21 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// when the record carried none (an older server, or the cmux-next
     /// backend record, whose capability names are not provider operations).
     public var declaredCapabilities: Capabilities?
+    /// Why the machine is paused; `nil` unless it is paused (or the server
+    /// is older and did not say).
+    public var pauseReason: PauseReason?
+    /// Minutes of idle before the server pauses this machine; 0 is Off.
+    /// `nil` when the server did not say (an older server, or a backend
+    /// machine).
+    public var idlePauseMinutes: Int?
+    /// What one hour of this machine's size costs, in US dollars
+    /// (`hourlyRateUsd`, from the server's rate table; the app keeps none).
+    /// Nil when the server has no rate for it (a size not measured yet, an
+    /// older server).
+    public var hourlyRateUsd: Double?
+    /// When the machine last started running (`runningSince`, epoch ms).
+    /// Nil while it is paused, so a paused machine shows no running cost.
+    public var runningSince: Date?
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -149,15 +174,26 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities?.supports(operation) ?? true
     }
 
+    /// Whether New Cloud Workspace with no machine named may open on this machine instead
+    /// of starting (and billing) a new VM: it runs or starts, or the idle timer paused it
+    /// (opening resumes it). A failed machine, a destroyed one or one a person paused is
+    /// never picked (Lawrence msg 1334: Cloud workspaces sit in their machine's one group).
+    public var takesUnnamedWorkspaces: Bool {
+        status.isLive || (status == .paused && pauseReason == .idle)
+    }
+
     /// Sidebar and menu title: the user's name, else the slug, else the id.
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
+        case pauseReason, idlePauseMinutes
+        case hourlyRateUsd, runningSince
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
-                slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil) {
+                slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
+                pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
@@ -165,6 +201,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.slug = slug
         self.address = address
         self.declaredCapabilities = capabilities
+        self.pauseReason = pauseReason
+        self.idlePauseMinutes = idlePauseMinutes
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,6 +220,11 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
+        pauseReason = (try? c.decodeIfPresent(String.self, forKey: .pauseReason)).flatMap(PauseReason.init(rawValue:))
+        idlePauseMinutes = try? c.decodeIfPresent(Int.self, forKey: .idlePauseMinutes)
+        // Display facts: a malformed value drops the cost line, never the machine.
+        hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
+        runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 }
 
@@ -197,8 +240,14 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var route: String
     public var session: String
     public var trustedCarrier: Bool
+    /// Caller-relative ownership from the account API; only exact `owner` grants owner privileges.
+    public var vmKind: String?
     public var expiresAtUnix: Double?
     public var invitation: Invitation?
+    /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
+    /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
+    /// sandboxed; a value of another type fails the attach.
+    public var callerOwnsVM: Bool { vmKind == "owner" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

@@ -25,6 +25,7 @@
 //! `withdraw.origin_refused`), and a peer's session is never forwarded one.
 
 use super::super::*;
+use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -137,35 +138,22 @@ fn unshown_mark(c: char) -> bool {
 }
 
 impl Hub {
-    /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
-    /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
-    /// this connection `shows` got from `to`, and is recorded as `app_reply_fits` signs it.
+    /// The provenance of a `session/prompt` from a connection of `origin`
+    /// (`prompt_provenance::of`): the unix socket's only. The app pane's reply in place is no
+    /// prompt (`server/app_reply.rs`).
     pub(crate) fn prompt_provenance(
-        &self,
         params: &Value,
         origin: crate::server::Origin,
-        to: &str,
-        shows: &dyn Fn(&str) -> bool,
     ) -> Result<Option<Value>, RpcError> {
         use crate::prompt_provenance::Sender;
-        let sender = match origin {
-            crate::server::Origin::Local => Sender::Local,
-            crate::server::Origin::LocalApp => Sender::App,
-            _ => Sender::Other,
-        };
-        let provenance = crate::prompt_provenance::of(params, sender)?;
-        match provenance {
-            Some(p) if sender == Sender::App => match self.app_reply_fits(&p, to, shows) {
-                Some(signed) => Ok(Some(signed)),
-                None => Err(crate::prompt_provenance::origin_refused()),
-            },
-            other => Ok(other),
-        }
+        let sender =
+            if origin == crate::server::Origin::Local { Sender::Local } else { Sender::Other };
+        crate::prompt_provenance::of(params, sender)
     }
 
-    /// The app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) as recorded, when it
-    /// answers a real message as what the pane may speak for; `None` refuses it. Default deny;
-    /// each must hold:
+    /// The app pane's reply in place (`server/app_reply.rs`, as a provenance) as acpmux signs it,
+    /// when it answers a real message as what the pane may speak for; `None` refuses it. Default
+    /// deny; each must hold:
     /// - `from` is `acp:<id>` and `to` is `acp:<to>`, the addresses `cmux agent message` uses
     ///   (`agent_message_prompt.rs` `provenance`), so the sender's chat links the reply back;
     /// - `<id>` is a chat here other than `to` that this connection `shows` (attached and not
@@ -271,7 +259,7 @@ impl Hub {
             json!({"promptId": found.prompt_id, "msgId": found.msg_id(), "turnId": found.turn_id, "via": via, "noticePromptId": notice_id}),
         );
         let mut reply = outcome(session, &found, "retracted");
-        reply["via"] = json!(via);
+        reply.set("via", json!(via));
         Ok(reply)
     }
 
@@ -283,7 +271,10 @@ impl Hub {
                 .ok_or_else(|| refusal(-32002, "withdraw.not_found", &missing))
         };
         let mut found = lookup()?;
-        if found.provenance.is_none() {
+        // A person's prompt (`author.rs`) is no agent message either.
+        if found.provenance.is_none()
+            || crate::author::of_provenance(found.provenance.as_ref()).is_some()
+        {
             let message = "the prompt is the person's own, not an agent message";
             return Err(refusal(-32602, "withdraw.not_a_message", message));
         }
@@ -304,9 +295,9 @@ impl Hub {
         if found.removed || found.retracted.is_some() {
             let was = if found.removed { "unsent" } else { "retracted" };
             let mut reply = outcome(session, &found, was);
-            reply["already"] = json!(true);
+            reply.set("already", json!(true));
             if let Some(via) = found.retracted.as_ref().and_then(|r| r.get("via")) {
-                reply["via"] = via.clone();
+                reply.set("via", via.clone());
             }
             return Ok(Decision::Reply(reply));
         }
@@ -362,8 +353,8 @@ impl Hub {
             from.unwrap_or("its sender")
         );
         let provenance = found.provenance.clone().map(|mut p| {
-            p["replyTo"] = json!(msg_id);
-            p["msgId"] = json!(format!("{msg_id}.withdrawn"));
+            p.set("replyTo", json!(msg_id));
+            p.set("msgId", json!(format!("{msg_id}.withdrawn")));
             p
         });
         let (tx, rx) = oneshot::channel::<bool>();
@@ -374,7 +365,7 @@ impl Hub {
                 && accepted.get("queued") == Some(&json!(true))
                 && let Some(id) = accepted.get("promptId").and_then(Value::as_str)
             {
-                hub.move_queued(&queued_in, id, 0);
+                let _ = hub.move_queued(&queued_in, id, 0, None);
             }
             let _ = tx.send(!duplicate);
         });

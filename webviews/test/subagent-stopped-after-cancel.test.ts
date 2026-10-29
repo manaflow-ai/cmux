@@ -24,10 +24,14 @@ const record = (steps: Step[], from = 1) =>
     kind,
     msg,
   }));
+/// A subagent Claude's Agent call spawned (the call's id rides along, as acpmux sends it).
 const spawned = (id: string, name: string): Step => [
   "in",
   "subagent_spawned",
-  update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name, state: "running" }] }),
+  update(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id, parent: null, name, state: "running", toolCallId: `toolu_${id}` }] },
+  ),
 ];
 const background = (id: string, name: string): Step => [
   "in",
@@ -165,7 +169,7 @@ test("a subagent the restarted agent no longer reports reads disconnected", asyn
   ] as Step[]) {
     const steps: Step[] = [
       ...turn("Run the audit in the background"),
-      spawned("bg", "Audit"),
+      background("bg", "Audit"),
       ["mux", "turn_result", { status: "completed" }],
       restart,
     ];
@@ -174,13 +178,51 @@ test("a subagent the restarted agent no longer reports reads disconnected", asyn
   }
 });
 
+test("a foreground subagent whose turn completed reads done, never running for good", async () => {
+  // Leo's Inspector read "5 running" with about 3 live: a foreground subagent's end the harness
+  // never sent kept it running after its turn completed. A foreground subagent cannot outlive a
+  // turn that completed (the turn waits on it); a background one runs on.
+  const rows = await connect(
+    fakeDaemon(
+      record([
+        ...turn("Review and watch"),
+        spawned("fg", "Reviewer"),
+        background("bg", "Watch"),
+        ["mux", "turn_result", { status: "completed" }],
+      ]),
+    ),
+  );
+  expect(states(rows())).toEqual([
+    ["Reviewer", "completed"],
+    ["Watch", "running"],
+  ]);
+});
+
+test("a subagent no tool call of the turn started runs on after the turn completes", async () => {
+  // Codex (codex-acp's native subagent sessions) spawns a child in its own thread: no Agent call
+  // of the turn waits on it, and it outlives the turn. Only a subagent a tool call started (Claude's
+  // Agent call, which the turn waits on) ends with a completed turn.
+  const native: Step = [
+    "in",
+    "subagent_spawned",
+    update(
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "t1", parent: null, name: "Auditor", state: "running" }] },
+    ),
+  ];
+  const rows = await connect(
+    fakeDaemon(record([...turn("Audit with Codex"), native, ["mux", "turn_result", { status: "completed" }]])),
+  );
+  expect(states(rows())).toEqual([["Auditor", "running"]]);
+});
+
 test("a background subagent that still reports reads running", async () => {
   // Its turn ended normally: it runs on in the background.
   const quiet = await connect(
     fakeDaemon(
       record([
         ...turn("Audit in the background"),
-        spawned("bg", "Audit"),
+        background("bg", "Audit"),
         ["mux", "turn_result", { status: "completed" }],
       ]),
     ),
@@ -212,7 +254,7 @@ test("a background subagent that still reports reads running", async () => {
 test("a turn the daemon lost reads its own subagents disconnected", async () => {
   const steps: Step[] = [
     ...turn("Audit in the background"),
-    spawned("bg", "Audit"),
+    background("bg", "Audit"),
     ["mux", "turn_result", { status: "completed" }],
     ...turn("Review it"),
     spawned("fg", "Reviewer"),
@@ -229,7 +271,7 @@ test("a stop ends only its own turn's subagents, and never a background one", as
   const steps: Step[] = [
     // Still running from an earlier turn: it went on in the background.
     ...turn("Audit in the background"),
-    spawned("old", "Audit"),
+    background("old", "Audit"),
     ["mux", "turn_result", { status: "completed" }],
     ...turn("Watch the build and review"),
     background("bg", "Watch"),

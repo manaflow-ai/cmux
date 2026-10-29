@@ -21,6 +21,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "dequeued",
     "queue_removed",
     "prompt_retracted",
+    // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
+    "steer_withdrawn",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",
@@ -40,6 +42,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // A policy narrower than approve-all that the chat's harness cannot keep
+    // (`policy_mode.rs`): the chat says so where it happened.
+    "policy_unenforced",
     "forked",
     "imported",
     "session_offer",
@@ -226,6 +231,8 @@ impl Hub {
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let bounded = max_bytes.is_some();
+        // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -246,6 +253,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                let mut rec = rec;
+                self.display_logged(session.as_deref(), &mut rec);
                 let (rec, rec_bytes) = fit(rec, bounded);
                 if full(rec_bytes, found) {
                     page.has_more = true;
@@ -263,6 +272,8 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
+            let mut rec = rec;
+            self.display_logged(session.as_deref(), &mut rec);
             let (rec, rec_bytes) = fit(rec, bounded);
             if full(rec_bytes, found.len()) {
                 page.has_more = true;
@@ -317,5 +328,14 @@ mod transcript_kind_tests {
         for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }
+    }
+
+    /// A chat client notes a policy its harness cannot keep where it was
+    /// logged, as it notes a failover.
+    #[test]
+    fn an_unenforced_policy_is_a_transcript_record() {
+        assert!(is_transcript(&mux("policy_unenforced")));
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
     }
 }

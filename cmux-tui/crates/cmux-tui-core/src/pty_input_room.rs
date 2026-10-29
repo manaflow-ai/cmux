@@ -117,7 +117,12 @@ pub(crate) fn is_lossy_mouse_input(payload: &[u8]) -> bool {
         if !is_lossy_button(button) {
             return false;
         }
-        rest = &rest[len..];
+        // A report is never empty; a zero or out-of-range length would
+        // loop forever or overrun, so it ends the scan.
+        match rest.get(len..) {
+            Some(next) if len > 0 => rest = next,
+            _ => return false,
+        }
     }
     !payload.is_empty()
 }
@@ -127,8 +132,8 @@ fn mouse_report(bytes: &[u8]) -> Option<(u32, usize)> {
     let body = bytes.strip_prefix(b"\x1b[")?;
     // SGR: CSI < code ; x ; y M (press) or m (release).
     if let Some(sgr) = body.strip_prefix(b"<") {
-        let (fields, end) = numeric_fields(sgr, b"Mm")?;
-        return Some((fields[0], 3 + end + 1));
+        let ([code, _, _], end) = numeric_fields(sgr, b"Mm")?;
+        return Some((code, 3 + end + 1));
     }
     // X10: CSI M and the code, x and y, each plus 32, as single bytes.
     if let Some(x10) = body.strip_prefix(b"M") {
@@ -136,19 +141,19 @@ fn mouse_report(bytes: &[u8]) -> Option<(u32, usize)> {
         return Some((u32::from(code).checked_sub(32)?, 6));
     }
     // URXVT: CSI code ; x ; y M, the code plus 32.
-    let (fields, end) = numeric_fields(body, b"M")?;
-    Some((fields[0].checked_sub(32)?, 2 + end + 1))
+    let ([code, _, _], end) = numeric_fields(body, b"M")?;
+    Some((code.checked_sub(32)?, 2 + end + 1))
 }
 
 /// Three `;`-separated decimal fields ending in one of `finals`: the fields
 /// and the final byte's index.
 fn numeric_fields(bytes: &[u8], finals: &[u8]) -> Option<([u32; 3], usize)> {
     let end = bytes.iter().position(|byte| !(byte.is_ascii_digit() || *byte == b';'))?;
-    if !finals.contains(&bytes[end]) {
+    if !finals.contains(bytes.get(end)?) {
         return None;
     }
     let mut fields = [0; 3];
-    let mut parts = bytes[..end].split(|byte| *byte == b';');
+    let mut parts = bytes.get(..end)?.split(|byte| *byte == b';');
     for field in &mut fields {
         let part = parts.next().filter(|part| (1..=5).contains(&part.len()))?;
         *field = std::str::from_utf8(part).ok()?.parse().ok()?;

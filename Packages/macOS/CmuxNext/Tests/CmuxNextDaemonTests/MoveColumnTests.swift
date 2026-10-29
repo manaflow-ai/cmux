@@ -16,8 +16,8 @@ struct MoveColumnRequestTests {
     /// A daemon without the capability never receives the command.
     @Test func theRequestNeedsTheColumnMoveCapability() {
         #expect(MoveColumnRequest.requiredCapability == "column-move-v1")
-        #expect(DaemonCapabilities.shared.columnMove == "column-move-v1")
-        #expect(DaemonCapabilities.shared.optional.contains("column-move-v1"))
+        #expect(DaemonCapability.columnMove.rawValue == "column-move-v1")
+        #expect(DaemonCapability.optional.contains("column-move-v1"))
         #expect(throws: DaemonError.self) { try MoveColumnRequest.requireServed(by: nil) }
     }
 }
@@ -28,7 +28,7 @@ struct MoveColumnRequestTests {
 struct MoveColumnLiveTests {
     @Test func aColumnOfTwoPanesMovesRightAsOneColumn() async throws {
         try await BranchDaemonHarness.with { h in
-            #expect(await h.connection.identity?.supports(DaemonCapabilities.shared.columnMove) == true)
+            #expect(await h.connection.identity?.supports(DaemonCapability.columnMove.rawValue) == true)
             let first = try await h.workspaceWithTerminal("columns")
             _ = try await h.connection.split(first.pane, direction: .down)
             let right = try await h.connection.newColumn(rightOf: first.pane)

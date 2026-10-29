@@ -182,3 +182,52 @@ async fn a_wide_bind_keeps_the_host_rule() {
         assert_eq!(status(port, upgrade(&query, &host, None)).await, 101, "{host}");
     }
 }
+
+#[tokio::test]
+async fn a_frame_past_sixteen_mib_is_read() {
+    // A prompt with a few screenshots is one frame past tungstenite's 16 MiB default. The listener
+    // reads it and answers, instead of resetting the socket mid-send (2026-10-20, "The agent
+    // connection was interrupted").
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let port = listener().await;
+    let url = format!("ws://127.0.0.1:{port}/?token={TOKEN}");
+    let (mut ws, _) =
+        tokio_tungstenite::connect_async_with_config(url, Some(acpmux::server::ws_config()), false)
+            .await
+            .expect("upgrade");
+    let init = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": 1, "clientInfo": {"name": "test"}, "pad": "x".repeat(24 << 20)}});
+    ws.send(Message::Text(init.to_string().into())).await.unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+            .await
+            .expect("an answer in time")
+            .expect("the connection stays open")
+            .expect("no reset");
+        if let Message::Text(t) = frame {
+            let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+            if v.get("id") == Some(&serde_json::json!(1)) {
+                break;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_partial_websocket_upgrade_is_closed_within_the_handshake_deadline() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let query = format!("?token={TOKEN}");
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let partial = format!(
+        "GET /{query} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+    );
+    stream.write_all(partial.as_bytes()).await.unwrap();
+    let mut buf = [0u8; 256];
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(7), stream.read(&mut buf))
+        .await
+        .expect("the stalled handshake is bounded")
+        .expect("the server closes the stalled handshake");
+    assert_eq!(closed, 0, "a partial upgrade must not receive a protocol response");
+}

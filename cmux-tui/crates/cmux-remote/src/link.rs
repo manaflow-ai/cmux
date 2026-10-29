@@ -11,6 +11,8 @@ use futures_util::future::join_all;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+use crate::per_lane::PerLane;
+
 const INGRESS_BYTES_PER_LANE: usize = 8 * 1_024 * 1_024;
 const INGRESS_ACCOUNTING_FLOOR_BYTES: usize = 1_024;
 const INGRESS_FRAMES_PER_LANE: usize = INGRESS_BYTES_PER_LANE / INGRESS_ACCOUNTING_FLOOR_BYTES;
@@ -133,9 +135,9 @@ impl LinkLifecycle {
         if let Some(existing) = &state.terminal {
             return existing.clone();
         }
-        let origin_fence = origin.map(|physical| TerminalFence {
-            physical,
-            admitted_ordinal: state.admitted_by_physical[physical],
+        let origin_fence = origin.and_then(|physical| {
+            let admitted_ordinal = *state.admitted_by_physical.get(physical)?;
+            Some(TerminalFence { physical, admitted_ordinal })
         });
         let terminal = TerminalState {
             error,
@@ -159,21 +161,34 @@ impl LinkLifecycle {
         if let Some(terminal) = &state.terminal {
             return Err(terminal.error.clone());
         }
-        let ordinal = state.admitted_by_physical[physical]
+        let unknown = || LinkError::Protocol(format!("physical link {physical} is unknown"));
+        let ordinal = state
+            .admitted_by_physical
+            .get(physical)
+            .ok_or_else(unknown)?
             .checked_add(1)
-            .expect("physical ingress ordinal overflowed");
+            .ok_or_else(|| LinkError::Protocol("physical ingress ordinal overflowed".into()))?;
         let control_ordinal = if lane == Lane::Control {
             Some(
-                state.admitted_control_by_physical[physical]
+                state
+                    .admitted_control_by_physical
+                    .get(physical)
+                    .ok_or_else(unknown)?
                     .checked_add(1)
-                    .expect("physical Control ingress ordinal overflowed"),
+                    .ok_or_else(|| {
+                        LinkError::Protocol("physical Control ingress ordinal overflowed".into())
+                    })?,
             )
         } else {
             None
         };
-        state.admitted_by_physical[physical] = ordinal;
-        if let Some(control_ordinal) = control_ordinal {
-            state.admitted_control_by_physical[physical] = control_ordinal;
+        if let Some(admitted) = state.admitted_by_physical.get_mut(physical) {
+            *admitted = ordinal;
+        }
+        if let Some(control_ordinal) = control_ordinal
+            && let Some(admitted) = state.admitted_control_by_physical.get_mut(physical)
+        {
+            *admitted = control_ordinal;
         }
         reservation.send(IngressFrame {
             encoded,
@@ -187,12 +202,15 @@ impl LinkLifecycle {
 
     fn delivered_control(&self, physical: PhysicalId, ordinal: u64) {
         let mut state = self.lock_state();
+        let Some(delivered) = state.delivered_control_by_physical.get_mut(physical) else {
+            return;
+        };
         debug_assert_eq!(
-            state.delivered_control_by_physical[physical].saturating_add(1),
+            delivered.saturating_add(1),
             ordinal,
             "Control ingress was delivered out of physical admission order",
         );
-        state.delivered_control_by_physical[physical] = ordinal;
+        *delivered = ordinal;
     }
 
     fn discard_ingress(&self) {
@@ -287,7 +305,7 @@ struct Ingress {
     frames: PriorityReceivers<IngressFrame>,
     terminal: watch::Receiver<Option<TerminalState>>,
     lifecycle: LinkLifecycle,
-    physical_by_lane: [PhysicalId; 4],
+    physical_by_lane: PerLane<PhysicalId>,
     delivered_by_physical: Vec<u64>,
     delivered_control_by_physical: Vec<u64>,
     disposition: IngressDisposition,
@@ -312,7 +330,7 @@ impl Ingress {
                     .zip(&self.delivered_control_by_physical)
                     .any(|(admitted, delivered)| delivered < admitted)
                 {
-                    let allowed = Lane::ALL.map(|lane| lane == Lane::Control);
+                    let allowed = PerLane::from_fn(|lane| lane == Lane::Control);
                     let Some(frame) = self.frames.receive_from(allowed).await else {
                         debug_assert!(
                             terminal
@@ -328,12 +346,16 @@ impl Ingress {
                 }
 
                 if let Some(fence) = terminal.origin_fence
-                    && self.delivered_by_physical[fence.physical] < fence.admitted_ordinal
+                    && self
+                        .delivered_by_physical
+                        .get(fence.physical)
+                        .is_some_and(|delivered| *delivered < fence.admitted_ordinal)
                 {
                     let allowed = self.physical_by_lane.map(|physical| physical == fence.physical);
                     let Some(frame) = self.frames.receive_from(allowed).await else {
                         debug_assert_eq!(
-                            self.delivered_by_physical[fence.physical], fence.admitted_ordinal,
+                            self.delivered_by_physical.get(fence.physical).copied(),
+                            Some(fence.admitted_ordinal),
                             "fenced physical ingress closed before all admitted frames were delivered",
                         );
                         return Err(terminal.error);
@@ -356,14 +378,18 @@ impl Ingress {
 
     fn deliver(&mut self, frame: IngressFrame) -> Bytes {
         debug_assert!(frame.ordinal > 0);
-        self.delivered_by_physical[frame.physical] += 1;
+        if let Some(delivered) = self.delivered_by_physical.get_mut(frame.physical) {
+            *delivered += 1;
+        }
         if let Some(control_ordinal) = frame.control_ordinal {
-            debug_assert_eq!(
-                self.delivered_control_by_physical[frame.physical].saturating_add(1),
-                control_ordinal,
-                "Control ingress was delivered out of queue order",
-            );
-            self.delivered_control_by_physical[frame.physical] = control_ordinal;
+            if let Some(delivered) = self.delivered_control_by_physical.get_mut(frame.physical) {
+                debug_assert_eq!(
+                    delivered.saturating_add(1),
+                    control_ordinal,
+                    "Control ingress was delivered out of queue order",
+                );
+                *delivered = control_ordinal;
+            }
             self.lifecycle.delivered_control(frame.physical, control_ordinal);
         }
         frame.encoded
@@ -406,24 +432,24 @@ struct PhysicalRoute {
 }
 
 struct PriorityReceivers<T> {
-    receivers: [Option<mpsc::Receiver<T>>; 4],
+    receivers: PerLane<Option<mpsc::Receiver<T>>>,
     priority_deliveries: usize,
     fair_cursor: usize,
 }
 
 impl<T> PriorityReceivers<T> {
-    fn new(receivers: [mpsc::Receiver<T>; 4]) -> Self {
+    fn new(receivers: PerLane<mpsc::Receiver<T>>) -> Self {
         Self { receivers: receivers.map(Some), priority_deliveries: 0, fair_cursor: 0 }
     }
 
     fn discard(&mut self) {
-        self.receivers = [None, None, None, None];
+        self.receivers = PerLane::from_fn(|_| None);
     }
 
-    fn try_receive_from(&mut self, allowed: [bool; 4]) -> Option<T> {
+    fn try_receive_from(&mut self, allowed: PerLane<bool>) -> Option<T> {
         if self.priority_deliveries < PRIORITY_BURST_FRAMES {
             for lane in PRIORITY_LANES {
-                if allowed[lane_index(lane)]
+                if *allowed.get(lane)
                     && let Some(item) = self.try_receive_lane(lane)
                 {
                     self.priority_deliveries += 1;
@@ -435,8 +461,8 @@ impl<T> PriorityReceivers<T> {
 
         for offset in 0..PRIORITY_LANES.len() {
             let index = (self.fair_cursor + offset) % PRIORITY_LANES.len();
-            let lane = PRIORITY_LANES[index];
-            if allowed[lane_index(lane)]
+            let Some(&lane) = PRIORITY_LANES.get(index) else { continue };
+            if *allowed.get(lane)
                 && let Some(item) = self.try_receive_lane(lane)
             {
                 self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
@@ -448,53 +474,53 @@ impl<T> PriorityReceivers<T> {
     }
 
     fn try_receive_lane(&mut self, lane: Lane) -> Option<T> {
-        let index = lane_index(lane);
-        match self.receivers[index].as_mut()?.try_recv() {
+        match self.receivers.get_mut(lane).as_mut()?.try_recv() {
             Ok(item) => Some(item),
             Err(mpsc::error::TryRecvError::Empty) => None,
             Err(mpsc::error::TryRecvError::Disconnected) => {
-                self.receivers[index] = None;
+                *self.receivers.get_mut(lane) = None;
                 None
             }
         }
     }
 
     async fn receive(&mut self) -> Option<T> {
-        self.receive_from([true; 4]).await
+        self.receive_from(PerLane::from_fn(|_| true)).await
     }
 
-    async fn receive_from(&mut self, allowed: [bool; 4]) -> Option<T> {
+    async fn receive_from(&mut self, allowed: PerLane<bool>) -> Option<T> {
         loop {
             if let Some(item) = self.try_receive_from(allowed) {
                 return Some(item);
             }
-            if self
-                .receivers
-                .iter()
-                .enumerate()
-                .all(|(index, receiver)| !allowed[index] || receiver.is_none())
+            if Lane::ALL
+                .into_iter()
+                .all(|lane| !*allowed.get(lane) || self.receivers.get(lane).is_none())
             {
                 return None;
             }
 
             let fair_selection = self.priority_deliveries >= PRIORITY_BURST_FRAMES;
             let (lane, item) = {
-                let [interactive, control, bulk, tunnel] = &mut self.receivers;
+                let PerLane { interactive, control, bulk, tunnel } = &mut self.receivers;
                 tokio::select! {
                     biased;
-                    item = receive_or_pending(interactive, allowed[0]) => (Lane::Interactive, item),
-                    item = receive_or_pending(control, allowed[1]) => (Lane::Control, item),
-                    item = receive_or_pending(tunnel, allowed[3]) => (Lane::Tunnel, item),
-                    item = receive_or_pending(bulk, allowed[2]) => (Lane::Bulk, item),
+                    item = receive_or_pending(interactive, allowed.interactive) => (Lane::Interactive, item),
+                    item = receive_or_pending(control, allowed.control) => (Lane::Control, item),
+                    item = receive_or_pending(tunnel, allowed.tunnel) => (Lane::Tunnel, item),
+                    item = receive_or_pending(bulk, allowed.bulk) => (Lane::Bulk, item),
                 }
             };
             let Some(item) = item else {
-                self.receivers[lane_index(lane)] = None;
+                *self.receivers.get_mut(lane) = None;
                 continue;
             };
             if fair_selection {
-                let index = PRIORITY_LANES.iter().position(|candidate| *candidate == lane).unwrap();
-                self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
+                // Every lane is in PRIORITY_LANES.
+                if let Some(index) = PRIORITY_LANES.iter().position(|candidate| *candidate == lane)
+                {
+                    self.fair_cursor = (index + 1) % PRIORITY_LANES.len();
+                }
                 self.priority_deliveries = 0;
             } else {
                 self.priority_deliveries += 1;
@@ -515,15 +541,6 @@ async fn receive_or_pending<T>(
     }
 }
 
-const fn lane_index(lane: Lane) -> usize {
-    match lane {
-        Lane::Interactive => 0,
-        Lane::Control => 1,
-        Lane::Bulk => 2,
-        Lane::Tunnel => 3,
-    }
-}
-
 fn spawn_outbound_dispatcher(
     link: Arc<dyn FrameLink>,
     lanes: &BTreeSet<Lane>,
@@ -533,14 +550,24 @@ fn spawn_outbound_dispatcher(
     let (control_tx, control_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
     let (bulk_tx, bulk_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
     let (tunnel_tx, tunnel_rx) = mpsc::channel(OUTBOUND_FRAMES_PER_LANE);
-    let senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
+    let senders = PerLane {
+        interactive: interactive_tx,
+        control: control_tx,
+        bulk: bulk_tx,
+        tunnel: tunnel_tx,
+    };
     let routes = lanes
         .iter()
-        .map(|lane| (*lane, OutboundSender { frames: senders[lane_index(*lane)].clone() }))
+        .map(|lane| (*lane, OutboundSender { frames: senders.get(*lane).clone() }))
         .collect();
     drop(senders);
     let task = tokio::spawn(async move {
-        let mut frames = PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]);
+        let mut frames = PriorityReceivers::new(PerLane {
+            interactive: interactive_rx,
+            control: control_rx,
+            bulk: bulk_rx,
+            tunnel: tunnel_rx,
+        });
         let mut terminal = lifecycle.subscribe();
         loop {
             let frame = tokio::select! {
@@ -681,8 +708,12 @@ impl LaneMuxLink {
             }
         }
 
-        let maximum =
-            physical_routes.iter().map(|route| route.link.maximum_frame_bytes()).min().unwrap();
+        // Every lane has a physical link (checked above), so there is at least one.
+        let Some(maximum) =
+            physical_routes.iter().map(|route| route.link.maximum_frame_bytes()).min()
+        else {
+            return Err(LinkError::Protocol("lane mux has no physical link".into()));
+        };
         let links = physical_routes.iter().map(|route| route.link.clone()).collect::<Vec<_>>();
         let physical_count = links.len();
         let mut routes = BTreeMap::new();
@@ -690,15 +721,20 @@ impl LaneMuxLink {
         let (control_tx, control_rx) = IngressSender::channel();
         let (bulk_tx, bulk_rx) = IngressSender::channel();
         let (tunnel_tx, tunnel_rx) = IngressSender::channel();
-        let ingress_senders = [interactive_tx, control_tx, bulk_tx, tunnel_tx];
+        let ingress_senders = PerLane {
+            interactive: interactive_tx,
+            control: control_tx,
+            bulk: bulk_tx,
+            tunnel: tunnel_tx,
+        };
         let lifecycle = LinkLifecycle::new(physical_count);
         let mut tasks = Vec::with_capacity(physical_routes.len() * 2);
-        let mut physical_by_lane = [usize::MAX; 4];
+        let mut physical_by_lane = PerLane::from_fn(|_| usize::MAX);
         for (physical, route) in physical_routes.into_iter().enumerate() {
             let allowed = route.lanes;
             let link = route.link;
             for lane in &allowed {
-                physical_by_lane[lane_index(*lane)] = physical;
+                *physical_by_lane.get_mut(*lane) = physical;
             }
             let (outbound, dispatcher) =
                 spawn_outbound_dispatcher(link.clone(), &allowed, lifecycle.clone());
@@ -706,7 +742,7 @@ impl LaneMuxLink {
             tasks.push(dispatcher);
             let lane_senders = allowed
                 .iter()
-                .map(|lane| (*lane, ingress_senders[lane_index(*lane)].clone()))
+                .map(|lane| (*lane, ingress_senders.get(*lane).clone()))
                 .collect::<BTreeMap<_, _>>();
             let reader_lifecycle = lifecycle.clone();
             let reader = tokio::spawn(async move {
@@ -733,10 +769,22 @@ impl LaneMuxLink {
                                 });
                             match validity {
                                 Ok(lane) => {
-                                    let admission = lane_senders
-                                        .get(&lane)
-                                        .expect("allowed lanes have ingress queues")
-                                        .send_admitted(encoded, physical, lane, &reader_lifecycle);
+                                    // Every allowed lane has an ingress queue.
+                                    let Some(sender) = lane_senders.get(&lane) else {
+                                        reader_lifecycle.terminate_after_ingress(
+                                            LinkError::Protocol(format!(
+                                                "lane {lane} has no ingress queue"
+                                            )),
+                                            physical,
+                                        );
+                                        return;
+                                    };
+                                    let admission = sender.send_admitted(
+                                        encoded,
+                                        physical,
+                                        lane,
+                                        &reader_lifecycle,
+                                    );
                                     let result = tokio::select! {
                                         biased;
                                         _ = wait_for_terminal(&mut terminal) => return,
@@ -778,7 +826,12 @@ impl LaneMuxLink {
             routes,
             links,
             incoming: Arc::new(Mutex::new(Ingress {
-                frames: PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]),
+                frames: PriorityReceivers::new(PerLane {
+                    interactive: interactive_rx,
+                    control: control_rx,
+                    bulk: bulk_rx,
+                    tunnel: tunnel_rx,
+                }),
                 terminal: lifecycle.subscribe(),
                 lifecycle: lifecycle.clone(),
                 physical_by_lane,
@@ -825,7 +878,10 @@ impl FrameLink for LaneMuxLink {
         }
         let decoded =
             WireFrame::decode(&frame).map_err(|error| LinkError::Protocol(error.to_string()))?;
-        let route = self.routes.get(&decoded.lane).expect("all lanes checked at construction");
+        // Construction checks that every lane has a route.
+        let route = self.routes.get(&decoded.lane).ok_or_else(|| {
+            LinkError::Protocol(format!("lane {} has no physical route", decoded.lane))
+        })?;
         let mut terminal = self.lifecycle.subscribe();
         let completion = tokio::select! {
             biased;

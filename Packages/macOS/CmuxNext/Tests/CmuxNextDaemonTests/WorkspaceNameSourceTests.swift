@@ -3,6 +3,26 @@ import Testing
 @testable import CmuxNextDaemon
 
 struct WorkspaceNameSourceTests {
+    @Test(arguments: ["", "  ", "~", "workspace-7"])
+    func legacyAndDaemonDefaultsAreAvailableToTheAutomaticNamer(_ name: String) {
+        #expect(WorkspaceModel.isDefaultName(name))
+    }
+
+    @Test(arguments: ["Release notes", "workspace-api", "~ notes"])
+    func meaningfulNamesRemainUserNames(_ name: String) {
+        #expect(!WorkspaceModel.isDefaultName(name))
+    }
+
+    @Test @MainActor func aUserRenamedHomeMarkerIsNotUnnamed() throws {
+        let snapshot = WorkspaceSnapshot(id: 1, key: "manual", name: "~", nameSource: .user, nameRevision: 1)
+        #expect(!WorkspaceModel(snapshot).isUnnamed)
+    }
+
+    @Test @MainActor func aRequestedHomeMarkerIsNotUnnamed() {
+        let snapshot = WorkspaceSnapshot(id: 1, key: "requested", name: "~", nameSource: .user)
+        #expect(!WorkspaceModel(snapshot).isUnnamed)
+    }
+
     @Test func legacySnapshotDefaultsToManualOwnership() throws {
         let snapshot = try Self.decodeSnapshot("""
         {"id":1,"key":"legacy","name":"Claude Code","screens":[]}

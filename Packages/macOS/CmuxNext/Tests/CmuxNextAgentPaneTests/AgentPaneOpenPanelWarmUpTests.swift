@@ -18,18 +18,15 @@ import Testing
     @Test func aChatInAWindowWarmsThePickerAndMakesNoPanelInATestHost() async throws {
         _ = NSApplication.shared
         #expect(!NSApp.isRunning, "the test host runs no app event loop")
-        let shared = MadeAheadOpenPanel.shared
-        // Another suite's warm-up in this process runs out first (its first check at 2 s, ten at most).
-        let settle = ContinuousClock.now + .seconds(20)
-        while shared.isWarming, ContinuousClock.now < settle { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(!shared.isWarming, "an earlier warm-up never finished")
+        // The pane's own panel, as the app passes its one (AppServices.openPanel): no other suite's warm-up shares it.
+        let shared = MadeAheadOpenPanel()
 
         let directory = FileManager.default.temporaryDirectory.appending(path: "panel-warm-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), openPanel: shared))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -747,6 +747,14 @@ final class Counter: @unchecked Sendable {
         #expect(records.map(decision) == [.permissionDecision(permissionId: "perm", optionId: nil)])
     }
 
+    /// A question's decision record carries the answers acpmux put into the tool's input
+    /// (live rig, `question: Which environment?`); the phone used to drop them.
+    @Test func decisionCarriesTheRecordedAnswers() {
+        let decision = json(#"{"seq":3,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"q","outcome":{"outcome":"selected","optionId":"allow_once","_meta":{"updatedInput":{"answers":{"Which environment?":"B"}}}}}}"#)
+        #expect(records.map(decision) == [.permissionDecision(permissionId: "q", optionId: "allow_once",
+                                                               answers: .object(["Which environment?": .string("B")]))])
+    }
+
     @Test func permissionRequestIsToolPermissionOrQuestion() {
         let tool = json(#"{"seq":6,"dir":"mux","kind":"permission_request","msg":{"permissionId":"p1","request":{"sessionId":"x","toolCall":{"toolCallId":"c1","title":"rm -rf build","kind":"execute","rawInput":{"command":"rm -rf build"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}}}"#)
         guard case .permissionRequest(let request)? = records.map(tool).first else { Issue.record("no permission"); return }
@@ -1193,5 +1201,54 @@ final class Seen: @unchecked Sendable {
         #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: nil, linkOffline: false))
         // Unknown Mac (no target when opened): the link's phase decides.
         #expect(!LinkMachine.terminalOffline(macID: nil, linkedMacID: "b", linkOffline: false))
+    }
+}
+
+// MARK: Team prefs
+
+@Suite struct TeamPrefsTests {
+    @Test func prefsFromAnOlderWorkerDrawTheColor() throws {
+        let prefs = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(##"{"color":"#30D158","emoji":"🚀"}"##.utf8))
+        #expect(prefs.appearance == TeamAppearance(colorHex: "#30D158", emoji: "🚀"))
+    }
+
+    @Test func transparentPrefsKeepTheColorAsFallback() throws {
+        let json = ##"{"color":"#30D158","emoji":"🚀","transparent":true}"##
+        let prefs = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(json.utf8))
+        #expect(prefs.appearance?.isTransparent == true)
+        #expect(prefs.appearance?.colorHex == "#30D158")
+        // Without an icon it is never transparent.
+        let bare = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(##"{"color":"#30D158","emoji":null,"transparent":true}"##.utf8))
+        #expect(bare.appearance?.isTransparent == false)
+    }
+
+    @Test func noStoredColorKeepsTheLocalAppearance() {
+        #expect(LiveAPI.Prefs(color: nil, emoji: "🚀", transparent: true).appearance == nil)
+    }
+
+    @Test func putBodyCarriesTransparent() {
+        let body = LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158", emoji: "🚀", transparent: true))
+        #expect(body["color"] as? String == "#30D158")
+        #expect(body["emoji"] as? String == "🚀")
+        #expect(body["transparent"] as? Bool == true)
+        #expect(LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158"))["emoji"] is NSNull)
+        #expect(LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158", emoji: nil, transparent: true))["transparent"] as? Bool == false)
+    }
+}
+
+@Suite struct SimulatorTabTreeTests {
+    /// A Mac phone tab (`page: phone`) is a simulator tab; another page tab is not shown.
+    @Test func aPhoneTabIsASimulatorTab() throws {
+        let reply = Data("""
+        {"id":"m","ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"name":"app","screens":[{"id":3,"panes":[{"id":2,"tabs":[
+          {"surface":12,"kind":"conversation","name":null,"title":"","conversation":{"page":"phone","route":"sim:ABC"}},
+          {"surface":13,"kind":"conversation","title":"Settings","conversation":{"page":"settings"}}
+        ]}]}]}]}}
+        """.utf8)
+        let tree = try DaemonTree(reply: reply, macID: "mac-1", agents: AgentStates())
+        let tabs = try #require(tree.workspaces.first).tabs
+        #expect(tabs.map(\.id) == ["s12"])
+        #expect(tabs.first?.kind == .simulator && tabs.first?.title == "Simulator")
+        #expect(tabs.first?.systemImage == "iphone")
     }
 }

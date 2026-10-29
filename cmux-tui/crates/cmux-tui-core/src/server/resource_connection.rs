@@ -30,6 +30,7 @@ use super::start_session_event_stream;
 use super::start_session_journal_stream;
 use super::start_sidebar_resource_attach;
 use super::start_terminal_resource_attach;
+use crate::panic_free::JsonFields;
 
 use super::MessageWriter;
 use super::OutboundStream;
@@ -63,9 +64,13 @@ fn handle_resource_session_shutdown(
     writer: &MessageWriter,
 ) -> bool {
     let operation = ResourceOperation::SessionShutdown;
-    let force =
-        request.fields["force"].as_bool().expect("catalog validates the shutdown force flag");
-    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+    let force = || {
+        request.fields.get("force").and_then(Value::as_bool).ok_or_else(|| {
+            ResourceError::validation_invalid(Some("force"), "force must be a boolean")
+        })
+    };
+    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| force());
+    let result = result.and_then(|force| {
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::unfenced(force)).map_err(|error| {
             ResourceError::operation_failed(
                 "session.shutdown",
@@ -113,7 +118,7 @@ pub(super) fn handle_resource_connection_message(
         let operation_name = match operation {
             ResourceOperation::SessionShutdown => "session.shutdown",
             ResourceOperation::SessionReloadConfig => "session.reload_config",
-            _ => unreachable!("lifecycle readiness applies only to lifecycle operations"),
+            other => other.wire_name(),
         };
         return send_resource_response(
             writer,
@@ -344,7 +349,7 @@ fn handle_resource_connection_control(
         ResourceOperation::TerminalRendererGrantCreate => {
             renderer_grant::create(mux, client, request)
         }
-        operation => unreachable!("connection handler received {operation:?}"),
+        operation => Err(super::wire_values::unrouted_operation("connection", operation)),
     }
 }
 
@@ -405,9 +410,10 @@ fn cancel_resource_request(
     writer: &MessageWriter,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let request_id = ResourceRequestId::parse(
-        request.fields["request_id"].as_str().expect("catalog validates request cancellation ids"),
-    )?;
+    let request_id = ResourceRequestId::parse(crate::resource_router::required_string(
+        &request.fields,
+        "request_id",
+    )?)?;
     let canceled = match mux.control_clients.cancel_resource_wait(client, &request_id) {
         ResourceWaitCancel::Missing => false,
         ResourceWaitCancel::Canceled(lifecycle) => {
@@ -441,14 +447,14 @@ pub(super) fn resource_stream_end(
         "reason":reason,
     });
     if let Some(cursor) = cursor {
-        end["cursor"] = cursor;
+        end.insert("cursor", cursor);
     }
     if let Some(recovery) = recovery {
-        end["recovery"] = json!(recovery);
+        end.insert("recovery", json!(recovery));
     }
     if let Some((operation, error)) = error {
         let error = crate::resource_router::validate_operation_error(operation, error);
-        end["error"] = json!(error);
+        end.insert("error", json!(error));
     }
     end
 }

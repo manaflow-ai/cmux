@@ -5,6 +5,7 @@
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
 
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -155,7 +156,7 @@ pub(super) fn try_handle(
         .spawn(move || {
             let result = read(&socket, mode).map(|mut value| {
                 if let Some(machine) = owner_echo {
-                    value["machine"] = json!(machine);
+                    value.insert("machine", json!(machine));
                 }
                 value
             });
@@ -300,6 +301,7 @@ impl Inventory {
 }
 
 fn safe_version(version: &str) -> bool {
+    #[allow(clippy::expect_used, reason = "a constant regular expression that compiles")]
     static VERSION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
             .expect("inventory version pattern") // crash-allow: constant pattern

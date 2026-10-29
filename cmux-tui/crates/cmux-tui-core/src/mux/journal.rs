@@ -242,8 +242,18 @@ impl Mux {
         self.resource_projection_stats.snapshot()
     }
 
+    /// Flush the registry commits made so far to disk, soon, off the
+    /// caller's thread: after a reply went out, or after a background batch
+    /// (`workspace_registry::wal_durability`).
+    pub(crate) fn request_registry_flush(&self) {
+        self.registry_connection.request_flush();
+    }
+
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
-        self.registry_connection.write_path_stats().snapshot()
+        let mut snapshot = self.registry_connection.write_path_stats().snapshot();
+        (snapshot.wal_commits, snapshot.wal_synced_commits) =
+            self.registry_connection.durability_counts();
+        snapshot
     }
 
     pub(crate) fn connection_stats(&self) -> &Arc<crate::diagnostics::ConnectionStats> {
@@ -276,6 +286,29 @@ impl Mux {
         let _connection = self.registry_connection.get();
         entered.send(()).unwrap();
         release.recv().unwrap();
+    }
+
+    /// Caps the registry database at `pages` (its current size for None),
+    /// so a commit that needs a page fails with SQLITE_FULL as on a full disk.
+    #[cfg(test)]
+    pub(crate) fn set_registry_max_page_count_for_test(
+        &self,
+        pages: Option<i64>,
+    ) -> rusqlite::Result<()> {
+        let connection = self.registry_connection.get();
+        let pages = match pages {
+            Some(pages) => pages,
+            None => connection.query_row("PRAGMA page_count", [], |row| row.get(0))?,
+        };
+        let _: i64 =
+            connection
+                .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| row.get(0))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn journal_disk_full_for_test(&self) -> bool {
+        self.journal_ingress.disk_full_for_test()
     }
 
     #[cfg(test)]

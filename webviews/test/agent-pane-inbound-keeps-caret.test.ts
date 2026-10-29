@@ -226,7 +226,117 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
       if (element) editor.dispatchEvent(new window.FocusEvent("focus"));
     }, element);
 
+  // The same hand-back, but WebKit's caret at the start comes after the focus, and late: the page is
+  // busy drawing what just came in (Leo's Mac ran at load 260), so the selectionchange lands well past
+  // ProseMirror's 200 ms guard and the field's own window. No key or click comes between.
+  const lateStart = (page: Page, element: boolean) =>
+    page.evaluate(async (element) => {
+      const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
+      const selection = document.getSelection();
+      if (!editor || !selection) return;
+      // fixed-wait: the late placement has to come later in wall time than the 200 ms and 100 ms guards look; faking the clock would stop the page's frames.
+      const late = () => new Promise((resolve) => setTimeout(resolve, 350));
+      window.dispatchEvent(new window.Event("blur"));
+      if (element) editor.dispatchEvent(new window.FocusEvent("blur"));
+      selection.removeAllRanges();
+      window.dispatchEvent(new window.Event("focus"));
+      if (element) editor.dispatchEvent(new window.FocusEvent("focus"));
+      await late();
+      selection.collapse(editor.querySelector("p")?.firstChild ?? editor, 0);
+    }, element);
+
   describe("inbound messages leave the prompt as the person left it", () => {
+    // Leo 2026-10-21: "the caret jumps to the beginning on focus... while im typing... After a steer...
+    // Or I guess maybe a queued message, sends." Each inbound step is followed by the keyboard coming
+    // back with a late caret at the start; the caret and the text stay as the person left them.
+    test.each(["chromium", "webkit"])(
+      "%s: a caret the browser puts at the start long after the keyboard comes back is put back, after each inbound step",
+      async (engine) => {
+        running = true;
+        steering = true;
+        queue = [];
+        model = "sonnet";
+        const page = await browsers[engine]!.newPage({ viewport: { width: 900, height: 760 } });
+        await installPaintedFrames(page);
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+        );
+        const prompt = page.locator(".acpmux-composer-prompt .acpmux-md");
+        await prompt.waitFor();
+        await prompt.click();
+        await page.keyboard.type("fix the flaky retry test");
+        await page.keyboard.press("Home");
+        for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+        for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowRight");
+        await page.evaluate(() => {
+          const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
+          if (editor) editor.dataset.testMark = "kept";
+        });
+        const before = await where(page);
+        expect(before).toEqual({ text: "fix the flaky retry test", start: 8, end: 13, focused: true, same: true });
+
+        const from = { kind: "agent_message", from: "acp:b7", fromName: "b7", msgId: "m-late" };
+        const steps: [string, () => void, boolean][] = [
+          [
+            "another agent's message queued",
+            () => {
+              queue = [{ promptId: "agent-late", prompt: "tests pass" }];
+              event("queued", { promptId: "agent-late", text: "tests pass", position: 1, _meta: { provenance: from } });
+              changed("queued");
+            },
+            false,
+          ],
+          [
+            "the queued message sent as a steer",
+            () => {
+              queue = [];
+              event("dequeued", { promptId: "agent-late" });
+              event("user_message", {
+                text: "tests pass",
+                promptId: "agent-late",
+                turnId: "turn-1",
+                steer: true,
+                _meta: { provenance: from },
+              });
+              changed("dequeued");
+            },
+            true,
+          ],
+          [
+            "the turn ended",
+            () => {
+              running = false;
+              event("turn_result", { status: "completed" });
+              changed("turn_result");
+            },
+            false,
+          ],
+          [
+            "a snapshot update (model changed)",
+            () => {
+              model = "opus";
+              changed("config_option_update");
+            },
+            true,
+          ],
+        ];
+        for (const [name, step, element] of steps) {
+          step();
+          await caughtUp(page);
+          await lateStart(page, element);
+          await caughtUp(page);
+          expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
+        }
+        // The person's own move to the start still goes there.
+        await page.keyboard.press("Home");
+        await caughtUp(page);
+        expect(await where(page)).toMatchObject({ text: "fix the flaky retry test", start: 0, end: 0, focused: true });
+        await page.close();
+      },
+    );
+
     test.each(["chromium", "webkit"])(
       "%s: another agent's queued message, its steer, the turn's end, a re-adopt and a reconnect keep the caret mid-text",
       async (engine) => {

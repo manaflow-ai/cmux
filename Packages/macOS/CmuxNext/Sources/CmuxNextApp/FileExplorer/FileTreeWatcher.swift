@@ -1,5 +1,6 @@
 import CoreServices
 import Foundation
+import CmuxNextFilesUI
 
 /// FSEvents under a few folders, delivered as an `AsyncStream` (no polling):
 /// the Files tree's folder and its repository's `.git` folder. FSEvents

@@ -10,8 +10,8 @@
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
-//     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
-//     disc read as a disabled Send);
+//     to 12 px, centred in it: a plain glyph in the secondary text color (--agent-muted), with no
+//     disc (Leo 2026-10-21);
 //   - no label is ever cut: a short row swaps whole units instead (a short label, a glyph alone),
 //     in composerRowFit.ts's order, which composer-row-steps.test.ts plays;
 //   - these chats have started, so no location strip heads the card (a new chat's strip is
@@ -55,6 +55,8 @@ type Row = {
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
   text: string;
   base: string;
+  /** The pane's secondary text color (--agent-muted), resolved in the bar: the ink of the mic, Send and Stop. */
+  muted: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -173,8 +175,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         probe.style.backgroundColor = "var(--acpmux-base)";
         bar.appendChild(probe);
         const { color, backgroundColor } = getComputedStyle(probe);
+        // The pane's secondary text color, the ink of the mic, Send and Stop.
+        probe.style.color = "var(--agent-muted)";
+        const muted = getComputedStyle(probe).color;
         probe.remove();
-        return { text: color, base: backgroundColor };
+        return { text: color, base: backgroundColor, muted };
       })(),
     };
   }
@@ -325,8 +330,44 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
     });
 
+  // Leo 2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE".
+  // Claude Code leaves about 8 px under its quiet row; the row's own 10 px margin is the room under
+  // it (Leo 2026-10-20: never on the window's edge), with no composer padding added below that.
+  for (const variant of ["claude-auto", "queued"])
+    test(`${variant}: the quiet row sits about 10 px over the pane's bottom edge`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+      await page.goto(stageURL(variant));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+      const under = await page.evaluate(() => {
+        const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+        const foot = document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+        return Math.round(main.bottom - foot.bottom);
+      });
+      await page.close();
+      expect(under).toBeGreaterThanOrEqual(6);
+      expect(under).toBeLessThanOrEqual(12);
+    });
+
+  // Only the floating chat dock drops it: a fresh chat's hero layout (no data-dock) keeps the
+  // composer's own 16 px bottom padding.
+  test("a dock that does not float keeps the composer's bottom padding", async () => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+    await page.goto(stageURL("claude-auto"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+    const padding = await page.evaluate(() => {
+      const composer = () => getComputedStyle(document.querySelector(".acpmux-dock > .acpmux-composer")!);
+      const floating = composer().paddingBottom;
+      document.querySelector(".acpmux-main")!.removeAttribute("data-dock");
+      return { floating, fresh: composer().paddingBottom };
+    });
+    await page.close();
+    expect(padding).toEqual({ floating: "0px", fresh: "16px" });
+  });
+
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
+    test(`at ${width} px Stop has Send's footprint as a plain glyph in the secondary text color`, async () => {
       // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
       // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
       // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
@@ -340,12 +381,13 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
       expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
       expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
-      // A solid disc in the text color with a base-colored square, never the faint off circle
-      // (design panel Q4-B: that read as a disabled Send). An empty draft draws no Send at all now,
-      // so the solid text fill is the check, not a difference from the idle row's ready Send.
-      expect(running.fill).toBe(running.text);
-      expect(running.ink).toBe(running.base);
-      // The square sits in the disc's centre.
+      // A plain glyph, as the mic is (Leo 2026-10-21: "no solid discs"; then the secondary text
+      // color, only a hover background): no fill, the square in the secondary text color, a step
+      // above an empty draft's 45% Send.
+      expect(running.fill).toBe("rgba(0, 0, 0, 0)");
+      expect(running.muted).not.toBe(running.text);
+      expect(running.ink).toBe(running.muted);
+      // The square sits in Stop's centre.
       const glyph = running.stopGlyph!;
       const centre = (low: number, high: number) => (low + high) / 2;
       expect(Math.abs(centre(glyph.left, glyph.right) - centre(stop.left, stop.right))).toBeLessThanOrEqual(0.5);

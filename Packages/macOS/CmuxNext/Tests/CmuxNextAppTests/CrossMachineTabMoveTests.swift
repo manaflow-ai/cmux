@@ -126,8 +126,8 @@ struct CrossMachineTabMoveTests {
     }
 
     /// Runs `body` with this Mac's daemon (a workspace with a pane) and another machine's daemon
-    /// with a workspace of its own, both connected to one app.
-    private static func withMachines(_ body: (World) async throws -> Void) async throws {
+    /// with a workspace of its own, both connected to one app (StashTests reuses it).
+    static func withMachines(_ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-xmove-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

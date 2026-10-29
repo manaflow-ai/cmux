@@ -1,4 +1,4 @@
 /* iMessage's send colors, fixed on every theme as the Home sent bubble is: Messages' measured blue
    (HomeThemePalette.messagesBlue, MessagesLab's sent bubble) and the white arrow on it. The
-   composer's Send (agent-session/acpmux/styles.css --acpmux-send-fill / -ink) reads them. */
+   started-sessions marks (agent-session/acpmux/started/startedSessions.css) read the blue. */
 .acpmux-shell,.ui-positioner{--cmux-messages-blue:rgb(2 132 254);--cmux-on-messages-blue:#fff} /* theme-fixed: iMessage blue and its white ink on every theme (HomeThemePalette.messagesBlue) */

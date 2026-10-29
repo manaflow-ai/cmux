@@ -11,8 +11,10 @@ extension ScreenContentView {
     /// frame or inset depends on any of it. `flashAnimated`: motion is allowed for the focus flash
     /// even when the rest of the chrome snaps (a close or a new pane changes the layout's shape in
     /// the same pass that moves focus); nil follows `animated`.
+    /// `only`: the panes whose chrome can have changed (a focus move: the pane left and the pane
+    /// focused); nil updates every pane of the screen.
     func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool,
-                      flashAnimated: Bool? = nil) {
+                      flashAnimated: Bool? = nil, only: Set<PaneID>? = nil) {
         let multiple = paneFrames.count > 1
         let style = context.style
         let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
@@ -23,8 +25,9 @@ extension ScreenContentView {
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
         let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value, multiple: multiple,
                                               source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
-        for pane in paneFrames.keys {
+        for pane in only.map({ $0.filter { paneFrames[$0] != nil } }) ?? Array(paneFrames.keys) {
             guard let host = context.hosts[pane] else { continue }
+            LayoutRootView.paneChromeUpdates &+= 1
             let isFocused = pane == focused
             host.setChrome(
                 showsRing: ringAllowed && isFocused,

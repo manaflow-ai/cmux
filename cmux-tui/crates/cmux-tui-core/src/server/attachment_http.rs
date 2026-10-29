@@ -200,7 +200,7 @@ fn respond_cloud(
             return Ok(());
         }
         let take = slice.body.len().min(usize::try_from(want).unwrap_or(usize::MAX));
-        stream.write_all(&slice.body[..take])?;
+        stream.write_all(slice.body.get(..take).unwrap_or_default())?;
         offset += take as u64;
     }
     Ok(())

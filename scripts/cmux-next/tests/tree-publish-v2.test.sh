@@ -37,15 +37,25 @@ echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 cdn="$TMP/cdn"
-# The trusted uploader, write-once into the CDN directory.
+# The trusted uploader, write-once into the CDN directory. It also reads
+# (--download-to), as the publish step's fetch does: exit 22 on a missing object.
 cat > "$src/scripts/ci/upload-r2-object.py" <<PY
 import argparse, pathlib, shutil, sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--write-once", action="store_true")
 parser.add_argument("--conflict-exit-code", type=int)
-for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control"):
+for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control", "--download-to"):
     parser.add_argument(name)
 args = parser.parse_args()
+if args.download_to:
+    if args.key.startswith("cmux-tui-windows/"):
+        source = pathlib.Path("$cdn") / "windows" / args.key.removeprefix("cmux-tui-windows/")
+    else:
+        source = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
+    if not args.key.startswith("cmux-tui") or not source.is_file():
+        sys.exit(22)
+    shutil.copy(source, args.download_to)
+    sys.exit(0)
 target = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
 if target.exists():
     if target.read_bytes() == pathlib.Path(args.file).read_bytes():
@@ -152,5 +162,40 @@ for key in "$v2" "$v1"; do
   for n in "${windows_names[@]}"; do [[ ! -e "$cdn/tree/$key/$n" ]] || fail "$key: $n without a Windows build"; done
 done
 grep -q "published without the Windows daemon" <<<"$out" || fail "no warning for a tree without Windows:" "$out"
+
+# Two passes (cmux-tui-artifacts.yml builds Windows in its own call): the
+# first (publish-tree) runs before cmux-tui-windows/<sha>/ exists and
+# publishes the macOS and Linux tree with a notice, not a warning; the Windows
+# pass (publish-tree-windows, the same step) adds the Windows daemon and
+# completion-windows.json, rewriting every first-pass object byte for byte.
+# (The case above left no cmux-tui-windows/<sha>/ and no Windows build.)
+rm -rf "$cdn/tree" "$cdn/windows"
+publish_pass() { # <pass> <run id>
+  (cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID="$2" \
+    GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
+    CMUX_TUI_PUBLISH_PASS="$1" KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1)
+}
+out=$(publish_pass unix 4) || fail "the first pass failed:" "$out"
+for key in "$v2" "$v1"; do
+  [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: the first pass published no completion.json"
+  [[ ! -e "$cdn/tree/$key/completion-windows.json" ]] || fail "$key: completion-windows.json before the Windows pass"
+  cp "$cdn/tree/$key/completion.json" "$TMP/completion-$key.json"
+done
+grep -q "::notice title=Windows publishes later::" <<<"$out" || fail "the first pass did not say Windows publishes later:" "$out"
+! grep -q "::warning title=tree without Windows::" <<<"$out" || fail "the first pass warned about a Windows build still running:" "$out"
+# publish-windows has written this commit's Windows prefix by now.
+for n in "${windows_names[@]}"; do echo "run build $n" > "$src/assets/run/$n"; done
+mkdir -p "$cdn/windows/$run_sha"
+for n in "${windows_names[@]}"; do cp "$src/assets/run/$n" "$cdn/windows/$run_sha/$n"; done
+manifest "$run_sha" "$src/assets/run" "${windows_names[@]}" > "$cdn/windows/$run_sha/manifest.json"
+out=$(publish_pass windows 5) || fail "the Windows pass failed:" "$out"
+for key in "$v2" "$v1"; do
+  cmp -s "$TMP/completion-$key.json" "$cdn/tree/$key/completion.json" || fail "$key: the Windows pass changed completion.json"
+  for n in "${windows_names[@]}"; do
+    [[ "$(cat "$cdn/tree/$key/$n")" == "run build $n" ]] || fail "$key $n: the Windows pass did not add this run's Windows build"
+  done
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sourceCommit"] == sys.argv[2], d' \
+    "$cdn/tree/$key/completion-windows.json" "$run_sha" || fail "$key completion-windows.json does not name this run's commit"
+done
 
 printf 'tree-publish-v2 tests: ok\n'

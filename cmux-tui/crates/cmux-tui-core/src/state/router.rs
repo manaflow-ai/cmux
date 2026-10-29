@@ -204,6 +204,22 @@ fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>
     }
 }
 
+/// `None` when absent, `Some(None)` for null; a present value must be a string.
+fn nullable_reason(
+    fields: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<Option<String>>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(value)) => Ok(Some(Some(value.clone()))),
+        Some(_) => Err(validation_error(
+            &format!("{name} must be a string or null"),
+            json!({"field": name}),
+        )),
+    }
+}
+
 fn index(fields: &Map<String, Value>, name: &str) -> Option<usize> {
     fields.get(name).and_then(Value::as_u64).and_then(|value| usize::try_from(value).ok())
 }
@@ -317,7 +333,10 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon", "marked_unread"])?;
+            require_any(
+                fields,
+                &["zoom", "back", "forward", "owner", "icon", "marked_unread", "attention"],
+            )?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
@@ -326,6 +345,8 @@ pub(crate) fn dispatch(
                 icon: nullable_string(fields, "icon"),
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
+                attention: nullable_reason(fields, "attention")?,
+                attention_page: None,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)

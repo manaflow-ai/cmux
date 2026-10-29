@@ -15,7 +15,8 @@ import Testing
     private static let status = WorkspaceID("ws-status")
 
     private static func sidebar(style: SidebarRowBadgeStyle?, density: SidebarDensity = .compact,
-                                showTimestamps: Bool? = nil, lastActivityElement: Bool = false) -> SidebarView {
+                                showTimestamps: Bool? = nil, lastActivityElement: Bool = false,
+                                agentStatusElement: Bool = false) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let now = Date()
         let recentRow = SidebarWorkspace(id: recent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
@@ -32,6 +33,7 @@ import Testing
         design.sidebarSections.density = density
         if let showTimestamps { design.sidebarSections.showTimestamps = showTimestamps }
         if lastActivityElement { design.sidebarSections.workspaceRow.base.shown.insert(.lastActivity) }
+        if agentStatusElement { design.sidebarSections.workspaceRow.base.shown.insert(.agentStatus) }
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.renderNow()
@@ -84,9 +86,10 @@ import Testing
         }
     }
 
-    /// A one-line status is the row's state, not a time: it stays on the name's line.
+    /// A one-line status (opt-in since Lawrence 2026-10-21) is the row's state, not a time: with
+    /// the Agent Status element on it stays on the name's line.
     @Test func aOneLineStatusStillReadsOnTheNamesLine() throws {
-        let sidebar = Self.sidebar(style: .corner)
+        let sidebar = Self.sidebar(style: .corner, agentStatusElement: true)
         #expect(Self.trailing(try Self.row(sidebar, Self.status)) == "Building")
     }
 

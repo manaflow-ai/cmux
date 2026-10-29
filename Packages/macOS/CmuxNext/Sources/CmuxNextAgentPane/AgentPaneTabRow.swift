@@ -57,12 +57,33 @@ import CmuxNextSettings
         let on = ChromeTunables.tabRowTools.value && height > 0
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
-        view.setTabRowCover(on && row.toolsWidth > 0 ? height : 0) // the pane lays the view under the strip only then
+        let shares = on && row.toolsWidth > 0
+        view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
+        if let page = view.page {
+            // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
+            // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
+            // its top is maxY (at y 0 they cut the composer's footer out of the page instead).
+            let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
+            let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
+                                             tools: row.sharedWidth(zoom: zoom) ?? 0) : []
+            page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+        }
         guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
         row.offered = next
         let event = row.event
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
     }
+}
+
+/// The parts of a shared tab row `width` points wide and `height` tall (top-left origin) that the
+/// pane's native chrome draws: its tabs, from the leading edge to where the chat's `tools` begin
+/// (the strip gives up at most half its room, `PaneTabRowSharing.tabRowWidth`), and its toolbar in
+/// the trailing `trailingInset` points.
+private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat, tools: CGFloat) -> [CGRect] {
+    let room = max(0, width - trailingInset)
+    let span = min(max(0, tools), room / 2)
+    return [CGRect(x: 0, y: 0, width: room - span, height: height),
+            CGRect(x: room, y: 0, width: width - room, height: height)].filter { !$0.isEmpty }
 }
 
 extension AgentPageEvent {

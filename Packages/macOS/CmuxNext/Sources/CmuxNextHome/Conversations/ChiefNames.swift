@@ -19,7 +19,7 @@ extension String {
     }
 
     /// A model id as a name: words capitalized, a version's numbers joined by a dot, a trailing
-    /// release date (`20250929` or `2024-08-06`) dropped, and a context suffix kept (`claude-opus-5-5` → "Claude Opus 5.5",
+    /// release date (`20250929` or `2024-08-06`, a real month and day) dropped, and a context suffix kept (`claude-opus-5-5` → "Claude Opus 5.5",
     /// `claude-sonnet-4-5-20250929` → "Claude Sonnet 4.5", `gpt-5.1-codex` → "GPT 5.1 Codex",
     /// `opus[1m]` → "Opus (1M)"). A blank id comes back as it is.
     public nonisolated var chiefModelName: String {
@@ -31,7 +31,8 @@ extension String {
             base = String(base[..<open])
         }
         var parts = chiefNameTokens(base)
-        if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) {
+        if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber),
+           chiefNameIsDate([last.prefix(4), last.dropFirst(4).prefix(2), last.suffix(2)]) {
             parts.removeLast()
         } else if parts.count > 3, chiefNameIsDate(parts.suffix(3)) {
             parts.removeLast(3)
@@ -66,8 +67,9 @@ private nonisolated let chiefNameBuiltins = [
     "aider": "Aider", "gemini": "Gemini CLI", "muse": "Muse Code", "opencode": "OpenCode", "pi": "Pi",
 ]
 
-/// Whether `parts` (three tokens) are a `YYYY-MM-DD` date: a month of 1 to 12 and a day of 1 to 31.
-private nonisolated func chiefNameIsDate(_ parts: ArraySlice<Substring>) -> Bool {
+/// Whether `parts` (three tokens, or `YYYYMMDD` cut in three) are a `YYYY-MM-DD` date: a month of
+/// 1 to 12 and a day of 1 to 31.
+private nonisolated func chiefNameIsDate<Parts: Collection<Substring>>(_ parts: Parts) -> Bool {
     let numbers = zip(parts, [4, 2, 2]).compactMap { $0.count == $1 && $0.allSatisfy(\.isNumber) ? Int($0) : nil }
     guard numbers.count == 3 else { return false }
     return (1...12).contains(numbers[1]) && (1...31).contains(numbers[2])

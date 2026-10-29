@@ -1,0 +1,174 @@
+name: cmux-next-ios kit tests
+
+# CmuxMobileKit (cmux-next-ios/CmuxMobileKit), the cmux-next iPhone app's
+# packages. Before this workflow no job ran its tests: the package's binary
+# target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored and built
+# from cmux-next-ios/rust (cmux-mobile-link-ffi), so a plain checkout cannot
+# even load the package.
+#
+# One macOS job:
+# - builds the xcframework (iOS and iOS simulator slices) with
+#   cmux-next-ios/rust/scripts/build-xcframework.sh, which also typechecks the
+#   generated bindings and links them for the simulator, and checks that the
+#   checked-in CmuxMobileLinkFFI.swift matches what it generated;
+# - runs `swift test` on macOS (the package's tests are Swift Testing suites;
+#   on macOS the FFI and libghostty targets drop out by platform condition);
+# - runs the tests on an iOS simulator (`xcodebuild test`): the live link
+#   coordinator, its banner and the FFI transport are iOS only, and #23829 left an
+#   ambiguous type that only the iOS build saw.
+# It runs on Blacksmith macOS 26 (Xcode 26, iOS simulator SDK), as the other
+# mobile FFI job does (cmux-mobile-ffi.yml's apple job, on macOS 15 there): an
+# owned side-lane label needs a placement job (scripts/ci/runner_routing_table.py),
+# which only cmux-next.yml has. CI_PAID_MACOS_OVERFLOW and MACOS_RUNNER_26 are
+# the existing overflow switch and label cmux-next.yml reads.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**"
+      # The local packages CmuxMobileKit depends on (Package.swift).
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CMUXAuthCore/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxChiefVoiceCore/**"
+      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/iOS/CmuxConversation/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      # The toolchains it uses.
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/select-ci-xcode.sh"
+      - "scripts/ci/xcode-pins.txt"
+      - ".xcode-version"
+      - ".github/workflows/cmux-next-ios-kit.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**"
+      # The local packages CmuxMobileKit depends on (Package.swift).
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CMUXAuthCore/**"
+      - "Packages/Shared/CMUXMobileCore/**"
+      - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxChiefVoiceCore/**"
+      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/iOS/CmuxConversation/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      # The toolchains it uses.
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "scripts/select-ci-xcode.sh"
+      - "scripts/ci/xcode-pins.txt"
+      - ".xcode-version"
+      - ".github/workflows/cmux-next-ios-kit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-ios-kit-${{ github.ref }}
+  # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  kit-tests:
+    name: CmuxMobileKit tests (macOS swift test, iOS simulator)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.95.0).
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: cmux-next-ios-kit
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+
+      - name: Checked-in bindings match the generated ones
+        run: |
+          set -euo pipefail
+          # The xcframework and target/ are gitignored; the script rewrites the bindings
+          # and restores Cargo.lock, so any tracked change is drift.
+          if ! git diff --exit-code -- cmux-next-ios/; then
+            echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+            exit 1
+          fi
+
+      - name: swift test (macOS)
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit
+
+      # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so
+      # their tests run only here. A simulator destination builds the arm64 slice
+      # the xcframework has.
+      - name: xcodebuild test (iOS simulator)
+        working-directory: cmux-next-ios/CmuxMobileKit
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-26" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          if [[ -z "$udid" ]]; then
+            echo "::error::no available iOS 26 iPhone simulator on this runner" >&2
+            exit 1
+          fi
+          echo "simulator $udid"
+          # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit
+          # (TerminalDevProbe, SILProfiler in emitIsolatingDestructor); the app builds
+          # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
+          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
+          # -quiet drops Swift Testing's output: report from the result bundle (counts,
+          # suites that did not pass, #23829's banner suite, and every failure).
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/ios-sim.xcresult" --compact 2>/dev/null |
+            python3 -c '
+          import json, sys
+          counts = {}
+          def walk(node, path):
+              kind, result = node.get("nodeType"), node.get("result")
+              if kind == "Test Case":
+                  counts[result] = counts.get(result, 0) + 1
+                  if result == "Failed":
+                      print("FAILED:", " / ".join(path))
+              if kind == "Test Suite" and (result != "Passed" or node.get("name") == "WaitingBannerTests"):
+                  print("suite", node.get("name"), result, len(node.get("children", [])), "tests")
+              for child in node.get("children", []):
+                  if child.get("nodeType") == "Failure Message":
+                      print("   ", child.get("name"))
+                  else:
+                      walk(child, path + [child.get("name", "")])
+          for root in json.load(sys.stdin).get("testNodes", []):
+              walk(root, [root.get("name", "")])
+          print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+          ' || echo "::warning::could not read the result bundle"
+          exit "$status"

@@ -102,11 +102,15 @@ pub(crate) fn descendants(root: &str, sessions: &[Value]) -> Vec<Value> {
     let mut next = VecDeque::from([root]);
     while let Some(parent) = next.pop_front() {
         for &index in by_parent.get(parent).into_iter().flatten() {
-            let Some(id) = session_id(&sessions[index]) else { continue };
+            let Some(id) = sessions.get(index).and_then(|session| session_id(session)) else {
+                continue;
+            };
             if family.len() > MAX_CHILDREN || !family.insert(id) {
                 continue;
             }
-            taken[index] = true;
+            if let Some(slot) = taken.get_mut(index) {
+                *slot = true;
+            }
             next.push_back(id);
         }
     }

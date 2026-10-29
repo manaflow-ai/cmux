@@ -9,7 +9,9 @@ import QuartzCore
 public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The app's primary action (the default, Leo 2026-10-20: "give Restart to Update the primary
     /// button style"): the theme's accent fill and its ink (`Palette.accentFill` / `onAccent`, the
-    /// selected menu row's pair), emphasized text. A theme with no chosen accent draws its neutral.
+    /// selected menu row's pair), emphasized text. With no chosen accent (`accentFill` is then the
+    /// primary text, a white slab on a dark card) it is the dialogs' prominent neutral button
+    /// instead: the selection fill with the primary text (2026-10-22, "just make it look better").
     case primary
     /// The app's button (the default until 2026-10-20, Leo 2026-10-19: no light slab): the
     /// hover fill with a hairline edge and the primary text, as the Updated
@@ -120,6 +122,7 @@ final class SidebarUpdateButton: NSView {
     /// `performWithTheme`).
     static func colors(_ style: SidebarUpdateButtonStyle) -> (fill: NSColor, text: NSColor) {
         switch style {
+        case .primary where !Palette.hasChosenAccent: (Palette.selectionFill, Palette.textPrimary)
         case .primary: (Palette.accentFill, Palette.onAccent)
         case .bordered: (Palette.hoverFill, Palette.textPrimary)
         case .themeAccent where Palette.hasThemeAccent: (Palette.highlight, Palette.highlightText)
@@ -128,17 +131,25 @@ final class SidebarUpdateButton: NSView {
         }
     }
 
+    /// The primary style in a theme with no chosen accent: the prominent neutral, not the accent
+    /// pair (theme-scoped: read inside `performWithTheme`).
+    private var isNeutralPrimary: Bool { !isQuiet && style == .primary && !Palette.hasChosenAccent }
+
     /// The fill now: the style's color, a step lighter under the pointer,
     /// darker while held, faded while disabled.
     var fill: NSColor {
         performWithTheme {
             let neutral = isQuiet || style == .bordered
             let base = isQuiet ? Palette.hoverFill : Self.colors(style).fill
+            // The neutral primary (no chosen accent) steps to the pressed fill under the pointer, as
+            // the dialogs' prominent button does; fading a translucent fill would only wash it out.
+            if isNeutralPrimary, isEnabled, isHovered || isPressed { return Palette.pressedFill }
             if !isEnabled, neutral { return base.withAlphaComponent(0.5) }
             if neutral, isPressed { return Palette.pressedFill }
             // Over its resting hover fill, the neutral step, never the accent selection.
             if neutral, isHovered { return ChromeHover.raisedHoverFill }
-            if !isEnabled { return base.withAlphaComponent(0.4) }
+            // Scaled, not set: a translucent fill (the neutral primary) set to 0.4 got brighter.
+            if !isEnabled { return base.withAlphaComponent(base.alphaComponent * 0.4) }
             if isPressed { return base.withAlphaComponent(0.75) }
             return isHovered ? base.withAlphaComponent(0.88) : base
         }
@@ -151,7 +162,7 @@ final class SidebarUpdateButton: NSView {
             layer?.borderColor = (showsKeyFocus ? Palette.focusRing : Palette.separator).cgColor
             layer?.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : bordered ? Metrics.lineWidth(1) : 0
             let text = isQuiet ? Palette.textPrimary : Self.colors(style).text
-            label.textColor = isEnabled || !bordered ? text : Palette.textSecondary
+            label.textColor = isEnabled || !(bordered || isNeutralPrimary) ? text : Palette.textSecondary
         }
     }
 
@@ -208,7 +219,7 @@ final class SidebarUpdateButton: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard SidebarUpdateCheckbox.isActivationKey(event) else { return super.keyDown(with: event) }
+        guard SidebarUpdateToggle.isActivationKey(event) else { return super.keyDown(with: event) }
         press()
     }
 }

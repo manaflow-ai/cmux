@@ -226,7 +226,7 @@ extension TabDragSession {
 
     func paneController(stripID: UUID) -> PaneController? {
         for controller in services.windows.controllers {
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.stripModel.stripID == stripID { return pane }
+            for pane in controller.onScreenContents.flatMap(\.panes.values) where pane.stripModel.stripID == stripID { return pane }
         }
         return nil
     }
@@ -247,7 +247,7 @@ extension TabDragSession {
     /// new one follows) and that column's daemon id.
     /// Any pane of `screenID` in `window` (a dock opens on the anchor's screen).
     func screenAnchor(screenID: String, in window: WindowController?) -> PaneModel? {
-        guard let content = window?.content,
+        guard let content = window?.onScreenContent(holdingScreen: screenID),
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let anchor = screen.layout.panes.first, let handle = content.handles.panes[anchor] else { return nil }
         return content.daemon.store.pane(handle)
@@ -256,7 +256,7 @@ extension TabDragSession {
     /// `avoiding`: the pane the drag empties. Its only tab cannot leave through it (the daemon refuses that as
     /// a split, as DockColumnHandlers notes), so another pane anchors the new column; `after` still places it.
     func columnAnchor(screenID: String, after: String, in window: WindowController?, avoiding: String? = nil) -> (PaneModel, DaemonColumnID?)? {
-        guard let content = window?.content,
+        guard let content = window?.onScreenContent(holdingScreen: screenID),
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let column = screen.layout.columns.first(where: { $0.id.rawValue == after }),
               let anchor = column.root.panes.last(where: { $0.rawValue != avoiding }) ?? screen.layout.panes.first(where: { $0.rawValue != avoiding }),

@@ -423,6 +423,16 @@ fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
     while h.agents.inner.lock().unwrap().prompts.len() <= prompts {
         h.step();
     }
+    // A person's message gets words before stop (eval_replies.rs).
+    let sp = spawner(&h);
+    run(&mut h, move || {
+        sp.send(optchat_chief::tools::SendCall {
+            text: Some("On it.".into()),
+            attachments: Vec::new(),
+            reply_to: None,
+        })
+    })
+    .expect("send answers");
     let sp = spawner(&h);
     let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");

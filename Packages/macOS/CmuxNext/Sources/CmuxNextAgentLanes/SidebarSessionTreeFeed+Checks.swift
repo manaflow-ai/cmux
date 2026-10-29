@@ -1,6 +1,7 @@
 public import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextSidebar
 
 extension SidebarSessionTreeFeed {
     /// Whether a pull request of `lane`'s (its folder's branch's, or one it opened) has failing
@@ -16,6 +17,12 @@ extension SidebarSessionTreeFeed {
     /// The pull request reads run: the session tree or the Priority view is on.
     static func readsPullRequests(_ sections: SidebarSectionsPreferences) -> Bool {
         sections.sessionTree || sections.priorityViewEnabled
+    }
+
+    /// The badge reads run for the rows: `sidebar.pullRequestBadges` and some row shows pull requests
+    /// (`sidebar.workspaceRow.pullRequest`, off by default), so a sidebar that draws none asks GitHub nothing.
+    static func readsBadges(_ sections: SidebarSectionsPreferences) -> Bool {
+        SidebarTunables.pullRequestBadges.value && sections.workspaceRow.showsAnywhere(.pullRequest)
     }
 
     /// Whether any of `lane`'s answers (its folder's branch's pull request, each one it opened) is

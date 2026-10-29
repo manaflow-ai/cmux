@@ -9,6 +9,8 @@
 # 1.3.6). Run this right after setup-bun: it copies that bun into
 # $RUNNER_TEMP, or, when the shared one is already another version, downloads
 # the pinned release and checks it against the release's SHASUMS256.txt.
+# It provisions the exact pin so every CI job builds with the same bun; it never
+# fails a job for a newer one (the minimum check is check-webviews-bun-version.sh).
 #
 # CMUX_BUN_RELEASE_BASE overrides https://github.com/oven-sh/bun/releases/download
 # (tests serve a release from file://).

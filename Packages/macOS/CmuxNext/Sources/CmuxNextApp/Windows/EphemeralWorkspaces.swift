@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 
 // Incognito workspaces on a daemon with state resources are `ephemeral`
@@ -24,7 +25,8 @@ enum EphemeralWorkspaces {
     /// workspace whose terminal tab is replaced by one incognito browser
     /// tab on `address`. The window waits in `pendingEphemeralWindows` for
     /// the workspace (reconcile gives it the first ephemeral orphan).
-    static func newIncognitoWorkspace(_ manager: WindowManager, window windowID: String, address: String, choice: BrowserEngineChoice) {
+    static func newIncognitoWorkspace(_ manager: WindowManager, window windowID: String, address: String, choice: BrowserEngineChoice,
+                                      space: ProfileID? = nil) {
         let daemon = manager.services.daemon
         let browserTabs = manager.services.cache.browserTabs
         manager.pendingEphemeralWindows.append(windowID)
@@ -38,8 +40,9 @@ enum EphemeralWorkspaces {
             guard let connection = daemon.connection else { return }
             do {
                 let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.store.applied(through: await connection.eventSequence())
+                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
                 guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
+                if let space, let key = workspace.key { try await manager.pinToIncognitoSpace(key, space, on: daemon) }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
                 let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
                 guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return }

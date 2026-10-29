@@ -1,5 +1,10 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextAppCore
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextWorkspaceNaming
 import CmuxNextSettings
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
@@ -24,14 +29,14 @@ final class CaptureSceneRegistry {
     }
 
     /// The stable scene names exposed to capture scripts and CI.
-    func list() -> JSONValue {
+    func list() -> CmuxNextSettings.JSONValue {
         .array(Self.definitions.map { definition in
             .object(["name": .string(definition.name), "description": .string(definition.description)])
         })
     }
 
     /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
-    func render(_ params: [String: JSONValue]) async -> JSONValue {
+    func render(_ params: [String: CmuxNextSettings.JSONValue]) async -> CmuxNextSettings.JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
             return .object([
@@ -51,6 +56,9 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }
         let targetWindowID = targetWindow.state.id
+        if definition.name == Self.workspaceAutoNameScene {
+            return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
+        }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -69,7 +77,9 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    return Self.agentPageCanSettle(attached: view.webView.window != nil,
+                                                   loading: view.webView.isLoading,
+                                                   chromium: view.debugShowsChromium)
                 }
             },
             start: start,
@@ -97,7 +107,7 @@ final class CaptureSceneRegistry {
 
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene
+        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard isHome || readinessIsComplete(readiness) else {
             return .object([
@@ -107,7 +117,8 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome ? await showHomeChief(windowID: targetWindowID) : await waitForSceneAnimation()
+        let actionReadiness = isHome
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
               isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
@@ -122,15 +133,15 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard isHome || Self.pageComposited(result) else {
             return .object([
-                "error": .string("agent web view was not composited"),
+                "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
             ])
         }
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
-        result["settled_ms"] = settled.map(JSONValue.number) ?? .null
+        result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
         result["daemon_workspaces"] = .number(Double(services.daemon.store.workspaces.count))
@@ -146,14 +157,22 @@ final class CaptureSceneRegistry {
         return .object(result)
     }
 
-    private func applySceneAction(_ name: String) async -> JSONValue {
+    private func applySceneAction(_ name: String) async -> CmuxNextSettings.JSONValue {
         // Keep each scene independent when render-scenes.sh reuses one app.
         // The tile scene opts into the real tray look; the other scenes use the
         // ordinary quiet rows so a previous scene cannot leak its appearance.
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        let chat = services.windows.controllers.lazy.compactMap { $0.content?.focusedPane?.currentTabKey }.first
+        if let chat { services.cloud.toolCards.set([], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in } }
         switch name {
+        case "cloud-start-session-ask":
+            // The card an agent's `cmux cloud start-session` raises in its chat (CloudStartSessionAsks).
+            guard let chat else { return .object(["error": .string("no focused chat tab")]) }
+            let card = CloudStartSessionAsks.askCard(tab: chat, text: CloudStartSessionStrings.askNew(agent: "claude", machine: "dev"))
+            let shown = services.cloud.toolCards.set([card], owner: CloudStartSessionAsks.owner, tab: chat) { _, _, _ in }
+            return .object(["card": .bool(shown), "tab": .string(chat)])
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
         case "sidebar-tiles":
@@ -177,13 +196,31 @@ final class CaptureSceneRegistry {
     }
 
     /// The agent pane drew the worked turn and shows its composer.
-    private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
+    /// Whether `snapshot` (``DebugWindowSnapshot/captureAsync(_:services:)``) drew a page image:
+    /// a WebKit web view or a Chromium page. The agent chat shows on either engine
+    /// (`agent.chromium`, on by default, puts it in Chromium when `browser.defaultEngine` is
+    /// Chromium; WebKit otherwise or after a Chromium fallback), so counting only WebKit refused
+    /// every Chromium agent page. The snapshot does not say which page is the agent's; the
+    /// readiness check before it already proved the agent page has a transcript and a composer,
+    /// so this only refuses a still in which no page drew at all.
+    static func pageComposited(_ snapshot: [String: CmuxNextSettings.JSONValue]) -> Bool {
+        (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
+    }
+
+    /// A Chromium agent can have a live, ready DOM while its backing WKWebView still reports loading
+    /// an asynchronous resource. WebKit still needs to finish navigation before seed_rows runs;
+    /// the readiness probe below then checks body, transcript and composer for either engine.
+    static func agentPageCanSettle(attached: Bool, loading: Bool, chromium: Bool) -> Bool {
+        attached && (chromium || !loading)
+    }
+
+    private func readinessIsComplete(_ readiness: CmuxNextSettings.JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
         return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
             && report["composer_visible"]?.boolValue == true
     }
 
-    private func waitForSceneAnimation() async -> JSONValue {
+    private func waitForSceneAnimation() async -> CmuxNextSettings.JSONValue {
         await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
 
@@ -193,10 +230,243 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
+        CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
+        CaptureSceneDefinition(name: "workspace-auto-name",
+                               description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "home-chief-long-draft",
+                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
+}
+
+/// A real daemon workspace and agent tab for before/after auto-name captures.
+extension CaptureSceneRegistry {
+    static let workspaceAutoNameScene = "workspace-auto-name"
+    private static let autoNameSession = "mock-session"
+    private static let firstAutoName = "First chat title"
+    private static let generatedAutoName = "Updated chat title"
+    private static let userWorkspaceName = "My workspace"
+    private static let laterGeneratedName = "Later chat title"
+
+    func renderWorkspaceAutoName(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
+                                 windowID: String) async -> CmuxNextSettings.JSONValue {
+        guard let connection = services.daemon.connection,
+              let controller = services.windows.controller(for: windowID) else {
+            return .object(["error": .string("auto-name scene has no daemon or window"), "scene": .string(definition.name)])
+        }
+        let rule = WorkspaceAutoNameWiring(services: services).reader.rule
+        guard rule.enabled, rule.variant == .persist else {
+            return .object(["error": .string("auto-name capture requires enabled persisted naming"), "scene": .string(definition.name)])
+        }
+        let mode = params["mode"]?.stringValue ?? "default"
+        guard mode == "default" || mode == "after_user_rename" else {
+            return .object(["error": .string("unknown auto-name capture mode"), "scene": .string(definition.name), "mode": .string(mode)])
+        }
+        let keep = params["keep"]?.boolValue == true
+        let expectedArgument = params["expected_name"]
+        let expectedName = expectedArgument?.stringValue
+        guard expectedArgument == nil || expectedName == Self.firstAutoName else {
+            return .object(["error": .string("expected_name is only supported as First chat title for the before capture"),
+                            "scene": .string(definition.name)])
+        }
+        var createdKey: WorkspaceKey?
+        var addedFixtureHost: String?
+        var cleaned = false
+        func cleanup() async {
+            guard let key = createdKey, !cleaned else { return }
+            cleaned = true
+            try? await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+            services.windows.pendingClaims.removeValue(forKey: key.rawValue)
+            services.windows.quietClaims.remove(key.rawValue)
+            services.windows.reconcileMembership()
+            if let host = addedFixtureHost {
+                AgentTurnStateStore.shared.mirroredHosts.remove(host)
+            }
+        }
+        func failure(_ message: String) async -> CmuxNextSettings.JSONValue {
+            await cleanup()
+            return .object(["error": .string(message), "scene": .string(definition.name)])
+        }
+        do {
+            let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true), on: services.daemon)
+            let key = WorkspaceKey(rawValue: workspaceID)
+            createdKey = key
+            services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
+            guard let pane = await services.daemon.store.firstPane(mirroring: key),
+                  let workspace = services.daemon.store.workspace(key: key) else {
+                return await failure("auto-name workspace has no mirrored pane")
+            }
+            guard workspace.nameSource == .auto else {
+                return await failure("auto-name workspace was not automatic")
+            }
+            _ = try await connection.renameWorkspace(key, to: Self.firstAutoName, source: .auto,
+                                                      expectedNameRevision: workspace.nameRevision)
+            let seeded = await autoNameSettled { workspace.name == Self.firstAutoName && workspace.nameSource == .auto }
+            guard seeded.0 != nil else {
+                return await failure("first automatic name did not mirror")
+            }
+            let firstRevision = workspace.nameRevision
+            let pending = try services.agentTabs.open(in: pane.handle, of: services.daemon, session: Self.autoNameSession, linked: true)
+            let created = try await pending.value()
+            controller.state.selection.select(created.key, in: pane.id)
+            _ = services.revealTab(created.key, intent: .focus)
+            controller.sidebar.restore(width: 300, hidden: false)
+            let sessionSettled = await autoNameSettled {
+                workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession?.session == Self.autoNameSession
+            }
+            guard sessionSettled.0 != nil,
+                  let tabSession = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                      .first(where: { $0.id == created.key })?.agentSession,
+                  let fixtureSession = tabSession.session,
+                  fixtureSession == Self.autoNameSession else {
+                return await failure("auto-name agent tab did not resolve its mock session")
+            }
+            let host = tabSession.host
+            let turns = AgentTurnStateStore.shared
+            if host != turns.localHost && !turns.mirroredHosts.contains(host) {
+                turns.mirroredHosts.insert(host)
+                addedFixtureHost = host
+            }
+            // The fixture supplies an acpmux summary. Only the production namer may write its title.
+            let summary: [String: Any] = ["sessionId": fixtureSession, "title": Self.generatedAutoName, "titleSource": "generated"]
+            let title = AgentTurnStates.title(summary)
+            let generatedTitle = AgentTurnStates.title(summary, includingPrompt: false)
+            guard let generatedTitle, generatedTitle == Self.generatedAutoName else {
+                return await failure("generated title fixture did not produce the expected literal title")
+            }
+            AgentTurnStateStore.shared.apply(session: fixtureSession, state: nil, lastMessage: nil, muted: false,
+                                              title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false,
+                                              source: "capture-scene")
+            let expected = expectedName ?? Self.generatedAutoName
+            let (settled, frameStats) = await autoNameSettled {
+                self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected)
+            }
+            var report: [String: CmuxNextSettings.JSONValue] = [
+                "scene": .string(definition.name), "description": .string(definition.description),
+                "workspace": .string(workspace.id), "tab": .string(created.key),
+                "first_name": .string(Self.firstAutoName), "first_name_revision": .number(Double(firstRevision)),
+                "workspace_name": .string(workspace.name), "workspace_name_source": .string(workspace.nameSource.rawValue),
+                "workspace_name_revision": .number(Double(workspace.nameRevision)),
+                "generated_title": .string(generatedTitle), "expected_name": .string(expected),
+                "mode": .string(mode), "kept": .bool(keep), "user_name": .null,
+                "later_generated_name": .null, "frames": frameStats,
+            ]
+            guard let settled else {
+                let diagnostic = autoNameReadiness(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected).diagnostic
+                await cleanup()
+                report["error"] = .string("auto-name scene did not settle: \(diagnostic)")
+                return .object(report)
+            }
+            var finalSettled = settled
+            var finalFrameStats = frameStats
+            var finalGeneratedTitle = generatedTitle
+            var finalExpectedName = expected
+            if mode == "after_user_rename" {
+                _ = try await connection.renameWorkspace(key, to: Self.userWorkspaceName, source: .user,
+                                                          expectedNameRevision: workspace.nameRevision)
+                let laterSummary: [String: Any] = ["sessionId": fixtureSession,
+                                                    "title": Self.laterGeneratedName, "titleSource": "generated"]
+                let laterTitle = AgentTurnStates.title(laterSummary)
+                let laterGeneratedTitle = AgentTurnStates.title(laterSummary, includingPrompt: false)
+                guard let laterGeneratedTitle, laterGeneratedTitle == Self.laterGeneratedName else {
+                    return await failure("later generated title fixture did not produce the expected literal title")
+                }
+                AgentTurnStateStore.shared.apply(session: fixtureSession, state: nil, lastMessage: nil, muted: false,
+                                                  title: laterTitle, generatedTitle: laterGeneratedTitle, detail: nil,
+                                                  recordsTimeline: false, source: "capture-scene")
+                let (laterSettled, laterFrameStats) = await autoNameSettled {
+                    self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: Self.userWorkspaceName,
+                                       expectedSource: .user, expectedGeneratedTitle: laterGeneratedTitle)
+                }
+                guard let laterSettled else {
+                    let diagnostic = autoNameReadiness(workspace: workspace, tabID: created.key, windowID: windowID,
+                                                       expected: Self.userWorkspaceName, expectedSource: .user,
+                                                       expectedGeneratedTitle: laterGeneratedTitle).diagnostic
+                    await cleanup()
+                    report["error"] = .string("user rename precedence did not settle: \(diagnostic)")
+                    return .object(report)
+                }
+                finalSettled = laterSettled
+                finalFrameStats = laterFrameStats
+                finalGeneratedTitle = laterGeneratedTitle
+                finalExpectedName = Self.userWorkspaceName
+                report["user_name"] = .string(Self.userWorkspaceName)
+                report["later_generated_name"] = .string(Self.laterGeneratedName)
+            }
+            report["workspace_name"] = .string(workspace.name)
+            report["workspace_name_source"] = .string(workspace.nameSource.rawValue)
+            report["workspace_name_revision"] = .number(Double(workspace.nameRevision))
+            report["generated_title"] = .string(finalGeneratedTitle)
+            report["expected_name"] = .string(finalExpectedName)
+            report["frames"] = finalFrameStats
+            var snapshotParams = params
+            snapshotParams["window"] = .string(windowID)
+            let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+            guard case .object(var result) = snapshot else {
+                await cleanup()
+                return snapshot
+            }
+            for (key, value) in report { result[key] = value }
+            result["settled_ms"] = .number(finalSettled)
+            guard result["error"] == nil else {
+                await cleanup()
+                return .object(result)
+            }
+            guard Self.pageComposited(result) else {
+                await cleanup()
+                result["error"] = .string("auto-name agent web view was not composited")
+                return .object(result)
+            }
+            if !keep { await cleanup() }
+            return .object(result)
+        } catch {
+            return await failure("auto-name scene failed: \(error)")
+        }
+    }
+
+    /// A frame-based condition wait: no sleeps or socket polling.
+    private func autoNameSettled(_ ready: @escaping () -> Bool) async -> (Double?, CmuxNextSettings.JSONValue) {
+        frames.start()
+        let settled = await frames.settled(until: ready, start: ContinuousClock.now, window: 100, deadline: 10_000)
+        return (settled, frames.stop())
+    }
+
+    private func autoNameReady(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String,
+                               expectedSource: WorkspaceNameSource = .auto,
+                               expectedGeneratedTitle: String = CaptureSceneRegistry.generatedAutoName) -> Bool {
+        autoNameReadiness(workspace: workspace, tabID: tabID, windowID: windowID, expected: expected,
+                          expectedSource: expectedSource, expectedGeneratedTitle: expectedGeneratedTitle).ready
+    }
+
+    private func autoNameReadiness(workspace: WorkspaceModel, tabID: String, windowID: String, expected: String,
+                                   expectedSource: WorkspaceNameSource = .auto,
+                                   expectedGeneratedTitle: String = CaptureSceneRegistry.generatedAutoName) -> (ready: Bool, diagnostic: String) {
+        let tab = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == tabID })
+        let tabFound = tab != nil
+        let session = tab?.agentSession
+        let sessionOK = session?.session == Self.autoNameSession
+        let turns = AgentTurnStateStore.shared
+        let hostKnown = session.map { $0.host == turns.localHost || turns.mirroredHosts.contains($0.host) } ?? false
+        let actualGenerated = session.flatMap { turns.generatedTitle(for: $0) }
+        let generatedOK = actualGenerated == expectedGeneratedTitle
+        let actualGeneratedPreview = actualGenerated.map { String($0.prefix(32)) } ?? "-"
+        let view = services.agentTabs.existingView(tabID)
+        let painted = view?.model.hasPainted == true
+        let inWindow = view?.webView.window != nil
+        let loading = view?.webView.isLoading == true
+        let pageReady = Self.agentPageCanSettle(attached: inWindow, loading: loading, chromium: view?.debugShowsChromium == true)
+        let sidebarRow = services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces)
+            .first(where: { $0.id.rawValue == workspace.id })
+        let sidebarRowMatches = sidebarRow?.title == expected
+        let pending = sidebarRow?.rowState.isPending == true
+        let ready = workspace.name == expected && workspace.nameSource == expectedSource
+            && tabFound && sessionOK && hostKnown && generatedOK && painted && pageReady && sidebarRowMatches && !pending
+        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
+        return (ready, String(diagnostic.prefix(330)))
+    }
 }
 #endif

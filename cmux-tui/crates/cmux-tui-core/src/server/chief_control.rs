@@ -15,6 +15,7 @@
 //! tools socket under the daemon's Chief home (`chief_brains::tools_socket`),
 //! so the request acts on that Chief only. An unknown Chief reaches no brain.
 
+use crate::panic_free::JsonFields;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -155,7 +156,9 @@ fn target(
                     .map_err(|e| failed("internal", format!("{e:#}")))?,
             );
         }
-        let store = store.as_ref().expect("chief registry opened above");
+        let Some(store) = store.as_ref() else {
+            return Err(failed("internal", "chief registry is not open".to_owned()));
+        };
         store.get(chief).map_err(|e| failed("internal", format!("{e:#}")))?.is_some()
     };
     if !live {
@@ -284,9 +287,14 @@ pub(super) fn tool_line(
                 "compactor_speed",
                 "compactor_harness",
                 "compactor_model",
+                // The reaction classifier (optchat-chief brain/reaction_wake.rs).
+                "classifier_harness",
+                "classifier_model",
+                "classifier_prompt",
+                "reactions_can_wake",
             ] {
                 if let Some(value) = fields.get(key) {
-                    line[key] = value.clone();
+                    line.insert(key, value.clone());
                 }
             }
             line
@@ -295,7 +303,7 @@ pub(super) fn tool_line(
             let mut line = json!({"tool": "stop"});
             for key in ["name", "all", "restart"] {
                 if let Some(value) = fields.get(key) {
-                    line[key] = value.clone();
+                    line.insert(key, value.clone());
                 }
             }
             line
@@ -328,7 +336,7 @@ pub(super) fn result(
             // restarted and errors (the brain's own words).
             for key in ["subagents", "note", "restarted", "errors"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
-                    value[key] = v.clone();
+                    value.insert(key, v.clone());
                 }
             }
             value

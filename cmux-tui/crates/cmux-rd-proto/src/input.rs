@@ -111,7 +111,7 @@ impl InputEvent {
             Self::Service { must_deliver, bytes } => {
                 out.push(TAG_SERVICE);
                 out.push(if *must_deliver { service_flags::MUST_DELIVER } else { 0 });
-                let bytes = &bytes[..bytes.len().min(MAX_SERVICE_BYTES)];
+                let bytes = bytes.get(..MAX_SERVICE_BYTES).unwrap_or(bytes);
                 out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
                 out.extend_from_slice(bytes);
             }
@@ -165,11 +165,8 @@ fn truncate_utf8(text: &str, max: usize) -> &[u8] {
     if text.len() <= max {
         return text.as_bytes();
     }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text.as_bytes()[..end]
+    let end = (0..=max).rev().find(|&end| text.is_char_boundary(end)).unwrap_or(0);
+    text.as_bytes().get(..end).unwrap_or_default()
 }
 
 /// Size of the [`InputPacket`] payload prefix: `u32 first_seq`, `u8 n`.
@@ -180,9 +177,9 @@ impl InputPacket {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&self.first_seq.to_le_bytes());
-        let n = self.events.len().min(u8::MAX as usize);
-        out.push(n as u8);
-        for event in &self.events[..n] {
+        let events = self.events.get(..usize::from(u8::MAX)).unwrap_or(&self.events);
+        out.push(u8::try_from(events.len()).unwrap_or(u8::MAX));
+        for event in events {
             event.encode_into(&mut out);
         }
         out

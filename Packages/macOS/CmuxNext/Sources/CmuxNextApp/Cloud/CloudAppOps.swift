@@ -14,6 +14,8 @@ nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringCo
     var details: JSONValue?
 
     static let approvalPending = "cmux.cloud.approval_pending"
+    /// The op needs a paid plan (`cloud.plan.required`).
+    static let planRequired = "cmux.cloud.plan_required"
 
     /// The approval request id (`apr_…`) of an approval code.
     var approvalRequest: String? { details?["request"]?.stringValue }
@@ -63,6 +65,9 @@ extension CloudMachine {
         // The record's `capabilities` are machine capability names
         // (`agent_session`, …), not provider operations, so the machine
         // declares none and every Cloud action stays available.
-        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue)
+        // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
+        let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
+        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
+                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes)
     }
 }

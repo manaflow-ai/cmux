@@ -7,7 +7,8 @@
 // writing its reply, with prompts queued behind it.
 //
 // - The queued prompts sit under the pull request bar, over the composer (the
-//   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
+//   bottom stack's order, #20521), never under either; the list is named "Queued prompts" (its rows
+//   carry no header or number, Leo 2026-10-21), and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
 //   queued ones, and its bubble's read receipt reads read once it runs.
@@ -16,8 +17,8 @@
 //   second steer in the same step does not mark the first read. No "Steering" / "Steered" line
 //   shows under the bubble (Leo, 2026-10-20).
 //
-// - A queued prompt shows two lines until it is opened, in WebKit (the engine cmux NEXT draws
-//   with) too: a live run showed a five-line prompt whole before any click.
+// - A queued prompt shows one line, cut with an ellipsis, until it is opened, in WebKit (the engine
+//   cmux NEXT draws with) too: a live run showed a five-line prompt whole before any click.
 //
 // The stand-in sends what acpmux sends: the attach's `kinds` filter its page and its live events,
 // with acpmux's list of transcript records (cmux-tui/crates/acpmux/src/hub/paging.rs). A live run
@@ -270,12 +271,12 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     send(["in", "agent_message_chunk", say(text, "m1")]);
     await page.locator(".acpmux-scroll", { hasText: text }).waitFor({ timeout: 10_000 });
   };
-  /// The bubble's read receipt once it is `read` (two checks) or not yet (one).
-  const receipt = (page: Page, text: string, read: boolean) =>
-    page.locator(".cv-user", { hasText: text }).locator(`.cv-user__read[data-read="${read}"]`);
+  /// Unread steers have queue controls; sent/read prompts have the normal hover footer.
+  const footer = (page: Page, text: string, read: boolean) =>
+    page.locator(".cv-user", { hasText: text }).locator(read ? ".cv-user__time" : ".cv-user__pending");
 
   describe("queued and steering prompts", () => {
-    test("queued prompts sit between the pull request bar and the composer, under Queued, and a long one opens whole", async () => {
+    test("queued prompts sit between the pull request bar and the composer, named Queued prompts, and a long one opens whole", async () => {
       const page = await openChat(true);
       const dock = page.locator(".acpmux-pr-dock");
       await dock.waitFor();
@@ -288,7 +289,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const composer = await page.locator(".acpmux-composer-box").boundingBox();
       expect(bar!.y + bar!.height).toBeLessThanOrEqual(list!.y + 1);
       expect(list!.y + list!.height).toBeLessThanOrEqual(composer!.y + 1);
-      expect(await page.locator(".acpmux-queue-header").innerText()).toContain("Queued");
+      expect(await page.locator(".acpmux-queue-header").count()).toBe(0);
+      expect(await page.locator(".acpmux-composer-queue").getAttribute("aria-label")).toBe("Queued prompts (2)");
       const long = page.locator(".acpmux-queued-text", { hasText: "the pr thing" });
       await long.click();
       await expect(long.getAttribute("aria-expanded")).resolves.toBe("true");
@@ -296,7 +298,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("in WebKit a queued prompt shows two lines until it is opened, then all of it", async () => {
+    test("in WebKit a queued prompt shows one line until it is opened, then all of it", async () => {
       const FIVE = "alpha one\nbravo two\ncharlie three\ndelta four\necho five";
       const page = await openChat(
         true,
@@ -306,14 +308,16 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       );
       const text = page.locator(".acpmux-queued-text", { hasText: "alpha one" });
       await text.waitFor();
-      // Two 18px lines, closed.
+      // A line is the chat font's (#26523 scaled queued prompts with the chat font size).
+      const line = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+      // One line, closed.
       const closed = (await text.boundingBox())!.height;
-      expect(closed).toBeLessThanOrEqual(2 * 18 + 1);
+      expect(closed).toBeLessThanOrEqual(line + 1);
       await text.click();
       await expect(text.getAttribute("aria-expanded")).resolves.toBe("true");
       // All five lines once opened.
       const opened = (await text.boundingBox())!.height;
-      expect(opened).toBeGreaterThanOrEqual(5 * 18 - 1);
+      expect(opened).toBeGreaterThanOrEqual(5 * line - 1);
       await page.close();
     });
 
@@ -351,9 +355,18 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.locator(".acpmux-pr-dock").waitFor();
       await page.locator(".acpmux-permission-card").waitFor();
       await page.locator(".acpmux-queued-text", { hasText: "the pr thing" }).click();
-      // The prompt has opened, and a frame has painted with the list fitted to it.
+      // The prompt has opened, and the list has come to rest fitted to it: a frame for the fit,
+      // then its max-height transition (#24718) and any other finite animation run out.
       await page.locator('.acpmux-queued-text[aria-expanded="true"]', { hasText: "the pr thing" }).waitFor();
-      await page.evaluate(() => window.cmuxPaintFrame());
+      await page.evaluate(async () => {
+        await window.cmuxPaintFrame();
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        for (let tries = 0; tries < 20 && finite().some((animation) => animation.playState === "running"); tries++) {
+          await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+          await window.cmuxPaintFrame();
+        }
+      });
       const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
       const list = await box(".acpmux-composer-queue");
       const scroller = await box(".acpmux-scroll");
@@ -394,8 +407,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
       const now = page.locator(".acpmux-queued", { hasText: "fix the space thing first" });
       await now.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
-      // The queued prompts still count from 1.
-      expect(await page.locator(".acpmux-queued-mark:not([data-kind])").allInnerTexts()).toEqual(["1", "2"]);
+      // The queued prompts carry no number (Leo, 2026-10-21).
+      expect(await page.locator(".acpmux-queued-mark").count()).toBe(0);
       send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
       send(["mux", "dequeued", { promptId: "q-now" }]);
       send([
@@ -403,7 +416,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" },
       ]);
-      await receipt(page, "fix the space thing first", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "fix the space thing first", true).waitFor({ state: "attached", timeout: 10_000 });
       expect(await page.locator(".cv-user__steer").count()).toBe(0);
       await page.close();
     });
@@ -428,21 +441,21 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
       ]);
-      await receipt(page, "space thing", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "space thing", true).waitFor({ state: "attached", timeout: 10_000 });
       await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });
 
-    test("a steer reads delivered while the reply it went into streams, and read once the agent reads it", async () => {
+    test("a steer keeps queue controls while its reply streams and switches to hover actions once read", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
-      await receipt(page, "use the cache dir", false).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", false).waitFor({ state: "attached", timeout: 10_000 });
       // The rest of the reply it went into still streams: not read yet.
       await caughtUp(page, "remapped paths.");
-      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
+      expect(await footer(page, "use the cache dir", false).count()).toBe(1);
       // The agent's next message answers the steer.
       send(["in", "agent_message_chunk", say("Using the cache dir now.", "m2")]);
-      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
       expect(await page.locator(".cv-user", { hasText: "use the cache dir" }).innerText()).not.toContain("Steer");
       await page.close();
     });
@@ -451,11 +464,11 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
       send(["mux", "user_message", { text: "and keep the old path", promptId: "s-2", turnId: "turn-1", steer: true }]);
-      await receipt(page, "and keep the old path", false).waitFor({ state: "attached", timeout: 10_000 });
-      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
+      await footer(page, "and keep the old path", false).waitFor({ state: "attached", timeout: 10_000 });
+      expect(await footer(page, "use the cache dir", false).count()).toBe(1);
       send(["in", "agent_message_chunk", say("Using the cache dir and the old path.", "m2")]);
-      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
-      await receipt(page, "and keep the old path", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      await footer(page, "and keep the old path", true).waitFor({ state: "attached", timeout: 10_000 });
       await page.close();
     });
   });

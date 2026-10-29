@@ -19,6 +19,9 @@ Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--command
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, bundle_id  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
@@ -29,10 +32,14 @@ parser.add_argument("--commands", default="split_right,split_down,new_tab,new_te
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
+parser.add_argument("--hang-stacks", action="store_true",
+                    help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
+                         "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -42,7 +49,7 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
 COMMANDS = [c for c in opts.commands.split(",") if c]
 
@@ -150,6 +157,8 @@ def bench(phase, window):
             if command != "new_workspace" and not ensure_terminal():
                 sys.exit("no focused terminal: " + json.dumps(panes())[:800])
             before = len(panes())
+            if opts.hang_stacks:
+                rpc("debug.hangs", {"clear": True})
             result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
             result.update({"phase": phase, "run": index})
             rows.append(result)
@@ -158,9 +167,27 @@ def bench(phase, window):
                   f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
+            if opts.hang_stacks:
+                result["hangs"] = longest_stall(rpc("debug.hangs", {"limit": 8}) or {})
+                stall = result["hangs"].get("stack") or {}
+                print(f"  stalls={result['hangs'].get('count')} longest={stall.get('ms')} cpu={stall.get('cpu_ms')}", flush=True)
+                for frame in stall.get("frames") or []:
+                    print("    " + frame, flush=True)
             undo(command, window, before)
             time.sleep(0.3)
     return rows
+
+
+def longest_stall(hangs):
+    """debug.hangs: the stall count and the longest stall with its whole main-thread stack (bounded), as the
+    every-action sweep's `hang_summary`: a window-server wait shows its AppKit and app callers only there."""
+    records = [r for r in (hangs.get("records") or []) if r.get("kind", "stall") == "stall"] if isinstance(hangs, dict) else []
+    longest = max(records, key=lambda r: r.get("duration_ms") or 0, default=None)
+    out = {"count": hangs.get("count") if isinstance(hangs, dict) else None}
+    if longest:
+        out["stack"] = {"ms": round(longest.get("duration_ms") or 0, 2), "cpu_ms": round(longest.get("cpu_ms") or 0, 2),
+                        "frames": (longest.get("frames") or [])[:64]}
+    return out
 
 
 def workspace_count():
@@ -244,21 +271,23 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        ps = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout
-        if any(line.startswith(APP + "/Contents/MacOS/") for line in ps.splitlines()):
-            sys.exit(f"{SOCKET} exists and a {TAG} app runs; pick a fresh tag")
-        os.remove(SOCKET)
+    global app, SOCKET
+    # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
+    # socket nothing accepts on.
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
+    if opts.hang_stacks:
+        env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    try:
+        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = launcher.process
+    SOCKET = launcher.socket
+    CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []

@@ -14,13 +14,15 @@ public enum HomeConversationRoute: Hashable, Sendable {
     case chief(ChiefRoute.Place)
     case chiefComposing(ChiefRoute.Place)
     case agent(AgentChatDestination)
+    /// A conversation of the Mac's Home list other than the Mac Chief's.
+    case mac(MacConversationRoute)
 
     /// The navigation value to push for Chief, nil for an agent.
     public var chiefRoute: ChiefRoute? {
         switch self {
         case let .chief(place): ChiefRoute(place: place)
         case let .chiefComposing(place): ChiefRoute(focusesComposer: true, place: place)
-        case .agent: nil
+        case .agent, .mac: nil
         }
     }
 }
@@ -143,8 +145,10 @@ public final class ChiefComposer {
         guard let presenter = Self.topController() else { return false }
         let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity, place: place))
         let compose = ConversationComposeViewController(directory: directory)
-        compose.onOpenConversation = { [weak self, weak compose] creation, message in
-            guard let self else { return }
+        // The sheet holds this composer for as long as it is up: Home makes a
+        // new composer on each redraw, so a weak one was often gone by Send,
+        // which then closed the sheet and sent nothing.
+        compose.onOpenConversation = { [weak compose] creation, message in
             compose?.presentingViewController?.dismiss(animated: true)
             self.route(creation, message: message, directory: directory)
         }
@@ -181,7 +185,11 @@ public final class ChiefComposer {
         if !others.isEmpty, !message.text.isEmpty {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
-        open(.chief(place))
+        // Forwarded from inside this Chief's own conversation: send there,
+        // instead of pushing a second copy of the same screen over it.
+        if session.conversationID == nil || ChiefSession.conversationOnScreen != session.conversationID {
+            open(.chief(place))
+        }
         session.send(routed)
     }
 

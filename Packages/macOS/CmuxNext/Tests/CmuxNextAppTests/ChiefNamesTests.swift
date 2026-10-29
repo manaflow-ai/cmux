@@ -38,6 +38,10 @@ import Testing
         #expect("gpt-5-2025-08-07".chiefModelName == "GPT 5")
         // Three numbers that are no date (month 13) stay.
         #expect("foo-2024-13-01".chiefModelName == "Foo 2024 13.01")
+        // Nor eight digits with no real month or day.
+        #expect("foo-20241301".chiefModelName == "Foo 20241301")
+        #expect("foo-20240132".chiefModelName == "Foo 20240132")
+        #expect("foo-20240131".chiefModelName == "Foo")
         #expect("opus".chiefModelName == "Opus")
         #expect("".chiefModelName == "")
     }
@@ -52,6 +56,21 @@ import Testing
         #expect(HomeChiefModelMenu.name(of: "claude-opus-3-7", in: models) == "Claude Opus 3.7")
         // acpmux named it by its id: still a name.
         #expect(HomeChiefModelMenu.name(of: "kimi-k2", in: [.init(id: "kimi-k2", name: "kimi-k2")]) == "Kimi K2")
+    }
+
+    /// A plan model acpmux named by its id reads by a name too; Claude Code's `opusplan` keeps its title.
+    @Test func aPlanNamedByItsIdShowsByName() throws {
+        let models = [ChiefEngineReport.Model(id: "foo-plan", name: "foo-plan"), ChiefEngineReport.Model(id: "opusplan", name: "opusplan")]
+        let items = HomeChiefModelMenu(models: models, chosen: nil, recents: []).items
+        #expect(try #require(items.first { $0.value == "foo-plan" }).title == "Foo Plan")
+        #expect(try #require(items.first { $0.value == "opusplan" }).title == HomeEngineStrings.opusPlanTitle)
+        #expect(!items.map(\.title).contains("foo-plan"))
+    }
+
+    /// A plan row's tooltip keeps the harness's name for it and the id it writes.
+    @Test func aPlanRowsTooltipNamesItsId() throws {
+        let items = HomeChiefModelMenu(models: [.init(id: "opusplan", name: "Opus Plan Mode")], chosen: nil, recents: []).items
+        #expect(try #require(items.first { $0.value == "opusplan" }).detail == "Opus Plan Mode\nopusplan")
     }
 
     /// A chosen model the harness does not offer (set from the CLI) shows by a name, with its id
@@ -72,6 +91,13 @@ import Testing
         #expect(titles.defaultHarness == String(format: HomeEngineStrings.defaultNamedFormat, "\(ChiefBackend.claude.title) (SR2 Pipe)"))
     }
 
+    /// A brain that says its harness is acpmux's own "default" reads as plain Default.
+    @Test func aDefaultHarnessReadsAsPlainDefault() {
+        var snapshot = HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, turns: [])
+        snapshot.effective = ChiefEngineReport.Engine(harness: "default", model: nil, effort: nil)
+        #expect(HomeChiefEngineTitles(snapshot).defaultHarness == HomeEngineStrings.defaultValue)
+    }
+
     /// What Default runs, offered by a row acpmux named by its id, reads by a name, not the id.
     @Test func defaultNamesAnOfferedModelNamedByItsIdByName() {
         var snapshot = HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, turns: [])
@@ -79,6 +105,33 @@ import Testing
         snapshot.models = [ChiefEngineReport.Model(id: "kimi-k2", name: "kimi-k2")]
         let titles = HomeChiefEngineTitles(snapshot)
         #expect(titles.defaultModel == String(format: HomeEngineStrings.defaultNamedFormat, "Kimi K2"))
+    }
+
+    /// A model row's tooltip is the id a pick writes, after the alias and its release share one
+    /// row, beside the catalog's description when there is one.
+    @Test func aModelRowsTooltipIsTheIdItWrites() throws {
+        let models = HomeChiefModelMenuTests.claudeModels
+        let alias = try #require(HomeChiefModelMenu(models: models, chosen: nil, recents: []).items.first { $0.title == "Opus 5.5" })
+        #expect(alias.value == "opus")
+        #expect(alias.detail == "opus")
+        let pinned = try #require(HomeChiefModelMenu(models: models, chosen: "claude-opus-5-5", recents: []).items.first { $0.title == "Opus 5.5" })
+        #expect(pinned.value == "claude-opus-5-5")
+        #expect(pinned.detail == "claude-opus-5-5", "the release id, not the alias the row started from")
+        let described = [ChiefEngineReport.Model(id: "kimi-k2", name: "Kimi K2", description: "Moonshot's open model")]
+        let row = try #require(HomeChiefModelMenu(models: described, chosen: nil, recents: []).items.first)
+        #expect(row.detail == "Moonshot's open model\nkimi-k2")
+    }
+
+    /// Two ids that read as one name (`claude-cr`, `claude-cr-`) stay two items, and the chosen one is selected.
+    @Test func twoIdsWithOneNameStayTwoItems() {
+        let home = FileManager.default.temporaryDirectory
+        let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        let name = "claude-cr".chiefHarnessName
+        view.fill(button, [(value: "claude-cr", title: name)], current: "claude-cr-", defaultTitle: "Default", title: { _ in name })
+        #expect(button.numberOfItems == 3)
+        #expect(button.selectedItem?.representedObject as? String == "claude-cr-")
+        #expect(button.selectedItem?.toolTip == "claude-cr-")
     }
 
     /// The Backend popup shows a chosen route by name and keeps its id in the item's tooltip.

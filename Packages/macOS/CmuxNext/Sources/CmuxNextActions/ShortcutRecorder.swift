@@ -51,12 +51,15 @@ public import AppKit
     public func handle(_ shortcut: Shortcut, keyCode: UInt16, event: NSEvent? = nil) -> Bool {
         guard var state = readState() else { return false }
         let bare = shortcut.modifiers.isEmpty
+        // Return or Enter answers a pending prompt; any other Return chord is recorded.
+        // (A `where` after `case 36, 76` would guard only 76.)
+        let answers = state.pending != nil && (bare || shortcut.modifiers == .option)
         switch keyCode {
         case 53 where bare:
             finish(notice: nil)
         case 51, 117:
             if bare { choose(.remove) } else if shortcut.modifiers == .shift { choose(.restoreDefault) } else { record(shortcut, event: event, into: &state) }
-        case 36, 76 where state.pending != nil && (bare || shortcut.modifiers == .option):
+        case 36 where answers, 76 where answers:
             let pending = state.pending
             let primary: ShortcutRecorderOption = pending?.owners.isEmpty == true ? .save : (pending?.canReplace == true ? .replace : .keepBoth)
             choose(shortcut.modifiers == .option ? .keepBoth : primary)
@@ -83,10 +86,10 @@ public import AppKit
             let unbind = option == .keepBoth ? [] : pending.owners
             switch pending {
             case .set(let shortcut, _, _, _):
-                let changes = [ShortcutChange(state.actionID, shortcut)] + unbind.map { ShortcutChange($0, nil) }
+                let changes = [ShortcutChange(state.actionID, shortcut)] + unbind.map { unbinding($0, from: shortcut) }
                 apply(changes, notice: savedNotice(shortcut, removedFrom: unbind))
-            case .restoreDefault:
-                commitRestore(state.actionID, unbinding: unbind)
+            case .restoreDefault(let shortcut, _, _, _):
+                commitRestore(state.actionID, unbinding: unbind, from: shortcut)
             }
         }
     }
@@ -134,17 +137,37 @@ public import AppKit
         }
     }
 
-    private func commitRestore(_ id: ActionID, unbinding others: [ActionID]) {
+    private func commitRestore(_ id: ActionID, unbinding others: [ActionID], from shortcut: Shortcut? = nil) {
         registry.removeShortcutOverride(for: id)
-        for other in others { registry.setShortcutOverride(nil, for: other) }
-        editor?.restoreDefault(id, unbinding: others)
+        let changes = others.map { other in shortcut.map { unbinding(other, from: $0) } ?? ShortcutChange(other, nil) }
+        let fewer = changes.filter { $0.keys != nil }
+        for change in changes { set(change) }
+        editor?.restoreDefault(id, unbinding: changes.filter { $0.keys == nil }.map(\.id))
+        if !fewer.isEmpty { editor?.save(fewer) }
         finish(notice: ShortcutRecorderStrings.defaultRestored)
+    }
+
+    /// Taking `shortcut` from `owner`: only that key when it is one of
+    /// several cmux.json gives `owner` (`{"any": [...]}`), else every key.
+    private func unbinding(_ owner: ActionID, from shortcut: Shortcut) -> ShortcutChange {
+        guard let keys = registry.configuredShortcuts(for: owner), keys.count > 1, keys.contains([shortcut]) else {
+            return ShortcutChange(owner, nil)
+        }
+        return ShortcutChange(owner, keys: keys.filter { $0 != [shortcut] })
+    }
+
+    private func set(_ change: ShortcutChange) {
+        if let keys = change.keys {
+            registry.setConfiguredShortcuts(keys, for: change.id)
+        } else {
+            registry.setShortcutOverride(change.shortcut, for: change.id)
+        }
     }
 
     /// Updates the registry at once (rows and menus change now; the file
     /// watcher confirms), then writes cmux.json.
     private func apply(_ changes: [ShortcutChange], notice: String) {
-        for change in changes { registry.setShortcutOverride(change.shortcut, for: change.id) }
+        for change in changes { set(change) }
         editor?.save(changes)
         finish(notice: notice)
     }

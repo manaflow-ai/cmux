@@ -3,11 +3,11 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { formatDuration } from "./turns";
-import { isQuietThought, thoughtDuration } from "./thoughts";
+import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 
-export { thoughtDuration };
+export { thoughtDuration, thoughtParts };
 
 /// With the Debug choice "viewport" and the live viewport off, a done thought folds once it is
 /// taller than the transcript's viewport, and never under this (20 of the tool rows' 20px lines).
@@ -62,14 +62,36 @@ export function thoughtPreview(text: string): string {
     .trim();
 }
 
+/// A thought's text as drawn: its headings as muted titles (thoughtParts), one wrapper so the live
+/// viewport's column keeps the parts in order.
+function ThoughtText({ text }: { text: string }) {
+  return (
+    <span className="cv-thought__parts">
+      {thoughtParts(text).map((part, index) =>
+        "title" in part ? (
+          <span key={index} className="cv-thought__title">
+            {part.title}
+          </span>
+        ) : (
+          <span key={index} className="cv-thought__part">
+            {part.text}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
 /// A thought (the agent's reasoning) on its row. Once done it folds to one quiet line that opens to
 /// its text, "Thought for 12s" with none of the text inline (an undated thought, or one under a
 /// second, reads "Thought"), as Claude Desktop and Codex draw it (Leo 2026-10-20); a quiet one
-/// (thoughts.ts `isQuietThought`) draws nothing. While it streams it shows in full after a muted
-/// "Thought", wrapped on the tool rows' rhythm; one taller than THOUGHT_LIVE_PX reads "Thinking" and
-/// holds a fixed viewport that keeps its newest line in view, as Codex's reasoning trace does
-/// (Debug toggle `liveThoughtViewport`; off, it shows in full). The Debug choice
-/// `thoughtFoldThreshold` "viewport" or "codex" folds only a long one, the toggle
+/// (thoughts.ts `isQuietThought`) draws nothing. While it streams it reads "Thinking" on its own
+/// line with the text under it, never after the label as one sentence (Leo 2026-10-21: "Thought I
+/// am here" read weird); one taller than THOUGHT_LIVE_PX holds a fixed viewport that keeps its
+/// newest line in view, as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off,
+/// it shows in full). Shown in full once done (a Debug choice below), it reads "Thought for 12s"
+/// over its text. Headings in the text (Codex's `**Heading**`) draw as titles (thoughtParts). The
+/// Debug choice `thoughtFoldThreshold` "viewport" or "codex" folds only a long one, the toggle
 /// `foldLongThoughts` off folds none, and the choice `thoughtHeader` "preview" reads "Thought" and
 /// its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
 /// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
@@ -96,11 +118,18 @@ export function ThoughtRow({
   const clipped = liveViewport && tall;
   const open = choice ?? !folds;
   // Only the reader's toggle plays the fold; the automatic fold, and Find opening it, snap.
-  const fold = useFold(open, () => toggled.current);
   const choose = (next: boolean) => {
     setChoice(next);
     if (id) choices.set(id, next);
   };
+  const fold = useAnchoredCollapse({
+    open,
+    onOpenChange: (next) => {
+      toggled.current = true;
+      choose(next);
+    },
+    animates: () => toggled.current,
+  });
   // Find in Chat opens a folded thought that holds its match.
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -128,25 +157,23 @@ export function ThoughtRow({
     toggled.current = false;
   }, [open]);
   if (!text || (!streaming && isQuietThought(item))) return null;
+  const done = (ms: number | undefined) =>
+    ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
+  // In full: the label on its own line ("Thinking" while it streams, "Thought for 12s" once done),
+  // the text under it at the opened fold's indent, so the two never read as one sentence.
   if (!folds)
     return (
-      <div className={clipped ? "cv-tool cv-thought is-live" : "cv-tool cv-thought"}>
-        <span className={clipped ? "cv-thought__label cv-thinking" : "cv-thought__label"} data-find-skip>
-          {clipped ? t("thinking") : t("tools.thought")}
+      <div className={clipped ? "cv-tool cv-thought is-full is-live" : "cv-tool cv-thought is-full"}>
+        <span className={streaming ? "cv-thought__label cv-thinking" : "cv-thought__label"} data-find-skip>
+          {streaming ? t("thinking") : done(thoughtDuration(item))}
         </span>
         <span ref={full} className="cv-thought__text selectable" dir="auto">
-          {text}
+          <ThoughtText text={text} />
         </span>
       </div>
     );
   const header = thoughtLayout.header();
-  const ms = header === "duration" ? thoughtDuration(item) : undefined;
-  const label =
-    ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
-  const toggle = () => {
-    toggled.current = true;
-    choose(!open);
-  };
+  const label = done(header === "duration" ? thoughtDuration(item) : undefined);
   return (
     <>
       <button
@@ -154,7 +181,8 @@ export function ThoughtRow({
         className="cv-tool is-toggle cv-thought"
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
-        onClick={toggle}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-thought__label" data-find-skip>
           {label}
@@ -171,9 +199,9 @@ export function ThoughtRow({
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div id={bodyId} className="cv-thought__text cv-thought__body selectable" dir="auto">
-            {text}
+            <ThoughtText text={text} />
           </div>
         </div>
       )}

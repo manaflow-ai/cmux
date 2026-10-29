@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
+use cmux_json::JsonSet as _;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
 use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
 
@@ -83,6 +84,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            api_revision: Mutex::new(None),
             disconnect_state: disconnect::DisconnectCell::default(),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -132,6 +134,16 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
+                let Some(session) = reader_session.upgrade() else { break None };
+                let translated = session.translate_incoming_line(&message);
+                zeroize_string(&mut message);
+                let mut message = match translated {
+                    Ok(message) => message,
+                    Err(error) => {
+                        let reason = format!("remote API revision translation failed: {error}");
+                        break Some(reason);
+                    }
+                };
                 let value = match serde_json::from_str::<Value>(&message) {
                     Ok(value) => value,
                     Err(error) => {
@@ -141,7 +153,6 @@ impl RemoteSession {
                     }
                 };
                 zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
             // Connection lost: retain the reason before telling the app to quit.
@@ -166,6 +177,8 @@ impl RemoteSession {
         // command; an older server ignores the flag.
         let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
+        let api_revision = api_revision::RemoteApiRevision::from_identity(&ident)?;
+        self.install_api_revision(api_revision);
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         // A daemon that reports API revisions learns ours, our release and
@@ -173,12 +186,18 @@ impl RemoteSession {
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
             use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
-            client_info["api_revision"] = json!(cmux_tui_core::server::api_revision_range().0);
-            client_info["version"] = json!(DISTRIBUTION_VERSION);
-            client_info["install"] = json!(InstallChannel::current().as_str());
+            client_info.set(
+                "api_revision",
+                json!(
+                    self.api_revision()
+                        .unwrap_or_else(|| cmux_tui_core::server::api_revision_range().0)
+                ),
+            );
+            client_info.set("version", json!(DISTRIBUTION_VERSION));
+            client_info.set("install", json!(InstallChannel::current().as_str()));
         }
         if let Some(hostname) = local_hostname() {
-            client_info["name"] = json!(hostname);
+            client_info.set("name", json!(hostname));
         }
         let mut negotiated = Vec::new();
         if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
@@ -208,9 +227,9 @@ impl RemoteSession {
             // One cmux-tui install per host, so the host name is also the
             // stable device id that keeps two hosts' priority keys apart.
             let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
-            client_info["device_kind"] = json!("tui");
-            client_info["device_name"] = json!(host);
-            client_info["device_id"] = json!(host);
+            client_info.set("device_kind", json!("tui"));
+            client_info.set("device_name", json!(host));
+            client_info.set("device_id", json!(host));
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
@@ -228,7 +247,7 @@ impl RemoteSession {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
         if !negotiated.is_empty() {
-            client_info["capabilities"] = json!(negotiated);
+            client_info.set("capabilities", json!(negotiated));
         }
         self.request(client_info)?;
         if subscribe {

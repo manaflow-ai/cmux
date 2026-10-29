@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-21, on his nightly: "WHY IS THIS SOLID COLOR AGAIN". The What's New popover beside
 /// the Update Ready card, the session hover cards and the tab cards all show in the app's one hover
@@ -84,6 +85,27 @@ import Testing
         panel.glass.materialOverride = nil
     }
 
+    /// Every overlay made the shared way (the palette, popovers, menus, find and prompt bars) is the
+    /// glass alone (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."): the
+    /// card fill is opt-in, and no fill over the glass is denser than the shared glass.
+    @Test(arguments: Look.allCases)
+    func everyOverlayIsGlassByDefault(look: Look) throws {
+        let scope = try scope(look)
+        let ceiling = Self.sharedGlassCeiling(in: scope)
+        for radius in [Metrics.panelCornerRadius, PopupStyle.standard.cornerRadius, 6] {
+            let panel = Glass.makeOverlayPanel(content: NSView(), cornerRadius: radius)
+            scope.root(panel)
+            #expect(!panel.isCard, "radius \(radius): an overlay lays the opaque card fill on its glass")
+            for material in [OverlayMaterial.liquidGlass, .vibrancy] {
+                panel.materialOverride = material
+                panel.applyTheme()
+                for (name, alpha) in Self.fills(over: panel) {
+                    #expect(alpha <= ceiling, "\(look) \(material) radius \(radius): \(name) at \(alpha)")
+                }
+            }
+        }
+    }
+
     /// The hover card gallery draws the card the way a hover shows it.
     @Test func theGalleryCardIsTheSameGlass() throws {
         let host = HoverCardGalleryHost(body: NSView(), recolor: {})
@@ -111,7 +133,7 @@ import Testing
     @Test(arguments: Look.allCases)
     func theCardFillTheHoverCardDropsIsSolid(look: Look) throws {
         let scope = try scope(look)
-        let card = Glass.makeOverlayPanel(cornerRadius: HoverCardPanel.cornerRadius)
+        let card = Glass.makeOverlayPanel(cornerRadius: HoverCardPanel.cornerRadius, cardFill: true)
         scope.root(card)
         #expect(card.isCard)
         let ceiling = Self.sharedGlassCeiling(in: scope)

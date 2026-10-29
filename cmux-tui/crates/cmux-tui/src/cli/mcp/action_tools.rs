@@ -45,6 +45,10 @@ pub(super) const EXCLUDED_APP_METHODS: &[(&str, &str)] = &[
     ("events.stream", "A stream; a bounded events read is a later phase."),
     ("history.list", "The user's browsing and command history; not an operation or a CLI action."),
     ("bookmark.list", "The user's bookmarks; not an operation or a CLI action."),
+    (
+        "bookmark.importSources",
+        "The other browsers' profiles on this Mac a bookmark import would read; not an operation or a CLI action.",
+    ),
     ("accounts.list", "Provider account records; not an operation or a CLI action."),
     (
         "browser.page.*",
@@ -171,13 +175,18 @@ impl ActionTool {
         })
     }
 
+    /// The action's own prose (`description` in `action.list`) when the app
+    /// gives one, then the title, ids and run contract every action tool has.
     fn description(&self) -> String {
         let title = self.descriptor["title"].as_str().unwrap_or(&self.id).trim_end_matches('…');
-        let mut text = format!(
+        let own =
+            self.descriptor["description"].as_str().map(str::trim).filter(|own| !own.is_empty());
+        let mut text = own.map(|own| format!("{own}\n\n")).unwrap_or_default();
+        text.push_str(&format!(
             "{title}. cmux app action `{}` (CLI: `cmux {}`). Runs in the cmux app and waits \
              until its work is done.",
             self.id, self.cli_name
-        );
+        ));
         if self.descriptor["focuses"] == Value::Bool(true) {
             text.push_str(" Its purpose is focus: it changes the app's focus or selection.");
         } else {
@@ -357,3 +366,7 @@ pub(super) fn window_list_tool() -> Value {
         },
     })
 }
+
+#[cfg(test)]
+#[path = "tests/action_descriptions.rs"]
+mod description_tests;

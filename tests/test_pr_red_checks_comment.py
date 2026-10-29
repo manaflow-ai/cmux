@@ -28,8 +28,9 @@ def status(**sections):
 
 
 class FakeGitHub:
-    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None):
-        self.check_runs, self.writes = check_runs, []
+    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None, pr_head="a" * 40):
+        self.check_runs, self.writes, self.gets, self.env = check_runs, [], [], env or {}
+        self.pr_head = pr_head  # the pull request's head now (HEAD_SHA is "a" * 40)
         self.base_runs, self.steps, self.annotations = base_runs, steps or {}, annotations or {}
         self.comments = {c["id"]: dict(c, user=c.get("user", BOT)) for c in comments}
         fake = self
@@ -47,6 +48,7 @@ class FakeGitHub:
                 self.wfile.write(body)
 
             def do_GET(self):
+                fake.gets.append(self.path)
                 if "/annotations" in self.path:
                     rid = int(self.path.split("/check-runs/")[1].split("/")[0])
                     return self.reply(fake.annotations.get(rid, []))
@@ -58,6 +60,8 @@ class FakeGitHub:
                     return self.reply({"total_count": len(runs), "check_runs": runs})
                 if self.path.startswith("/repos/o/r/issues/7/comments"):
                     return self.reply(sorted(fake.comments.values(), key=lambda c: c["id"]))
+                if self.path == "/repos/o/r/pulls/7":
+                    return self.reply({"number": 7, "head": {"sha": fake.pr_head}})
                 self.send_error(404)
 
             def body(self):
@@ -89,8 +93,10 @@ class FakeGitHub:
         env = dict(os.environ, GITHUB_API_URL=f"http://127.0.0.1:{self.server.server_port}", GITHUB_REPOSITORY="o/r",
                    GITHUB_TOKEN="t", PR_NUMBER="7", HEAD_SHA="a" * 40, PR_STATUS_SETTLE_SECONDS="0.01")
         env.pop("BASE_SHA", None)
+        env.pop("OWN_CHECKS_GREEN", None)
         if self.base_runs is not None:
             env["BASE_SHA"] = "b" * 40
+        env.update(self.env)
         out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
@@ -214,6 +220,65 @@ def test_the_cmux_next_checks_job_is_tracked():
     assert writes and f"red: {name};" in pr_status.parse(writes[0][2])["checks"], writes
 
 
+
+# OWN_CHECKS_GREEN: the caller's tracked jobs passed. Three workflows call this on every push; with
+# no red line there is nothing for a green caller to change, so it reads no check runs.
+GREEN = {"OWN_CHECKS_GREEN": "true"}
+
+
+def test_a_green_caller_with_no_red_line_reads_only_the_comments():
+    fake = FakeGitHub([run("web / react-apps-check", "success")], [], env=GREEN)
+    assert fake.run() == []
+    assert fake.gets and all("/issues/7/comments" in path for path in fake.gets), fake.gets
+
+
+def test_a_green_caller_still_turns_a_red_line_green():
+    fake = FakeGitHub([run("web / react-apps-check", "success")], [{"id": 5, "body": status(checks=RED_LINE)}], env=GREEN)
+    assert fake.run() == [("PATCH", "/repos/o/r/issues/comments/5", status(checks="web and size checks: green"))]
+    assert any("/check-runs" in path for path in fake.gets)
+
+
+def test_a_green_caller_keeps_another_workflows_red():
+    fake = FakeGitHub([run("cmux-next crash ratchet", "failure")],
+                      [{"id": 5, "body": status(checks="red: cmux-next crash ratchet; do not merge until green; see lane-rules")}],
+                      env=GREEN)
+    assert fake.run() == []
+    assert any("/check-runs" in path for path in fake.gets)
+
+
+def test_the_callers_pass_whether_their_own_checks_passed():
+    import yaml
+    reusable = yaml.safe_load((ROOT / ".github/workflows/pr-red-checks-comment.yml").read_text())
+    trigger = reusable.get("on", reusable.get(True))
+    assert "own_checks_green" in trigger["workflow_call"]["inputs"]
+    steps = reusable["jobs"]["comment"]["steps"]
+    env = next(s for s in steps if s.get("name") == "Update the red checks line")["env"]
+    assert env["OWN_CHECKS_GREEN"] == "${{ inputs.own_checks_green }}"
+    for workflow in ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml"):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        assert job["with"]["own_checks_green"] == (
+            "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
+
+def test_a_call_for_a_superseded_head_writes_nothing():
+    # A late call for an old head: its red is not the pull request's, and the current head's line stays.
+    fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}],
+                      pr_head="c" * 40)
+    assert fake.run() == []
+    assert "/repos/o/r/pulls/7" in fake.gets
+
+
+def test_a_call_for_the_current_head_still_writes_its_red():
+    fake = FakeGitHub([run("web / react-apps-check", "failure")], [])
+    writes = fake.run()
+    assert len(writes) == 1 and RED_LINE in writes[0][2]
+
+
+def test_nothing_to_change_reads_no_head():
+    fake = FakeGitHub([run("web / react-apps-check", "success")], [])
+    assert fake.run() == []
+    assert "/repos/o/r/pulls/7" not in fake.gets
+
+
 if __name__ == "__main__":
     import traceback
     bad = 0
@@ -227,3 +292,4 @@ if __name__ == "__main__":
                 print("FAIL", _name)
                 traceback.print_exc(limit=1)
     sys.exit(1 if bad else 0)
+

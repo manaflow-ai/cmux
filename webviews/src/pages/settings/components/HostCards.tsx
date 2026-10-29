@@ -5,7 +5,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
-import { rowsByKey, type SchemaRow } from "../schema";
+import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
@@ -37,24 +37,6 @@ const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").fil
 /** How long the pointer or keyboard focus rests on a tile before the window shows it: sweeping
  * or tabbing across the grid previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
-
-/** Over a picture the window caps its tint at 95%, so the art always shows: the slider stops there. */
-const ART_MAX_OPACITY = 0.95;
-const overArtRows = new WeakMap<SchemaRow, SchemaRow>();
-/**
- * The Opacity row over a picture: its whole travel, stopping at 95%. There is no legibility floor
- * (Leo, 10-20): readability comes from Opacity and Material, the same over every picture.
- */
-function overArt(row: SchemaRow): SchemaRow {
-  const range = row.range;
-  if (!range) return row;
-  let capped = overArtRows.get(row);
-  if (!capped) {
-    capped = { ...row, range: { ...range, max: Math.min(range.max, ART_MAX_OPACITY) } };
-    overArtRows.set(row, capped);
-  }
-  return capped;
-}
 
 /** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
  * in place of the webview's broken-image mark. */
@@ -222,7 +204,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <span className="backdrop-frame">
             {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
               the one segment, so a system: or file: id with slashes stays one segment. */}
-            <BackdropThumb src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            {/* An aerial macOS has not downloaded has no frame to show yet: an empty tile. */}
+            {pending && choice?.video ? (
+              <span className="backdrop-thumb backdrop-none" />
+            ) : (
+              <BackdropThumb src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            )}
             {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
           </span>
         )}
@@ -345,12 +332,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         {/* How often the shuffle turns: the app's, so only for All Workspaces. Off without a shuffle,
           but still here, so search and a deep link find it. */}
         {!own && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />}
-        {!own && opacity && (
-          <SettingRow
-            row={current === "none" ? opacity : overArt(opacity)}
-            focused={focus === BACKGROUND_OPACITY_KEY}
-          />
-        )}
+        {!own && opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
         {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
           through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
         {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
@@ -378,7 +360,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
               ) : choice.collection === YOURS ? (
                 <div className="backdrop-own" key={choice.id}>
-                  {tile(choice.id, choice.title, choice.attribution, choice)}
+                  {tile(choice.id, choice.title, choice.attribution, {
+                    video: choice.video,
+                    pending: choice.downloaded === false,
+                  })}
                   {/* The background in use stays: removing it would leave the window blank. */}
                   <button
                     type="button"
@@ -397,7 +382,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   </button>
                 </div>
               ) : (
-                tile(choice.id, choice.title, choice.attribution, choice)
+                tile(choice.id, choice.title, choice.attribution, {
+                  video: choice.video,
+                  pending: choice.downloaded === false,
+                })
               ),
             )}
           </div>

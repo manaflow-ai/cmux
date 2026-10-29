@@ -11,8 +11,12 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case tab(WorkspaceID, TabID)
     /// Drop zone shown for an empty section while dragging (pinned area).
     case emptySection(SectionID)
+    /// The quiet row under an open group with no members (`SidebarLayout+EmptyGroup`): a drop over it goes into the group.
+    case emptyGroup(GroupID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// Group by Status's header over one status section's rows (`SidebarLayout+Status`).
+    case status(SidebarStatusSection)
     /// A document item listed as a row (`SidebarNode.item`): its item id.
     case item(String)
     /// A document section's items in its own arrangement (tiles, a grid, a
@@ -20,6 +24,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case block(String)
     /// The "Done (N)" row that holds a list's workspaces marked Done (`SidebarLayout+DoneFold`).
     case doneFold(SidebarDoneFoldID)
+    /// The "Show N more" row past a long list's first rows (`sidebar.groupRowLimit`), "Show fewer" once opened.
+    case showMore(SidebarDoneFoldID)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).
@@ -58,7 +64,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// Group levels the row sits in (remote-groups-DESIGN.md slice 2): 0 at the top level, a group
-    /// header its group's level, a member one more. The list indents each level by one gutter.
+    /// header its group's level, a member one more. The list indents each level below the first by one
+    /// gutter (`SidebarStyle.groupOffset`).
     public var depth: Int = 0
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil

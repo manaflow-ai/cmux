@@ -433,13 +433,6 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WebAuth/WebAuthSessionWindows.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerMouseCatchers.swift",
    "class": "swift.unowned",
    "count": 1,
@@ -620,6 +613,13 @@
    "count": 2,
    "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
    "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift",
+   "class": "swift.fatal_error",
+   "count": 1,
+   "reason": "Debug-only trap of the main-thread blocking detector (CMUX_BLOCKING_TRAP=1 and its tests); compiled out of bench, Nightly and Release builds, and never for a contended Mutex wait",
+   "reviewer": "independent review 4 (cmux-1c), 2026-10-24"
   }
  ]
 }

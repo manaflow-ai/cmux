@@ -2,6 +2,7 @@
 //! prompt of this daemon's session, or a peer's (`hub/person.rs` (c)).
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::store::EventRecord;
 
 /// The `_acpmux/permission_pending` notification. The record's
@@ -10,9 +11,9 @@ use crate::store::EventRecord;
 /// (`hub/person.rs`, cx-0q7o).
 pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
     let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["seq"] = json!(rec.seq);
-    p["via"] = Value::String(via.to_owned());
+    p.set("sessionId", Value::String(session_id.to_owned()));
+    p.set("seq", json!(rec.seq));
+    p.set("via", Value::String(via.to_owned()));
     p
 }
 
@@ -22,9 +23,9 @@ pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str)
 /// session it was checked for (`hub/peers.rs`), with which peer asks.
 pub(super) fn peer_permission_pending(session_id: &str, rec: &EventRecord, peer: &str) -> Value {
     let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["peer"] = Value::String(peer.to_owned());
-    p["via"] = Value::String("peer".into());
+    p.set("sessionId", Value::String(session_id.to_owned()));
+    p.set("peer", Value::String(peer.to_owned()));
+    p.set("via", Value::String("peer".into()));
     p
 }
 

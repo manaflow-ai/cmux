@@ -2,7 +2,7 @@ import CmuxHomeCore
 import CmuxNextDesign
 import SwiftUI
 
-/// The group info sheet (styled as the Home page's other sheets: the theme's popup surface, a
+/// The group info sheet (styled as the Home page's other sheets: the sheet's glass, a
 /// title, the content, a status line, then the buttons). A group shows its name (editable),
 /// its members with Remove, Add People…, Hide Alerts and Leave Group…; a DM shows the person and
 /// Hide Alerts.
@@ -18,7 +18,7 @@ struct HomeGroupInfoView: View {
                 .font(Font(Typography.title))
                 .foregroundStyle(colors.primary)
                 .accessibilityAddTraits(.isHeader)
-            if model.info.isGroup {
+            if model.info.canRename {
                 nameRow
             } else {
                 Text(model.info.displayTitle)
@@ -26,7 +26,7 @@ struct HomeGroupInfoView: View {
                     .foregroundStyle(colors.primary)
             }
             members
-            if model.info.isGroup { addPeople }
+            if model.info.canAddPeople { addPeople }
             if let replies = model.info.chiefReplies { chiefRepliesRow(replies) }
             if model.info.canMute {
                 Toggle(HomeConversationStrings.infoHideAlerts, isOn: Binding(get: { model.info.muted }, set: { model.setMuted($0) }))
@@ -52,7 +52,6 @@ struct HomeGroupInfoView: View {
         }
         .padding(Metrics.space6)
         .frame(width: Self.width, alignment: .leading)
-        .background(colors.background)
         .tint(colors.accent)
     }
 
@@ -81,6 +80,7 @@ struct HomeGroupInfoView: View {
                         memberRow(member)
                     }
                 }
+                .thinScrollers()
             }
             .frame(maxHeight: 200)
             .fixedSize(horizontal: false, vertical: fits)
@@ -108,9 +108,10 @@ struct HomeGroupInfoView: View {
         }
     }
 
-    /// One member row; Remove only for another member of a group while no action runs.
+    /// One member row; Remove only for another member of a group (a person I shared my Chief with)
+    /// while no action runs.
     private func memberRow(_ member: HomeGroupMember) -> HomeGroupMemberRow {
-        guard model.info.isGroup, !member.isMe, !model.isRunning else {
+        guard model.info.canRename || (model.info.canAddPeople && !member.isAgent), !member.isMe, !model.isRunning else {
             return HomeGroupMemberRow(member: member, colors: colors, onRemove: nil)
         }
         let current: HomeGroupInfoModel = model
@@ -137,6 +138,7 @@ struct HomeGroupInfoView: View {
                                 contactRow(contact, isChosen: chosen.contains(contact.id))
                             }
                         }
+                        .thinScrollers()
                     }
                     .frame(maxHeight: 160)
                 }

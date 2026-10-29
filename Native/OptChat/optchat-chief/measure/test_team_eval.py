@@ -371,7 +371,7 @@ class CampaignOutcomeTests(unittest.TestCase):
         os.chmod(fake, 0o755)
         opts = argparse.Namespace(ledger=os.path.join(d, "l.json"), cap_usd=100, out=os.path.join(d, "out"), reps=1,
                                   task=["t"], arm=["A"], name="x", run_budget=25, margin=12, ref="r", base_url="u",
-                                  minutes=5, parallel=1, worker=[], max_concurrent=4, headroom_cmd="",
+                                  minutes=5, parallel=1, worker=[], label=[], max_concurrent=4, headroom_cmd="",
                                   min_headroom=0.25, headroom_window=20, headroom_max_age=30, headroom_sleep=180)
         vars(opts).update(more)
         self.calls = os.path.join(d, "calls")
@@ -416,6 +416,10 @@ class CampaignOutcomeTests(unittest.TestCase):
         seen = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".73317Z"
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1, worker=["m1"], workers={"m1": {"last_seen": seen}})
         self.assertIn("--target-worker m1", read(self.calls))
+
+    def test_each_step_carries_the_extra_labels(self):
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1, worker=["m1"], label=["measure", "bench"])
+        self.assertIn("--label=measure --label=bench --target-worker m1", read(self.calls))
 
     def test_no_worker_means_no_target(self):
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1)

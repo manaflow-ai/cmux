@@ -7,7 +7,7 @@ import os
 extension DaemonService {
     /// The daemon's project store; nil before it connects or when it predates `project-list-v1`.
     public var projectStore: ProjectStateClient? {
-        guard let connection, supports(DaemonCapabilities.shared.projectList) else { return nil }
+        guard let connection, supports(DaemonCapability.projectList.rawValue) else { return nil }
         return ProjectStateClient(connection: connection)
     }
 }

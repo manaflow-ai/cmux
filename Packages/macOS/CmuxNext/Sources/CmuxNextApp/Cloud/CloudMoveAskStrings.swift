@@ -26,7 +26,7 @@ enum CloudMoveAskStrings {
         String(localized: "cloud.moveAsk.onlyOwnChat", defaultValue: "An agent can ask to move only its own chat.", table: "Cloud", bundle: .module)
     }
     static var noPage: String {
-        String(localized: "cloud.moveAsk.noPage", defaultValue: "Couldn't show the question in the chat, so nothing moved.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.noPage", defaultValue: "Couldn't show the question in the chat, so nothing moved. Ask the person to run Move to Cloud on this chat.", table: "Cloud", bundle: .module)
     }
     static var noMove: String {
         String(localized: "cloud.moveAsk.noMove", defaultValue: "Move to Cloud isn't available for this chat right now.", table: "Cloud", bundle: .module)

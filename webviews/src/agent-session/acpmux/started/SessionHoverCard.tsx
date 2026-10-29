@@ -133,7 +133,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
       instant={intent.instant}
       interactive
       ariaLabel={hover.store.get(sessionId)?.title}
-      className="ui-glass acpmux-session-hover-card"
+      className="ui-glass ui-glass-floats acpmux-session-hover-card"
       onPointerEnter={stay}
       onPointerLeave={go}
     >

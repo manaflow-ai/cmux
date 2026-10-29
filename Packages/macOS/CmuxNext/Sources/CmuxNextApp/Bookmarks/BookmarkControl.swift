@@ -1,17 +1,34 @@
 import CmuxNextBookmarks
+import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
 /// `bookmark.list {profile?, text?, folder?, limit?}` for `cmux bookmark
-/// list` and `cmux bookmark search <text>`, and `debug.bookmarks` (the bar
-/// and star of a tab, for verification).
+/// list` and `cmux bookmark search <text>`; its `loaded` says the tree is the
+/// stored one, not the empty placeholder shown until the daemon answers.
+/// `bookmark.importSources {browser, source?}`: the profiles
+/// `bookmark.importFromBrowser` with the same params would import, each with
+/// the `source_key` its folder gets. `debug.bookmarks` (the bar and star of a
+/// tab, for verification).
 enum BookmarkControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
             .mainActor("bookmark.list") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(list(services, call.params))
+            },
+            // Off the main actor: detection reads the browsers' data folders, the
+            // same read-only pass as the import picker (no Keychain, no writes).
+            .async("bookmark.importSources") { call in
+                guard let browser = call.params["browser"]?.stringValue, !browser.isEmpty else {
+                    throw ControlError.invalidParams("bookmark.importSources needs `browser`.")
+                }
+                let source = call.params["source"]?.stringValue
+                let found = await Task.detached {
+                    BookmarkBrowserImport.sources(environment: BookmarkBrowserImport.liveEnvironment())
+                }.value
+                return importSources(found, browser: browser, source: source)
             },
             .mainActor("debug.bookmarks") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -23,6 +40,7 @@ enum BookmarkControl {
     @MainActor
     static func list(_ services: AppServices, _ params: [String: JSONValue]) -> JSONValue {
         let profile = params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
+        // `tree` asks the daemon the first time, so read it before `isLoaded`.
         let tree = services.bookmarks.tree(profile)
         var nodes: [BookmarkNode]
         if let text = params["text"]?.stringValue, !text.isEmpty {
@@ -36,8 +54,20 @@ enum BookmarkControl {
         return .object([
             "profile": .string(profile),
             "storage": .string(services.bookmarks.usesDaemon ? "daemon" : "file"),
+            "loaded": .bool(services.bookmarks.isLoaded(profile)),
             "bookmarks": .array(nodes.map { json($0, tree: tree) }),
         ])
+    }
+
+    /// What an import of `browser` (and `source`) would read: the same
+    /// ``BookmarkBrowserImport/match(_:browser:source:)`` as the import, and
+    /// `source_key` is the key the import stores on the profile's folder.
+    nonisolated static func importSources(_ sources: [BrowserSource], browser: String, source: String?) -> JSONValue {
+        let profiles = BookmarkBrowserImport.match(sources, browser: browser, source: source)
+        return .object(["sources": .array(profiles.map { profile in
+            .object(["source_key": .string(profile.id), "browser": .string(profile.browser.rawValue),
+                     "folder": .string(profile.directoryName), "name": .string(profile.displayName)])
+        })])
     }
 
     static func json(_ node: BookmarkNode, tree: BookmarkTree) -> JSONValue {

@@ -41,7 +41,8 @@ struct PasswordManagerRouteTests {
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `home` is the daemon's HOME (where it reads its Ghostty config).
-    static func withApp(home: String = NSHomeDirectory(), _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    static func withApp(home: String = NSHomeDirectory(), agentPaneEnvironment: [String: String]? = nil,
+                        _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -50,7 +51,7 @@ struct PasswordManagerRouteTests {
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
@@ -63,6 +64,10 @@ struct PasswordManagerRouteTests {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
+            // The window can show its workspace before restore ends, and restore's last step lands
+            // the launch's first workspace (`FirstWorkspaceLaunch.land`), which takes the window
+            // off any top page a test showed before then. Wait until restore has run to the end.
+            try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a

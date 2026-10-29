@@ -140,7 +140,7 @@ public actor DaemonConnection {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
         var request = request
-        if identity?.supports(DaemonCapabilities.shared.terminalShellArgs) == true,
+        if identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
            let carrier = request as? any ShellIntegrationArgumentCarrying,
            let integrated = carrier.addingShellIntegrationArguments() as? R {
             request = integrated

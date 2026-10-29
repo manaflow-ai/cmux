@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::service::{CloudWire, WireRecv};
 use super::{DECIDED_KEYS, Driver, Ended, MAX_KEY_CHARS, Phase, Use};
+use cmux_json::JsonSet as _;
 
 /// One decided forwarded op: its answer frames without `to`.
 #[derive(Clone)]
@@ -54,7 +55,7 @@ impl Driver {
         let send = |wire: &mut dyn CloudWire, frames: &[Value]| -> Result<(), String> {
             for f in frames {
                 let mut f = f.clone();
-                f["to"] = json!(to);
+                f.set("to", json!(to));
                 wire.send(&f.to_string()).map_err(|error| error.0)?;
             }
             Ok(())
@@ -103,8 +104,7 @@ impl Driver {
                 Ok(value) => {
                     // The change is published before the answer, so the settle names its seq.
                     self.inner.changed.store(false, Ordering::Release);
-                    self.publish(lease, stream, wire, false)?;
-                    let sequence = self.inner.lock().published_seq;
+                    let sequence = self.publish_after_op(lease, stream, wire)?;
                     Answer {
                         ok: true,
                         sequence,
