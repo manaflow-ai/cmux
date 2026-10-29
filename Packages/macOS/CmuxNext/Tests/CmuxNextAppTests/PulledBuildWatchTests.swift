@@ -55,11 +55,13 @@ import Testing
         #expect(refreshed == 2)
 
         // The legacy feed reads two lists: one that answers empty while the other fails forgets nothing.
-        let legacy = PulledBuildWatch(build: "300", feedURL: { Self.legacy }, fetch: { url in
-            url.path.hasSuffix("/next/pulled.json") ? Self.body([("300", "bad")]) : Self.body([])
+        let pulledList = Self.body([("300", "bad")]), emptyList = Self.body([])
+        let legacyFeed = Self.legacy
+        let legacy = PulledBuildWatch(build: "300", feedURL: { legacyFeed }, fetch: { url in
+            url.path.hasSuffix("/next/pulled.json") ? pulledList : emptyList
         })
         await legacy.refresh().value
-        legacy.fetch = { url in url.path.hasSuffix("/next/pulled.json") ? nil : Self.body([]) }
+        legacy.fetch = { url in url.path.hasSuffix("/next/pulled.json") ? nil : emptyList }
         await legacy.refresh().value
         #expect(legacy.isPulled("300") && legacy.pulled?.build == "300")
 
