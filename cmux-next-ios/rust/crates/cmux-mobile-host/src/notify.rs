@@ -557,6 +557,7 @@ async fn watch_once(
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
     }
     tracing::info!("push watch started");
+    let mut waiting = crate::notify_waiting::Waiting::default();
     loop {
         let due = classifier.next_due();
         let message = tokio::select! {
@@ -580,14 +581,13 @@ async fn watch_once(
             _ => continue,
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
-        if value.get("id").and_then(Value::as_i64) == Some(2)
-            && let Some(result) = value.get("result")
-        {
-            classifier.load(result);
-            continue;
+        let (queries, events) = waiting.receive(&value, classifier);
+        for query in queries {
+            sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
         }
-        let Some(event) = classifier.handle(&value) else { continue };
-        reporter.send(event);
+        for event in events {
+            reporter.send(event);
+        }
     }
     Err("acpmux closed".into())
 }
