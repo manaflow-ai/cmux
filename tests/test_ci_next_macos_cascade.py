@@ -1423,6 +1423,14 @@ class SaturatedOwnedPool(unittest.TestCase):
         # Unread, the last resort is blind, so one run sends at most MAX_PER_RUN there, in priority order.
         result = cascade.place(env(CASCADE_RUNS=self.RUNS), (), None, None, saturated=True)
         self.assertEqual(result.jobs[SMALL], ("fast-tier", "swift-canary")[:cascade.MAX_PER_RUN])
+        # Freshness work queued for 6 vCPU, seen in a snapshot read while the runner groups were refused,
+        # keeps it for a feed's compile: the PR jobs stay on the owned label.
+        held = cascade.Seen(waits={LARGE: 0.0, SMALL: 1.0}, reserved={SMALL: 1})
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=self.RUNS), (), None, {LARGE: 0, SMALL: 1}, held,
+                                       saturated=True).jobs, none_placed())
+        feed = env(CASCADE_RUNS=self.RUNS, FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), None, {LARGE: 0, SMALL: 1}, held, saturated=True).jobs[SMALL],
+                         ("cmux-scheme-compile",))
         # A snapshot that still shows 6 vCPU's queue stalled keeps the owned label.
         stalled = cascade.Seen(waits={LARGE: 0.0, SMALL: float(cascade.STALL_MINUTES)})
         self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), None, {LARGE: 0, SMALL: 1}, stalled,
@@ -1439,6 +1447,10 @@ class SaturatedOwnedPool(unittest.TestCase):
         # An idle mini still comes first: it takes the run's first job, the overflow the next.
         result = cascade.place(env(), ("a",), {LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 3}, moving, saturated=True)
         self.assertEqual(result.jobs[SMALL], ("swift-canary", "cmux-scheme-compile"))
+        # Free 6 vCPU slots this run took count against the same MAX_PER_RUN.
+        result = cascade.place(env(CASCADE_RUNS=self.RUNS), (), {LARGE: 0, SMALL: 7}, {LARGE: 1, SMALL: 1},
+                               cascade.Seen(waits={LARGE: 2.0, SMALL: 2.0}), saturated=True)
+        self.assertEqual(len(result.jobs[SMALL]), cascade.MAX_PER_RUN)
         # Never 12 vCPU: a 12 vCPU job waits behind every queued 6 vCPU job.
         result = cascade.place(env(), (), {LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 3}, moving, saturated=True)
         self.assertEqual(result.jobs[LARGE], ())
@@ -1486,6 +1498,8 @@ class SaturatedOwnedPool(unittest.TestCase):
             run_env = env(CASCADE_RUNS=run, **extra)
             result = cascade.place(run_env, (), live, waiting, seen, saturated=True)
             jobs = cascade.candidates(run_env, ())
+            # One run never holds more than MAX_PER_RUN of 6 vCPU, free slots and overflow together.
+            self.assertLessEqual(len(result.jobs[SMALL]), cascade.MAX_PER_RUN, (live, waiting, run, result.why))
             left = self.left(result, jobs)
             if not left:
                 continue

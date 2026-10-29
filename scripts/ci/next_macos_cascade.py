@@ -388,7 +388,7 @@ def overflow_refusal(waiting: Mapping[str, int], stall: Sequence[str], reserved:
 
 def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence[str] = (),
              reserved: Sequence[str] = (), fresh: Sequence[str] = (),
-             fresh_stall: Sequence[str] = ()) -> tuple[str, ...]:
+             fresh_stall: Sequence[str] = (), already: int = 0) -> tuple[str, ...]:
     """The `jobs` (no idle mini and no free slot took them) that queue on SMALL instead of the owned label.
 
     Leo's routing order is Linux, then owned Macs, then Blacksmith macOS as the last resort, and no job
@@ -403,7 +403,7 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
     moves and is short, so the overflow never builds the 5-hour Blacksmith queues of 2026-10-20 (Leo:
     waiting in a Blacksmith queue is not acceptable): not while it is stalled (stalled(), the pickers'
     one stall rule), not while OVERFLOW_BACKLOG or more jobs queue ahead (_pool_backlog()), at most
-    MAX_PER_RUN jobs of one run, and, as in cascade(), only a feed's compile while freshness work is
+    MAX_PER_RUN jobs of one run on SMALL counting the `already` its free slots took, and, as in cascade(), only a feed's compile while freshness work is
     queued for it and never a feed's compile on a fresh-stalled label.
     """
     if SMALL in stall:
@@ -411,7 +411,7 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
     taken: list[str] = []
     ahead = _pool_backlog(waiting)
     for job in jobs:
-        if len(taken) >= MAX_PER_RUN or ahead + len(taken) >= OVERFLOW_BACKLOG:
+        if already + len(taken) >= MAX_PER_RUN or ahead + len(taken) >= OVERFLOW_BACKLOG:
             break
         if SMALL in reserved and job not in fresh or job in fresh and SMALL in fresh_stall:
             continue
@@ -503,7 +503,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # compile takes the last resort rather than an owned queue nobody measured, and so does every
         # job once the owned pool was read with no idle mini for it (`saturated`): run 40810932618's
         # fast tier (2026-10-29 03:14Z, a stale snapshot) otherwise waited hours on the side label.
-        fresh = (tuple(candidates(env, owned, promote_busy)[:MAX_PER_RUN]) if saturated
+        # Queued freshness work the snapshot still shows keeps 6 vCPU for a feed's compile, as in cascade().
+        feeds = set((env.get("FRESH_JOBS") or "").split())
+        held = seen is not None and seen.reserved.get(SMALL, 0) > 0
+        fresh = (tuple([job for job in candidates(env, owned, promote_busy)
+                        if not held or job in feeds][:MAX_PER_RUN]) if saturated
                  else unread_fresh_jobs(env, owned))
         fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
         if fresh:
@@ -531,8 +535,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # Free slots taken, the jobs left would wait on the owned label. With the owned pool read saturated,
     # 6 vCPU's moving queue takes them instead (overflow()): it is the routing order's last resort.
     unplaced = [job for job in jobs if not any(job in names for names in placed.values())]
-    spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall)
-               if saturated else ())
+    spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall,
+                        already=len(placed[SMALL])) if saturated else ())
     if spilled:
         placed = {**placed, SMALL: (*placed[SMALL], *spilled)}
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
