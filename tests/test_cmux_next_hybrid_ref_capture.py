@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The DEV Release compile records the Linux whole-app build's REF, off by default and never in its way.
+"""The DEV Release compile records the fleet whole-app build's REF, off by default and never in its way.
 
 scripts/cmux-next/hybrid_ref_capture.py and the cmux-scheme-compile steps around it:
 

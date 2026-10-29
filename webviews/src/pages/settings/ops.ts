@@ -87,6 +87,13 @@ export type HostListRow = {
   color?: string;
   /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
   color_key?: string;
+  /**
+   * A Cloud machine the Cloud API says the signed-in caller owns: its "Dedicated agent machine" switch
+   * (acpmux vmHost), once the machine answered. Absent on every other machine (team VMs, personal and
+   * SSH machines never have it). `busy`: a set is
+   * running or the machine is not reachable now; the switch is disabled.
+   */
+  vm_host?: { on: boolean; busy: boolean; error: string | null };
 };
 
 /** One browser profile row. */
@@ -271,7 +278,14 @@ export type IPhoneHostState = {
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
-export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+export type ComputerUsePhase =
+  | "disabled_by_policy"
+  | "off"
+  | "unavailable"
+  | "starting"
+  | "failed"
+  | "ready"
+  | "version_mismatch";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -426,6 +440,7 @@ export type AgentsState = {
 
 /** One Settings > Agents gesture (`cmux.settings.agents.run`). */
 export type AgentsRun =
+  | AgentsSymbolRun
   | { action: "refresh" }
   | { action: "registry"; refresh?: boolean }
   | {
@@ -443,6 +458,8 @@ export type AgentsRun =
   | { action: "doctor"; id: string; noPrompt?: boolean }
   /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */
   | { action: "icon"; id: string; icon?: string; data?: string; ext?: "png" | "svg"; clear?: true };
+/** The template PNG of an SF Symbol a harness icon names, as a `data:` URL (`{src}`). */
+export type AgentsSymbolRun = { action: "symbol"; name: string };
 /** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
 export type HarnessRow = {
   id: string;
@@ -515,6 +532,34 @@ export type HarnessesRun = {
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;
 };
+
+/** Settings > Accounts > Cloud Environments (`cmux.settings.environments.state`,
+ * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
+ * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
+export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+export type CloudEnvironmentRow = {
+  id: string;
+  name: string;
+  repo: string | null;
+  setup_script: string;
+  status: CloudEnvironmentStatus | string;
+  /** The last failed build's message and its log tail; null otherwise. */
+  error: string | null;
+  log_tail: string | null;
+};
+export type CloudEnvironmentsState = {
+  /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
+  available: boolean;
+  loading: boolean;
+  environments: CloudEnvironmentRow[];
+  error: string | null;
+};
+/** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
+export type CloudEnvironmentsRun =
+  | { action: "refresh" }
+  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | { action: "build"; id: string }
+  | { action: "delete"; id: string };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
@@ -794,6 +839,8 @@ export type SettingsOps = {
   "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
   /** Native: Settings > Devices' Full access switch on a paired client machine (the person's gesture only). */
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
+  "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
@@ -820,6 +867,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: Settings > Accounts > Cloud Environments (CloudDO through the Cloud app server). */
+  "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
+  /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
+  "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
@@ -979,6 +1030,7 @@ export const settingsPageActions = [
   "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
+  "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
   "import.card",

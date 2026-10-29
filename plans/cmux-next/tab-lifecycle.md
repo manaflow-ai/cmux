@@ -84,7 +84,8 @@ cmux.json:
 
 ```jsonc
 "browser": {
-  "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
+  // "hibernation" is unset by default: hidden pages only freeze, never discarded on their own.
+  // Writing it turns discards on: "off" | "moderate" (30 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
   "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
@@ -112,8 +113,12 @@ cmux.json:
   the sign-in page), so with no `browser.hibernation` in cmux.json hidden
   pages only freeze and nothing is discarded on its own, at any memory
   pressure (`keeps_state` in `debug.surfaces`). Writing `browser.hibernation`
-  (cmux.json or the palette) turns the timeout and pressure discards below
-  on. Hibernate Tab always discards. A Chromium tab whose renderer ended shows
+  (cmux.json, a timeout in Settings or the palette) turns the timeout and
+  pressure discards below on. Settings and the palette show unset as "Never
+  Discard", a choice of its own: the schema row has no
+  default, so any written value ("moderate" included) is customized and
+  Reset, or picking Never Discard, removes the key. Hibernate Tab always
+  discards. A Chromium tab whose renderer ended shows
   the crash notice when shown and reloads only from its Reload button. Every
   discard (with its cause), restore, renderer end and Chromium-to-WebKit
   fallback is logged at notice or error level, so the field log keeps it.

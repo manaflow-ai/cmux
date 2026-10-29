@@ -70,7 +70,7 @@ case "\$url" in
     id="\${url%%/jobs\?*}"; id="\${id##*/}"
     cat "$TMP/api/jobs-\$id.json" 2>/dev/null || exit 22; exit 0 ;;
 esac
-path="\${url#https://files.cmux.com/cmux-tui/}"
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 [[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB

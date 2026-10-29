@@ -20,30 +20,10 @@ export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
 export type ChatFontPreset = "system" | "serif" | "mono";
 /// What the chat keys hold: `markdown` follows the Markdown viewer's font.
 export type ChatFontChoice = ChatFontPreset | "markdown";
-/// Where the started chat's machine · folder chip sits: Left gets a row below tabs, Right keeps the
-/// original header slot, and Off hides it.
+/// The Session Info chip setting a cmux.json may still hold (Left, Right, Off). The chat header no
+/// longer draws a machine · folder label (Leo, 2026-10-26: "i thought we said to remove this?"), so
+/// every value is accepted and none draws one; the Inspector's Environment says where a chat runs.
 export type EnvironmentPlacement = "left" | "right" | "off";
-
-/// The header surface that owns the environment chip. Left gets a dedicated row below tabs;
-/// Right preserves the original header slot and compact tab-row lead; Off and covered views mount
-/// nothing. Keeping this decision pure lets the App and rendering tests share the same contract.
-export function environmentPlacementSurface({
-  placement,
-  inTabRow,
-  hasEnvironment,
-  hasStatus,
-  covered,
-}: {
-  placement: EnvironmentPlacement;
-  inTabRow: boolean;
-  hasEnvironment: boolean;
-  hasStatus: boolean;
-  covered: boolean;
-}): { header: boolean; row: boolean; compact: boolean } {
-  if (placement === "off" || !hasEnvironment || covered) return { header: false, row: false, compact: false };
-  if (placement === "right") return { header: true, row: false, compact: inTabRow };
-  return { header: false, row: !hasStatus, compact: false };
-}
 
 export interface ChatDisplay {
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.
@@ -69,8 +49,8 @@ export interface ChatDisplay {
   /// 2026-10-24: "in minimal mode ... one line is kind of enough sometimes for the ... preview of the
   /// message"). Not a look either: Reset leaves it.
   minimal: boolean;
-  /// Where the machine · folder chip sits below the tab row. Left keeps the default top-left
-  /// placement; right aligns it to the opposite edge; off removes the chip.
+  /// The saved Session Info chip setting (EnvironmentPlacement), kept for configuration
+  /// compatibility; it draws nothing.
   environmentPlacement: EnvironmentPlacement;
 }
 

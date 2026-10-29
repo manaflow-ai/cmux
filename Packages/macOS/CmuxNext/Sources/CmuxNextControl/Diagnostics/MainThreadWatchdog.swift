@@ -251,7 +251,8 @@ public final class MainThreadWatchdog: Sendable {
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+        // The late stamp draws nothing: its context says so to the commit-boundary audit.
+        let lateObserver = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] activity in
             self?.heartbeat(activity)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)

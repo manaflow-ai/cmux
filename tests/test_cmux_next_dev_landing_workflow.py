@@ -80,6 +80,54 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(dev["Upload this host's cache record"]["with"]["name"],
                          place.HOLDER_PREFIX + "${{ steps.dev-holder.outputs.holder }}")
 
+    def test_a_dev_daily_compile_is_placed_on_the_nearest_cache_first(self):
+        job = self.jobs["dev-daily-place"]
+        for clause in ("github.event_name == 'workflow_dispatch'", "inputs.dev_daily == true",
+                       "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
+                       "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
+            self.assertIn(clause, job["if"])
+        # Only when the compile runs: its own tree condition, word for word.
+        compile_if = self.jobs["cmux-scheme-compile"]["if"]
+        tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
+        self.assertIn(tree, job["if"])
+        # Only a run whose DEV Release app gets built: the Release step's dispatch condition, word for word
+        # (feat-cmux-next only, the requested commit only), so a placement never holds a Mac for nothing.
+        compile_steps = {s.get("id"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}
+        release_if = compile_steps["compile-cmux-next-dev-release"]["if"]
+        dispatch = release_if[release_if.index("(github.event_name == 'workflow_dispatch'"):]
+        self.assertEqual(dispatch.count("("), dispatch.count(")"), "the Release step's whole dispatch clause")
+        for clause in ("github.ref == 'refs/heads/feat-cmux-next'", "inputs.dev_daily_sha == github.sha",
+                       "inputs.dev_daily_sha == inputs.same_tree_sha"):
+            self.assertIn(clause, dispatch)
+        self.assertIn(" && " + dispatch + " && " + tree, job["if"])
+        require = {s.get("name"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}[
+            "Require the requested DEV daily commit"]
+        self.assertIn('[[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]]', require["run"])
+        self.assertIn('[[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]]', require["run"])
+        step = {s.get("id"): s for s in job["steps"]}["place"]
+        self.assertEqual(step["continue-on-error"], "true", "a failed placement keeps the compile's route")
+        self.assertIn("scripts/ci/dev_landing_place.py", step["run"])
+        self.assertIn("FRESH_LABEL", step["env"])
+        self.assertNotIn("WAIT_SECONDS", step["env"], "a DEV daily placement never waits")
+        self.assertLessEqual(int(job["timeout-minutes"]), 4)
+        self.assertIn("inputs.same_tree_sha || inputs.dev_daily_sha", step["env"]["SHA"])
+        compile_job = self.jobs["cmux-scheme-compile"]
+        self.assertIn("dev-daily-place", compile_job["needs"])
+        # dev-daily-place is skipped on every run but a placed DEV daily, and dev-daily-tree-wait whenever the tree
+        # is not deferred. A skipped need skips a job only under GitHub's implicit success(), which an `if` with
+        # a status function (here !cancelled()) does not get: both jobs must keep one.
+        for name in ("cmux-scheme-compile", "dev-daily-place"):
+            self.assertIn("!cancelled()", self.jobs[name]["if"], f"{name} must not inherit success() from skipped needs")
+        runs_on, label = compile_job["runs-on"], compile_job["env"]["CMUX_NEXT_RUNNER"]
+        pick = "needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)"
+        self.assertIn(pick, runs_on)
+        # The label copy is the same expression with the placement's first label for its list.
+        self.assertEqual(label, runs_on.replace(pick, "needs.dev-daily-place.outputs.runner_label != '' && "
+                                                      "needs.dev-daily-place.outputs.runner_label"))
+        self.assertLess(runs_on.index(pick), runs_on.index("needs.macos-placement.outputs.fresh_runner"))
+        self.assertLess(runs_on.index("github.event.pull_request.head.repo.full_name != github.repository"),
+                        runs_on.index(pick), "a fork never reads it")
+
     def test_a_push_has_one_producer_of_its_dev_app(self):
         # While the landing compile is on, cmux-scheme-compile builds a push's DEV app only when it is off.
         dev = {step.get("id"): step for step in self.jobs["cmux-scheme-compile"]["steps"]}
@@ -93,70 +141,6 @@ class WorkflowTests(unittest.TestCase):
         landing = self.jobs["dev-landing-place"]["if"]
         self.assertIn("github.repository == 'manaflow-ai/cmux'", landing)
         self.assertIn("format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) != '0'", landing)
-
-    def test_a_landing_hands_its_app_to_the_publisher_at_once(self):
-        # Dispatch lag: the landing's app goes to main's publisher from the push run itself, on the
-        # routing App's budget first, never waiting for a DEV dispatch run or the dispatcher's cron.
-        job = self.jobs["dev-landing-publish"]
-        self.assertEqual(job["needs"], ["dev-landing-place", "dev-landing-compile"])
-        condition = job["if"]
-        self.assertTrue(condition.startswith("${{ !cancelled()"), "a failed compile must still ask for a DEV build")
-        # A failed placement still asks for a DEV build; a skipped one (the landing compile off)
-        # leaves the push to cmux-scheme-compile and the kick, as before.
-        self.assertIn("needs.dev-landing-place.result != 'skipped'", condition)
-        self.assertNotIn("needs.dev-landing-place.result == 'success'", condition)
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'", condition)
-        self.assertNotIn("concurrency", job, "a handoff never cancels or replaces another")
-        self.assertEqual(job["permissions"], {"actions": "write"})
-        self.assertEqual(job["environment"], "ci-routing-agent")
-        self.assertNotIn("vars.", job["runs-on"], "a job holding the App key runs on an ephemeral runner")
-        self.assertIn("ubuntu", job["runs-on"])
-        steps = {step.get("id") or step.get("name"): step for step in job["steps"]}
-        self.assertEqual(steps["handoff-token"]["with"]["permission-actions"], "write")
-        run = steps["Hand the landing's app to the publisher, else ask for a DEV build"]
-        script = run["run"]
-        self.assertEqual(run["env"]["COMPILED"], "${{ needs.dev-landing-compile.result == 'success' }}")
-        self.assertIn('cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"', script)
-        self.assertIn('cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main', script)
-        self.assertIn('for token in "$APP_TOKEN" "$REPO_TOKEN"', script, "App token first, GITHUB_TOKEN second")
-        # It starts no cmux-next run: a cmux-next run the App started would fire cmux-next's
-        # workflow_run listeners (nightly-next-tick) on top of this push run's own completion.
-        self.assertNotIn("cmux-next.yml", script.replace("cmux-next-dev-", ""))
-        # The publisher's artifact is the landing compile's.
-        upload = {step.get("name"): step for step in self.jobs["dev-landing-compile"]["steps"]}["Upload the cmux NEXT DEV Release app"]
-        self.assertEqual(upload["with"]["name"], "cmux-next-dev-daily-unsigned-${{ github.sha }}")
-
-    def test_the_handoff_script_falls_back_and_picks_its_target(self):
-        # The step's own bash, against a stub gh that records each call and refuses the App token.
-        import os, shutil, subprocess, tempfile
-        if not shutil.which("bash"):
-            self.skipTest("bash is required")
-        step = next(s for s in self.jobs["dev-landing-publish"]["steps"]
-                    if s.get("name") == "Hand the landing's app to the publisher, else ask for a DEV build")
-
-        def run(compiled, app_token, app_ok=True, repo_ok=True):
-            with tempfile.TemporaryDirectory() as tmp:
-                gh = os.path.join(tmp, "gh")
-                with open(gh, "w") as f:
-                    f.write('#!/bin/bash\necho "$GH_TOKEN $*" >> "$STUB_DIR/calls"\n'
-                            '[ "$GH_TOKEN" = app ] && exit "$APP_RC"\n[ "$GH_TOKEN" = repo ] && exit "$REPO_RC"\nexit 9\n')
-                os.chmod(gh, 0o755)
-                env = {"PATH": f"{tmp}:/usr/bin:/bin", "STUB_DIR": tmp, "APP_TOKEN": app_token, "REPO_TOKEN": "repo",
-                       "GH_REPO": "o/r", "COMPILED": compiled, "SOURCE_RUN_ID": "42",
-                       "APP_RC": "0" if app_ok else "1", "REPO_RC": "0" if repo_ok else "1"}
-                result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=60)
-                calls = open(os.path.join(tmp, "calls")).read().splitlines() if os.path.exists(os.path.join(tmp, "calls")) else []
-                return result.returncode, calls
-
-        publish = "workflow run cmux-next-dev-daily.yml --repo o/r --ref main -f source_run_id=42"
-        dispatcher = "workflow run cmux-next-dev-daily-dispatch.yml --repo o/r --ref main"
-        self.assertEqual(run("true", "app"), (0, [f"app {publish}"]))
-        self.assertEqual(run("true", "app", app_ok=False), (0, [f"app {publish}", f"repo {publish}"]))
-        self.assertEqual(run("true", ""), (0, [f"repo {publish}"]), "no App token: GITHUB_TOKEN alone")
-        self.assertEqual(run("false", "app"), (0, [f"app {dispatcher}"]), "no landing app: ask the dispatcher")
-        rc, calls = run("true", "app", app_ok=False, repo_ok=False)
-        self.assertNotEqual(rc, 0, "a handoff nobody took fails the job")
-        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

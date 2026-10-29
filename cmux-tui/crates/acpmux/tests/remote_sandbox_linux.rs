@@ -29,7 +29,6 @@ fn hub(root: &Path) -> std::sync::Arc<Hub> {
 async fn linux_remote_sandbox_canary_passes_with_real_bwrap() {
     let root = fixture();
     let hub = hub(&root);
-    hub.set_linux_remote_sandbox_for_tests(true);
     let result = hub
         .linux_sandbox_canary_for_tests(
             root.join("project"),

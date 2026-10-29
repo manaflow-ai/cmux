@@ -77,7 +77,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot) {
+async function render(snapshot: AcpmuxSnapshot, extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -93,6 +93,7 @@ async function render(snapshot: AcpmuxSnapshot) {
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        {...extra}
       />,
     ),
   );
@@ -201,4 +202,20 @@ test("a prompt queued before the first turn hides the strip: it runs where the c
   await render({ ...paused, summary: { ...paused.summary!, queuePaused: true } });
   expect(strip()).toBeNull();
   expect(placeholder()).toBeNull();
+});
+
+test("a started chat has no strip, even when its tab's menu offers Move to Cloud or Bring Back Local", async () => {
+  // Leo: "egregious amounts of vertical space taken up by absolutely nothing of use". A move lives in
+  // the tab's right-click menu; the composer draws no folder · machine band for it.
+  const started = newChat({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] });
+  const snapshot = { ...started, summary: { ...started.summary!, hostKind: "local" as const, turnCount: 1 } };
+  for (const offloads of [["move"], ["bringBack"]]) {
+    await render(snapshot, {
+      onOffload: () => {},
+      offloads,
+      onBrowseFolder: async () => "/Users/you/src/other",
+    });
+    expect(strip()).toBeNull();
+    expect(placeholder()).toBeNull();
+  }
 });

@@ -19,9 +19,13 @@ side label on a wider class (compatible_labels(): a light job runs on a std
 mini, never the reverse), whichever has the most idle, then online, runners
 live (side_route()), so a starved light pool spills onto idle std side
 runners. When no online runner carries a compatible side label, jobs use the
-owned pool label so the minis can accept them. When a
-side label is online but busy, jobs remain on it and the rescue supplies the
-measured overflow boundary after the mini queue drains.
+owned pool label so the minis can accept them. When a side label is online but
+busy, the cascade's jobs (next_macos_cascade.CASCADE_JOBS) take a free Blacksmith
+slot, else Blacksmith 6 vCPU's queue while it moves and is short
+(next_macos_cascade.overflow()): the routing order's last resort, so none waits
+on a saturated side label that nothing moves it off (cmux#26723's fast tier,
+2026-10-29). Only with Blacksmith stalled or backed up too do they stay queued
+on the side label.
 
 Anything uncertain decides nothing and keeps the owned label watched by the
 rescue: an attempt after 1, a SIDE_LABEL that is not a glaeda-side-* label (a
@@ -49,8 +53,6 @@ contains(' <key> ') matches whole keys only:
   whose queue is not stalled), and the Blacksmith label of the bot's overflow
   attempt while one has a free slot, else empty (next_macos_cascade.py; the
   workflow reads it as `free_retry_runner`);
-- `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
-  that label when it takes any (next_macos_cascade.py).
 - `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
   is online and idle for this placement; an empty value keeps the Blacksmith
   overflow route.
@@ -318,8 +320,8 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     behind them for an hour: with CI_FAST_LANE_RUNNER set the tier never
     joined the cascade, and nothing else moved it. So the label is a
     preference taken only when it is free; a busy label, unreadable runners or
-    an unset variable send the tier down the cascade (Blacksmith, hosted
-    macos-26), then the side route, like every other job.
+    an unset variable send the tier down the cascade (Blacksmith), then the
+    side route, like every other job.
     """
     label = (env.get("FAST_LABEL") or "").strip()
     if not label or runners is None:
@@ -507,7 +509,8 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting, seen)
+    # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
+    placed = cascade.place(env, owned, live, waiting, seen, saturated=runners is not None)
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
@@ -589,7 +592,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
-    # queue moves, then hosted macos-26 for the jobs it can run.
+    # queue moves; the rest stay on the owned label (no GitHub-hosted overflow).
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # The dedicated nightly runner is preferred for Release compile. When it is
     # configured but busy/offline, send the compile to Blacksmith immediately
@@ -604,7 +607,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # is free. Treat it as unavailable so the Release compile overflows to
         # Blacksmith instead of queueing indefinitely on the promotion mini.
         promotion_busy = True
-    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy)
+    # Runners read live: the jobs no idle mini took never stay on the side label while Blacksmith 6 vCPU
+    # is a live last resort (next_macos_cascade.overflow()).
+    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
+                           saturated=runners is not None)
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0

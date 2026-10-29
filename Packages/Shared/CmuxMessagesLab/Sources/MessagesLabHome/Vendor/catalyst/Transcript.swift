@@ -373,7 +373,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.connectorAnchorY ?? 0) // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
@@ -627,8 +627,12 @@ final class RowCell: UICollectionViewCell {
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
-    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
-    private func scoped<T>(_ body: () -> T) -> T { Fixture.withRenderScale(renderScale, body) }
+    /// cmux: the palette of the window view that shows this cell (its chat's theme and Chat Colors, PaletteScope), set
+    /// with `renderScale`; nil draws with the process palette.
+    var paletteBox: PaletteBox?
+    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it), and
+    /// (cmux) its view's palette.
+    private func scoped<T>(_ body: () -> T) -> T { PaletteScope.with(paletteBox) { Fixture.withRenderScale(renderScale, body) } }
 
     /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
     private var contentGroupOpacity = true
@@ -1046,6 +1050,8 @@ final class RowCell: UICollectionViewCell {
         let t0 = CACurrentMediaTime()
         // Each row at its cell's scale (two window views at two scales can share a pass).
         let specs = q.map(\.1), scales = q.map(\.3)
+        // cmux: each row in its own view's palette (two views with different Chat Colors can share a pass).
+        let palettes = q.map(\.0.paletteBox)
         var images = [CGImage?](repeating: nil, count: specs.count)
         // Per row: its drawing time on its worker (ms), for the display change's evidence.
         var rowMs = [Double](repeating: 0, count: specs.count)
@@ -1054,13 +1060,17 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] {
+                    out[slot] = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }
             }
         }
         let t1 = CACurrentMediaTime()
-        for ((s, sc), img) in zip(zip(specs, scales), images) { if let img { RowBitmaps.shared.insert([(s, img)], scale: sc) } }
+        for (k, ((s, sc), img)) in zip(zip(specs, scales), images).enumerated() {
+            if let img { RowBitmaps.shared.insert([(s, img)], scale: sc, generation: Fixture.generation(of: palettes[checked: k] ?? nil)) }
+        }
         let t2 = CACurrentMediaTime()
         if displayPass || DisplayTiming.flushOpen {
             DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
@@ -1632,8 +1642,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+            // cmux: under Reduce Motion or with Home animations off the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.holdsTypingStill { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1644,8 +1654,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
-        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+        // cmux: no breathing under Reduce Motion or with Home animations off, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.holdsTypingStill { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1747,7 +1757,7 @@ final class RowCell: UICollectionViewCell {
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.holdsTypingStill && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif

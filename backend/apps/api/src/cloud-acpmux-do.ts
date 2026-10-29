@@ -1,6 +1,6 @@
 import type { Principal } from "@cmux/ownership"
 import type { GuardedCloudDriver } from "./cloud-driver.ts"
-import type { GuestExecResult } from "./cloud-driver-exec.ts"
+import type { GuestExecResult } from "./providers/contract.ts"
 import {
   ACPMUX_EXIT_TEAM_VM,
   ACPMUX_EXIT_UNSUPPORTED,

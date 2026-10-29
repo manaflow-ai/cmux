@@ -110,7 +110,7 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /^    runs-on: .*vars\.LINUX_RUNNER.*blacksmith-4vcpu-ubuntu-2404/ { saw_runner_override=1 }
+  in_decide && /^    runs-on: .*vars\.LINUX_RUNNER.*blacksmith-32vcpu-ubuntu-2404/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: the short nightly decide gate must use the pooled Linux route with a Blacksmith fallback"
@@ -149,7 +149,7 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-4vcpu-ubuntu-2404/ { saw_blacksmith=1 }
+  in_prepare && /blacksmith-(16|32)vcpu-ubuntu-2404/ { saw_blacksmith=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
@@ -266,15 +266,17 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || vars.CI_NIGHTLY_NEXT_HELPER_RUNNER || 'blacksmith-6vcpu-macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' \&\& 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' \&\& 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # A reused helper leaves this job on Linux; a fresh one builds on macOS 15
-  # (its SDK 15 Xcode), never a GitHub-hosted Mac. Match the whole expression.
+  # A reused helper leaves this job on Linux; a fresh one builds on owned
+  # macOS 26 (Zig 0.16.0, SDK 26; on nightly-next the owned pick of the picker,
+  # never the dedicated builder), then Blacksmith macOS 26; never macOS 15
+  # or a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
@@ -294,7 +296,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
   END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
+  echo "FAIL: nightly must build and hand off the macOS 26 helper and Xcode 26.5 app before publishing"
   exit 1
 fi
 
@@ -332,7 +334,8 @@ if ! awk '
   in_thin && /^      - name:/ { in_thin=0 }
   in_thin && /matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
   in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
-  job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
+  # The primary leg holds the step as anchor &verify-nightly-binary-archs; the fallback leg aliases it.
+  job == "publish" && /^      - (name: Verify nightly binary architectures|&verify-nightly-binary-archs)$/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
   in_verify && /Contents\/MacOS\/cmux"/ { saw_app=1 }
   in_verify && /Contents\/Resources\/bin\/cmux"/ { saw_cli=1 }
@@ -896,12 +899,17 @@ NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published !
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
 # A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
 NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+# The helper, the variant and the macOS signer each exclude build_only with a top-level `&&`.
+BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE"
+# The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
+# prefix only adds conjuncts, so the build_only exclusion still holds.
+SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.signer-dmg.result != 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "$(job_if build-sign-notarize-nightly)" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -1384,7 +1392,7 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, build-nightly-app, legacy-identity-target]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner]" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
@@ -1444,7 +1452,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
@@ -1457,8 +1465,8 @@ for expected in \
   grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
 done
 for expected in \
-  "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
+  "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do

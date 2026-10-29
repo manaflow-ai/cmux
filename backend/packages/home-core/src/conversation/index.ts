@@ -1,5 +1,5 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
-export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, inThread, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, streakOf, threadAgentStreak, withTurn } from "./budget.ts"
+export { agentCount, BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, inThread, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, streakOf, threadAgentStreak, withTurn } from "./budget.ts"
 export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {
@@ -83,7 +83,7 @@ export {
   type Respondent
 } from "./question.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
-export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
+export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, snippetWindow, type SearchHit, type SearchInput, type SearchResult, type SearchSource, type SnippetWindow } from "./search.ts"
 export {
   ATTACHMENT_LIMITS,
   ATTACHMENT_TYPES,

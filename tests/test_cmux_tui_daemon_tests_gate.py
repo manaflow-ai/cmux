@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""The cmux_next_ daemon tests that gate nightly-next run on Blacksmith 32 vCPU.
+"""The cmux_next_ daemon tests run on Blacksmith 32 vCPU.
 
 Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX".
 
-cmux-tui-artifacts.yml's cmux-next-daemon-tests job is the nightly-next
-promotion gate: its pass writes tree/<key>/daemon-tests.json
-(publish-tree-tested), which request-nightly-next.sh requires. It ran on the
+cmux-tui-artifacts.yml's cmux-next-daemon-tests job gates the feat-cmux-next
+channel: its pass writes tree/<key>/daemon-tests.json (publish-tree-tested),
+which point-feat-channel requires. Until 2026-10-28 nightly-next promotion
+required it too; now the tree-commit marker follows the publish (Leo,
+2026-10-23: "we want no smoke tests"). It ran on the
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
@@ -14,8 +16,8 @@ attempt, and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
-"os" field; the promote reader checks only that a marker exists, so both
-kinds promote (scripts/cmux-next/tests/request-nightly-next.test.sh).
+"os" field; its readers (cmux-tui-point-channel.sh, tree-commit-marker.sh
+daemon-tested) check only that a marker exists, so both kinds count.
 
 The tests that genuinely need macOS (acpmux's Keychain and Seatbelt tests,
 the idle wakeup counter) run in their own workflow,
@@ -25,7 +27,10 @@ never keeps an artifacts run in progress.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -137,6 +142,48 @@ class DaemonTestsGateTests(unittest.TestCase):
                 label = route(runs_on, context)
                 expected = "blacksmith-6vcpu-macos-15" if context["github.repository_owner"] == "manaflow-ai" else "macos-26"
                 self.assertEqual(label, expected, (daemon, context))
+
+    def test_a_run_waiting_on_the_marker_path_skips_the_tests_once_the_tree_is_marked(self) -> None:
+        # A marker-path run pending in its key's concurrency group ran the
+        # tests again after the run ahead of it wrote the marker.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        ids = [s.get("id") for s in daemon["steps"]]
+        self.assertLess(ids.index("current"), ids.index("marked"))
+        self.assertLess(ids.index("marked"), ids.index("key"))
+        marked = daemon["steps"][ids.index("marked")]
+        condition = flat(marked["if"])
+        self.assertIn("--location", marked["run"])
+        self.assertIn('[[ "$code" == 200 ]]', marked["run"])
+        for part in ("steps.current.outputs.stale != 'true'", "github.event_name == 'push'",
+                     "github.ref != 'refs/heads/main'",
+                     "(needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true')"):
+            self.assertIn(part, condition)
+        # The key output stays set, so publish-tree-tested and the request still run.
+        self.assertNotIn("steps.marked", str(daemon["steps"][ids.index("key")].get("if")))
+        for later in daemon["steps"][ids.index("key") + 1:]:
+            self.assertIn("steps.marked.outputs.marked != 'true'", str(later.get("if")), later.get("name"))
+
+        key, legacy = "a" * 40, "b" * 40
+        # The fake curl answers each key's marker with the given status (404
+        # when absent) the way `-w '%{http_code}'` prints it; a redirect that
+        # was not followed to a 200 must not count as a marker.
+        for codes, want in (({key: 200, legacy: 200}, True), ({key: 200}, False), ({legacy: 200}, False),
+                            ({}, False), ({key: 302, legacy: 302}, False), ({key: 200, legacy: 301}, False),
+                            ({key: 500, legacy: 200}, False)):
+            with tempfile.TemporaryDirectory() as tmp:
+                curl = Path(tmp) / "curl"
+                curl.write_text("#!/usr/bin/env bash\n"
+                                "for arg; do url=$arg; done\n"
+                                + "".join(f'[[ "$url" == */tree/{k}/daemon-tests.json\\?* ]] && {{ printf {c}; exit 0; }}\n'
+                                          for k, c in sorted(codes.items()))
+                                + "printf 404\n", encoding="utf-8")
+                curl.chmod(0o755)
+                output = Path(tmp) / "output"
+                output.touch()
+                env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", KEY=key, LEGACY_KEY=legacy,
+                           RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
+                subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
+                self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
 
 if __name__ == "__main__":
     unittest.main()

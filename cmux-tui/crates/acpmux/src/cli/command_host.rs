@@ -34,11 +34,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
-    /// Whether a machine is a dedicated agent VM (vmHost): Claude runs there
-    /// without the sandbox and your own machine's sessions start approve-all,
-    /// the VM being the boundary. On by default on a VM cmux created, never
-    /// on a personal or SSH-added machine (`on` is refused there). Applies to
-    /// new sessions at once, with no restart.
+    /// Whether a machine takes its owner's VM boundary (vmHost): Claude runs
+    /// there without the sandbox only for a session whose caller asked, once
+    /// the Cloud API said the caller owns that VM. `off` refuses that on the
+    /// machine; `on` (the default off a Mac) stops refusing. Nothing on the
+    /// machine turns the boundary on. Shows whether cmux created the VM.
     VmHost {
         /// A peer; omit for this machine.
         name: Option<String>,
@@ -53,9 +53,12 @@ pub enum PeerCmd {
     #[command(subcommand)]
     Ticket(TicketCmd),
     /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
+    /// (the install script runs this with the pasted ticket). The ticket
+    /// comes on stdin, one line: `printf '%s\n' TICKET | acpmux host join`.
     Join {
-        ticket: String,
+        /// Deprecated: other users of this machine read argv (ps). Omit it
+        /// and pass the ticket on stdin; given here, it warns.
+        ticket: Option<String>,
         /// This machine's name on the other one (default: the host name's first label).
         #[arg(long)]
         name: Option<String>,
@@ -158,6 +161,13 @@ pub enum PeerCmd {
         #[arg(long)]
         reverse: bool,
     },
+    /// The Macs whose cmux app may allow this machine's prompts in a chat it
+    /// reaches through its own daemon (`acpmux host enroll` from the Mac adds
+    /// it), and this machine's own app key. `rm` stops a Mac's Allows at once.
+    Approvals {
+        #[command(subcommand)]
+        cmd: Option<ApprovalsCmd>,
+    },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
     /// repairs what fails. Without --fix nothing changes.
     Doctor {
@@ -179,6 +189,29 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ApprovalsCmd {
+    /// Let a Mac's cmux app allow this machine's prompts.
+    Add {
+        /// The Mac's approver id (its app gives it; `host approvals` on the Mac shows it).
+        #[arg(long)]
+        id: String,
+        /// Its public key: a 65-byte uncompressed P-256 point as hex.
+        #[arg(long)]
+        key: String,
+        /// A name to show.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Stop a Mac's Allows here, at once.
+    Rm { id: String },
+    /// From this Mac: let its cmux app allow the prompts of PEER (a peer name
+    /// or ssh host), over ssh. The approvals step of `host enroll`, alone.
+    Enroll { peer: String },
+    /// From this Mac: stop its cmux app's Allows on PEER, at once.
+    Unenroll { peer: String },
 }
 
 #[derive(Subcommand)]

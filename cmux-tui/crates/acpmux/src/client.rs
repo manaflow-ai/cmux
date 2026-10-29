@@ -16,6 +16,8 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The features the daemon listed at initialize (`_meta.acpmux.features`).
+    daemon_features: std::sync::Mutex<Vec<String>>,
     /// The person challenge `{nonce, connection}` of this connection, when the
     /// daemon offered one at initialize (`hub/person.rs`).
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
@@ -89,6 +91,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
             out,
             next_id: AtomicI64::new(1),
@@ -119,6 +122,10 @@ impl Client {
         let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
+            *client.daemon_features.lock_or_recover() =
+                features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        }
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
             init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
@@ -145,6 +152,11 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// Whether the daemon listed `feature` at initialize.
+    pub fn daemon_lists(&self, feature: &str) -> bool {
+        self.daemon_features.lock_or_recover().iter().any(|f| f == feature)
     }
 
     /// The error for a connection that ended: says why, as far as the pid

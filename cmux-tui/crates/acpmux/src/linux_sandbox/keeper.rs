@@ -8,24 +8,26 @@
 //! streams, and owns services until bwrap exits. SpawnPlan and both spawn paths
 //! therefore need no additional descriptor plumbing.
 //!
-//! Linux remote chains remain refused in Bound::for_session until G2. This
-//! staged helper lacks persistence supervision; G1b supplies the marked hook.
-//! Collection loops stop at finite input exhaustion. Service loops stop on child
-//! exit, cancellation, or runtime teardown. No daemon-owned threads are added.
+//! Linux remote chains require the bwrap probe and session canary to pass.
+//! The supervisor enforces persistence write-opens, renames and creators.
+//! Collection loops stop at finite input exhaustion.
+//! Service loops stop on child exit, cancellation, or runtime teardown; the
+//! supervisor thread stops on its eventfd or listener hangup.
 pub(crate) use crate::hub::remote_sandbox::loader_env_key;
 
-use super::{bwrap, proxy, rules};
+use super::{bwrap, proxy, rules, supervisor};
 use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::process::{Child, Command};
@@ -33,6 +35,61 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 type Result<T> = std::result::Result<T, String>;
+
+/// The supervisor stops when the sandbox child exits, the listener hangs up,
+/// or keeper setup fails; dropping this guard signals its eventfd and joins it.
+struct SupervisorHandle {
+    stop: OwnedFd,
+    join: Option<JoinHandle<io::Result<()>>>,
+}
+impl SupervisorHandle {
+    fn start(notify: OwnedFd, policy: rules::WritePolicy) -> Result<Self> {
+        let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        if raw < 0 {
+            return Err(format!("create supervisor stop eventfd: {}", io::Error::last_os_error()));
+        }
+        // SAFETY: eventfd returned a new owned descriptor.
+        let stop = unsafe { OwnedFd::from_raw_fd(raw) };
+        let thread_stop =
+            stop.try_clone().map_err(|e| format!("clone supervisor stop eventfd: {e}"))?;
+        let join = thread::Builder::new()
+            .name("acpmux-sandbox-supervisor".into())
+            .spawn(move || supervisor::run(notify, policy, thread_stop))
+            .map_err(|e| format!("start sandbox supervisor: {e}"))?;
+        Ok(Self { stop, join: Some(join) })
+    }
+
+    fn signal(&self) -> Result<()> {
+        let one = 1u64;
+        let size = std::mem::size_of::<u64>();
+        // SAFETY: stop is an eventfd and the pointer references one u64.
+        let written =
+            unsafe { libc::write(self.stop.as_raw_fd(), (&one as *const u64).cast(), size as _) };
+        if written == size as isize
+            || (written < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock)
+        {
+            Ok(())
+        } else {
+            Err(format!("stop sandbox supervisor: {}", io::Error::last_os_error()))
+        }
+    }
+
+    fn stop_join(mut self) -> Result<()> {
+        self.signal()?;
+        let join = self.join.take().ok_or("sandbox supervisor already joined")?;
+        join.join()
+            .map_err(|_| "sandbox supervisor thread panicked".to_owned())?
+            .map_err(|e| format!("sandbox supervisor: {e}"))
+    }
+}
+impl Drop for SupervisorHandle {
+    fn drop(&mut self) {
+        let _ = self.signal();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
 /// Hidden canary helper; the parent's 20-second canary deadline bounds connect.
 /// Only an explicit permission denial proves the Unix-socket boundary held.
 pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
@@ -45,6 +102,31 @@ pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
         Err(e) => return Err(format!("Unix canary could not run: {e}")),
     }
     Ok(())
+}
+
+/// Hidden canary helper; rename(2) runs exactly once for the supplied pair.
+/// It reports only the two supervisor denial errnos; all other errors refuse.
+pub(crate) fn canary_rename(args: &[OsString]) -> Result<()> {
+    let [source, destination] = args else {
+        return Err("expected source and destination paths".into());
+    };
+    let source =
+        std::ffi::CString::new(source.as_encoded_bytes()).map_err(|_| "source contains NUL")?;
+    let destination = std::ffi::CString::new(destination.as_encoded_bytes())
+        .map_err(|_| "destination contains NUL")?;
+    // SAFETY: both strings are NUL-terminated and remain live for the call.
+    if unsafe { libc::rename(source.as_ptr(), destination.as_ptr()) } == 0 {
+        println!("rename=0");
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EPERM | libc::EACCES) => {
+            println!("rename=1");
+            Ok(())
+        }
+        _ => Err(format!("canary rename: {error}")),
+    }
 }
 
 #[derive(Debug)]
@@ -125,14 +207,42 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         args: args[end + 2..].to_vec(),
     })
 }
-fn validate_handoff(
+fn validate_handoff_with_notify(
     payload: &[u8],
-    fds: Vec<OwnedFd>,
+    mut fds: Vec<OwnedFd>,
     proxy_port: u16,
     api_port: Option<u16>,
-) -> Result<Vec<TcpListener>> {
-    validate_handoff_inner(payload, fds, proxy_port, api_port, true)
+) -> Result<(Vec<TcpListener>, OwnedFd)> {
+    let expected = 1 + usize::from(api_port.is_some());
+    if fds.len() != expected + 1 {
+        return Err("handoff missing supervisor notification fd".into());
+    }
+    let notify = fds.pop().ok_or("handoff missing supervisor notification fd")?;
+    let listeners = validate_handoff_inner(payload, fds, proxy_port, api_port, true)?;
+    validate_notify_fd(notify.as_raw_fd())?;
+    Ok((listeners, notify))
 }
+
+fn validate_notify_fd(_fd: RawFd) -> Result<()> {
+    let mut id = 0u64;
+    let request = libc::SECCOMP_IOCTL_NOTIF_ID_VALID as _;
+    // SAFETY: the request reads the initialized notification id only.
+    let result = unsafe { libc::ioctl(_fd, request, &mut id) };
+    if result == 0 {
+        return Err("handoff fd is not a seccomp listener (notification id accepted)".into());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != Some(libc::ENOENT) {
+        return Err(format!("handoff fd is not a seccomp listener: {error}"));
+    }
+    let target = std::fs::read_link(format!("/proc/self/fd/{_fd}"))
+        .map_err(|e| format!("handoff fd is not a seccomp listener: {e}"))?;
+    if target != Path::new("anon_inode:seccomp notify") {
+        return Err("handoff fd is not a seccomp listener (wrong inode type)".into());
+    }
+    Ok(())
+}
+
 fn validate_handoff_inner(
     payload: &[u8],
     fds: Vec<OwnedFd>,
@@ -209,7 +319,14 @@ fn listener_in_keeper_namespace(fd: RawFd) -> Result<bool> {
     // SAFETY: fd is a live socket; SIOCGSKNS returns a descriptor, not an output buffer.
     let netns = unsafe { libc::ioctl(fd, SIOCGSKNS as _, 0) };
     if netns < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EPERM) {
+            return Err(
+                "handoff listener is not in the sandbox network namespace (SIOCGSKNS: EPERM)"
+                    .into(),
+            );
+        }
+        return Err(error.to_string());
     }
     // SAFETY: successful SIOCGSKNS returns a new owned descriptor.
     let netns = unsafe { OwnedFd::from_raw_fd(netns) };
@@ -274,7 +391,7 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
             Ok(result) => result.map_err(|e| e.to_string())?,
         };
         fds.extend(received);
-        if n == 0 || fds.len() > 2 {
+        if n == 0 || fds.len() > 3 {
             return Err("handoff EOF or excess descriptors".into());
         }
         bytes.extend_from_slice(&chunk[..n]);
@@ -343,12 +460,40 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
     }
     Ok((fd, exe))
 }
-/// Stops on child completion (caller drops this future), closed signal stream,
-/// or forwarding error. Only the unreaped direct child's PID is signalled.
-async fn forward_signals(pid: u32, signals: [Signal; 3]) -> Result<i32> {
+// Pin before any wait/reap; the descriptor cannot target a recycled PID.
+fn open_pidfd(pid: u32) -> io::Result<OwnedFd> {
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0 as libc::c_uint) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful pidfd_open returns a new owned descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
+}
+fn signal_pidfd(fd: RawFd, number: libc::c_int) -> io::Result<()> {
+    // SAFETY: null siginfo requests the kernel-generated signal information.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_pidfd_send_signal,
+            fd,
+            number,
+            std::ptr::null::<libc::siginfo_t>(),
+            0 as libc::c_uint,
+        )
+    };
+    if result < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
+}
+/// Stops on the child-exit cancellation token, closed signal stream, or
+/// forwarding error. The owned pidfd only ever addresses the original child.
+async fn forward_signals(
+    pidfd: OwnedFd,
+    signals: [Signal; 3],
+    stop: CancellationToken,
+) -> Result<i32> {
     let [mut term, mut int, mut hup] = signals;
     loop {
         let (received, number) = tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Ok(0),
             v = term.recv() => (v, libc::SIGTERM),
             v = int.recv() => (v, libc::SIGINT),
             v = hup.recv() => (v, libc::SIGHUP),
@@ -356,12 +501,10 @@ async fn forward_signals(pid: u32, signals: [Signal; 3]) -> Result<i32> {
         if received.is_none() {
             return Err("signal stream closed".into());
         }
-        // SAFETY: pid belongs to the live, unreaped child of this keeper.
-        if unsafe { libc::kill(pid as libc::pid_t, number) } != 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error.to_string());
-            }
+        if let Err(error) = signal_pidfd(pidfd.as_raw_fd(), number)
+            && error.raw_os_error() != Some(libc::ESRCH)
+        {
+            return Err(error.to_string());
         }
     }
 }
@@ -384,19 +527,33 @@ async fn start_service(
 }
 /// Handoff ends within 20 s or on child exit. Services stop on child exit,
 /// accept failure, cancellation or future drop; JoinSet drop aborts all tunnels.
-async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Result<i32> {
+async fn session(
+    child: &mut Child,
+    socket: UnixStream,
+    options: &Options,
+    policy: rules::WritePolicy,
+    relay_stop: CancellationToken,
+) -> Result<i32> {
     socket.set_nonblocking(true).map_err(|e| e.to_string())?;
     let socket = AsyncFd::new(socket).map_err(|e| e.to_string())?;
     let (payload, fds) = tokio::select! {
-        status = child.wait() => return Err(format!("bwrap exited before handoff: {status:?}")),
+        status = child.wait() => {
+            relay_stop.cancel();
+            return Err(format!("bwrap exited before handoff: {status:?}"));
+        },
         result = tokio::time::timeout(Duration::from_secs(20), handoff(&socket)) => result.map_err(|_| "handoff timed out after 20 s")??,
     };
-    // G1b SUPERVISOR HOOK: receive its notify fd here and start the supervisor
-    // with the parsed WritePolicy before ack; stop/join it with these services.
-    // Until then, the validator rejects any additional descriptor.
-    let mut listeners =
-        validate_handoff(&payload, fds, options.proxy_port, options.api.map(|a| a.port()))?
-            .into_iter();
+    // G1b SUPERVISOR HOOK: the init helper sends listeners followed by the
+    // notify fd. The supervisor owns it before ack, so no target can exec
+    // without a host receiver for every notified write-open.
+    let (listeners, notify) = validate_handoff_with_notify(
+        &payload,
+        fds,
+        options.proxy_port,
+        options.api.map(|a| a.port()),
+    )?;
+    let mut listeners = listeners.into_iter();
+    let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
     let policy = proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) };
@@ -424,14 +581,52 @@ async fn session(child: &mut Child, socket: UnixStream, options: &Options) -> Re
     }
     drop(socket);
     let result = tokio::select! {
-        status = child.wait() => status.map(exit_code).map_err(|e| e.to_string()),
+        status = child.wait() => {
+            relay_stop.cancel();
+            status.map(exit_code).map_err(|e| e.to_string())
+        },
         service = services.join_next() => Err(format!("sandbox service ended: {service:?}")),
     };
     stop.cancel();
-    // No await after reaping: the outer signal relay must stop before this PID
-    // can be reused. JoinSet/runtime drop cancels and destroys the services.
-    result
+    // Cancellation stops proxy and forward loops; shutdown awaits every task
+    // before the supervisor eventfd is joined and the keeper exits.
+    services.shutdown().await;
+    let supervisor_result = supervisor.stop_join();
+    match (result, supervisor_result) {
+        (Err(error), _) => Err(error),
+        (Ok(code), Ok(_)) => Ok(code),
+        (Ok(_), Err(error)) => Err(error),
+    }
 }
+
+fn init_prefix(
+    exe: &Path,
+    daemon_prefix: Vec<OsString>,
+    handoff_fd: RawFd,
+    proxy_port: u16,
+    api: Option<SocketAddr>,
+) -> Result<Vec<String>> {
+    let mut prefix = vec![exe.to_str().ok_or("non-UTF-8 executable")?.to_owned()];
+    prefix.extend(
+        daemon_prefix
+            .into_iter()
+            .map(|s| s.into_string().map_err(|_| "non-UTF-8 invocation prefix"))
+            .collect::<std::result::Result<Vec<_>, _>>()?,
+    );
+    prefix.extend([
+        "__remote-sandbox-init".into(),
+        "--handoff-fd".into(),
+        handoff_fd.to_string(),
+        "--proxy-port".into(),
+        proxy_port.to_string(),
+    ]);
+    if let Some(api) = api {
+        prefix.extend(["--api-port".into(), api.port().to_string()]);
+    }
+    prefix.push("--".into());
+    Ok(prefix)
+}
+
 /// Setup collections are finite. Signal relay ends with session; on failure,
 /// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
 async fn run(options: Options) -> Result<i32> {
@@ -480,25 +675,26 @@ async fn run(options: Options) -> Result<i32> {
     }
     let (exe_fd, exe) = executable(&denies, &writable)?;
     let bwrap_fd = open_bwrap()?;
-    let mut prefix = vec![exe.to_str().ok_or("non-UTF-8 executable")?.to_owned()];
-    prefix.extend(
-        crate::daemon::daemon_prefix()
-            .into_iter()
-            .map(|s| s.into_string().map_err(|_| "non-UTF-8 invocation prefix"))
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    );
-    prefix.extend([
-        "__remote-sandbox-init".into(),
-        "--handoff-fd".into(),
-        "3".into(),
-        "--proxy-port".into(),
-        options.proxy_port.to_string(),
-    ]);
-    if let Some(api) = options.api {
-        prefix.extend(["--api-port".into(), api.port().to_string()]);
+    let prefix =
+        init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
+    // The snapshot precedes the bwrap clone. Only unsandboxed host processes
+    // can add mounts in that window, and they already have full host access.
+    // After cloning, seccomp and user namespaces block sandbox mounts; the
+    // only sandbox-triggered propagation path is automount. The plan refuses
+    // all autofs outside /proc and /dev, which bwrap replaces. Systemd's
+    // binfmt_misc automount under /proc/sys is unaffected. Mount IDs come from
+    // O_PATH + /proc/self/fdinfo in this keeper, never from deepest-path guesses.
+    let mut mountinfo = Vec::new();
+    std::fs::File::open("/proc/self/mountinfo")
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut mountinfo)
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?;
+    if mountinfo.len() > 4 * 1024 * 1024 {
+        return Err("mountinfo exceeds 4 MiB".into());
     }
-    prefix.push("--".into());
-    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
+    let mountinfo = String::from_utf8(mountinfo).map_err(|_| "mountinfo is not UTF-8")?;
+    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &mountinfo, &prefix)?;
     let separator =
         argv.iter().position(|arg| arg == "--").ok_or("bwrap plan has no command separator")?;
     argv.splice(
@@ -552,14 +748,21 @@ async fn run(options: Options) -> Result<i32> {
         });
     }
     let mut child = command.spawn().map_err(|e| format!("start bwrap: {e}"))?;
+    let pidfd =
+        open_pidfd(child.id().ok_or("bwrap has no PID")?).map_err(|e| format!("pin bwrap: {e}"))?;
     drop(child_end);
     drop(bind_fds);
     drop(exe_fd);
     drop(bwrap_fd);
-    let pid = child.id().ok_or("bwrap has no PID")?;
-    let result = tokio::select! {
-        result = session(&mut child, parent, &options) => result,
-        result = forward_signals(pid, [term, int, hup]) => result,
+    let relay_stop = CancellationToken::new();
+    let relay = tokio::spawn(forward_signals(pidfd, [term, int, hup], relay_stop.clone()));
+    let result = session(&mut child, parent, &options, policy, relay_stop.clone()).await;
+    relay_stop.cancel();
+    let relay_result = relay.await.map_err(|e| format!("signal relay: {e}"))?;
+    let result = match (result, relay_result) {
+        (Err(error), _) => Err(error),
+        (Ok(code), Ok(_)) => Ok(code),
+        (Ok(_), Err(error)) => Err(error),
     };
     if result.is_err() {
         let _ = tokio::time::timeout(Duration::from_secs(5), child.kill()).await;
@@ -736,7 +939,7 @@ mod tests {
     }
     #[test]
     fn handoff_refuses_wrong_counts_ports_and_order() {
-        assert!(validate_handoff(&payload(3128, None), vec![], 3128, None).is_err());
+        assert!(validate_handoff_for_test(&payload(3128, None), vec![], 3128, None).is_err());
         for count in [1, 2, 3] {
             let (proxy, port) = listener("127.0.0.1");
             let (api, api_port) = listener("127.0.0.1");
@@ -778,13 +981,18 @@ mod tests {
         ] {
             let (fd, port) = listener("127.0.0.1");
             let text = text.replace("PORT", &port.to_string());
-            assert!(validate_handoff(text.as_bytes(), vec![fd], port, None).is_err(), "{text}");
+            assert!(
+                validate_handoff_for_test(text.as_bytes(), vec![fd], port, None).is_err(),
+                "{text}"
+            );
         }
         let (fd, port) = listener("127.0.0.1");
         let duplicate = format!("{{\"proxy\":{port},\"proxy\":{port},\"api\":null}}\n");
-        assert!(validate_handoff(duplicate.as_bytes(), vec![fd], port, None).is_err());
+        assert!(validate_handoff_for_test(duplicate.as_bytes(), vec![fd], port, None).is_err());
         let (fd, port) = listener("127.0.0.1");
-        assert!(validate_handoff(&payload(port, Some(port)), vec![fd], port, None).is_err());
+        assert!(
+            validate_handoff_for_test(&payload(port, Some(port)), vec![fd], port, None).is_err()
+        );
     }
     #[test]
     fn handoff_refuses_nonlisteners_and_other_bind_addresses() {
@@ -796,18 +1004,90 @@ mod tests {
             TcpStream::connect_timeout(&tcp.local_addr().unwrap(), Duration::from_secs(2)).unwrap();
         let stream_port = stream.local_addr().unwrap().port();
         for (fd, port) in [(file, 3128), (udp.into(), udp_port), (stream.into(), stream_port)] {
-            assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+            assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
         }
         for address in ["0.0.0.0", "127.0.0.2"] {
             let (fd, port) = listener(address);
-            assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+            assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
         }
     }
     #[test]
     fn handoff_refuses_a_listener_from_the_keeper_network_namespace() {
         let (fd, port) = listener("127.0.0.1");
-        assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+        let notify: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+        let error =
+            validate_handoff_with_notify(&payload(port, None), vec![fd, notify], port, None)
+                .expect_err("a host listener must fail the namespace proof");
+        assert!(error.contains("network namespace"), "{error}");
     }
+    #[test]
+    fn handoff_without_notify_fd_is_refused() {
+        let (fd, port) = listener("127.0.0.1");
+        // Missing notify is rejected before listener validation.
+        assert!(validate_handoff_with_notify(&payload(port, None), vec![fd], port, None).is_err());
+    }
+
+    #[test]
+    fn notify_fd_must_be_a_seccomp_listener() {
+        let null: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+        assert!(validate_notify_fd(null.as_raw_fd()).is_err());
+        let event = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        assert!(event >= 0);
+        let event = unsafe { OwnedFd::from_raw_fd(event) };
+        assert!(validate_notify_fd(event.as_raw_fd()).is_err());
+        let socket: OwnedFd = TcpListener::bind("127.0.0.1:0").unwrap().into();
+        assert!(validate_notify_fd(socket.as_raw_fd()).is_err());
+    }
+
+    #[tokio::test]
+    async fn pidfd_signal_after_reap_is_esrch() {
+        let mut child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pinned = open_pidfd(child.id().unwrap());
+        drop(child.stdin.take());
+        tokio::time::timeout(Duration::from_secs(5), child.wait()).await.unwrap().unwrap();
+        let pinned = pinned.expect("relay must pin the child before any reap");
+        // A queued termination delivered after reap must address only this dead child.
+        assert_eq!(
+            signal_pidfd(pinned.as_raw_fd(), libc::SIGTERM).unwrap_err().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn signal_relay_stops_after_child_exit() {
+        let signals = [
+            signal(SignalKind::terminate()).unwrap(),
+            signal(SignalKind::interrupt()).unwrap(),
+            signal(SignalKind::hangup()).unwrap(),
+        ];
+        let stop = CancellationToken::new();
+        stop.cancel();
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            forward_signals(open_pidfd(std::process::id()).unwrap(), signals, stop),
+        )
+        .await;
+        assert!(result.is_ok(), "signal relay remained alive after child exit");
+    }
+
+    #[test]
+    fn keeper_to_init_api_contract_has_no_unknown_family_flag() {
+        let args = init_prefix(
+            Path::new("/usr/bin/acpmux"),
+            Vec::new(),
+            3,
+            8118,
+            Some("127.0.0.1:31415".parse().unwrap()),
+        )
+        .unwrap();
+        assert!(!args.iter().any(|arg| arg == "--api-loopback-v4"));
+    }
+
     #[test]
     fn child_exit_status_mapping() {
         for code in [0, 1, 7, 125, 127, 255] {
