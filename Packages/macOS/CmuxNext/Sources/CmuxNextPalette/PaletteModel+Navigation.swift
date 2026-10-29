@@ -22,6 +22,8 @@ extension PaletteModel {
             if nav.top?.id != previousLevelID || nav.top?.query != previousQuery {
                 pendingClose = false
             }
+            // Replacing a page in place can keep both its level and query.
+            if case .restart = next { pendingClose = false }
             for effect in effects { perform(effect) }
         }
         mirror()
