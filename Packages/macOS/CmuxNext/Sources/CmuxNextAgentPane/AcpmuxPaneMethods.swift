@@ -114,6 +114,10 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The composer's sign-in check before a turn (direct.ts sessionAuth, sessionAuth.ts): read
+        // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
+        // harness, and optionally its host and route), never another chat.
+        "_acpmux/session/auth",
         // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
@@ -244,7 +248,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+    /// The sign-in check names a chat (`sessionId`) or only a new chat's `target`: a named one must
+    /// be in the pane's scope too.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set", "_acpmux/session/auth"]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
