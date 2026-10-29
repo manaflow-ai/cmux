@@ -60,12 +60,12 @@ impl Waiting {
         if let Some(id) = message.get("id").and_then(Value::as_u64)
             && let Some(request) = self.requests.remove(&id)
         {
+            if self.sessions.get(&request.session) != Some(&(request.state, id)) {
+                return Ok((vec![], vec![]));
+            }
             if message.get("error").is_some() {
                 // The next watch snapshot retries a still-pending state.
                 return Err("pending-input lookup failed".into());
-            }
-            if self.sessions.get(&request.session) != Some(&(request.state, id)) {
-                return Ok((vec![], vec![]));
             }
             let mut pushes = Vec::new();
             for pending in message.pointer("/result/pending").and_then(Value::as_array).into_iter().flatten()
@@ -100,7 +100,7 @@ impl Waiting {
             }
         };
         if !input {
-            self.sessions.remove(session_id);
+            self.forget(session_id);
             return Ok(());
         }
         let state = InputState {
@@ -114,6 +114,7 @@ impl Waiting {
         if self.sessions.get(session_id).is_some_and(|(current, _)| current == &state) {
             return Ok(());
         }
+        self.forget(session_id);
         if (!self.sessions.contains_key(session_id) && self.sessions.len() >= SESSION_LIMIT)
             || self.requests.len() >= SESSION_LIMIT
         {
@@ -129,6 +130,12 @@ impl Waiting {
         queries
             .push(json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/info","params":{"sessionId":session_id}}));
         Ok(())
+    }
+
+    fn forget(&mut self, session: &str) {
+        if let Some((_, id)) = self.sessions.remove(session) {
+            self.requests.remove(&id);
+        }
     }
 }
 
@@ -249,6 +256,7 @@ mod tests {
         let (old, _) = receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier);
         assert!(waiting.next_deadline().is_some());
         receive(&mut waiting, &changed(session("running", 11)), &mut classifier);
+        assert!(waiting.next_deadline().is_none(), "a resolved wait cancels its lookup deadline");
         // Older peers may reuse the same summary key on the next wait.
         let (new, _) = receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier);
         assert!(receive(&mut waiting, &reply(&old[0], pending("old")), &mut classifier).1.is_empty());
@@ -280,5 +288,20 @@ mod tests {
         let (queries, _) = receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier);
         let error = json!({"id":queries[0]["id"],"error":{"code":-32000,"message":"gone"}});
         assert!(waiting.receive(&error, &mut classifier).is_err());
+    }
+
+    #[test]
+    fn closed_and_unreachable_sessions_do_not_revive_pending_asks() {
+        for status in ["closed", "unreachable", "disconnected"] {
+            let mut waiting = Waiting::default();
+            let mut classifier = Classifier::default();
+            let mut summary = session("waiting", 10);
+            summary["status"] = json!(status);
+            summary["indicator"] = Value::Null;
+            let (queries, pushes) = receive(&mut waiting, &changed(summary), &mut classifier);
+            assert!(queries.is_empty(), "{status}");
+            assert!(pushes.is_empty(), "{status}");
+            assert!(waiting.next_deadline().is_none());
+        }
     }
 }
