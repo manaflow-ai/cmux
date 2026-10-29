@@ -41,6 +41,7 @@ import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -91,8 +92,9 @@ export function IncomingMessageLine({
     setOpen(next);
   };
   const rawId = useId();
-  // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
-  const [details, setDetails] = useState(false);
+  // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
+  // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.
+  const [details, setDetails] = useTranscriptDisclosure(`message-details:${id}`);
   // Only the reader's own clicks play the motion; Find opening a message for its match does not.
   const played = useRef(false);
   const envelope = useAnchoredCollapse({
