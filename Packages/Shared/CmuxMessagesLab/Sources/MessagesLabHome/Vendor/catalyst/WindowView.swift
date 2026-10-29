@@ -2266,6 +2266,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         } else {
             threadScrollBack = 0
             threadScrollRange = 0
+            // cmux: the center point sits 518 pt above the pane's bottom (the 1041 pt window's), not at the
+            // space's center: in a tall pane a thread that fits the space ended under the field with no scroll
+            // range (Lawrence 2026-10-28: "unable to scroll down here"). It stays centered where it can.
+            y = min(max(y, area.minY), area.maxY - total)
         }
         placeThreadHeader(header, top: y, fade: (!wasOpen || drilled) && !still)
         y += headerHeight
