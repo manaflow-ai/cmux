@@ -701,6 +701,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_publisher_mac_jobs_move.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_github_hosted_macos.py"
 lane = "linux-guard"
 
@@ -770,6 +774,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_delivery_workflows_cancel.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1186,6 +1194,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_cadence.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_canary_feed_origin.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1746,6 +1758,18 @@ path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_bun_workspaces.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_main.py"
 lane = "linux-guard"
 
@@ -1763,6 +1787,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_api_budget.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_glaeda_route_app_budget.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1880,6 +1908,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_test_reds.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2087,4 +2119,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_download_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"

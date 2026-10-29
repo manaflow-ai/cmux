@@ -1,8 +1,8 @@
 import { randomUUID, createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import { and, eq, sql } from "drizzle-orm";
-import { cloudDb } from "../../db/client";
-import { runAttempts } from "../../db/schema";
+import { cloudDb } from "../../../db/client";
+import { runAttempts } from "../../../db/schema";
 import { runCloudClient, type RunCloudClient } from "./cloudClient";
 import { RUN_CLOUD_CREATE_PENDING_LIMIT_MS, RunCloudOperationPending, runCloudCreatePendingExpired } from "./cloudClientContract";
 import { claimNextRunAttempt, renewRunAttemptLease, checkpointRunAttempt, finishRunAttempt, cancelClaimedRunAttempt, reconcileCancelledRunAttempts, type ClaimedRunAttempt } from "./worker";

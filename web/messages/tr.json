@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM isteği gecikti",
+      "message": "Cloud VM ayırma işlemi geçici olarak kullanılamıyor.",
+      "action": "Bir dakika bekleyin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Anlık görüntü isteği için yeniden deneme anahtarı gerekiyor",
+      "message": "Cloud VM anlık görüntüleri bir idempotency anahtarı gerektirir.",
+      "action": "En fazla 128 karakterlik sabit bir Idempotency-Key ile yeniden deneyin."
+    },
+    "snapshotInProgress": {
+      "title": "Anlık görüntü hâlâ sürüyor",
+      "message": "Bu idempotency anahtarına sahip anlık görüntü bu Cloud VM için hâlâ çalışıyor.",
+      "action": "İlk anlık görüntünün tamamlanmasını bekleyin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Anlık görüntü yeniden deneme anahtarı zaten kullanılmış",
+      "message": "Bu idempotency anahtarı bu Cloud VM üzerindeki başka bir anlık görüntü isteği için zaten kullanılmış.",
+      "action": "Farklı adlı bir anlık görüntü için yeni bir idempotency anahtarı kullanın."
+    },
+    "snapshotQuota": {
+      "title": "Anlık görüntü sınırına ulaşıldı",
+      "message": "Bu Cloud VM anlık görüntü sınırına ulaştı.",
+      "action": "Mevcut bir anlık görüntüyü silin, ardından aynı idempotency anahtarıyla yeniden deneyin."
+    },
     "guestInstall": {
       "title": "Cloud VM kurulumu tamamlanamadı",
       "reason": "Cloud VM konuk kurulumu tamamlanmadı.",

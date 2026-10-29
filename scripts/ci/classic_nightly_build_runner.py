@@ -18,10 +18,21 @@ rule over the queue janitor's snapshot: 12 vCPU first (the build's old default),
 both stalled, 6 vCPU (more slots); with no fresh snapshot, 12 vCPU. A re-run of failed jobs keeps
 these outputs, so attempt 2 on takes `cloud`. Nothing here routes to any owned label other
 than the pinned pair, so the ci-cache-writer keys and the Sentry token stay on the trusted mini.
+FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that label ahead: the sign
+and verify jobs of main's nightly
+and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
+ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
+for a re-run.
+`classic_nightly_build_runner.py prepare` prints only `trusted`, read once with no wait, and false
+when the list cannot be read: prepare-nightly-variant (no secrets) takes the same pinned tuple while
+that mini is idle right after the build, else its Blacksmith label. Its three legs ran about 1 min
+each but queued 27-42 min on blacksmith-6vcpu-macos-26 in runs 40557789720 and 40567539918, and
+run 40604652316's sat queued from 00:54:52Z with every Blacksmith macOS 26 label stalled, while the
+mini that had just built the app sat idle. Signing and verify stay on Blacksmith.
 It never fails the job and never prints an empty `cloud`:
 
     ROUTE_TOKEN=<runners: read> SNAPSHOT_TOKEN=<actions: read> TRUSTED_POOL=... TRUSTED_RUNNER=...
-    ENABLED=1 classic_nightly_build_runner.py  -> trusted=true|false, cloud=<label> in $GITHUB_OUTPUT
+    ENABLED=1 classic_nightly_build_runner.py  -> trusted=true|false, cloud=<label>, alternate=<label>
 """
 
 from __future__ import annotations
@@ -39,6 +50,7 @@ import simple_pool_picker as picker  # noqa: E402
 
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 CANDIDATES = (LARGE, SMALL)
+SIZES = {"12vcpu": LARGE, "6vcpu": SMALL}
 # The pinned mini's previous nightly usually ends inside this; past it a cold Blacksmith build
 # (about 60 min) starts sooner than the wait the 2026-10-27 runs saw.
 WAIT_SECONDS = 5 * 60
@@ -62,8 +74,10 @@ def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | 
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
                   enabled: bool, attempt: str, *, wait_seconds: float = WAIT_SECONDS,
                   look_seconds: float = LOOK_SECONDS, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
-    """(whether the build asks for the pinned trusted tuple, why)."""
+                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True) -> tuple[bool, str]:
+    """(whether the build asks for the pinned trusted tuple, why).
+
+    `unread_keeps` False (the prepare pick) takes Blacksmith when the runner list cannot be read."""
     if not enabled:
         return False, "not a main push or schedule with the owned pool on"
     if attempt not in ("", "1"):
@@ -76,6 +90,8 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         if state == "idle":
             return True, f"`{runner}` is online and idle"
         if state == "unread":
+            if not unread_keeps:
+                return False, "the runner list could not be read"
             return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
         if state == "offline":
             return False, f"`{runner}` is offline"
@@ -84,10 +100,21 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         sleep(look_seconds)
 
 
-def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[str, str]:
+def candidates(first: str = "") -> tuple[str, ...]:
+    """CANDIDATES, with `first` ahead when it is one of them or its size (the job's own default label).
+
+    A size lets a nightly step name the label without naming Blacksmith outside a runs-on
+    (tests/test_ci_nightly_off_blacksmith.py)."""
+    first = SIZES.get(first, first)
+    return (first, *(label for label in CANDIDATES if label != first)) if first in CANDIDATES else CANDIDATES
+
+
+def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
+                     first: str = "") -> tuple[str, str]:
     """(the first Blacksmith macOS 26 label whose queue moves, why)."""
+    order = candidates(first)
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
-        return LARGE, f"no fresh pool snapshot, so `{LARGE}`"
+        return order[0], f"no fresh pool snapshot, so `{order[0]}`"
     pools = snapshot["pools"]
     try:
         generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at")).replace("Z", "+00:00"))
@@ -102,15 +129,23 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tu
         except (TypeError, ValueError):
             return 0.0
 
-    stuck = [label for label in CANDIDATES
+    stuck = [label for label in order
              if picker.blacksmith_stalled(int(field(label, "queued")), field(label, "oldest_queued_minutes") + age)]
-    moving = [label for label in CANDIDATES if label not in stuck]
+    moving = [label for label in order if label not in stuck]
     if not moving:
         return SMALL, f"every Blacksmith macOS 26 label is stalled; `{SMALL}` has the most slots"
-    return moving[0], f"`{moving[0]}`" + (f", past stalled `{stuck[0]}`" if moving[0] != CANDIDATES[0] else "")
+    return moving[0], f"`{moving[0]}`" + (f", past stalled `{stuck[0]}`" if moving[0] != order[0] else "")
 
 
-def main(env: Mapping[str, str] = os.environ,
+def alternate(label: str) -> str:
+    """The other Blacksmith macOS 26 label. The jobs take it on an attempt later than the one that made
+    the pick (`attempt`): a re-run of failed jobs keeps the pick job's outputs, and GitHub never
+    re-routes a queued job, so the re-run leaves the label that stalled after the pick. A re-run of all
+    jobs runs the picker again, and that attempt takes the fresh pick."""
+    return next(other for other in CANDIDATES if other != label) if label in CANDIDATES else SMALL
+
+
+def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
@@ -134,10 +169,22 @@ def main(env: Mapping[str, str] = os.environ,
     # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
     now = now or wall()
     started = clock()
+    prepare = list(argv[:1]) == ["prepare"]
     trusted, trusted_why = trusted_route((env.get("TRUSTED_POOL") or "").strip(),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
-                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock)
+                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock,
+                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare)
+    if prepare:
+        line = f"prepare: {'trusted' if trusted else 'blacksmith'} ({trusted_why})"
+        print(f"classic nightly build runner: {line}")
+        if env.get("GITHUB_OUTPUT"):
+            with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                handle.write(f"trusted={'true' if trusted else 'false'}\n")
+        if env.get("GITHUB_STEP_SUMMARY"):
+            with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+                handle.write(f"\nNightly prepare runner:\n- {line}\n")
+        return 0
     now += dt.timedelta(seconds=max(0.0, clock() - started))
     snapshot = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
@@ -153,13 +200,14 @@ def main(env: Mapping[str, str] = os.environ,
                     snapshot = None
         except Exception as error:  # noqa: BLE001 - the default label keeps its say
             print(f"::warning title=classic nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
-    blacksmith, blacksmith_why = blacksmith_route(snapshot, now)
+    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip())
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n")
+            handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
+                         f"alternate={alternate(blacksmith)}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))
@@ -167,4 +215,4 @@ def main(env: Mapping[str, str] = os.environ,
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(argv=sys.argv[1:]))

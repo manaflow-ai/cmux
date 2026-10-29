@@ -168,6 +168,31 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM リクエストが遅延しています",
+      "message": "Cloud VM の割り当てを一時的に利用できません。",
+      "action": "1 分待ってから、同じ冪等キーで再試行してください。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "スナップショットリクエストには再試行キーが必要です",
+      "message": "Cloud VM のスナップショットには冪等キーが必要です。",
+      "action": "128 文字以内の固定した Idempotency-Key を指定して再試行してください。"
+    },
+    "snapshotInProgress": {
+      "title": "スナップショットを処理中です",
+      "message": "この Cloud VM では、この冪等キーのスナップショットがまだ実行中です。",
+      "action": "最初のスナップショットが完了するまで待ってから、同じ冪等キーで再試行してください。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "スナップショットの再試行キーは使用済みです",
+      "message": "この冪等キーは、この Cloud VM の別のスナップショットリクエストですでに使用されています。",
+      "action": "別の名前のスナップショットには、新しい冪等キーを使用してください。"
+    },
+    "snapshotQuota": {
+      "title": "スナップショットの上限に達しました",
+      "message": "この Cloud VM はスナップショットの上限に達しています。",
+      "action": "既存のスナップショットを削除してから、同じ冪等キーで再試行してください。"
+    },
     "guestInstall": {
       "title": "Cloud VM のセットアップを完了できませんでした",
       "reason": "Cloud VM のゲストセットアップが完了しませんでした。",

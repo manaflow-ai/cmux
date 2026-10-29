@@ -1,10 +1,10 @@
 import { after } from "next/server";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
-import { withRunRoute, validRunId, runNotFound } from "../../../../../services/runs/http";
-import { readRunSnapshot } from "../../../../../services/runs/repository";
-import { cancelRun } from "../../../../../services/runs/worker";
-import { processRunQueue } from "../../../../../services/runs/runner";
-import { runReceipt } from "../../../../../services/runs/view";
+import { withRunRoute, validRunId, runNotFound } from "../../../../../services/runs/legacy/http";
+import { readRunSnapshot } from "../../../../../services/runs/legacy/repository";
+import { cancelRun } from "../../../../../services/runs/legacy/worker";
+import { processRunQueue } from "../../../../../services/runs/legacy/runner";
+import { runReceipt } from "../../../../../services/runs/legacy/view";
 export const maxDuration = 960;
 export function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   return withRunRoute(request, "/api/runs/:id/cancel", async (scope) => {
