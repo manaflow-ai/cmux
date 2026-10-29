@@ -392,6 +392,17 @@ impl Controller {
             Arc::clone(&self.lifecycle),
             move || async move {
                 let plan = controller.begin_retirement_close(generation, &node);
+                if !plan.logout && controller.stopping.load(Ordering::Acquire) {
+                    // Queued before the shutdown fence, running after it. The
+                    // node stays owned (Retiring) and daemon shutdown closes it
+                    // after the WebSocket drain has sent its close frames.
+                    controller.pending_retirement.store(false, Ordering::Release);
+                    controller.retirement_finished.notify_waiters();
+                    release_node(cleanup_node);
+                    release_node(node);
+                    release_node(failed);
+                    return;
+                }
                 let remote_logout = controller.remote_logout(Arc::clone(&cleanup_node));
                 let result = tokio::task::spawn_blocking(move || {
                     if plan.logout {
@@ -2041,6 +2052,40 @@ mod tests {
         release_node(retained);
         assert!(!controller.retirement_pending());
         assert!(controller.snapshot().error.is_none());
+        controller.shutdown().await.unwrap();
+        assert!(controller.state_node().is_none());
+        release_node(node);
+    }
+
+    #[tokio::test]
+    async fn watch_cleanup_queued_before_the_fence_leaves_the_close_to_shutdown() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "queued-cleanup");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "queued-cleanup");
+        controller.set_running_for_test(Arc::clone(&node), "node.example.ts.net");
+        // A login holds the lifecycle gate; the watcher ends and its cleanup
+        // queues behind it. Then the shutdown fence lands and login finishes
+        // before the daemon's WebSocket shutdown.
+        let login = controller.lifecycle.lock().await;
+        let watcher = {
+            let (controller, node) = (controller.clone(), Arc::clone(&node));
+            tokio::spawn(async move { controller.listener_failed(&node).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        controller.begin_shutdown();
+        drop(login);
+        tokio::time::timeout(std::time::Duration::from_secs(5), watcher)
+            .await
+            .expect("queued cleanup finished")
+            .unwrap();
+        let retained =
+            controller.state_node().expect("the queued cleanup must leave the close to shutdown");
+        assert!(Arc::ptr_eq(&retained, &node));
+        release_node(retained);
+        assert!(!controller.retirement_pending());
         controller.shutdown().await.unwrap();
         assert!(controller.state_node().is_none());
         release_node(node);
