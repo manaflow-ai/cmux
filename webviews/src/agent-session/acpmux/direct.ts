@@ -4077,8 +4077,8 @@ export class AcpmuxDirectClient {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
-        if (msg.steer !== true && typeof msg.turnId === "string") {
-          this.runningTurnId = msg.turnId;
+        if (msg.steer !== true) {
+          this.runningTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
           // A forced compaction result can follow the next prompt's echo. Retire the old inferred
           // row before that prompt so the delayed boundary cannot complete it or close the new turn.
           if (this.retiredCompactionTurnId !== undefined) {
@@ -4251,6 +4251,9 @@ export class AcpmuxDirectClient {
         // close the new turn, clear its asks, or settle its compaction.
         const resultTurnId =
           event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        // Stop's acknowledgement is independent of the currently running turn. A delayed result
+        // may answer the old cancel even though it has no authority over the new turn's rows.
+        if (resultTurnId !== undefined && resultTurnId === this.stopTurnId) this.stopAnswered(event);
         // A fenced session has lost attribution for source completions. Only a scoped result
         // for its live turn may settle it; legacy turn_end and unscoped results are ambiguous.
         if (
@@ -4265,6 +4268,16 @@ export class AcpmuxDirectClient {
           resultTurnId !== this.runningTurnId
         )
           return;
+        // Only this turn's unfinished compaction needs a delayed-boundary fence. An unrelated
+        // historical inferred row must not turn an ordinary forced Stop into a compaction Stop.
+        const compactionWasRunning =
+          resultTurnId !== undefined &&
+          [...this.rows.values()].some(
+            (row) =>
+              row.kind === "compaction" &&
+              row.turnId === resultTurnId &&
+              (row.compaction?.state === "running" || row.compaction?.inferred === true),
+          );
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;
@@ -4295,7 +4308,7 @@ export class AcpmuxDirectClient {
         if (event.kind === "turn_result") this.interrupting = undefined;
         const turnId = resultTurnId;
         if (event.kind === "turn_result" && turnId) {
-          if (msg.cancelForced === true) this.retiredCompactionTurnId = turnId;
+          if (msg.cancelForced === true && compactionWasRunning) this.retiredCompactionTurnId = turnId;
           this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
@@ -4483,6 +4496,7 @@ export class AcpmuxDirectClient {
         )
           running = row;
       const id = running?.id ?? `compaction-${event.seq}`;
+      const compactionTurnId = compaction.state === "running" ? this.runningTurnId : running?.turnId;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
       this.rows.set(id, {
@@ -4491,6 +4505,9 @@ export class AcpmuxDirectClient {
         at: running?.at ?? event.at,
         seq: running?.seq ?? event.seq,
         kind: "compaction",
+        // Local attribution comes only from the daemon's real running turn identity; the
+        // unscoped source boundary itself is never promoted to terminal-turn authority.
+        ...(compactionTurnId ? { turnId: compactionTurnId } : {}),
         compaction:
           compaction.state === "running" && running?.compaction
             ? stillRunning(running.compaction, compaction)
