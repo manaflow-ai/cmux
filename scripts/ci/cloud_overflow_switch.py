@@ -771,8 +771,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if out:
         with open(out, "a", encoding="utf-8") as handle:
             handle.write(f"outcome={outcome}\n")
-            # The label probed, for runner_pools.py (the pools it serves).
-            handle.write(f"label={label}\n")
     write_summary(env, lines)
     return code
 

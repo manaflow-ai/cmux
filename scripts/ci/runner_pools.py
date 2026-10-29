@@ -15,25 +15,36 @@ run on now, as one JSON object. A job writes
 and never a label of its own (tests/test_ci_runner_set.py). A picker's output still comes first
 where a run needs its own choice (owned Macs, warm affinity); the pool is what follows it.
 
-This script is the one writer. Each pass (ci-cloud-overflow-probe.yml's watch job, every 10
-minutes, with the token the overflow switch already uses) it:
+This script is the one writer, and it only chooses: each pass (ci-cloud-overflow-probe.yml's
+watch job, every 10 minutes, with the token the overflow switch already uses) it
 
-- reads which labels are dead: the queue janitor's snapshot (`dead_labels`, a label a job waited
-  on past its bound while another member of its family started jobs) and the overflow probe (a
-  label it waited on with no runner);
-- marks them in RUNNER_POOLS' `_dead` (label -> when it was last seen dead). A mark expires after
-  DEAD_TTL, and a started probe on that label clears it at once, so a pool returns to its first
-  member once that member serves again;
-- points each pool at its first member not marked dead. When every member is marked, the pool
-  keeps its first member: a job then waits, and the janitor moves it when one recovers;
-- writes RUNNER_POOLS only when something changed.
+- reads per-label start evidence (label_evidence()):
+  - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
+    or "stalled"), read live through the API so it is this run's and not the job's start value;
+    used while its `checked` is at most HEALTH_MAX_AGE old;
+  - the queue janitor's snapshot (macos-pool-load): a Blacksmith label in `pools` whose oldest
+    queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled(): on
+    a first-in, first-out queue nothing started there since), and the dead-label entries
+    (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
+    The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
+    pool members, so they are not read;
+- marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
+  DEAD_TTL unless seen again; evidence that the label started a job clears it at once;
+- points each pool at its first member with no mark. With every member marked, the pool keeps
+  its first member;
+- writes RUNNER_POOLS only when something changed. A value that does not match the schema
+  (parse_value()) is replaced from the declared defaults, never crashed on.
+
+Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
+creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
+which then read the pool's new member.
 
 RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
 job reading it can never land on an owned Mac, whoever started it (a fork's pull request
-included), and a signing job's pool is always ephemeral (signing_runner_variables.py). Owned Macs
-come first through a picker's output (the routing order: owned Macs, then Blacksmith macOS),
-never through a pool. A pool that must run GitHub-hosted (npm and PyPI provenance accept only
-GitHub's OIDC) says `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
+included). Owned Macs come first through a picker's output (the routing order: owned Macs, then
+Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
+that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
+`"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
 --check validates a RUNNER_POOLS value: every pool set, each to one of its own members.
 """
@@ -52,16 +63,20 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402  (its GitHub client reads the janitor snapshot)
+import simple_pool_picker  # noqa: E402  (the one Blacksmith stall rule)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNERS = ROOT / ".github" / "runners.json"
 VARIABLE = "RUNNER_POOLS"
+HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"
-# A dead mark lasts this long unless seen again. The janitor sees a dead label again within about
-# 13 minutes (3 minutes of waiting plus its 10-minute sweep), so a label that is still dead is
-# marked again before its mark expires, and one that recovered is used again within half an hour.
+# A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
+# sweeps about as often, so a label that is still dead is marked again before its mark expires,
+# and one that recovered is used again within half an hour (or at once when it starts a job).
 DEAD_TTL = dt.timedelta(minutes=30)
+# Probe health older than this is from a run that did not finish; it decides nothing.
+HEALTH_MAX_AGE = dt.timedelta(minutes=25)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
@@ -73,12 +88,14 @@ def iso(moment: dt.datetime) -> str:
 
 
 def parse_time(value: object) -> dt.datetime | None:
+    """An ISO 8601 time with a zone; None for anything else (a naive time included)."""
     if not isinstance(value, str) or not value:
         return None
     try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        moment = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    return moment if moment.tzinfo is not None else None
 
 
 def load_pools(path: Path = RUNNERS) -> dict[str, dict[str, Any]]:
@@ -115,13 +132,42 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
     return found
 
 
-def parse_value(raw: str | None) -> dict[str, Any]:
+def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[str]]:
+    """The usable part of a RUNNER_POOLS value, and why any of it was dropped.
+
+    A pool naming a label that is not its member, a `_dead` that is not an object of label ->
+    zoned time, or a value that is not a JSON object is dropped, and reconcile() fills it again
+    from the declared members: a malformed variable is repaired, never crashed on.
+    """
     if not (raw or "").strip():
-        return {}
-    value = json.loads(str(raw))
+        return {}, []
+    try:
+        value = json.loads(str(raw))
+    except ValueError as error:
+        return {}, [f"{VARIABLE} is not JSON ({error}); rewriting it from .github/runners.json"]
     if not isinstance(value, dict):
-        raise ValueError(f"{VARIABLE} is not a JSON object")
-    return value
+        return {}, [f"{VARIABLE} is not a JSON object; rewriting it from .github/runners.json"]
+    clean: dict[str, Any] = {}
+    dropped: list[str] = []
+    for name, spec in pools.items():
+        if name not in value:
+            continue
+        if isinstance(value[name], str) and value[name] in members(spec):
+            clean[name] = value[name]
+        else:
+            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
+    marks = value.get(DEAD_KEY, {})
+    if isinstance(marks, dict):
+        good = {label: since for label, since in marks.items()
+                if isinstance(label, str) and parse_time(since) is not None}
+        if len(good) != len(marks):
+            dropped.append(f"{VARIABLE}.{DEAD_KEY} holds entries that are not label -> zoned time; dropped")
+        clean[DEAD_KEY] = good
+    else:
+        dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
+    if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
+        clean[UPDATED_KEY] = value[UPDATED_KEY]
+    return clean, dropped
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -137,21 +183,58 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
     return found
 
 
-def dead_from_snapshot(snapshot: Mapping[str, Any] | None) -> set[str]:
-    """Labels the janitor saw dead (dead_labels, cmux#27114)."""
-    out: set[str] = set()
-    for key in ("dead_labels",):
-        for entry in (snapshot or {}).get(key) or ():
-            label = entry.get("label") if isinstance(entry, Mapping) else None
-            if isinstance(label, str):
-                # A job's label set is joined with commas; every member of the set is a single label here.
-                out |= {part.strip() for part in label.split(",") if part.strip()}
-    return out
+def _labels(joined: object) -> set[str]:
+    """A label set as the janitor writes it: joined with "," (dead_labels) or "+" (fleet keys)."""
+    if not isinstance(joined, str):
+        return set()
+    return {part.strip() for part in re.split(r"[,+]", joined) if part.strip()}
+
+
+def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
+                   now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
+    """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job."""
+    dead: set[str] = set()
+    started: set[str] = set()
+    notes: list[str] = []
+    if isinstance(health, Mapping):
+        checked = parse_time(health.get("checked"))
+        labels = health.get("labels")
+        if checked is None or not isinstance(labels, Mapping):
+            notes.append(f"{HEALTH_VARIABLE} is unreadable; no probe evidence")
+        elif now - checked > HEALTH_MAX_AGE:
+            notes.append(f"{HEALTH_VARIABLE} is from {iso(checked)}, older than {HEALTH_MAX_AGE}; no probe evidence")
+        else:
+            for label, state in labels.items():
+                if state == "stalled":
+                    dead.add(str(label))
+                elif state == "started":
+                    started.add(str(label))
+    if isinstance(snapshot, Mapping):
+        generated = parse_time(snapshot.get("generated_at"))
+        age = max(0.0, (now - generated).total_seconds() / 60) if generated else 0.0
+        for label, load in (snapshot.get("pools") or {}).items():
+            if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
+                continue
+            try:
+                queued = int(load.get("queued") or 0)
+                oldest = float(load.get("oldest_queued_minutes") or 0)
+            except (TypeError, ValueError):
+                continue
+            if simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+                dead.add(label)
+        for entry in snapshot.get("dead_labels") or ():
+            if isinstance(entry, Mapping):
+                dead |= _labels(entry.get("label"))
+                live = entry.get("live")
+                if isinstance(live, list):
+                    started |= {str(label) for label in live if isinstance(label, str)}
+    # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started.
+    return dead - started, started, notes
 
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime) -> tuple[dict[str, Any], list[str]]:
-    """The next RUNNER_POOLS value and a line per change."""
+    """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output."""
     lines: list[str] = []
     marks: dict[str, str] = {}
     for label, since in (current.get(DEAD_KEY) or {}).items():
@@ -162,7 +245,7 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
             lines.append(f"{label}: dead mark expired; it may take jobs again")
     for label in sorted(set(served_now)):
         if marks.pop(label, None):
-            lines.append(f"{label}: the probe started a job there; it takes jobs again")
+            lines.append(f"{label}: started a job; it takes jobs again")
     for label in sorted(set(dead_now)):
         if label not in marks:
             lines.append(f"{label}: dead (no job started there while one waited)")
@@ -189,6 +272,42 @@ def render(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _health(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
+    """The probe's per-label health: live through the API when a client can read it, else the job's env."""
+    raw = None
+    if switch is not None and hasattr(switch, "get_variable"):
+        try:
+            raw = switch.get_variable(HEALTH_VARIABLE)
+        except Exception as error:  # noqa: BLE001 - missing health only means no probe evidence
+            print(f"::warning title=Runner pools::could not read {HEALTH_VARIABLE} ({error}); using the job's value")
+    if raw is None:
+        raw = env.get(HEALTH_VARIABLE)
+    try:
+        value = json.loads(raw) if (raw or "").strip() else None
+    except ValueError:
+        value = None
+    return value if isinstance(value, Mapping) else None
+
+
+class Variables:
+    """Read and write repository variables with the switch's token (cloud_overflow_switch.GitHub)."""
+
+    def __init__(self, token: str, repo: str) -> None:
+        import cloud_overflow_switch  # noqa: PLC0415 - its client already writes variables
+        self.client = cloud_overflow_switch.GitHub(token, repo)
+
+    def get_variable(self, name: str) -> str | None:
+        try:
+            return str(self.client.request("GET", f"/actions/variables/{name}").get("value"))
+        except RuntimeError as error:
+            if "(404)" in str(error):
+                return None
+            raise
+
+    def set_variable(self, name: str, value: str) -> None:
+        self.client.set_variable(name, value)
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
          api: Any = None, switch: Any = None, now: dt.datetime | None = None) -> int:
     env = os.environ if env is None else env
@@ -204,18 +323,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         for problem in problems:
             print(f"::error title=Runner pools::{problem}")
         return 1
-    try:
-        current = parse_value(env.get(VARIABLE))
-    except ValueError as error:
-        print(f"::error title=Runner pools::{VARIABLE} is unreadable ({error}); the next pass rewrites it")
-        current = {}
+    current, dropped = parse_value(env.get(VARIABLE), pools)
     if args.check:
-        found = value_problems(current, pools)
+        found = dropped + value_problems(current, pools)
         for problem in found:
             print(f"::error title=Runner pools::{problem}")
         return 1 if found else 0
+    for note in dropped:
+        print(f"::warning title=Runner pools::{note}")
 
     repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+    if switch is None and (env.get("SWITCH_TOKEN") or "").strip() and repo:
+        switch = Variables(str(env["SWITCH_TOKEN"]).strip(), repo)
     if api is None and env.get("GH_TOKEN") and repo:
         api = pr_runner_pool.GitHub(str(env["GH_TOKEN"]), repo)
     snapshot = None
@@ -224,15 +343,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
             print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
-    dead = dead_from_snapshot(snapshot)
-    probe = (env.get("PROBE_LABEL") or "").strip()
-    outcome = (env.get("PROBE_OUTCOME") or "").strip()
-    served = set()
-    if probe and outcome == "stalled":
-        dead.add(probe)
-    elif probe and outcome == "started":
-        served.add(probe)
-    value, lines = reconcile(current, pools, dead_now=dead, served_now=served, now=now)
+    dead, started, notes = label_evidence(_health(switch, env), snapshot, now=now)
+    for note in notes:
+        print(note)
+    value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")
@@ -240,18 +354,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### Runner pools\n\n" + ("\n".join(f"- {line}" for line in lines) or "- no change")
                          + "\n\n```json\n" + json.dumps(value, indent=2, sort_keys=True) + "\n```\n")
-    if render(value) == render(current):
+    if render(value) == (env.get(VARIABLE) or "").strip():
         print(f"{VARIABLE} unchanged")
         return 0
     if args.dry_run:
         print(f"{VARIABLE} would be {render(value)} (dry run)")
         return 0
-    if switch is None and (env.get("SWITCH_TOKEN") or "").strip() and repo:
-        import cloud_overflow_switch  # noqa: PLC0415 - its GitHub client writes variables
-        switch = cloud_overflow_switch.GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     if switch is None:
         print(f"::error title=Runner pools::no switch token (GLAEDA_ROUTE_APP_ID); {VARIABLE} stays "
-              f"{render(current) or 'unset'}; it should be {render(value)}")
+              f"{env.get(VARIABLE) or 'unset'}; it should be {render(value)}")
         return 1
     switch.set_variable(VARIABLE, render(value))
     print(f"{VARIABLE} = {render(value)}")

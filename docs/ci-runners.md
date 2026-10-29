@@ -1010,18 +1010,23 @@ Macs, then Blacksmith macOS. The pool is what follows the picker. Jobs that
 hold signing secrets keep their literal ephemeral label for now and move
 through the stall-aware signing picker, not a pool.
 
-`scripts/ci/runner_pools.py` is the one writer. The overflow probe's `watch`
-job runs it every 10 minutes, after the switch, with the token the switch
-already uses (the `manaflow-glaeda-route` App; no new credential). It marks a
-label dead when the probe waited on it with no runner or the queue janitor's
-snapshot lists it (`dead_labels`, `starved`), points each pool at its first
-member with no mark, and writes `RUNNER_POOLS` only when that changes. A mark
-expires after 30 minutes unless seen again, and a probe that starts on the label
-clears it at once. When every member is marked, the pool keeps its first one.
-The queue janitor's dead-label re-dispatch then moves jobs already queued on a
-dead member: a re-run evaluates `runs-on` again and lands on the pool's new
-member. `tests/test_ci_runner_pools.py` checks the declared pools and the
-reconciler.
+`scripts/ci/runner_pools.py` is the one writer, and it only chooses. The
+overflow probe's `watch` job runs it every 10 minutes, after the switch, with
+the token the switch already uses (the `manaflow-glaeda-route` App; no new
+credential). It reads per-label start evidence: the probe's per-label health
+(`CI_CLOUD_LABEL_HEALTH`, every Linux member probed), and the queue janitor's
+snapshot (a Blacksmith label whose oldest queued job waited 10 minutes, the
+same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
+dead-label entries once #27114 lands). It marks those labels dead, points each
+pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
+A mark expires after 30 minutes unless seen again; a label seen starting a job
+is cleared at once. With every member marked, the pool keeps its first. A
+malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
+on. Jobs already queued on a dead member keep that label (GitHub binds it when
+it creates the job); moving them is the queue janitor's dead-label re-dispatch
+(with #27114), whose re-run reads the pool's new member.
+`tests/test_ci_runner_pools.py` checks the declared pools and the reconciler
+against a recorded janitor snapshot.
 
 ## Blacksmith outage: the overflow switch
 

@@ -134,8 +134,8 @@ jobs:
         run: python3 scripts/ci/cloud_overflow_switch.py
 
       # The one routing source (docs/ci-runners.md "Runner pools"): point each pool in
-      # RUNNER_POOLS at its first member that is not dead, from this probe and the queue
-      # janitor's dead labels. Runs whatever the switch decided, with the same token.
+      # RUNNER_POOLS at its first member that is not dead, from the probe's per-label health
+      # and the queue janitor's snapshot. Runs whatever the switch decided, with its token.
       - name: Point the runner pools at live members
         if: always() && steps.switch.outcome != 'skipped'
         env:
@@ -144,8 +144,8 @@ jobs:
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
-          PROBE_LABEL: ${{ steps.switch.outputs.label }}
-          PROBE_OUTCOME: ${{ steps.switch.outputs.outcome }}
+          # Read live through the API first; this is the job-start value, the fallback.
+          CI_CLOUD_LABEL_HEALTH: ${{ vars.CI_CLOUD_LABEL_HEALTH }}
         run: python3 scripts/ci/runner_pools.py
 
       # Last, in its own step so the summary above is already saved. If the

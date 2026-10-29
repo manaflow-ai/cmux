@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import sys
@@ -16,12 +17,23 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import runner_pools  # noqa: E402
 
-NOW = dt.datetime(2026, 10, 28, 23, 0, tzinfo=dt.timezone.utc)
+# The queue janitor's macos-pool-load snapshot as main's janitor wrote it at 22:53Z on 2026-10-28
+# (runner names and warm state dropped). Its starved and unserved are empty: they describe owned
+# glaeda-* labels, never pool members.
+RECORDED = json.loads((ROOT / "tests/fixtures/runner-pools/macos-pool-load-2026-10-28T2253Z.json").read_text())
+SNAPSHOT_AT = dt.datetime(2026, 10, 28, 22, 53, 37, tzinfo=dt.timezone.utc)
+NOW = SNAPSHOT_AT + dt.timedelta(minutes=2)
 POOLS = {
     "linux": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
     "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
     "macos_26_large": {"why": "x", "members": ["blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"]},
 }
+
+
+def health(labels, checked=NOW):
+    # The shape cmux#27121's switch writes to CI_CLOUD_LABEL_HEALTH (label_health()).
+    return {"checked": runner_pools.iso(checked), "run": "https://github.com/x/y/actions/runs/1", "minutes": 5,
+            "labels": labels}
 
 
 class Declared(unittest.TestCase):
@@ -34,15 +46,12 @@ class Declared(unittest.TestCase):
                          ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_no_pool_names_a_reused_machine(self) -> None:
-        # A job reading a pool, a fork's pull request or a signing job included, never lands on an
-        # owned Mac: those come only through a picker.
+        # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
+        # those come only through a picker.
         for name, spec in runner_pools.load_pools().items():
             for label in runner_pools.members(spec):
                 with self.subTest(pool=name, label=label):
-                    if spec.get("hosted"):
-                        self.assertRegex(label, runner_pools.HOSTED)
-                    else:
-                        self.assertRegex(label, runner_pools.EPHEMERAL)
+                    self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -65,6 +74,49 @@ class Declared(unittest.TestCase):
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertEqual(step["env"]["RUNNER_POOLS"], "${{ vars.RUNNER_POOLS }}")
         self.assertIn("always()", str(step.get("if")))
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+
+
+class Evidence(unittest.TestCase):
+    def test_the_recorded_snapshot_marks_nothing(self) -> None:
+        dead, started, _ = runner_pools.label_evidence(None, RECORDED, now=NOW)
+        self.assertEqual((dead, started), (set(), set()))
+
+    def test_a_stalled_blacksmith_mac_in_the_snapshot_is_dead(self) -> None:
+        # simple_pool_picker.blacksmith_stalled(): a queued job waited 10 minutes, so nothing started.
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=9)
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+        # Owned labels in the snapshot are never pool members and are not read.
+        snapshot["pools"]["glaeda-std-xcode-26.6"].update(queued=9, oldest_queued_minutes=60)
+        snapshot["starved"] = [{"label": "glaeda-gui-std-xcode-26.6+glaeda-std-xcode-26.6", "queued": 1}]
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+
+    def test_dead_label_entries_split_on_comma_and_plus(self) -> None:
+        # cmux#27114's DeadLabel.as_json(): label sets joined with ",", live members listed.
+        snapshot = dict(RECORDED, dead_labels=[{
+            "label": "blacksmith-16vcpu-ubuntu-2404", "family": "linux", "queued": 4,
+            "oldest_queued_minutes": 6, "live": ["blacksmith-32vcpu-ubuntu-2404"]}])
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+        self.assertEqual(dead, {"blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(started, {"blacksmith-32vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
+
+    def test_probe_health_per_label(self) -> None:
+        dead, started, _ = runner_pools.label_evidence(health({
+            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), None, now=NOW)
+        self.assertEqual(dead, {"blacksmith-32vcpu-ubuntu-2404"})
+        self.assertEqual(started, {"blacksmith-16vcpu-ubuntu-2404"})
+
+    def test_old_or_unreadable_health_decides_nothing(self) -> None:
+        old = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW - dt.timedelta(hours=1))
+        for value in (old, {"labels": []}, {"checked": "2026-10-28T22:00:00", "labels": {}}):
+            dead, started, notes = runner_pools.label_evidence(value, None, now=NOW)
+            self.assertEqual((dead, started), (set(), set()))
+            self.assertTrue(notes)
 
 
 class Reconcile(unittest.TestCase):
@@ -78,13 +130,13 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
         self.assertEqual(value["_dead"], {})
 
-    def test_a_dead_member_moves_its_pools_to_the_next(self) -> None:
+    def test_a_dead_member_flips_its_pools_to_the_next(self) -> None:
         value, lines = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"})
         self.assertEqual(value["macos_26"], "blacksmith-12vcpu-macos-26")
         self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
         self.assertIn("pools.macos_26: unset -> blacksmith-12vcpu-macos-26", lines)
 
-    def test_a_mark_holds_until_it_expires_or_the_probe_starts_there(self) -> None:
+    def test_a_mark_holds_until_it_expires_or_the_label_starts_a_job(self) -> None:
         first, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(first["linux"], "blacksmith-16vcpu-ubuntu-2404")
         held, _ = self.run_once(first, now=NOW + dt.timedelta(minutes=20))
@@ -104,14 +156,26 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(runner_pools.render(again), runner_pools.render(value))
         self.assertEqual(lines, [])
 
-    def test_janitor_snapshot_labels(self) -> None:
-        snapshot = {"dead_labels": [{"label": "blacksmith-16vcpu-ubuntu-2404"}],
-                    "starved": [{"label": "glaeda-gui-std-xcode-26.6"}]}
-        self.assertEqual(runner_pools.dead_from_snapshot(snapshot), {"blacksmith-16vcpu-ubuntu-2404"})
-        self.assertEqual(runner_pools.dead_from_snapshot(None), set())
 
+class Schema(unittest.TestCase):
+    def test_malformed_values_are_repaired_not_crashed_on(self) -> None:
+        good, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
+        for raw in ('{"_dead":[]}', '{"_dead":{"blacksmith-32vcpu-ubuntu-2404":"2026-10-28T22:00:00"}}',
+                    '{"_dead":{"blacksmith-32vcpu-ubuntu-2404":7}}', '{"linux":"ubuntu-24.04"}', '{"linux":3}',
+                    '[]', '"x"', 'not json'):
+            with self.subTest(raw=raw):
+                current, dropped = runner_pools.parse_value(raw, POOLS)
+                self.assertTrue(dropped)
+                value, _ = runner_pools.reconcile(current, POOLS, dead_now=(), served_now=(), now=NOW)
+                self.assertEqual({k: value[k] for k in POOLS}, {k: good[k] for k in POOLS})
+                self.assertEqual(value["_dead"], {})
 
-class Check(unittest.TestCase):
+    def test_a_valid_value_round_trips(self) -> None:
+        value, _ = runner_pools.reconcile({}, POOLS, dead_now={"blacksmith-6vcpu-macos-26"}, served_now=(), now=NOW)
+        current, dropped = runner_pools.parse_value(runner_pools.render(value), POOLS)
+        self.assertEqual(dropped, [])
+        self.assertEqual(runner_pools.render(current), runner_pools.render(value))
+
     def test_value_problems(self) -> None:
         value, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
         self.assertEqual(runner_pools.value_problems(value, POOLS), [])
@@ -130,19 +194,23 @@ class Main(unittest.TestCase):
             return self._snapshot
 
     class Switch:
-        def __init__(self):
+        def __init__(self, variables=None):
             self.writes = []
+            self.variables = dict(variables or {})
+
+        def get_variable(self, name):
+            return self.variables.get(name)
 
         def set_variable(self, name, value):
             self.writes.append((name, value))
+            self.variables[name] = value
 
-    def test_a_stalled_probe_and_the_snapshot_are_written_once(self) -> None:
-        switch = self.Switch()
+    def test_a_stalled_size_flips_linux_once(self) -> None:
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}))})
         with tempfile.TemporaryDirectory() as tmp:
-            env = {"RUNNER_POOLS": "", "PROBE_LABEL": "blacksmith-32vcpu-ubuntu-2404", "PROBE_OUTCOME": "stalled",
-                   "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
-            code = runner_pools.main([], env, api=self.Api({"dead_labels": []}), switch=switch, now=NOW)
-        self.assertEqual(code, 0)
+            env = {"RUNNER_POOLS": "", "GITHUB_STEP_SUMMARY": f"{tmp}/summary"}
+            self.assertEqual(runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW), 0)
         [(name, raw)] = switch.writes
         self.assertEqual(name, "RUNNER_POOLS")
         self.assertEqual(json.loads(raw)["linux"], "blacksmith-16vcpu-ubuntu-2404")
@@ -150,13 +218,20 @@ class Main(unittest.TestCase):
     def test_nothing_changed_writes_nothing(self) -> None:
         switch = self.Switch()
         env = {"RUNNER_POOLS": ""}
-        runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW)
+        runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW)
         env["RUNNER_POOLS"] = switch.writes[0][1]
-        runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW + dt.timedelta(minutes=10))
+        runner_pools.main([], env, api=self.Api(RECORDED), switch=switch, now=NOW + dt.timedelta(minutes=10))
         self.assertEqual(len(switch.writes), 1)
 
-    def test_check_fails_on_an_unset_variable(self) -> None:
+    def test_a_malformed_variable_is_rewritten(self) -> None:
+        switch = self.Switch()
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": '{"_dead":[]}'}, api=self.Api(None),
+                                           switch=switch, now=NOW), 0)
+        self.assertEqual(runner_pools.value_problems(json.loads(switch.writes[0][1]), runner_pools.load_pools()), [])
+
+    def test_check_fails_on_an_unset_or_malformed_variable(self) -> None:
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": ""}), 1)
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
 
 
 if __name__ == "__main__":
