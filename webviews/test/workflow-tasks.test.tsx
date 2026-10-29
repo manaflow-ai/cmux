@@ -17,13 +17,7 @@ import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENT_DONE, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
-import {
-  createWorkflowAdapter,
-  modelName,
-  phaseState,
-  tally,
-  upNext,
-} from "../src/agent-session/acpmux/summary/foldWorkflows";
+import { createWorkflowAdapter, modelName, phaseState, tally } from "../src/agent-session/acpmux/summary/foldWorkflows";
 import { workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
 
 const NOW = 1_800_000_000_000;
@@ -34,12 +28,11 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("the adapter derives each phase's state and counts, what runs next, and the model's name", () => {
+test("the adapter derives each phase's state and counts, and the model's name", () => {
   const [workflow] = summaries("running");
   expect(workflow!.description).toStartWith("Demo: 3 agents brainstorm names");
   expect(workflow!.phases.map((phase) => phase.state)).toEqual(["completed", "running", "pending"]);
   expect(tally(workflow!.agents)).toEqual({ running: 1, queued: 2, done: 3, failed: 0, total: 6 });
-  expect(upNext(workflow!).map((phase) => phase.name)).toEqual(["Judge"]);
   expect(workflow!.agents[0]!.model).toBe("claude-opus-5-5");
   expect(phaseState([])).toBe("pending");
   expect([
