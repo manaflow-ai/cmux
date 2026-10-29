@@ -14,16 +14,17 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
-type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+type Step = [dir: string, kind: string, msg: Record<string, unknown>, hostSeq?: number];
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
 const record = (steps: Step[], from = 1) =>
-  steps.map(([dir, kind, msg], index) => ({
+  steps.map(([dir, kind, msg, hostSeq], index) => ({
     sessionId: CHAT,
     seq: from + index,
     at: START + (from + index) * 1000,
     dir,
     kind,
     msg,
+    hostSeq,
   }));
 
 /// A daemon over a fake socket: attach answers with `history`'s newest `page` events; `push` sends live ones.
@@ -317,6 +318,66 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   expect(compactions().at(-1)?.compaction?.state).toBe("running");
   daemon.push(record([["mux", "turn_result", forced]], 9));
   expect(compactions().at(-1)?.compaction?.state).toBe("running");
+  client.close();
+});
+
+test("fenced metadata receipts neither draw rows nor settle a running turn", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "compact this", promptId: "prompt-old", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  await client.cancel();
+  const before = rows();
+  daemon.push(record([["mux", "compaction_metadata_fenced", { sourceKind: "compaction" }, 40]], 4));
+  expect(rows()).toEqual(before);
+  const forced = {
+    turnId: "turn-old",
+    turnSeq: 2,
+    promptId: "prompt-old",
+    status: "cancelled",
+    cancelForced: true,
+  };
+  daemon.push(
+    record(
+      [
+        ["mux", "turn_result", forced],
+        ["mux", "user_message", { text: "next prompt", promptId: "prompt-new", turnId: "turn-new" }],
+        ["mux", "turn_started", { turnId: "turn-new" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ],
+      5,
+    ),
+  );
+  const running = rows();
+  daemon.push(
+    record(
+      [
+        ["mux", "compaction_metadata_fenced", { sourceKind: "compaction_summary" }, 41],
+        ["mux", "compaction_metadata_fenced", { sourceKind: "compaction" }, 42],
+        ["mux", "turn_result", forced],
+      ],
+      9,
+    ),
+  );
+  expect(rows()).toEqual(running);
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["failed", "running"]);
+  daemon.push(record([["mux", "turn_result", { turnId: "turn-new", status: "completed" }]], 12));
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["failed", "failed"]);
+  const settled = rows();
+  daemon.push(record([["mux", "compaction_metadata_fenced", { sourceKind: "compaction" }, 43]], 13));
+  expect(rows()).toEqual(settled);
   client.close();
 });
 

@@ -193,12 +193,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
   let socket: { send(data: string): void } | undefined;
   /// An acpmux record, as the attached page gets it.
-  const record = (kind: string, msg: Record<string, unknown>) =>
+  const record = (kind: string, msg: Record<string, unknown>, hostSeq?: number) =>
     socket?.send(
       JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg, hostSeq },
       }),
     );
   const recordInbound = (kind: string, msg: Record<string, unknown>) =>
@@ -417,6 +417,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.locator('.cv-compaction[data-state="running"]').waitFor();
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 40);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       record("status", { status: "idle" });
@@ -437,6 +441,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         params: { update: { sessionUpdate: "compaction", state: "running" } },
       });
       await page.locator('.cv-compaction[data-state="running"]').last().waitFor();
+      const compactionRows = await page.locator(".cv-compaction").count();
+      record("compaction_metadata_fenced", { sourceKind: "compaction_summary" }, 41);
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 42);
+      await drawn(page);
+      expect(await page.locator(".cv-compaction").count()).toBe(compactionRows);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
