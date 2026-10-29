@@ -207,7 +207,11 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
     assert!(restarted.status.success(), "restart: {}", text(&restarted));
     let restart_json: serde_json::Value =
         serde_json::from_slice(&restarted.stdout).expect("restart JSON");
-    assert_eq!(restart_json["restarted"], true);
+    assert!(
+        restart_json["pid"].is_number(),
+        "daemon start did not return status: {}",
+        text(&restarted)
+    );
 
     let waited = cli(&dir, &["wait", "lane", "--timeout", "30"]);
     assert!(waited.status.success(), "wait: {}", text(&waited));
