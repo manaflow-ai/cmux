@@ -104,6 +104,55 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
+    /// A submenu is a child panel, but still owns keyboard focus while it is open. Hiding it
+    /// returns the keys to its parent so Escape and typeahead remain scoped to the active menu.
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func aChildPopupTakesKeyboardAndReturnsItToItsParent() async throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "submenu-focus", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .start, width: 240,
+                                     rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
+                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let parentPanel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow })
+        let parentContent = try #require(parentPanel.firstResponder as? NativePopupContent)
+        let rightArrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: parentPanel.windowNumber,
+                                                     context: nil, characters: "", charactersIgnoringModifiers: "",
+                                                     isARepeat: false, keyCode: 124))
+        parentContent.keyDown(with: rightArrow)
+        let childPanel = try #require(parentPanel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        #expect(await GUIAnimationTestSupport.settle { childPanel.isKeyWindow }, "the submenu did not take keyboard focus")
+        #expect(host.activeID == model.id && host.shownFrame != nil, "opening the submenu dismissed its parent")
+        let childContent = try #require(childPanel.firstResponder as? NativePopupContent)
+        childContent.dismiss()
+        #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
+        #expect(parentPanel.firstResponder === parentContent)
+        #expect(events.isEmpty, "closing a child must not dismiss the React root")
+
+        parentContent.keyDown(with: rightArrow)
+        let disabledChild = try #require(parentPanel.childWindows?.compactMap { $0 as? NativePopupPanel }.first { $0.isKeyWindow })
+        let disabledContent = try #require(disabledChild.firstResponder as? NativePopupContent)
+        let oldRow = model.rows[0]
+        model.revision += 1
+        model.rows[0].disabled = true
+        host.update(model)
+        #expect(await GUIAnimationTestSupport.settle { !disabledChild.isVisible })
+        disabledContent.emit(.pick, "pick", nil)
+        parentContent.openSubmenu(oldRow, parentContent)
+        #expect(events.isEmpty, "a disabled ancestor or stale row must not authorize a child action")
+        #expect(host.activeID == model.id)
+        #expect(parentPanel.childWindows?.contains { $0.isVisible } != true)
+        host.hide()
+        #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
+    }
+
     /// A window on screen with a page view, and the page menu panel of `host` once shown.
     static func page() throws -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],

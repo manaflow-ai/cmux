@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Native popup protocol",
+  "description": "Declarative native popup presentation. Web owns domain state; native owns rendering, keyboard, focus and material.",
+  "$defs": {
+    "NativePopupRowKind": {
+      "type": "string",
+      "enum": ["action", "toggle", "choice", "section", "separator", "text", "slider", "submenu", "textField"]
+    },
+    "NativePopupEventType": { "type": "string", "enum": ["pick", "change", "search", "highlight", "dismiss"] },
+    "NativePopupSide": { "type": "string", "enum": ["top", "bottom"] },
+    "NativePopupAlign": { "type": "string", "enum": ["start", "end"] },
+    "NativePopupAnchor": {
+      "type": "object",
+      "required": ["left", "top", "right", "bottom"],
+      "properties": {
+        "left": { "type": "number" },
+        "top": { "type": "number" },
+        "right": { "type": "number" },
+        "bottom": { "type": "number" }
+      }
+    },
+    "NativePopupOption": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "disabled": { "type": "boolean" } }
+    },
+    "NativePopupAction": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "keepOpen": { "type": "boolean" }
+      }
+    },
+    "NativePopupField": {
+      "type": "object",
+      "required": ["id", "value", "placeholder"],
+      "properties": {
+        "id": { "type": "string" },
+        "value": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "disabled": { "type": "boolean" }
+      }
+    },
+    "NativePopupRow": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/NativePopupRowKind" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "shortcut": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "disabledReason": { "type": "string" },
+        "checked": { "type": "boolean" },
+        "value": { "type": "string" },
+        "keepOpen": { "type": "boolean" },
+        "placeholder": { "type": "string" },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/NativePopupOption" } },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/NativePopupAction" } },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "step": { "type": "number" }
+      }
+    },
+    "NativePopupModel": {
+      "type": "object",
+      "required": ["schemaVersion", "id", "revision", "anchor", "side", "align", "width", "rows"],
+      "properties": {
+        "schemaVersion": { "type": "integer", "const": 1 },
+        "id": { "type": "string" },
+        "revision": { "type": "integer" },
+        "anchor": { "$ref": "#/$defs/NativePopupAnchor" },
+        "side": { "$ref": "#/$defs/NativePopupSide" },
+        "align": { "$ref": "#/$defs/NativePopupAlign" },
+        "width": { "type": "number" },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "parentId": { "type": "string" },
+        "title": { "type": "string" },
+        "search": { "$ref": "#/$defs/NativePopupField" },
+        "highlighted": { "type": "string" },
+        "rail": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
+        "railWidth": { "type": "number" },
+        "footer": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } }
+      }
+    },
+    "NativePopupEvent": {
+      "type": "object",
+      "required": ["type", "popupId", "revision"],
+      "properties": {
+        "type": { "$ref": "#/$defs/NativePopupEventType" },
+        "popupId": { "type": "string" },
+        "revision": { "type": "integer" },
+        "id": { "type": "string" },
+        "value": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}

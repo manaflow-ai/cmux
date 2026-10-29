@@ -1,0 +1,194 @@
+/** Declarative row descriptions for the native WebPopupHost. These helpers accept data only. */
+import type { NativePopupAction, NativePopupRow, NativePopupRowKind } from "./generated/popupProtocol";
+import type { NativePopupDescription } from "./nativePopup";
+
+export type PopupRowKind = NativePopupRowKind;
+export type PopupRow = NativePopupRow;
+export type PopupDescription = NativePopupDescription;
+type ResolvedAction = NativePopupAction & { value?: string };
+
+/** Domain values are unbounded; native row identities are short, nonempty protocol keys. */
+function optionIds(values: readonly string[], namespace: string): Map<string, string> {
+  const result = new Map<string, string>();
+  const used = new Set<string>();
+  // Sorting makes collision suffixes independent of the caller's display order.
+  for (const value of [...new Set(values)].sort()) {
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    for (let index = 0; index < value.length; index++) {
+      const code = value.charCodeAt(index);
+      first = Math.imul(first ^ code, 0x01000193);
+      second = Math.imul(second ^ code, 0x5bd1e995) ^ (second >>> 15);
+    }
+    const stem = `${namespace}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}:${value.length.toString(36)}`;
+    let id = stem;
+    for (let suffix = 1; used.has(id); suffix++) id = `${stem}:${suffix}`;
+    result.set(value, id);
+    used.add(id);
+  }
+  return result;
+}
+
+/** Resolve a current pick through enabled ancestors, using the native host's action rules. */
+export function popupAction(model: PopupDescription, id: string | undefined): ResolvedAction | undefined {
+  if (id === undefined) return undefined;
+  function find(rows: readonly PopupRow[]): ResolvedAction | undefined {
+    for (const row of rows) {
+      if (row.disabled) continue;
+      if (row.id === id && row.kind === "action") return row;
+      const action = row.actions?.find((candidate) => candidate.id === id && !candidate.disabled);
+      if (action) return action;
+      const child = row.children && find(row.children);
+      if (child) return child;
+    }
+    return undefined;
+  }
+  return find([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])]);
+}
+
+export interface PopupActionInput {
+  id: string;
+  label: string;
+  icon?: string;
+  shortcut?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  keepOpen?: boolean;
+}
+export function actionRow(input: PopupActionInput): PopupRow {
+  return { kind: "action", ...input };
+}
+export function toggleRow(input: PopupActionInput & { checked: boolean }): PopupRow {
+  return { kind: "toggle", ...input };
+}
+/** A checked menu option emits `pick`; native `choice` rows are segmented controls. */
+export function choiceRow(input: PopupActionInput & { checked?: boolean; value?: string }): PopupRow {
+  return { kind: "action", ...input };
+}
+export function sectionRow(id: string, label: string): PopupRow {
+  return { id, kind: "section", label };
+}
+export function separatorRow(id: string): PopupRow {
+  return { id, kind: "separator", label: "" };
+}
+export function submenuRow(input: PopupActionInput & { children: PopupRow[] }): PopupRow {
+  return { kind: "submenu", ...input };
+}
+export function textRow(id: string, label: string, description?: string): PopupRow {
+  return { id, kind: "text", label, ...(description ? { description } : {}) };
+}
+export function separatorId(itemId: string): string {
+  return `separator:${itemId}`;
+}
+export interface SelectDescriptorInput {
+  options: readonly { value: string; label: string; shortcut?: string; disabled?: boolean; disabledReason?: string }[];
+  value: string;
+  label?: string;
+  width?: number;
+}
+export function selectDescription(input: SelectDescriptorInput): PopupDescription {
+  const ids = optionIds(
+    input.options.map((option) => option.value),
+    "option",
+  );
+  return {
+    side: "bottom",
+    align: "start",
+    width: input.width ?? 220,
+    ...(input.label ? { title: input.label } : {}),
+    highlighted: ids.get(input.value),
+    rows: input.options.map((option) =>
+      choiceRow({
+        id: ids.get(option.value)!,
+        value: option.value,
+        label: option.label,
+        shortcut: option.shortcut,
+        disabled: option.disabled,
+        disabledReason: option.disabledReason,
+        checked: option.value === input.value,
+      }),
+    ),
+  };
+}
+export interface ComboboxDescriptorInput {
+  suggestions: readonly string[];
+  pinnedSuggestions?: readonly string[];
+  disabled?: (value: string) => boolean;
+  current?: (value: string) => boolean;
+  label?: string;
+  query?: string;
+  placeholder?: string;
+  width?: number;
+}
+export function comboboxDescription(input: ComboboxDescriptorInput): PopupDescription {
+  const ids = optionIds(input.suggestions, "suggestion");
+  const pinned = new Set(input.pinnedSuggestions ?? []);
+  const ordered = [
+    ...input.suggestions.filter((value) => !pinned.has(value)),
+    ...input.suggestions.filter((value) => pinned.has(value)),
+  ];
+  return {
+    side: "bottom",
+    align: "start",
+    width: input.width ?? 280,
+    ...(input.label ? { title: input.label } : {}),
+    search: { id: "query", value: input.query ?? "", placeholder: input.placeholder ?? input.label ?? "Search" },
+    rows: ordered.map((value) =>
+      choiceRow({
+        // Keep search identity stable across filtering, in a separate ID namespace.
+        id: ids.get(value)!,
+        value,
+        label: value,
+        checked: input.current?.(value) ?? false,
+        disabled: input.disabled?.(value) ?? false,
+      }),
+    ),
+  };
+}
+export interface ContextDescriptorInput {
+  id: string;
+  label: string;
+  icon?: string;
+  shortcut?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  checked?: boolean;
+  separatorBefore?: boolean;
+}
+export function contextDescription(
+  items: readonly ContextDescriptorInput[],
+  options: { width?: number; title?: string } = {},
+): PopupDescription {
+  const rows: PopupRow[] = [];
+  for (const item of items) {
+    if (item.separatorBefore) rows.push(separatorRow(separatorId(item.id)));
+    const { separatorBefore: _separatorBefore, ...row } = item;
+    rows.push(actionRow(row));
+  }
+  return {
+    side: "bottom",
+    align: "start",
+    width: options.width ?? 220,
+    ...(options.title ? { title: options.title } : {}),
+    rows,
+  };
+}
+
+export interface PopoverDescriptorInput {
+  rows: PopupRow[];
+  title?: string;
+  side?: "top" | "bottom";
+  align?: "start" | "end";
+  width?: number;
+}
+
+/** Builds a generic popover descriptor for arbitrary declarative content. */
+export function popoverDescription(input: PopoverDescriptorInput): PopupDescription {
+  return {
+    side: input.side ?? "bottom",
+    align: input.align ?? "start",
+    width: input.width ?? 320,
+    rows: input.rows,
+    ...(input.title ? { title: input.title } : {}),
+  };
+}
