@@ -1823,9 +1823,9 @@ fn run_main() {
     // device list over every store (plans/cmux-next/add-device-DESIGN.md).
     // `cmux device add` without `--yes` is the app's Add Device card. Both
     // surfaces: the app runs its bundled `cmux-tui device list --json`.
-    if devices::handles(&raw_args) {
+    if let Some(device_args) = devices::device_args(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(devices::run(&raw_args[1..]));
+        client_log::exit(devices::run(&device_args));
     }
     // `cmux route` was removed with the route CLI. Refuse it before the generic
     // unknown-command app fallback or daemon skew re-exec can touch a socket or

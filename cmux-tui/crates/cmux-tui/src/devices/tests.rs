@@ -462,3 +462,24 @@ fn jsonl_reads_as_json_and_quiet_is_taken_out() {
     );
     assert_eq!(super::output_flags(&words(&["--json"])), (words(&["--json"]), false));
 }
+
+#[test]
+fn output_flags_may_come_before_device_or_the_verb() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    let args = |w: &[&str]| super::device_args(&words(w));
+    assert_eq!(args(&["--json", "device", "list"]), Some(words(&["--json", "list"])));
+    assert_eq!(args(&["device", "--jsonl", "-q", "ls"]), Some(words(&["--jsonl", "-q", "ls"])));
+    assert_eq!(args(&["-q", "device", "remove", "x", "--yes"]), Some(words(&["-q", "remove", "x", "--yes"])));
+    assert_eq!(args(&["device"]), Some(vec![]));
+    assert_eq!(args(&["device", "--json", "add", "h", "--yes"]), Some(words(&["--json", "add", "h", "--yes"])));
+    assert_eq!(args(&["device", "--json", "add", "h"]), None, "add without --yes is the app's card");
+    assert_eq!(args(&["--json", "machine", "list"]), None);
+    assert_eq!(args(&["--socket", "s", "device", "list"]), None);
+    assert_eq!(args(&["device", "--json", "nope"]), None);
+    let split = |w: &[&str]| super::verb_and_args(&words(w));
+    let (rest, quiet) = super::output_flags(&words(&["--jsonl", "-q", "ls", "--network", "weft"]));
+    assert!(quiet);
+    assert_eq!(super::verb_and_args(&rest), ("ls".to_owned(), words(&["--json", "--network", "weft"])));
+    assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
+    assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
+}

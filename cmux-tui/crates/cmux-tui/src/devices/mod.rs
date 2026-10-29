@@ -35,25 +35,36 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
 /// The verbs this module runs; `add` only with `--yes`.
 const VERBS: &[&str] = &["list", "ls", "remove", "rm", "audit", "network", "invite", "help"];
 
-/// Whether `cmux <raw_args>` is a device verb run here (not the app's card).
-pub(crate) fn handles(raw_args: &[String]) -> bool {
-    if raw_args.first().map(String::as_str) != Some("device") {
-        return false;
+/// The output flags a device verb takes anywhere: before `device`, before the verb or after.
+fn output_flag(word: &str) -> bool {
+    matches!(word, "--json" | "--jsonl" | "--quiet" | "-q")
+}
+
+/// The words after `device` for [`run`], with output flags written before `device`
+/// (`cmux --json device list`) kept; `None` when `cmux <raw_args>` is not a device verb run
+/// here.
+pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
+    let lead = raw_args.iter().take_while(|w| output_flag(w)).count();
+    if raw_args.get(lead).map(String::as_str) != Some("device") {
+        return None;
     }
-    match raw_args.get(1).map(String::as_str) {
-        Some(verb) if VERBS.contains(&verb) => true,
-        Some("add") => raw_args[2..].iter().any(|a| a == "--yes" || a == "-y"),
+    let rest = &raw_args[lead + 1..];
+    let verb = rest.iter().position(|w| !output_flag(w));
+    let handled = match verb.map(|i| (i, rest[i].as_str())) {
+        Some((_, verb)) if VERBS.contains(&verb) => true,
+        Some((i, "add")) => rest[i + 1..].iter().any(|a| a == "--yes" || a == "-y"),
         None => true,
         _ => false,
-    }
+    };
+    handled.then(|| raw_args[..lead].iter().chain(rest).cloned().collect())
 }
 
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
 pub(crate) fn run(rest: &[String]) -> i32 {
     // Output flags may come before the verb too (`cmux device --quiet list`).
     let (rest, quiet) = output_flags(rest);
-    let verb = rest.first().map(String::as_str).unwrap_or("help");
-    let args = rest[1.min(rest.len())..].to_vec();
+    let (verb, args) = verb_and_args(&rest);
+    let verb = verb.as_str();
     if quiet && matches!(verb, "remove" | "rm") && !args.iter().any(|a| a == "--yes" || a == "-y") {
         eprintln!("cmux device {verb}: --quiet cannot ask; pass --yes\n{USAGE}");
         return 2;
@@ -106,6 +117,16 @@ fn output_flags(args: &[String]) -> (Vec<String>, bool) {
     }
     kept.extend(words.cloned());
     (kept, quiet)
+}
+
+/// The verb (`help` when none) and its arguments, with a `--json` written before the verb
+/// handed to it like one written after.
+fn verb_and_args(words: &[String]) -> (String, Vec<String>) {
+    let lead = words.iter().take_while(|w| *w == "--json").count();
+    let Some(verb) = words.get(lead) else {
+        return ("help".to_owned(), words.to_vec());
+    };
+    (verb.clone(), words[..lead].iter().chain(&words[lead + 1..]).cloned().collect())
 }
 
 /// Stdout pointed at the null device until this is dropped.
