@@ -112,6 +112,8 @@ export function refusal(opts: Options): string | undefined {
 }
 
 const count = (text: string, needle: string) => text.split(needle).length - 1
+/** A workflow command's data, escaped as the runner reads it back. */
+export const escapeData = (value: string) => value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")
 const JWT = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./g
 const TOKENISH = /cm[jm]_[A-Za-z0-9_-]+/g
 
@@ -136,14 +138,15 @@ export function redact(text: string, secrets: ReadonlyArray<string>): string {
 const b64u = (bytes: ArrayBuffer) => Buffer.from(bytes).toString("base64url")
 
 /**
- * The whole run. `onCleanup` receives the idempotent cleanup (machine revoke, daemon stop, install
- * revoke, sign-out) as soon as it exists, so a signal handler can run it at once.
+ * The whole run. `onCleanup` receives `cancel` as soon as it exists: a signal handler calls it to stop
+ * the main flow and run the one cleanup pass (stop the user's processes, revoke the machine, revoke the
+ * install, sign out) at once.
  */
 export async function runE2E(
   opts: Options,
   env: Record<string, string | undefined>,
   deps: Deps,
-  onCleanup?: (cleanup: () => Promise<void>) => void
+  onCleanup?: (cancel: () => Promise<void>) => void
 ): Promise<Evidence> {
   const secrets: string[] = []
   const transcript: string[] = []
@@ -154,8 +157,10 @@ export async function runE2E(
   }
   const hold = (value: string) => {
     if (!value) return
-    // The runner swallows this command and hides the value everywhere after it.
-    deps.write(`::add-mask::${value}`)
+    // The runner swallows this command and hides the value everywhere after it. The value is escaped as
+    // a workflow command's data (% CR LF), and each line of a multi-line value is masked on its own too.
+    deps.write(`::add-mask::${escapeData(value)}`)
+    for (const line of value.split(/\r?\n|\r/)) if (line && line !== value) deps.write(`::add-mask::${escapeData(line)}`)
     secrets.push(value)
   }
   const evidence: Evidence = {
@@ -188,6 +193,8 @@ export async function runE2E(
   ]
   const asRoot = (args: string[]) => ["sudo", "-n", "--", ...args]
   const acpmux = async (args: string[], stdin?: string) => {
+    // No new process of the disposable user once cleanup has begun (it has stopped them all).
+    live()
     const r = await deps.run(asUser(args), { env: childEnv, timeoutMs: 60_000, ...(stdin === undefined ? {} : { stdin }) })
     childText.push(r.stdout, r.stderr)
     return r
@@ -202,11 +209,15 @@ export async function runE2E(
       return undefined
     }
   }
+  // A cancel aborts every request in flight and shortens the ones cleanup makes to 3 s, so the revoke
+  // fits inside the runner's grace (SIGINT, then SIGTERM 7.5 s later, then SIGKILL).
+  let cancelled = false
+  let inFlight = new AbortController()
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
     const res = await deps.fetch(url, {
       method: init.method,
       redirect: "error",
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.any([AbortSignal.timeout(cancelled ? 3_000 : 20_000), inFlight.signal]),
       headers: { "user-agent": USER_AGENT, ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
@@ -272,13 +283,35 @@ export async function runE2E(
     }
   }
 
+  // Self-healing for a run that was killed before its revoke (a runner lost, SIGKILL): revoke this
+  // account's own CI machines (label ci-join-<digits>, minted by this user) still joined 30 minutes
+  // after they were made. Never fails the run.
+  const sweepStale = async () => {
+    try {
+      const r = await platform("GET", "/v1/machines/credentials")
+      if (r.status !== 200 || !Array.isArray(r.json?.machines)) return
+      let swept = 0
+      for (const m of r.json.machines as any[]) {
+        const made = Date.parse(String(m?.createdAt ?? ""))
+        if (m?.revoked !== false || m?.mintedBy !== user || !/^ci-join-\d+(?:-\d+)?$/.test(String(m?.label ?? ""))) continue
+        if (!Number.isFinite(made) || deps.now() - made < 30 * 60_000 || typeof m.machineId !== "string") continue
+        const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(m.machineId)}/revoke`)
+        if (done.status >= 200 && done.status < 300) swept += 1
+      }
+      if (swept > 0) say(`revoked ${swept} machine(s) an earlier interrupted run left joined`)
+    } catch {
+      say("::warning::could not sweep earlier runs' machines")
+    }
+  }
+
   const revokeMachine = async () => {
     if (machineRevoked || !evidence.joinTokenId || !joinStarted) return
     // A join that failed or was interrupted after the redeem still left a machine: find it by its join
-    // token, a few times, since the list may not show it at once (bounded: 6 reads over about 10 s).
+    // token, a few times, since the list may not show it at once (6 reads over about 10 s; 3 over 2 s
+    // when cancelled). The join process is already gone here, so no redeem can start later.
     let machineId = evidence.machineId ?? undefined
-    for (let attempt = 0; !machineId && attempt < 6; attempt++) {
-      if (attempt > 0) await deps.sleep(2_000)
+    for (let attempt = 0; !machineId && attempt < (cancelled ? 3 : 6); attempt++) {
+      if (attempt > 0) await deps.sleep(cancelled ? 1_000 : 2_000)
       const found = (await listEntry())?.machineId
       if (typeof found === "string" && found) machineId = found
     }
@@ -290,13 +323,31 @@ export async function runE2E(
     say(`revoked machine ${machineId}`)
   }
 
+  // Every process the disposable user runs (the join, status, the daemon and its children), and nothing
+  // else: `kill -1` run as that user signals exactly that user's processes.
+  const killUser = (signal: "TERM" | "KILL") =>
+    deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", `-${signal}`, "-1"], { env: childEnv, timeoutMs: 5_000 })
+
+  // One pass, in this order: no new join or daemon can start (the main flow checks `cleaning`); every
+  // process of the disposable user is stopped and awaited; the machine is revoked (found by its join
+  // token when the join did not report it); then the run's install is revoked and the session signed out.
   let cleaning: Promise<void> | undefined
   const cleanup = () =>
     (cleaning ??= (async () => {
-      // Order: let an in-flight join finish (at most 5 s), signal the daemon, revoke, then wait for the daemon.
-      if (joining) await Promise.race([joining, deps.sleep(5_000)])
+      inFlight.abort()
+      inFlight = new AbortController()
       const stopping = daemon?.stop()
       daemon = undefined
+      if (joinStarted) {
+        await killUser("TERM")
+        const bound = cancelled ? 2_000 : 10_000
+        await Promise.race([Promise.all([joining?.catch(() => undefined), stopping]), deps.sleep(bound)])
+        await killUser("KILL")
+      }
+      if (stopping) {
+        const r = await Promise.race([stopping, deps.sleep(1_000).then(() => undefined)])
+        if (r) childText.push(r.stdout, r.stderr)
+      }
       try {
         await revokeMachine()
         // A run that failed before its own revoke check still proves the revoke here.
@@ -304,10 +355,7 @@ export async function runE2E(
       } catch (e) {
         problems.push(e instanceof Failed ? e.message : "revoke failed")
       }
-      if (stopping) {
-        const r = await stopping
-        childText.push(r.stdout, r.stderr)
-      }
+      if (evidence.joinTokenId && joinStarted && !machineRevoked && !evidence.machineId) say("no machine was listed for this join token; nothing to revoke")
       if (install && stack) {
         await op("install.revoke", { install }).then(
           () => say("revoked the run's cmux install"),
@@ -321,7 +369,17 @@ export async function runE2E(
         }).catch(() => undefined)
       }
     })())
-  onCleanup?.(cleanup)
+  /** A signal or the deadline: stop the main flow and clean up now, on short timeouts. */
+  const cancel = () => {
+    cancelled = true
+    problems.push("cancelled")
+    return cleanup()
+  }
+  // The main flow stops at these points once cleanup has begun.
+  const live = () => {
+    if (cleaning) throw new Failed("cancelled before the next step")
+  }
+  onCleanup?.(cancel)
   const stackHeaders = () => ({ "x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": DEV_STACK_CLIENT_KEY, "x-stack-access-type": "client" })
 
   try {
@@ -353,8 +411,10 @@ export async function runE2E(
     )
     await accessToken()
     say("cmux-api-development access token ready")
+    await sweepStale()
 
     // 2. Mint.
+    live()
     const mint = await platform("POST", "/v1/machines/join-tokens", { label: opts.name, ttlSeconds: 600 })
     if (typeof mint.json?.token === "string") hold(mint.json.token)
     if (mint.status !== 200 || typeof mint.json?.token !== "string" || !/^cmj_[A-Za-z0-9_-]{16,4096}$/.test(mint.json.token)) throw refusedBy("mint", mint)
@@ -367,6 +427,7 @@ export async function runE2E(
     say(`minted join token ${evidence.joinTokenId} for team ${evidence.teamId}`)
 
     // 3. Join: the token goes to stdin only, then this process drops it.
+    live()
     joinStarted = true
     joining = acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`)
     token = undefined
@@ -398,6 +459,7 @@ export async function runE2E(
     if (record.machine_id !== evidence.machineId) throw new Failed("credential file names another machine")
 
     // 4. Daemon in the foreground until a heartbeat under the limit.
+    live()
     daemon = deps.start(asUser(["daemon", "run"]), { env: childEnv })
     const deadline = deps.now() + HEARTBEAT_LIMIT_S * 1000
     let s: any = pre
@@ -453,11 +515,15 @@ export async function runE2E(
   // 8. Secret scan: the disposable home (the credential file holds exactly its one credential),
   // everything this step printed and every acpmux process's output.
   try {
+    // Incomplete is a failure: the listing and every read must succeed.
     const listing = await deps.run(asRoot(["find", opts.home, "-xdev", "-type", "f", "-print0"]), { env: childEnv, timeoutMs: 30_000 })
+    if (listing.code !== 0) throw new Error("find failed")
     let cmj = 0
     let cmm = 0
     for (const path of listing.stdout.split("\0").filter(Boolean)) {
-      const text = (await deps.run(asRoot(["cat", "--", path]), { env: childEnv, timeoutMs: 10_000 })).stdout
+      const read = await deps.run(asRoot(["cat", "--", path]), { env: childEnv, timeoutMs: 10_000 })
+      if (read.code !== 0) throw new Error("read failed")
+      const text = read.stdout
       cmj += count(text, "cmj_")
       if (path === credentialPath) evidence.secretScan.home.credentialFileCmm = count(text, "cmm_")
       else cmm += count(text, "cmm_")
@@ -465,7 +531,9 @@ export async function runE2E(
     evidence.secretScan.home.cmj = cmj
     evidence.secretScan.home.cmm = cmm
   } catch {
-    problems.push("could not scan the disposable home")
+    evidence.secretScan.home.cmj = null
+    evidence.secretScan.home.cmm = null
+    problems.push("could not scan the whole disposable home")
   }
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { cmj: count(logText, "cmj_"), cmm: count(logText, "cmm_") }
@@ -580,17 +648,21 @@ if (import.meta.main) {
     console.error(`machine-join-e2e: refused: ${why}`)
     process.exit(2)
   }
-  // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) revokes at once and exits;
-  // the workflow's evidence check then fails the job for the missing evidence.
-  let cleanupNow: (() => Promise<void>) | undefined
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.on(sig, () => {
-      const stop = () => process.exit(130)
-      if (cleanupNow) cleanupNow().then(stop, stop)
-      else stop()
-    })
+  // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) stops the run and revokes at
+  // once; the run then writes its (failed) evidence and exits. 9 s after the first signal it exits anyway.
+  // The run's own deadline (12 minutes, under the step's 15) cancels the same way.
+  let cancelNow: (() => Promise<void>) | undefined
+  // Handled, not default, for both signals and every repeat: the second one must not kill the cleanup.
+  let stopping = false
+  const stop = () => {
+    if (stopping) return
+    stopping = true
+    cancelNow?.()
+    setTimeout(() => process.exit(130), 9_000).unref()
   }
-  runE2E(opts, env, realDeps(), (cleanup) => (cleanupNow = cleanup)).then(
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
+  setTimeout(() => cancelNow?.(), 12 * 60_000).unref()
+  runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {
       console.error(`machine-join-e2e: refused: ${e instanceof Error ? e.message : "error"}`)

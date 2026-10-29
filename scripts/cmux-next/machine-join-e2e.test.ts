@@ -53,11 +53,17 @@ interface Knobs {
   credentialFile?: string
   /** Runs while the join child is in flight (a cancel arriving then). */
   duringJoin?: () => void
+  /** The join child stays in flight until the user's processes are killed; it has redeemed by then. */
+  holdJoin?: boolean
+  /** Machines other runs left in the list. */
+  others?: Array<Record<string, unknown>>
+  /** Reading a home file other than the credential file fails. */
+  catFails?: boolean
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
 function world(k: Knobs = {}) {
-  let clock = 1_000_000
+  let clock = Date.parse("2026-10-29T12:00:00Z")
   const calls: Array<{ method: string; url: string; headers: Record<string, string>; body: string }> = []
   const runs: Array<{ argv: string[]; env: Record<string, string>; stdin?: string }> = []
   const lines: string[] = []
@@ -69,6 +75,9 @@ function world(k: Knobs = {}) {
   let revokeCalls = 0
   let redeemed = false
   let listReads = 0
+  const revokedIds: string[] = []
+  const kills: string[] = []
+  let releaseJoin: (() => void) | undefined
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
   const fetch = async (url: string, init: RequestInit) => {
@@ -96,8 +105,14 @@ function world(k: Knobs = {}) {
     if (path === "/v1/machines/credentials") {
       listReads += 1
       const visible = (joined || redeemed) && (redeemed ? listReads > (k.listVisibleAfter ?? 0) : true)
-      const machines = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
-      return json(200, { machines })
+      const ours = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", mintedBy: "user_1", createdAt: new Date(clock).toISOString(), lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
+      const others = (k.others ?? []).map((m) => ({ ...m, revoked: m.revoked === true || revokedIds.includes(String(m.machineId)) }))
+      return json(200, { machines: [...others, ...ours] })
+    }
+    const revoke = /^\/v1\/machines\/credentials\/([^/]+)\/revoke$/.exec(path)
+    if (revoke && revoke[1] !== "m_1") {
+      revokedIds.push(revoke[1]!)
+      return new Response(null, { status: 204 })
     }
     if (path === "/v1/machines/credentials/m_1/revoke") {
       revokeCalls += 1
@@ -108,7 +123,7 @@ function world(k: Knobs = {}) {
     return json(404, { code: "machine.not_found" })
   }
 
-  const acpmux = (args: string[], stdin: string | undefined): ChildResult => {
+  const acpmux = async (args: string[], stdin: string | undefined): Promise<ChildResult> => {
     if (args.join(" ") === "host join --status --json") {
       const status = {
         credentialPresent: joined,
@@ -128,6 +143,13 @@ function world(k: Knobs = {}) {
     if (args[0] === "host" && args[1] === "join") {
       if (stdin !== `${TOKEN}\n`) return { code: 2, stdout: "", stderr: "join token is malformed\n" }
       k.duringJoin?.()
+      if (k.holdJoin) {
+        // In flight until killed; the redeem reached the platform before the kill.
+        await new Promise<void>((resolve) => (releaseJoin = resolve))
+        redeemed = true
+        listReads = 0
+        return { code: null, stdout: "", stderr: "" }
+      }
       if (k.redeemThenExit) {
         redeemed = true
         listReads = 0
@@ -145,10 +167,18 @@ function world(k: Knobs = {}) {
     fetch,
     run: async (argv, o) => {
       runs.push({ argv, env: o.env, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
+      if (argv.includes("/bin/kill")) {
+        kills.push(argv.join(" "))
+        releaseJoin?.()
+        return { code: 0, stdout: "", stderr: "" }
+      }
       const at = argv.indexOf(opts.acpmux)
       if (argv[0] === "sudo" && argv[2] === "-u" && at > 0) return acpmux(argv.slice(at + 1), o.stdin)
       const cmd = argv.slice(3)
-      if (cmd[0] === "cat") return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
+      if (cmd[0] === "cat") {
+        if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
+        return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
+      }
       if (cmd[0] === "stat") return { code: 0, stdout: "600\n", stderr: "" }
       if (cmd[0] === "find") return { code: 0, stdout: Object.keys(files).map((f) => `${f}\0`).join(""), stderr: "" }
       return { code: 1, stdout: "", stderr: "" }
@@ -182,6 +212,8 @@ function world(k: Knobs = {}) {
     lines,
     files,
     revokeCalls: () => revokeCalls,
+    revokedIds,
+    kills,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
 }
@@ -416,6 +448,63 @@ describe("revoke on every path", () => {
     const w = world()
     await runE2E(opts, env, w.deps)
     expect(w.lines.slice(0, 2)).toEqual([`::add-mask::${EMAIL}`, `::add-mask::${PASSWORD}`])
+  })
+})
+
+describe("cancellation, the sweep, masking and the scan", () => {
+  test("a cancel while the join is still in flight kills it, then finds the redeemed machine and revokes it", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    const w = world({ holdJoin: true, listVisibleAfter: 1, duringJoin: () => queueMicrotask(() => (cancelled = cancel!())) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("cancelled")
+    // TERM then KILL to the disposable user's processes, as that user, before the revoke.
+    expect(w.kills).toEqual([`sudo -n -u ${opts.user} -- /bin/kill -TERM -1`, `sudo -n -u ${opts.user} -- /bin/kill -KILL -1`])
+    expect(w.revokeCalls()).toBe(1)
+    expect(e.machineId).toBe("m_1")
+    // Nothing of the disposable user starts after the cancel: no status, no daemon.
+    const after = w.runs.slice(w.runs.findIndex((r) => r.argv.includes("/bin/kill")))
+    expect(after.filter((r) => r.argv.includes(opts.acpmux))).toEqual([])
+    assertNoSecretEscaped(w)
+  })
+
+  test("the sweep revokes only this account's stale CI machines", async () => {
+    const old = "2026-10-29T10:00:00Z"
+    const w = world({
+      others: [
+        { machineId: "m_stale", joinTokenId: "jt_0", label: "ci-join-40000", mintedBy: "user_1", createdAt: old, revoked: false },
+        { machineId: "m_human", joinTokenId: "jt_h", label: "lane-vm-3", mintedBy: "user_1", createdAt: old, revoked: false },
+        { machineId: "m_other", joinTokenId: "jt_o", label: "ci-join-40001", mintedBy: "user_2", createdAt: old, revoked: false },
+        { machineId: "m_done", joinTokenId: "jt_d", label: "ci-join-40002", mintedBy: "user_1", createdAt: old, revoked: true }
+      ]
+    })
+    // The fake clock starts at 12:00, two hours after these rows were made.
+    const e = await runE2E(opts, env, w.deps)
+    expect(w.revokedIds).toEqual(["m_stale"])
+    expect(w.lines).toContain("revoked 1 machine(s) an earlier interrupted run left joined")
+    expect(e.result).toBe("pass")
+  })
+
+  test("a password with a newline and a percent sign is masked escaped, line by line", async () => {
+    const password = "p%0Ass\nline2"
+    const w = world()
+    await runE2E(opts, { ...env, CMUX_UITEST_STACK_PASSWORD: password }, w.deps)
+    expect(w.lines).toContain("::add-mask::p%250Ass%0Aline2")
+    expect(w.lines).toContain("::add-mask::p%250Ass")
+    expect(w.lines).toContain("::add-mask::line2")
+    for (const line of w.lines.filter((l) => !l.startsWith("::add-mask::"))) expect(line).not.toContain("line2")
+    expect(w.evidenceText()).not.toContain("line2")
+  })
+
+  test("an incomplete home scan fails the run", async () => {
+    const w = world({ catFails: true, homeFiles: { [`${HOME}/.acpmux/config.json`]: "{}" } })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("could not scan the whole disposable home")
+    expect(e.secretScan.home.cmj).toBeNull()
+    assertNoSecretEscaped(w)
   })
 })
 
