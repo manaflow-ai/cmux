@@ -519,6 +519,9 @@ public final class AgentChatStore {
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
+            // A dropped link can lose the request before the daemon accepts it, with
+            // no error or retry record to clear the in-flight tap on reattach.
+            if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
             retryRequested = false
