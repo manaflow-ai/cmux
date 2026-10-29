@@ -34,7 +34,7 @@ struct WorkspaceHoverCardBehaviorTests {
         let token = try #require(machine.armedToken)
         #expect(effects == [.schedule(token: token, after: Self.delay)], "no card yet, only the delay: \(effects)")
         #expect(machine.shownTarget == nil)
-        #expect(Self.delay > .zero && Self.delay <= .milliseconds(500), "a short delay: \(Self.delay)")
+        #expect(Self.delay == .milliseconds(1300), "Chrome's delay at standard tab width: \(Self.delay)")
         #expect(machine.reduce(.deadline(token: token)) == [.show(Self.row(1), sliding: false)])
         #expect(machine.shownTarget == Self.row(1))
     }
