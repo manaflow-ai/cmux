@@ -43,10 +43,10 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 const WAIT_EVERY: Duration = Duration::from_secs(2);
 /// A joined machine is online when its last heartbeat is younger than this.
 pub(super) const ONLINE_WITHIN_MS: u64 = 120_000;
-/// How soon a revoke takes effect. The platform cuts a revoked machine off at
-/// its next heartbeat; hb-join names the interval, and a revoke answer that
-/// carries `accessEndsWithinSeconds` replaces this.
-const REVOKE_BOUND: &str = "one heartbeat";
+/// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
+/// 30 s) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
+/// this.
+const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
 const DEFAULT_TTL_SECS: u64 = 600;
 

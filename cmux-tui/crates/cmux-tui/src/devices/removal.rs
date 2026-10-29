@@ -45,7 +45,7 @@ pub(crate) fn plan(device: &Device) -> Vec<Step> {
             Via::Joined { machine_id } => credentials.push(step(
                 &["machine", "revoke", machine_id, "--yes", "--json"],
                 format!(
-                    "{} leaves your team's machines; its access ends within one heartbeat",
+                    "{} leaves your team's machines; its access ends within 30 seconds",
                     device.name
                 ),
             )),

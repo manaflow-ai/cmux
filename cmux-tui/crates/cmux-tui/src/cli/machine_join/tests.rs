@@ -506,19 +506,19 @@ fn listed_platform() -> (String, mpsc::Receiver<String>) {
 #[test]
 fn revoke_by_name_in_every_output_mode() {
     let expected = [
-        (OutputMode::Human, "lane-vm-3 revoked: access ends within one heartbeat.\n".to_owned()),
+        (OutputMode::Human, "lane-vm-3 revoked: access ends within 30 seconds.\n".to_owned()),
         (
             OutputMode::Json,
             format!(
                 "{}\n",
-                json!({"machineId": "m_1", "name": "lane-vm-3", "revoked": true, "accessEndsWithin": "one heartbeat"})
+                json!({"machineId": "m_1", "name": "lane-vm-3", "revoked": true, "accessEndsWithin": "30 seconds"})
             ),
         ),
         (
             OutputMode::JsonLines,
             format!(
                 "{}\n",
-                json!({"machineId": "m_1", "name": "lane-vm-3", "revoked": true, "accessEndsWithin": "one heartbeat"})
+                json!({"machineId": "m_1", "name": "lane-vm-3", "revoked": true, "accessEndsWithin": "30 seconds"})
             ),
         ),
         (OutputMode::Quiet, String::new()),
@@ -755,4 +755,12 @@ fn quiet_revoke_without_yes_refuses_before_any_call() {
     assert!(ran.asked.is_empty(), "quiet never asks");
     assert!(ran.out.is_empty());
     assert!(requests.try_recv().is_err(), "nothing was read or revoked");
+}
+
+#[test]
+fn expires_at_reads_the_platforms_iso_string_with_milliseconds() {
+    // The platform sends `new Date().toISOString()`: RFC 3339 UTC, milliseconds, `Z`.
+    assert_eq!(epoch_ms(&json!("2026-10-29T03:10:00.250Z")), Some(1_793_243_400_250));
+    assert_eq!(epoch_ms(&json!(1_793_243_400_250_u64)), Some(1_793_243_400_250));
+    assert_eq!(epoch_ms(&json!("not a time")), None);
 }
