@@ -1,6 +1,7 @@
 {
  "_doc": "The quality ratchet's baseline (scripts/cmux-next/guardrails.py, block `quality ratchet`): per rule and file, the short hashes (site_key) of every existing hit, space-separated. A hit the push's base lacks but this file lists for its file is old debt, not new. Only `guardrails.py --quality-baseline --write` writes it, and a push may only remove sites (rule quality-baseline). Never CI.",
  "counts": {
+  "assume-isolated": 44,
   "carve-out": 438,
   "multi-type-file": 3989,
   "product-sleep": 55,
@@ -8,6 +9,7 @@
   "static-shared": 148
  },
  "files": {
+  "assume-isolated": 23,
   "carve-out": 313,
   "multi-type-file": 2282,
   "product-sleep": 36,
@@ -16,6 +18,31 @@
  },
  "measured_rev": "ff78b068894db69e85b7d923d994b1364a53f7ac",
  "sites": {
+  "assume-isolated": {
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationCore/ConversationShortTime.swift": "c7964e9d8eb0",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationGeometry/ConversationEffectAnimations.swift": "af0da80be268",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationGeometry/ConversationPopEffect.swift": "8f13930a0163",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationAudio.swift": "d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationEffects.swift": "75db9694d486 d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationLab+Input.swift": "8bcf6cd8e36b",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationViewController+Keyboard.swift": "8077c3837727",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationViewController.swift": "acd3e5bbdbc9 af0da80be268 cfd51135792b d1285eb1717c d1285eb1717c d1285eb1717c d1285eb1717c e418a0f2f707 ff2f9137fd2e",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationWindow.swift": "594d2d8f7af9",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacPhotoQuickLook.swift": "26362cc595ba d1285eb1717c d1d4a0709a8b",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationAudioViews.swift": "d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationDetailsViewController.swift": "d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationMentionViews.swift": "d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationQuickLook.swift": "12749e4a7488 7460a437ecd4 a8e97933e98e d1285eb1717c",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationTheme.swift": "122a7c4f1b5a 80c8dbedf400 bfdd2d974891",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController+Apps.swift": "75429ac8f5a9 8cfc39b71b64",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController+CatchUp.swift": "36489346cada a03491594218",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController+ScrollProbe.swift": "1aad16848511",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/ConversationViewController.swift": "d1285eb1717c d1285eb1717c dddf5162361a ffd482e526c2",
+   "Packages/iOS/CmuxConversation/Sources/CmuxConversationUI/MessageActionOverlay.swift": "759da8167834",
+   "Packages/iOS/CmuxTabsKit/Demo/Sources/DemoWebPage.swift": "2ebb6ae455f4",
+   "Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/API/TabsKitStatusBar.swift": "97071f96c393",
+   "Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/UI/SafariCurveAnimation.swift": "6e5a2dbead81"
+  },
   "carve-out": {
    "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/AppLog.swift": "5eba1e53abe1 5eba1e53abe1 5eba1e53abe1",
    "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticLog.swift": "656a182ec5ba 94098f2808f9 a75d94c5528b",
