@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4083321330101",
+  "notes": "notes/4083321330101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27149,
+      "title": "fix(newtab): scale composer spacing with font size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27230,
+      "title": "ci(webviews): split the test shards by recorded duration, not index mod 4",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26706,
+      "title": "cmux NEXT: restore every window after a slow daemon start (Fixes #26681)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27137,
+      "title": "test: guard native popup DOM contract",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
