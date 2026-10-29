@@ -49,6 +49,10 @@ pub fn read_token() -> Result<String> {
     // allocation when a broken installer pipes a large file to us.
     let mut input = Vec::new();
     std::io::stdin().take((MAX_TOKEN_BYTES + 1) as u64).read_to_end(&mut input).context("read join token from stdin")?;
+    parse_token(&input)
+}
+
+fn parse_token(input: &[u8]) -> Result<String> {
     if input.len() > MAX_TOKEN_BYTES { return Err(anyhow!("join token is too long")); }
     if !input.ends_with(b"\n") { return Err(anyhow!("join token must be newline terminated")); }
     let text = std::str::from_utf8(&input).map_err(|_| anyhow!("join token is not valid UTF-8"))?;
@@ -204,4 +208,17 @@ fn record_consent_refusal(surface: &str) -> Result<()> {
 
 fn http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(10)).build().context("build hub client")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_token;
+
+    #[test]
+    fn join_token_requires_one_newline_terminated_shell_safe_line() {
+        assert_eq!(parse_token(b"cmj_abc-123_\n").unwrap(), "cmj_abc-123_");
+        assert!(parse_token(b"cmj_abc").is_err());
+        assert!(parse_token(b"cmj_abc!\n").is_err());
+        assert!(parse_token(b"cmj_a\nsecond\n").is_err());
+    }
 }
