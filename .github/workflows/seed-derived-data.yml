@@ -74,7 +74,11 @@ jobs:
           XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           # The pools that seed; see the seed job. Each decides alone, so one
           # pool's failing seed never makes every push rebuild the others.
-          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          # SEED_POOL_1 publishes the app-host product. It is admission's own
+          # pool, like SEED_POOL_2 (seed_decide.py drops the duplicate): its
+          # 12 vCPU sibling started no job from 2026-10-28 20:32Z, so main
+          # published no product while the publisher sat there.
+          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           # The owned std minis compile at -j14, and a j12 seed re-emits
@@ -128,12 +132,13 @@ jobs:
     # A seed serves only the width it was built at: Swift Build passes the
     # runner's CPU count to swift-driver as -j<n>, so a 12 vCPU seed reran
     # every SwiftDriver task and re-emitted 62 modules on a 6 vCPU admission
-    # (run 36043267820). Admission takes the 12 vCPU pool when it is free and
-    # the 6 vCPU one otherwise, so both seed, and seed_derived_data.py keys
-    # each seed by its width. The first entry is the 12 vCPU pool of the same
-    # image and Xcode, which starts in seconds and alone publishes the
-    # product; the second is admission's own pool, the same pool again under
-    # any other MACOS_RUNNER_PR. The third is the macOS 15 pool, which
+    # (run 36043267820), and seed_derived_data.py keys each seed by its
+    # width. The first entry is admission's own pool and alone publishes the
+    # product (reuse_app_host_products.py's contract names no runner size).
+    # It was the 12 vCPU sibling of a 6 vCPU pull-request pool until that
+    # label started no job (2026-10-28 20:32Z); a 12 vCPU admission now falls
+    # back to the 6 vCPU seed. The second is the same pool, which
+    # seed_decide.py runs once. The third is the macOS 15 pool, which
     # pr_runner_pool.py overflows pull requests to, on its own Xcode
     # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
     # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
@@ -157,8 +162,8 @@ jobs:
     # cancelling the running seed for each newer push would starve publishing
     # for as long as merges keep arriving. With `false`, the running seed
     # always finishes and publishes, GitHub keeps at most one pending job per
-    # group, and a newer push replaces it. Per pool, so the 6 vCPU queue never
-    # holds back the 12 vCPU seed. A push far from its pool's covering seed
+    # group, and a newer push replaces it. Per pool, so one pool's queue never
+    # holds back another's seed. A push far from its pool's covering seed
     # (decide's `far`: more than 5 app Swift files, a package interface change
     # or a hot file, warm_distance.py) goes in the `-far` group, so a newer near
     # push never replaces it and it starts beside a running near seed; a newer
