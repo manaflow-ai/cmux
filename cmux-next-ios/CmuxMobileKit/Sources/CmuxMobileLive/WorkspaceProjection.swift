@@ -181,12 +181,14 @@ public actor WorkspaceProjection {
             guard delta.kind.isClose else { throw ProjectionError.needsSnapshot }
             let id = try rowID(at: workspaceIndex)
             let changed = try patchNested(delta, in: &rows[workspaceIndex].value, entity: nil)
+            if changed { removedMetadata[rows[workspaceIndex].key] = metadata[rows[workspaceIndex].key] }
             refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
             if !changed { return ([], false) }
             return (Set([id]), changed)
         }
         let id = try rowID(at: workspaceIndex)
         let changed = try patchNested(delta, in: &rows[workspaceIndex].value, entity: entity)
+        if changed { removedMetadata[rows[workspaceIndex].key] = metadata[rows[workspaceIndex].key] }
         refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
         if !changed && (delta.kind.isAdd || delta.kind.isClose) { return ([], false) }
         return (Set([id]), true)
@@ -204,7 +206,8 @@ public actor WorkspaceProjection {
             let index = min(max(delta.index ?? rows.count, 0), rows.count)
             rows.insert(row, at: index)
             metadata[row.key] = Self.metadata(for: row.value)
-            refreshMetadata(for: row.key, at: index)
+            // Insertion shifts every later row's surface index.
+            rebuildSurfaceIndex()
             return (Set([row.key]), true)
         }
         guard let index = rowIndex(workspace: delta.workspace, key: delta.workspaceKey) else {
@@ -221,6 +224,7 @@ public actor WorkspaceProjection {
         guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
         let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
         rows[index] = row
+        removedMetadata[oldID] = metadata[oldID]
         if row.key != oldID { metadata.removeValue(forKey: oldID) }
         refreshMetadata(for: row.key, at: index)
         if delta.kind == .workspaceMoved, let target = delta.index {
@@ -388,7 +392,10 @@ public actor WorkspaceProjection {
     private func remove(_ workspace: Workspace, from tree: inout DaemonTree) {
         tree.workspaces.removeAll { $0.id == workspace.id }
         tree.homeWorkspaces.removeAll { $0.id == workspace.id }
-        let rowMetadata = metadata[workspace.id] ?? removedMetadata.removeValue(forKey: workspace.id)
+        // A changed row has already refreshed `metadata`; consume the
+        // previous membership captured by apply so removed tabs and groups
+        // are purged from the derived dictionaries.
+        let rowMetadata = removedMetadata.removeValue(forKey: workspace.id) ?? metadata[workspace.id]
         let tabs = rowMetadata?.tabs ?? Set(workspace.tabs.map(\.id))
         let tabSurfaces = rowMetadata?.surfaces ?? Set(workspace.tabs.compactMap { tree.surfaces[$0.id] })
         for tab in tabs {
