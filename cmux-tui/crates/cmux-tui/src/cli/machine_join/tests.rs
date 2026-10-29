@@ -183,6 +183,7 @@ fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
     for bad in [
         vec!["machine", "add", "--ttl", "30s"],
         vec!["machine", "add", "--ttl", "2h"],
+        vec!["machine", "add", "--ttl", "11m"],
         vec!["machine", "add", "--ttl"],
         vec!["machine", "add", "--yes"],
         vec!["machine", "add", "--name", ""],
@@ -660,4 +661,25 @@ fn credentials_answers_in_every_list_shape_are_read() {
     assert_eq!(platform(&origin).credentials().unwrap().len(), 1);
     let (origin, _requests) = fake(Arc::new(|_: &str| (200, json!({"nope": 1}).to_string())));
     assert_eq!(platform(&origin).credentials().unwrap_err(), CallError::Unreadable(200));
+}
+
+#[test]
+fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
+    // MachineCredentialRow as cmux-platform#35 declares it.
+    let row = json!({
+        "machineId": "m_3", "joinTokenId": "jt_3", "teamId": "team_1", "label": null, "role": null,
+        "createdAt": "2026-10-29T03:00:00Z", "lastHeartbeat": null, "revoked": false,
+        "platform": "macos", "hostname": "mini-9.local", "name": "mini-9", "meshIdentity": "inst_9",
+        "mintedBy": "user_1",
+    });
+    let machine = joined(&row).unwrap();
+    assert_eq!(machine.name, "mini-9");
+    assert_eq!(machine.mesh_peer_id.as_deref(), Some("inst_9"));
+    assert_eq!(machine.minted_by.as_deref(), Some("user_1"));
+    assert_eq!(machine.state(now_ms()), "offline");
+    assert_eq!(entries(json!({"machines": [row]})).map(|rows| rows.len()), Some(1));
+    // Its unavailable store answers 503 machine.join.unavailable: joining is off there too.
+    let failure = CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
+        .failure("the join token");
+    assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
 }

@@ -250,16 +250,16 @@ fn valid_name(name: &str) -> bool {
     (1..=63).contains(&count) && !name.chars().any(char::is_control) && name.trim() == name
 }
 
-/// `10m`, `600s` or `600`: whole seconds from one minute to one hour.
+/// `10m`, `600s` or `600`: whole seconds from one minute to ten minutes (the platform's range).
 fn parse_ttl(text: &str) -> Result<u64, UsageError> {
-    let error = || UsageError::new("--ttl takes 1m to 60m (for example 10m)");
+    let error = || UsageError::new("--ttl takes 1m to 10m (for example 5m)");
     let (digits, scale) = match text.strip_suffix('m') {
         Some(minutes) => (minutes, 60),
         None => (text.strip_suffix('s').unwrap_or(text), 1),
     };
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
-    if (60..=3600).contains(&seconds) { Ok(seconds) } else { Err(error()) }
+    if (60..=600).contains(&seconds) { Ok(seconds) } else { Err(error()) }
 }
 
 /// The caller's cmux credential: stdin, then the file, then the environment.
@@ -328,6 +328,10 @@ impl CallError {
             Self::Status { status: 404, .. } => Failure::new(
                 "machine_join.unavailable",
                 "joining isn't available on this server yet (it answered 404)",
+            ),
+            Self::Status { status: 503, code: "machine.join.unavailable" } => Failure::new(
+                "machine_join.unavailable",
+                "joining isn't available on this server yet (it answered 503)",
             ),
             Self::Status { status: 401, code } => Failure::new(
                 "machine_join.unauthorized",
@@ -500,7 +504,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 15] = [
+const KNOWN_CODES: [&str; 24] = [
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -516,6 +520,15 @@ const KNOWN_CODES: [&str; 15] = [
     "join.rate_limited",
     "owner.unreachable",
     "rate_limited",
+    "machine.join.unavailable",
+    "machine.join.not_found",
+    "bad_request",
+    "unauthorized",
+    "not_found",
+    "gone",
+    "conflict",
+    "unavailable",
+    "forbidden",
 ];
 
 fn known_code(code: Option<&str>) -> &'static str {
@@ -611,10 +624,11 @@ fn minted(body: &Value, credential: &str) -> Result<Minted, Failure> {
     })
 }
 
-/// `cmj_` then 8 to 256 of `A-Z a-z 0-9 _ -`: safe in the line with no quoting.
+/// `cmj_` then 16 to 4096 of `A-Z a-z 0-9 _ -` (the platform's own pattern): safe in the
+/// line with no quoting.
 fn valid_token(token: &str) -> bool {
     token.strip_prefix("cmj_").is_some_and(|tail| {
-        (8..=256).contains(&tail.len())
+        (16..=4096).contains(&tail.len())
             && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     })
 }
@@ -780,7 +794,8 @@ pub(super) fn joined(entry: &Value) -> Option<Joined> {
         last_heartbeat,
         revoked,
         join_token_id: text("joinTokenId"),
-        mesh_peer_id: text("meshPeerId"),
+        // The mesh daemon id: `meshIdentity` in the platform's rows, `meshPeerId` in the contract.
+        mesh_peer_id: text("meshIdentity").or_else(|| text("meshPeerId")),
         platform: text("platform"),
         hostname,
         minted_by: minted_by(entry.get("mintedBy")),
