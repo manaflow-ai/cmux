@@ -297,8 +297,12 @@ function InboxRow({
           )}
         </fieldset>
       )}
-      {failed && (
-        <p className="acpmux-home-inbox-error" role="alert">
+      {answers.length > 0 && (
+        <p
+          className="acpmux-home-inbox-error"
+          role={failed ? "alert" : undefined}
+          aria-hidden={failed ? undefined : true}
+        >
           {t("permission.error.refused")}
         </p>
       )}

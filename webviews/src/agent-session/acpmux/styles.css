@@ -398,6 +398,8 @@
 .acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 6px;padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-home-inbox-error{margin:0;padding:0 8px 0 32px;color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
+/* The localized refusal reserves its wrapped height without announcing a pending error. */
+.acpmux-home-inbox-error[aria-hidden=true]{visibility:hidden}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-row{flex-direction:row;align-items:center;flex-wrap:wrap;padding:0}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-open{flex:1;min-width:0;width:auto}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-answers{padding:0 8px 0 0}

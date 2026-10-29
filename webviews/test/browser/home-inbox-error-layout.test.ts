@@ -40,6 +40,8 @@ await requireBrowserLane("home-inbox-error-layout.test.ts", async () => {
             await page.goto(
               `${base}${galleryFrame("agent-pane.home-lists", {
                 variant,
+                width,
+                height: 1000,
                 colorScheme,
                 locale: width === 320 ? "en-XA" : "en",
                 reducedMotion: 1,
@@ -64,9 +66,7 @@ await requireBrowserLane("home-inbox-error-layout.test.ts", async () => {
             const capture = async (state: string) => {
               if (!out || look !== "list" || width !== 560) return;
               await mkdir(out, { recursive: true });
-              await page
-                .locator(".acpmux-home-inbox")
-                .screenshot({ path: path.join(out, `${colorScheme}-${state}.png`) });
+              await page.screenshot({ path: path.join(out, `${colorScheme}-${state}.png`) });
             };
             await capture("before");
             await answer.click();

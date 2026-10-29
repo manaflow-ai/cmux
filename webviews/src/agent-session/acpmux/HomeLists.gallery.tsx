@@ -277,7 +277,7 @@ const shortcut: Play = async (ctx) => {
 
 const refusedAnswer: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Allow once/ });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-home-inbox-error")));
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector('.acpmux-home-inbox-error[role="alert"]')));
 };
 
 const keyboard: Play = async (ctx) => {
