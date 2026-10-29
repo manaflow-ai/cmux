@@ -38550,6 +38550,138 @@
         }
       }
     },
+    "picker.noMatchesFor": {
+      "comment": "Agent pane: the model menu's empty search ({query} is what the person typed)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج تطابق “{query}”. جرّب جزءًا من الاسم، أو امسح البحث لتصفح الأدوات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan model ne odgovara “{query}”. Probajte dio naziva ili obrišite pretragu da pregledate po alatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller matcher “{query}”. Prøv en del af et navn, eller ryd søgningen for at gennemse efter værktøj."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Modelle passen zu “{query}”. Versuche einen Teil des Namens oder leere die Suche, um nach Harness zu stöbern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models match “{query}”. Try part of a name, or clear the search to browse by harness."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún modelo coincide con “{query}”. Prueba con parte del nombre o borra la búsqueda para explorar por harness."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle ne correspond à “{query}”. Essayez une partie du nom, ou effacez la recherche pour parcourir par harness."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello corrisponde a “{query}”. Prova con parte del nome o cancella la ricerca per sfogliare per harness."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” に一致するモデルはありません。名前の一部で試すか、検索を消してハーネスごとに見てください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ូដែលត្រូវនឹង “{query}” ទេ។ សាកផ្នែកមួយនៃឈ្មោះ ឬសម្អាតការស្វែងរកដើម្បីរកមើលតាម harness។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}”와 일치하는 모델이 없습니다. 이름의 일부로 검색하거나 검색어를 지우고 하네스별로 둘러보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller samsvarer med “{query}”. Prøv en del av et navn, eller tøm søket for å bla etter harness."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden model nie pasuje do “{query}”. Spróbuj części nazwy albo wyczyść wyszukiwanie, by przeglądać według harnessu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum modelo corresponde a “{query}”. Tente parte do nome ou limpe a busca para navegar por harness."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет моделей, подходящих под “{query}”. Попробуйте часть названия или очистите поиск, чтобы смотреть по харнессам."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโมเดลที่ตรงกับ “{query}” ลองใช้ส่วนหนึ่งของชื่อ หรือล้างการค้นหาเพื่อดูตาม harness"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” ile eşleşen model yok. Adın bir kısmını deneyin ya da harness'e göre göz atmak için aramayı temizleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає моделей, що відповідають “{query}”. Спробуйте частину назви або очистьте пошук, щоб переглядати за харнесами."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có mô hình nào khớp “{query}”. Thử một phần tên, hoặc xóa tìm kiếm để duyệt theo harness."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与“{query}”匹配的模型。试试名称的一部分，或清除搜索以按 harness 浏览。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有與「{query}」相符的模型。試試名稱的一部分，或清除搜尋以依 harness 瀏覽。"
+          }
+        }
+      }
+    },
     "picker.noModels": {
       "comment": "Agent pane: the model picker when the agent has reported no models",
       "extractionState": "manual",

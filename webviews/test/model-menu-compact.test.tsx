@@ -542,7 +542,7 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
   for (const letter of "hai") await key(letter);
   await rerender();
   await settle();
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“hai”");
+  expect(field()!.value).toBe("hai");
 });
 
 test("typing keeps keyboard focus in the menu when the focused row goes away", async () => {
@@ -564,7 +564,7 @@ test("typing keeps keyboard focus in the menu when the focused row goes away", a
   expect(doc().activeElement).toBe(field());
   await typeIn("ha");
   await settle();
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“ha”");
+  expect(field()!.value).toBe("ha");
 });
 
 // Lawrence 2026-10-22, on the model menu: "spacing + needs search". The menu opens with a search
@@ -577,7 +577,7 @@ test("the menu opens with a search field that has the keyboard", async () => {
   expect(doc().activeElement).toBe(field());
 });
 
-test("the search field filters every harness's models and names each row's harness", async () => {
+test("the search field filters every harness's models and heads each harness's matches with its name", async () => {
   await mount({ routes: [] });
   await open();
   await typeIn("gpt");
@@ -585,8 +585,14 @@ test("the search field filters every harness's models and names each row's harne
   const rows = modelRows(menu()!);
   expect(rows.length).toBeGreaterThan(0);
   expect(modelNames(menu()!).every((name) => name.toLowerCase().includes("gpt"))).toBe(true);
-  // A wider live catalog can match GPT models from several harnesses; each row must name its own.
-  expect(rows.every((row) => !!row.querySelector(".acpmux-quick-value")?.textContent?.trim())).toBe(true);
+  // A wider live catalog can match GPT models from several harnesses; each row sits under its own.
+  const tabs = new Set(railTabs().map((tab) => tab.getAttribute("aria-label")));
+  for (const row of rows) {
+    const heading = row.closest(".ui-menu-group")?.querySelector(".ui-menu-group-label")?.textContent ?? "";
+    expect(tabs.has(heading)).toBe(true);
+  }
+  // Lawrence, via Leo 2026-10-28: no tab stays lit while the matches are every harness's.
+  expect(railTabs().filter((tab) => tab.getAttribute("aria-pressed") === "true")).toHaveLength(0);
   await typeIn("");
   await settle();
   expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
@@ -641,7 +647,7 @@ test("while filtering, a digit narrows the list instead of picking a row", async
   await settle();
   expect(menu()).not.toBeNull();
   expect(sent.filter((entry) => entry.method === "model")).toHaveLength(0);
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“gpt 5”");
+  expect(field()!.value).toBe("gpt 5");
 });
 
 // A digit narrows a filter, so the filtered rows show no number to press.
