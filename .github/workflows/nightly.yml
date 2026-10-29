@@ -1994,13 +1994,8 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      # Owned Macs are selected through the controller-managed side pool; Blacksmith is the immediate fallback. actions/checkout
-      # fetches each commit at depth 1, which sends the whole tree again (118 s
-      # on cmux22, run 39440747033). A fetch without a depth limit, with a ref
-      # on the commit the workspace holds, sends only the new objects (2 s).
-      # The clean keeps the three Rust target directories the rust-cache step
-      # restores on a hosted runner, at the same paths, so cargo rebuilds only
-      # what changed and nothing is downloaded or uploaded.
+      # A kept workspace: fetch only new objects (actions/checkout's depth-1 fetch resent the
+      # tree, 118 s in run 39440747033) and keep the three Rust target dirs.
       - name: Checkout build ref (warm nightly-next builder)
         if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         env:
