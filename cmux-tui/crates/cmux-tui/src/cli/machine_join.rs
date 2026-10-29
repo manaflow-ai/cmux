@@ -120,8 +120,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
             if matches!(command.verb, Verb::Add { .. })
-                && let Some(code) =
-                    super::app::run_cli_action(&global, "machine add", &command_args[2..])
+                && let Some(code) = super::run_app_action_fallback(args)
             {
                 return Some(code);
             }
@@ -171,8 +170,7 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
 fn names_a_host(rest: &[String]) -> bool {
     let mut words = rest.iter();
     while let Some(word) = words.next() {
-        if word == "--destination" || word.starts_with("--destination=") || !word.starts_with('-')
-        {
+        if word == "--destination" || word.starts_with("--destination=") || !word.starts_with('-') {
             return true;
         }
         if matches!(word.as_str(), "--name" | "--ttl" | "--platform" | "--cloud-token-file") {
@@ -259,7 +257,8 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
         Some(minutes) => (minutes, 60),
         None => (text.strip_suffix('s').unwrap_or(text), 1),
     };
-    let seconds = digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
+    let seconds =
+        digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
     if (60..=3600).contains(&seconds) { Ok(seconds) } else { Err(error()) }
 }
 
@@ -339,7 +338,10 @@ impl CallError {
             ),
             Self::Status { status, code } => Failure::new(
                 "machine_join.refused",
-                format!("the cmux platform refused {what}: {}", format!("{status} {code}").trim_end()),
+                format!(
+                    "the cmux platform refused {what}: {}",
+                    format!("{status} {code}").trim_end()
+                ),
             ),
             Self::Unreachable(reason) => Failure::new(
                 "machine_join.unreachable",
@@ -487,12 +489,12 @@ enum WaitEnd {
 fn entries(body: Value) -> Option<Vec<Value>> {
     match body {
         Value::Array(rows) => Some(rows),
-        Value::Object(mut object) => ["credentials", "machines", "items"]
-            .iter()
-            .find_map(|key| match object.remove(*key) {
+        Value::Object(mut object) => {
+            ["credentials", "machines", "items"].iter().find_map(|key| match object.remove(*key) {
                 Some(Value::Array(rows)) => Some(rows),
                 _ => None,
-            }),
+            })
+        }
         _ => None,
     }
 }
@@ -546,9 +548,7 @@ pub(super) fn run(
             let add = Add { name: name.as_deref(), ttl: *ttl, wait, every: options.every };
             add_machine(platform, &add, output, out, interrupt)
         }
-        Verb::Revoke { machine, yes } => {
-            revoke(platform, machine, *yes, output, out, confirm)
-        }
+        Verb::Revoke { machine, yes } => revoke(platform, machine, *yes, output, out, confirm),
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
     }
 }
@@ -578,27 +578,37 @@ struct Minted {
 }
 
 fn minted(body: &Value, credential: &str) -> Result<Minted, Failure> {
-    let bad = |what: &str| Failure::new("machine_join.unreadable", format!("the cmux platform's join token has an unusable {what}"));
+    let bad = |what: &str| {
+        Failure::new(
+            "machine_join.unreadable",
+            format!("the cmux platform's join token has an unusable {what}"),
+        )
+    };
     let text = |key: &str| body.get(key).and_then(Value::as_str).map(str::to_owned);
     let token = text("token").filter(|t| valid_token(t)).ok_or_else(|| bad("token"))?;
     if token.contains(credential) || credential.contains(token.as_str()) {
         return Err(bad("token"));
     }
-    let join_token_id = text("joinTokenId").filter(|id| plain_id(id)).ok_or_else(|| bad("joinTokenId"))?;
+    let join_token_id =
+        text("joinTokenId").filter(|id| plain_id(id)).ok_or_else(|| bad("joinTokenId"))?;
     let expires_at = body.get("expiresAt").cloned().unwrap_or(Value::Null);
     let team_id = text("teamId").map(|t| clean(&t));
     let label = text("label").map(|l| clean(&l)).filter(|l| !l.is_empty());
-    let printed = [
-        Some(join_token_id.clone()),
-        Some(expires_at.to_string()),
-        team_id.clone(),
-        label.clone(),
-    ];
-    let leaks = printed.iter().flatten().any(|v| v.contains(token.as_str()) || v.contains(credential));
+    let printed =
+        [Some(join_token_id.clone()), Some(expires_at.to_string()), team_id.clone(), label.clone()];
+    let leaks =
+        printed.iter().flatten().any(|v| v.contains(token.as_str()) || v.contains(credential));
     if leaks {
         return Err(bad("field"));
     }
-    Ok(Minted { expires_at_ms: epoch_ms(&expires_at), token, join_token_id, expires_at, team_id, label })
+    Ok(Minted {
+        expires_at_ms: epoch_ms(&expires_at),
+        token,
+        join_token_id,
+        expires_at,
+        team_id,
+        label,
+    })
 }
 
 /// `cmj_` then 8 to 256 of `A-Z a-z 0-9 _ -`: safe in the line with no quoting.
@@ -677,9 +687,8 @@ fn add_machine(
             .map_err(io)?;
     }
     out.flush().map_err(io)?;
-    let deadline = minted
-        .expires_at_ms
-        .unwrap_or_else(|| now + add.ttl.unwrap_or(DEFAULT_TTL_SECS) * 1000);
+    let deadline =
+        minted.expires_at_ms.unwrap_or_else(|| now + add.ttl.unwrap_or(DEFAULT_TTL_SECS) * 1000);
     let end = platform
         .wait_for_join(&minted.join_token_id, deadline, add.every, interrupt)
         .map_err(|e| e.failure("the machine list"))?;
@@ -855,10 +864,8 @@ pub(super) fn find(entries: &[Value], key: &str) -> Result<Joined, Failure> {
     if let Some(machine) = machines.iter().find(|m| m.machine_id == key) {
         return Ok(machine.clone());
     }
-    let named: Vec<&Joined> = machines
-        .iter()
-        .filter(|m| m.name == key || m.hostname.as_deref() == Some(key))
-        .collect();
+    let named: Vec<&Joined> =
+        machines.iter().filter(|m| m.name == key || m.hostname.as_deref() == Some(key)).collect();
     let live: Vec<&Joined> = named.iter().copied().filter(|m| !m.revoked).collect();
     let chosen = match (live.as_slice(), named.as_slice()) {
         ([one], _) | ([], [one]) => Some(*one),
@@ -953,7 +960,8 @@ fn rotate(
             writeln!(out, "{}: credential rotated.", machine.name).map_err(io)?;
         }
         OutputMode::Json | OutputMode::JsonLines => {
-            let value = json!({ "machineId": machine.machine_id, "name": machine.name, "rotated": true });
+            let value =
+                json!({ "machineId": machine.machine_id, "name": machine.name, "rotated": true });
             writeln!(out, "{value}").map_err(io)?;
         }
         OutputMode::Quiet => {}
