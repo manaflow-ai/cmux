@@ -43,7 +43,10 @@ impl Hub {
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
                 && !self.shown(session)
-                && !std::mem::replace(&mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread, true);
+                && {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    !std::mem::replace(&mut meta.unread, true)
+                };
             // Recorded under the mark, so the records keep the order of the changes.
             let since = (*mark != 0).then_some(*mark);
             self.append(session, "mux", RECORD_KIND, json!({"since": since}));
