@@ -10,6 +10,8 @@ actor AppTestDaemonOwner {
     private let launcher: DaemonLauncher
     private var endpoints: Set<DaemonEndpoint> = []
     private var ensureFailed = false
+    private var stopping = false
+    private var ensures: [UUID: Task<DaemonEndpoint, any Error>] = [:]
 
     init(_ launcher: DaemonLauncher) { self.launcher = launcher }
 
@@ -18,12 +20,21 @@ actor AppTestDaemonOwner {
     }
 
     private func endpoint() async throws -> DaemonEndpoint {
+        guard !stopping else { throw CancellationError() }
+        let id = UUID()
+        // task-owner: one bounded ensure; both its caller and reap join it before dropping ownership
+        let ensure = Task { try await self.ensureEndpoint() }
+        ensures[id] = ensure
+        defer { ensures[id] = nil }
+        return try await ensure.value
+    }
+
+    private func ensureEndpoint() async throws -> DaemonEndpoint {
         // A cancelled ensure can have detached its owner before stdout reports it. Let this
         // bounded attempt finish and record ownership; stop() joins its caller before reaping.
         let launcher = launcher
         do {
-            // task-owner: one bounded ensure, joined before this endpoint request returns
-            let endpoint = try await Task { try await launcher.ensure().endpoint }.value
+            let endpoint = try await launcher.ensure().endpoint
             endpoints.insert(endpoint)
             return endpoint
         } catch {
@@ -42,6 +53,10 @@ actor AppTestDaemonOwner {
     }
 
     func reap() async {
+        stopping = true
+        // A discarded startup connection may still be delivering an endpoint. Reject new
+        // requests and join every already-admitted ensure before taking the ownership census.
+        for ensure in Array(ensures.values) { _ = try? await ensure.value }
         if let running = await launcher.runningOwner() {
             endpoints.insert(running.endpoint)
         } else if ensureFailed {

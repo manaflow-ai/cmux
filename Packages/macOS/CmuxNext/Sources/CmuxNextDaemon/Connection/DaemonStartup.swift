@@ -92,7 +92,7 @@ public struct DaemonStartup: Sendable {
                 identity = try await connection.start()
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
             } catch {
-                await connection.close()
+                await connection.closeAndWait()
                 if Task.isCancelled { return nil }
                 let failure = (error as? DaemonError) ?? .launchFailed(String(describing: error))
                 await onFailure(failure)
