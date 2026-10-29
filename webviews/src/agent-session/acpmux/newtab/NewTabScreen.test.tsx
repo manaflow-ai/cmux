@@ -184,7 +184,7 @@ test("a synchronously failed native plus action stays on New Tab with its error"
         onJump={() => {}}
         onOpenSession={() => {}}
         onShowAll={() => {}}
-        plusExtensions={[{ id: "openBrowser", section: "tools", name: "New Browser Tab", icon: "browser", action: { kind: "command", id: "openBrowser" }]}
+        plusExtensions={[{ id: "openBrowser", section: "tools", name: "New Browser Tab", icon: "browser", action: { kind: "command", id: "openBrowser" } }]}
         onPaletteAction={() => {
           throw new Error("Browser unavailable synchronously");
         }}
