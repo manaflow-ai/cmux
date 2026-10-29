@@ -23,6 +23,15 @@ Findings, in tracked Swift files under Packages/macOS:
      SwiftUI at REF adds no SwiftUI: it is printed as a note, not a finding
      (it acknowledges a base red; the review sees the list grow).
 
+With --base REF, a finding 1 or 2 that REF already had is a base red, not
+this change's: a file that imported SwiftUI at REF outside REF's allowlist
+(a push that landed it past the gate), or an entry REF already listed for a
+file that did not import SwiftUI at REF. It is printed as a warning (a
+GitHub `::warning` on CI) and does not fail, so one red on the base does not
+fail every pull request. The same holds for an allowlist REF already had
+unsorted, while the change leaves the list as REF had it. Without --base
+every finding fails.
+
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
 
@@ -32,6 +41,7 @@ Exit 0 clean, 1 with findings (each names the file), 2 on a usage error.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -124,29 +134,53 @@ def main() -> int:
     allowed = parse_allowlist(allow_path.read_text()) if allow_path.exists() else []
     allowed_set = set(allowed)
     findings: list[str] = []
+    base_reds: list[str] = []
 
-    if allowed != sorted(allowed) or len(allowed) != len(allowed_set):
-        findings.append(f"{ALLOWLIST}: keep it sorted with no duplicates")
+    # The allowlist at --base, or None (no --base, or no allowlist there: nothing is a base red).
+    old_list: list[str] | None = None
+    if args.base:
+        try:
+            old_list = parse_allowlist(subprocess.run(
+                ["git", "-C", str(root), "show", f"{args.base}:{ALLOWLIST}"],
+                check=True, capture_output=True, text=True).stdout)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            old_list = None
+    old_set = set(old_list or [])
+    moves = renamed_since(root, args.base) if args.base else {}
+
+    def finding(line: str, on_base: bool) -> None:
+        (base_reds if on_base else findings).append(line)
+
+    def unsorted(entries: list[str]) -> bool:
+        return entries != sorted(entries) or len(entries) != len(set(entries))
+
+    if unsorted(allowed):
+        # A base red only while the change leaves the list as the base had it; a change that edits it sorts it.
+        finding(f"{ALLOWLIST}: keep it sorted with no duplicates", old_list is not None and allowed == old_list)
 
     importing = {f for f in swift_files(root) if imports_swiftui(root / f)}
     for f in sorted(importing - allowed_set):
-        findings.append(f"{f}: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); "
-                        f"the allowlist only shrinks")
+        # A base red: the file (under its path at the base, if it moved) imported SwiftUI there unlisted.
+        was = moves.get(f, f)
+        finding(f"{f}: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); "
+                f"the allowlist only shrinks",
+                old_list is not None and was not in old_set and imported_at(root, args.base, was))
     unlisted = by_name(importing - allowed_set)
     for f in sorted(allowed_set - importing):
+        # A base red: the base listed this entry and its file did not import SwiftUI there either.
+        on_base = old_list is not None and f in old_set and not imported_at(root, args.base, f)
         moved = unlisted.get(pathlib.PurePosixPath(f).name, [])
         if len(moved) == 1 and not (root / f).exists():
-            findings.append(f"{ALLOWLIST}: {f} is gone and {moved[0]} imports SwiftUI: if it moved there, "
-                            f"change the line to the new path instead of deleting it")
+            finding(f"{ALLOWLIST}: {f} is gone and {moved[0]} imports SwiftUI: if it moved there, "
+                    f"change the line to the new path instead of deleting it", on_base)
         else:
-            findings.append(f"{ALLOWLIST}: {f} no longer imports SwiftUI (or is gone): delete its line")
+            finding(f"{ALLOWLIST}: {f} no longer imports SwiftUI (or is gone): delete its line", on_base)
 
     if args.base:
-        try:
-            old = subprocess.run(["git", "-C", str(root), "show", f"{args.base}:{ALLOWLIST}"],
-                                 check=True, capture_output=True, text=True).stdout
-            old_allowed = set(parse_allowlist(old))
-            moves = renamed_since(root, args.base)
+        if old_list is None:
+            print(f"note: no {ALLOWLIST} at {args.base}; growth check skipped", file=sys.stderr)
+        else:
+            old_allowed = old_set
             added = sorted(allowed_set - old_allowed)
             # A move that also rewrote the file: pair one gone entry with one added entry of the
             # same file name, only when the name is unique on both sides.
@@ -156,16 +190,19 @@ def main() -> int:
                 name = pathlib.PurePosixPath(f).name
                 if moves.get(f) in old_allowed or (len(dropped.get(name, [])) == 1 and len(added_names[name]) == 1):
                     continue
-                if imported_at(root, args.base, f):
+                if imported_at(root, args.base, moves.get(f, f)):
                     # Not new SwiftUI: the file already imported it at the base (a base red this
                     # entry acknowledges). Shown, so the review sees the list grow.
                     print(f"note: {f} is new in {ALLOWLIST} but already imported SwiftUI at {args.base}",
                           file=sys.stderr)
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
-        except subprocess.CalledProcessError:
-            print(f"note: no {ALLOWLIST} at {args.base}; growth check skipped", file=sys.stderr)
 
+    for line in base_reds:
+        print(f"NO-SWIFTUI: base red, already on {args.base} (not this change's, warning only): {line}",
+              file=sys.stderr)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=No new SwiftUI (base red)::{line}")
     for line in findings:
         print(f"NO-SWIFTUI: {line}", file=sys.stderr)
     if findings:

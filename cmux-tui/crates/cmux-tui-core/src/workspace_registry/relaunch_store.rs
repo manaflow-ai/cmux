@@ -42,6 +42,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
 use super::WorkspaceRegistry;
+use cmux_json::JsonSet as _;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
@@ -450,9 +451,16 @@ impl WorkspaceRegistry {
                 if non_interactive {
                     record[NON_INTERACTIVE] = json!(true);
                 } else if let Some(launch) = kept {
-                    record["args"] = json!(launch.args);
-                    record["env"] = Value::Object(
-                        launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
+                    record.set("args", json!(launch.args));
+                    record.set(
+                        "env",
+                        Value::Object(
+                            launch
+                                .env
+                                .into_iter()
+                                .map(|(key, value)| (key, json!(value)))
+                                .collect(),
+                        ),
                     );
                 }
                 Some(record.to_string())
