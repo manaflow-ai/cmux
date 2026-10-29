@@ -329,6 +329,8 @@ struct Shared {
     unwatched: AtomicU64,
     expected_waits: AtomicU64,
     spawn_failures: AtomicU64,
+    /// Requests recorded, counted under `recent`'s lock with their entry, so
+    /// a snapshot that counts one holds its entry too.
     total: AtomicU64,
     /// Lock carve-out: a short copy, taken by the watchdog thread when it
     /// records and by `server-stats`; never by a watched run.
@@ -729,7 +731,6 @@ impl Shared {
     }
 
     fn record(&self, slot: usize, word: u64, request: SlowRequest) {
-        self.total.fetch_add(1, Ordering::Relaxed);
         // The daemon's first slow run of each method goes to the app's hang
         // reports (`server-diagnostic-site`; the forwarder keeps the first).
         cmux_threads::blocking::note_hang_site(REQUEST_SITE_SCOPE, request.method);
@@ -743,15 +744,20 @@ impl Shared {
         if let Some(hook) = &self.before_ring_for_test {
             hook(self);
         }
+        // Counted with its entry: `server-stats` never shows a total its ring
+        // lacks the entry of.
         let mut recent = self.recent.lock().recover_poison();
+        self.total.fetch_add(1, Ordering::Relaxed);
         if recent.len() == SLOW_REQUEST_RING {
             recent.pop_front();
         }
         recent.push_back(RecentEntry { slot, word, request });
     }
 
-    /// The `slow_requests` section of `server-stats`.
+    /// The `slow_requests` section of `server-stats`: `total` and `recent`
+    /// read under one hold of `recent`'s lock.
     fn snapshot(&self) -> SlowRequestsSnapshot {
+        let recent = self.recent.lock().recover_poison();
         SlowRequestsSnapshot {
             threshold_ms: u64::try_from(self.threshold.as_millis()).unwrap_or(u64::MAX),
             total: self.total.load(Ordering::Relaxed),
@@ -761,13 +767,7 @@ impl Shared {
             watchdog_wakeups: self.wakeups.load(Ordering::Relaxed),
             hang_ms: self.hang_us(WatchKind::MuxConn) / 1000,
             hangs: self.hangs.load(Ordering::Relaxed),
-            recent: self
-                .recent
-                .lock()
-                .recover_poison()
-                .iter()
-                .map(|entry| entry.request.clone())
-                .collect(),
+            recent: recent.iter().map(|entry| entry.request.clone()).collect(),
         }
     }
 }
