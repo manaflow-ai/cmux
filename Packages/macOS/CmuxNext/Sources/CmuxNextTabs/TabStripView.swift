@@ -164,6 +164,9 @@ public final class TabStripView: NSView {
     var pressedZoomID: TabID?
     /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
     var zoomHoveredID: TabID?
+    /// The tab whose zoom indicator the last click released on: that double-click's second press is
+    /// the same gesture, not a tab double-click that would zoom the pane again.
+    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).

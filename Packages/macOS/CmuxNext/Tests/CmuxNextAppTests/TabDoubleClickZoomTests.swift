@@ -165,7 +165,17 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(!harness.intents.contains(.select(tab)))
     }
 
-    /// The bug: zooming moved every tab. The strip's tabs keep their frames across a zoom and back.
+    /// A double-click on the indicator is one restore: its second press toggles nothing again.
+    @Test func doubleClickingTheIndicatorRestoresOnce() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        harness.setZoomed(true)
+        let tab = ZoomStripID("tab0")
+        harness.doubleClick(try harness.zoomButton(tab))
+        #expect(harness.zooms == [tab], "\(harness.intents)")
+    }
+
+    /// The strip itself never moves a tab for a zoom (the toolbar's width is checked below).
     @Test func aZoomMovesNoTab() {
         let harness = StripHarness()
         defer { harness.tearDown() }
