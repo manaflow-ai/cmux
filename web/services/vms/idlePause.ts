@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
 
 /**
@@ -129,7 +130,7 @@ export function vmLastApiActivityFromRow(row: MetadataRow): number | null {
  */
 export function vmIdlePrivateAddressesFromRow(row: MetadataRow): string[] {
   const metadata = row.providerMetadata ?? {};
-  return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && a !== "");
+  return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && isIP(a) !== 0);
 }
 
 /** What {@link vmIdleProbeCommand} saw on the machine. */
@@ -544,16 +545,24 @@ def inbound_connections(procs):
         try:
             with open(os.path.join(proc, "net", table)) as f:
                 lines = f.read().splitlines()[1:]
+        except FileNotFoundError:
+            # On a kernel without IPv6 tcp6 can be absent; tcp is always required.
+            if table == "tcp6":
+                continue
+            return None
         except Exception:
-            continue
+            return None
         for line in lines:
+            if not line.strip():
+                continue
             p = line.split()
             try:
                 lhex, lport = p[1].split(":")
                 rport = int(p[2].split(":")[1], 16)
                 rows.append((address(lhex), int(lport, 16), p[3], rport, p[9]))
             except Exception:
-                pass
+                # A malformed row might be an established stream to a forwarded port.
+                return None
     listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     daemon_inodes = daemon_socket_inodes(procs)
@@ -612,7 +621,7 @@ print(json.dumps({
  * only literal IP addresses pass.
  */
 export function vmIdleProbeCommand(privateAddresses: readonly string[]): string {
-  const addresses = privateAddresses.filter((a) => /^[0-9a-fA-F.:]+$/.test(a)).join(",");
+  const addresses = privateAddresses.filter((a) => isIP(a) !== 0).join(",");
   const acp = (args: string) => cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" acp --json ${args}`);
   return [
     cmuxTuiLayoutSelector(),
