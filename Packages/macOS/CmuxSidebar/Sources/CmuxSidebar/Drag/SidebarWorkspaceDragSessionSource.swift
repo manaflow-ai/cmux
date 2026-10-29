@@ -7,6 +7,7 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
     private let capabilityValue: String
     private weak var registry: SidebarWorkspaceDragRegistry?
     private var didFinish = false
+    private let beganAt = ProcessInfo.processInfo.systemUptime
     private var sourceView: NSView?
 
     var sessionIdentifier: UUID { sessionId }
@@ -36,7 +37,13 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        finishDrag()
+        guard !didFinish else { return }
+        didFinish = true
+        registry?.completeNativeDrag(
+            sessionId: sessionId, capabilityValue: capabilityValue,
+            point: screenPoint, operation: operation, beganAt: beganAt
+        )
+        sourceView = nil
     }
 
     /// Retains the source view until AppKit delivers this source's `endedAt` callback.
