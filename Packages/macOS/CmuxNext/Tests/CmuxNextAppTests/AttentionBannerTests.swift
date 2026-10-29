@@ -106,7 +106,7 @@ struct AttentionBannerTests {
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
         let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
                                     paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-attention-banner-remote-unused")),
-                                    environment: { [:] })
+                                    environment: { [:] }, mainWork: services.mainWork)
         services.machines.add(ssh)
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "GitHub")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
