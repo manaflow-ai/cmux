@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1214,
+    "entries": 1216,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "home.chatColors",
+          "title": "Chat Colors…",
+          "shortcut": null,
+          "command": "cmux chat colors"
         },
         {
           "id": "home.zoomReset",
@@ -1918,8 +1924,14 @@
           "command": "cmux pane move-to-new-workspace"
         },
         {
+          "id": "newColumnLeft",
+          "title": "New Column Left",
+          "shortcut": null,
+          "command": "cmux pane new-column-left"
+        },
+        {
           "id": "newColumn",
-          "title": "New Column",
+          "title": "New Column Right",
           "shortcut": "⌃⌘D",
           "command": "cmux pane new-column"
         },

@@ -631,7 +631,8 @@ private struct LiveCallHost: ViewModifier {
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
-/// `label` (neutral accent), never blue.
+/// `label` (neutral accent), never blue. The bar stays fully visible while
+/// content scrolls: it never minimizes to the selected tab's pill.
 struct ShellTabs: View {
     let shell: ShellModel
 
@@ -666,7 +667,7 @@ struct ShellTabs: View {
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
     }

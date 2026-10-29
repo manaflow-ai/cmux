@@ -265,7 +265,12 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `SHELL` first, so a removal still wins over this backend's own override
+    // (`PtyCommand::env_remove` promises the child never sees the key).
     process.env("SHELL", shell);
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     let cwd_descriptor = command.cwd_descriptor;
 
     process
@@ -620,6 +625,12 @@ impl Drop for MacOsMasterWriter {
 }
 
 fn resolved_shell(command: &PtyCommand) -> OsString {
+    // A removed `SHELL` is not recovered from this process's environment: the
+    // caller asked for the key gone, so the account shell is used instead.
+    if command.removed_environment.contains("SHELL") {
+        return account_shell(unsafe { libc::getuid() })
+            .unwrap_or_else(|| OsString::from("/bin/sh"));
+    }
     let configured = command
         .environment
         .get("SHELL")

@@ -98,7 +98,7 @@ public final class PushReplies {
 
     /// Settings → Require Face ID changed (AppLock): the buttons follow it.
     func setRequireFaceID(_ on: Bool) {
-        // Called from every RootView body pass (AppLockController.init): an unchanged value writes nothing.
+        // AppLock calls this on appear and on every change: an unchanged value writes nothing.
         let writes = faceIDSync.set(on)
         if writes.local { PushActions.setRequireFaceID(on, defaults: .standard) }
         if writes.shared {

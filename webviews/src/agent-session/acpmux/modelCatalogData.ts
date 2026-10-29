@@ -1,4 +1,5 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
@@ -293,7 +294,9 @@ export function buildPickerCatalog({
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
-  acpmux = acpmux.filter((entry) => !entry.folder);
+  // A router can report the same family as a real launcher. Exclude it before choosing that
+  // family's representative, so it cannot replace or hide the actual harness.
+  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,
@@ -430,6 +433,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       harness.pickable !== false &&
       harness.kind !== "terminal" &&
       harness.kind !== "unknown" &&
+      !isModelRouterKind(harness.kind) &&
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
@@ -809,7 +813,9 @@ function isCatalogHarness(value: unknown): value is CatalogHarness {
 
 function entryPickable(entry: AcpmuxHarness): boolean {
   const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
-  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
+  return (
+    value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown" && !isModelRouterKind(value.kind)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
