@@ -69,6 +69,8 @@ pub(in crate::server) fn follow(mux: &Mux, client: u64, events: &MuxEventReceive
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetRequest {
+    /// Required; `null` clears the scope.
+    #[serde(deserialize_with = "super::command_args::required_nullable")]
     visible: Option<Vec<SurfaceId>>,
 }
 
@@ -86,23 +88,20 @@ pub(in crate::server) fn try_handle(
         return None;
     }
     let id = fields.remove("id");
-    let result = set(mux, client, origin_gate::is_user(mux, client), fields);
-    Some(reply(writer, id, result))
+    Some(reply(writer, id, set(mux, client, fields)))
 }
 
-fn set(
-    mux: &Mux,
-    client: u64,
-    trusted: bool,
-    fields: Map<String, Value>,
-) -> Result<Value, &'static str> {
-    if !trusted {
+/// The verified app on its trusted local connection only: the verified app
+/// is a local Unix connection by its hello, and the transport is checked
+/// here too, so no other connection kind can ever scope a stream.
+fn set(mux: &Mux, client: u64, fields: Map<String, Value>) -> Result<Value, &'static str> {
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err("frontend_visibility.not_trusted");
     }
-    if !fields.contains_key("visible") {
-        return Err("frontend_visibility.bad_request");
+    if !origin_gate::is_user(mux, client) {
+        return Err("frontend_visibility.not_trusted");
     }
-    let request: SetRequest = serde_json::from_value(Value::Object(fields))
+    let request = serde_json::from_value::<SetRequest>(Value::Object(fields))
         .map_err(|_| "frontend_visibility.bad_request")?;
     if request.visible.as_ref().is_some_and(|visible| visible.len() > MAX_VISIBLE) {
         return Err("frontend_visibility.bad_request");

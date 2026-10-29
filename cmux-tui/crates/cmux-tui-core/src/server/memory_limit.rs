@@ -94,23 +94,19 @@ pub(in crate::server) fn try_handle(
         return None;
     }
     let id = fields.remove("id");
-    let trusted = mux.control_clients.is_unix(client)
-        && !mux.is_remote_client(client)
-        && origin_gate::is_user(mux, client);
-    Some(reply(writer, id, set(mux, client, trusted, fields)))
+    Some(reply(writer, id, set(mux, client, fields)))
 }
 
-fn set(
-    mux: &Mux,
-    client: u64,
-    trusted: bool,
-    fields: Map<String, Value>,
-) -> Result<Value, &'static str> {
-    if !trusted {
+/// `memory.limit`: the verified app on its trusted local connection only.
+fn set(mux: &Mux, client: u64, fields: Map<String, Value>) -> Result<Value, &'static str> {
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err("memory.not_trusted");
     }
-    let request: LimitRequest =
-        serde_json::from_value(Value::Object(fields)).map_err(|_| "memory.bad_request")?;
+    if !origin_gate::is_user(mux, client) {
+        return Err("memory.not_trusted");
+    }
+    let request = serde_json::from_value::<LimitRequest>(Value::Object(fields))
+        .map_err(|_| "memory.bad_request")?;
     let limit = AppLimit {
         level: request.level.level(),
         mode: request.mode,

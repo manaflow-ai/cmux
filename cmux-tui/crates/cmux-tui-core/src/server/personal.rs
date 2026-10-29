@@ -18,16 +18,8 @@ pub(super) const SESSION_ICON_CAPABILITY: &str = "session-icon-v1";
 #[derive(Debug, Deserialize)]
 pub(super) struct SetSessionIconParams {
     session_id: String,
-    #[serde(deserialize_with = "required_nullable")]
+    #[serde(deserialize_with = "super::command_args::required_nullable")]
     icon: Option<String>,
-}
-
-/// A field that must be present and may be null (serde treats a missing
-/// `Option` field as null unless the field has its own deserializer).
-fn required_nullable<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    Option::deserialize(deserializer)
 }
 
 /// One group of `import-session-organization`.

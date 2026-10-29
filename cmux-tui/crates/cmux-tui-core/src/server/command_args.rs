@@ -54,6 +54,18 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+/// Deserialize a field that must be present and may be `null`: serde reads a
+/// missing `Option` field as `None` unless the field has its own deserializer,
+/// so with this one a missing field is refused. check-sdk-schema.py reads it
+/// as required and nullable.
+pub(super) fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 /// Deserialize an optional field that may be absent but never `null`: absent
 /// is `None` (via `#[serde(default)]`), `null` is refused like any other value
 /// that is not a `T`. check-sdk-schema.py reads it as optional, not nullable.

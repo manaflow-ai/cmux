@@ -341,6 +341,8 @@ impl DaemonEnergy {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetRequest {
+    /// Required; `null` clears the override.
+    #[serde(deserialize_with = "super::command_args::required_nullable")]
     saver: Option<bool>,
     #[serde(default)]
     reason: Option<SaverReason>,
@@ -365,17 +367,21 @@ pub(in crate::server) fn try_handle(
     let cmd = fields.remove("cmd");
     let cmd = cmd.as_ref().and_then(Value::as_str).filter(|cmd| COMMANDS.contains(cmd))?;
     let id = fields.remove("id");
-    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
     let result = if cmd == STATUS {
-        status(mux, local, &fields)
+        handle_status(mux, client, &fields)
     } else {
-        set(mux, client, local && origin_gate::is_user(mux, client), fields)
+        handle_set(mux, client, fields)
     };
     Some(reply(writer, id, result))
 }
 
-fn status(mux: &Mux, local: bool, fields: &Map<String, Value>) -> Result<Value, &'static str> {
-    if !local {
+/// `energy.status`: any trusted local connection (`cmux energy status`).
+fn handle_status(
+    mux: &Mux,
+    client: u64,
+    fields: &Map<String, Value>,
+) -> Result<Value, &'static str> {
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err("energy.not_trusted");
     }
     if !fields.is_empty() {
@@ -384,20 +390,16 @@ fn status(mux: &Mux, local: bool, fields: &Map<String, Value>) -> Result<Value, 
     serde_json::to_value(mux.energy.status()).map_err(|_| "energy.bad_request")
 }
 
-fn set(
-    mux: &Mux,
-    client: u64,
-    trusted: bool,
-    fields: Map<String, Value>,
-) -> Result<Value, &'static str> {
-    if !trusted {
+/// `energy.set`: the verified app on its trusted local connection only.
+fn handle_set(mux: &Mux, client: u64, fields: Map<String, Value>) -> Result<Value, &'static str> {
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err("energy.not_trusted");
     }
-    if !fields.contains_key("saver") {
-        return Err("energy.bad_request");
+    if !origin_gate::is_user(mux, client) {
+        return Err("energy.not_trusted");
     }
-    let request: SetRequest =
-        serde_json::from_value(Value::Object(fields)).map_err(|_| "energy.bad_request")?;
+    let request = serde_json::from_value::<SetRequest>(Value::Object(fields))
+        .map_err(|_| "energy.bad_request")?;
     if request.saver != Some(true) && request.reason.is_some() {
         return Err("energy.bad_request");
     }
