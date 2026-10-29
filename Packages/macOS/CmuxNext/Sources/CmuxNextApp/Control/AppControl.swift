@@ -192,7 +192,11 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
+        // `latency`: the app tracker's closed slots, per kind and target (first-seconds-lag.md step 3; it was absent).
+        let latency = InputLatencyDebugSource(reporter: InputLatencyReporter(), tracker: services.inputLatency.tracker, mainWork: services.mainWork)
+        latency.follow { (NSApp.keyWindow?.screen ?? NSScreen.main).map { UInt64(1_000_000_000 / max($0.maximumFramesPerSecond, 1)) } ?? 0 }
+        services.work.task(.bestEffort) { await latency.foldBatches() }
+        router.register([DebugInput(sources: [latency, InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
@@ -209,7 +213,8 @@ final class AppControl {
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
                                                  },
-                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap)),
+                                                 InputLatencySlotsRecorder(tracker: services.inputLatency.tracker, mainWork: services.mainWork)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

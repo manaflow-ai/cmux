@@ -95,7 +95,9 @@ public final class InputLatencyTracker {
     private let presentation: any InputPresentationEstimating
     private let boundary: any InputTurnBoundary
     private let emit: Emit
-    private let batchSink: BatchSink?
+    /// Takes each half ring of closed slots (and each ``flushClosedSlots()``). The composition root may set it once after
+    /// init, when the sink needs the tracker (``droppedTotal``).
+    public var batchSink: BatchSink?
     private let frameIntervals: (any InputFrameIntervals)?
     /// Slots opened since the last boundary; reserved to the table's capacity, so appends never allocate.
     var pending: ContiguousArray<Pending> = []
@@ -167,6 +169,21 @@ public final class InputLatencyTracker {
     /// The newest `count` closed slots, newest first (debug.input).
     public func recent(_ count: Int) -> [InputLatencySlot] {
         ring.recent(count)
+    }
+
+    /// Slots lost since launch before any batch carried them: the ones the ring overwrote and the ones the full table
+    /// refused (an ``InputLatencyBatch``'s cumulative `droppedTotal`).
+    public var droppedTotal: UInt64 {
+        ring.droppedCount &+ table.droppedCount
+    }
+
+    /// Hands the slots closed since the last batch to ``batchSink`` now, however few: a `debug.input` read counts every
+    /// closed slot, not only those of full half rings. Nothing when no slot closed since the last batch or there is no
+    /// sink.
+    public func flushClosedSlots() {
+        guard let batchSink else { return }
+        let batch = ring.takeBatch()
+        if !batch.isEmpty { batchSink(batch) }
     }
 
     /// Opens a slot for `event`, dispatched now.
