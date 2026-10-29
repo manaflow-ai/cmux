@@ -579,6 +579,8 @@ pub trait Store: Send + Sync {
     fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
         None
     }
+    /// Writes session `id`'s queued records next: a request waits for them (`request_writes.rs`).
+    fn expedite(&self, _id: &str) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1067,6 +1069,10 @@ impl Store for LocalStore {
 
     fn progress(&self, id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
         Some(self.log.progress(id))
+    }
+
+    fn expedite(&self, id: &str) {
+        self.log.expedite(id);
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`

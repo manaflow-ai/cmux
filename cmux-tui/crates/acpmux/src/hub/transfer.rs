@@ -254,6 +254,7 @@ impl Hub {
                 }
                 last = last.max(rec.seq);
                 self.store.append(id, &rec)?;
+                super::request_writes::note_log(id, rec.seq);
             }
         }
         Ok(last)

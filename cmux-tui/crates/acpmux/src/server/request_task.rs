@@ -37,12 +37,26 @@ pub(super) fn spawn(
         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
         Box::pin(async move {
             let params = params.unwrap_or(Value::Null);
-            match conn.agent_tools() {
-                // Boxed: the tool calls hold a whole `chats::route` of their own.
-                Some(tools) => {
-                    Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+            // One rule for every request: it answers only after what it wrote is on disk
+            // (`hub/request_writes.rs`).
+            let (result, writes) = crate::hub::request_writes::scope(async {
+                match conn.agent_tools() {
+                    // Boxed: the tool calls hold a whole `chats::route` of their own.
+                    Some(tools) => {
+                        Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+                    }
+                    None => chats::route(&hub, &conn, &method, params).await,
                 }
-                None => chats::route(&hub, &conn, &method, params).await,
+            })
+            .await;
+            let saved = match &result {
+                Ok(_) => hub.wait_written(writes).await,
+                Err(_) => true,
+            };
+            if saved {
+                result
+            } else {
+                Err(RpcError::internal("the chat's event log failed: this change is not saved"))
             }
         })
     };

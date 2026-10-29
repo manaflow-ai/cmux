@@ -161,6 +161,18 @@ impl LogWriter {
         Ok(())
     }
 
+    /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
+    /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
+    pub(super) fn expedite(&self, id: &str) {
+        let mut state = lock(&self.shared.state);
+        if let Some(at) = state.order.iter().position(|o| o == id)
+            && at > 0
+            && let Some(id) = state.order.remove(at)
+        {
+            state.order.push_front(id);
+        }
+    }
+
     /// Waits until every line queued for session `id` is written: before its log is read.
     pub(super) fn settle(&self, id: &str) {
         let mut state = lock(&self.shared.state);

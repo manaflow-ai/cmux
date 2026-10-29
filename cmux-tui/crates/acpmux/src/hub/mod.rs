@@ -7,6 +7,7 @@
 mod activity;
 mod adoption;
 mod agent_pairs;
+pub(crate) mod request_writes;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
@@ -982,7 +983,11 @@ impl Hub {
         }
         self.touch(session);
         let stored = match self.store.append(&session.id, &record) {
-            Ok(()) => true,
+            Ok(()) => {
+                // A request answers only once this record is written (`request_writes.rs`).
+                request_writes::note_log(&session.id, seq);
+                true
+            }
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
                 tracing::warn!(session = %session.id, "append failed: {e}");
@@ -1040,6 +1045,7 @@ impl Hub {
     pub(crate) fn save_config(&self, cfg: &Config) -> Result<()> {
         if let Some((path, bytes)) = cfg.disk_bytes()? {
             self.config_writer.queue(path, bytes);
+            request_writes::note_config();
         }
         Ok(())
     }
