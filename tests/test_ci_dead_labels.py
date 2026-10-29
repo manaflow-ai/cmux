@@ -456,10 +456,12 @@ class RedispatchTests(unittest.TestCase):
         saved = Store()
         with self.assertRaises(RateLimited):
             self.move(github, [go(run(1)), go(run(2))], saved)
-        self.assertEqual(github.calls, [("force-cancel", 1)])
-        self.assertIn(1, owed_ids(saved.last))
-        self.next_sweep(github, saved)
-        self.assertIn(("rerun", 1), github.calls)
+        # Run 1 is cancelled and read (and so re-run) before run 2 is touched; run 2's cancel hits the rate limit.
+        self.assertEqual(github.calls, [("force-cancel", 1), ("rerun", 1)])
+        self.assertIn(1, owed_ids(saved.last))  # kept until a later attempt is read
+        # Run 1: cleared once attempt 2 is read. Run 2: its cancel may or may not have reached GitHub, so it stays
+        # owed until its outcome is read (it is still queued here).
+        self.assertEqual(owed_ids(self.next_sweep(github, saved)[0]), [2])
 
     def test_a_rate_limit_on_the_rerun_keeps_it_owed(self) -> None:
         github = FakeGitHub(rerun_limit=True)

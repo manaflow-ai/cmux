@@ -2507,48 +2507,28 @@ def skip_superseded_delivery(
 
 
 def cancel_superseded(github: "GitHub", decisions: Sequence[SupersededDecision],
-                      hold: Callable[[], str | None] = lambda: None) -> tuple[list[SupersededDecision], int]:
-    """Phase 2 for the superseded pass: cancel each run phase 1 planned, after a recheck of the run alone (still in
-    flight, at the attempt and head phase 1 read). hold() is asked before each."""
+                      hold: Callable[[], str | None] = lambda: None, *, runs: Sequence[Mapping[str, Any]] = (),
+                      jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+                      prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+                      now: dt.datetime | None = None) -> tuple[list[SupersededDecision], int]:
+    """Phase 2 for the superseded pass: each run phase 1 planned goes through skip_superseded_delivery() again with
+    `execute` True, one run at a time, so its whole recheck is made right before its cancel (the run, its jobs and
+    build_started(), the branch tip, the newer runs that replace it and their jobs, the branch's open pull
+    requests). hold() is asked before each run and again right before its cancel."""
     out: list[SupersededDecision] = []
     failures = 0
     for decision in decisions:
         if decision.action != "cancel":
             out.append(decision)
             continue
-        run, run_id = decision.run, decision.run["id"]
         why_held = hold()
         if why_held:
-            out.append(SupersededDecision(run, "keep", f"held: {why_held}"))
+            out.append(SupersededDecision(decision.run, "keep", f"held: {why_held}"))
             continue
-        try:
-            current = github.run(run_id)
-            jobs = complete_jobs(github.jobs(run_id))
-            after = github.run(run_id)  # once more after its jobs: a re-run between the reads changes its attempt
-        except RuntimeError as error:  # recorded in READS by GitHub.request(): it stops the rest of phase 2
-            failures += 1
-            out.append(SupersededDecision(run, "keep", f"recheck failed: {error}"))
-            continue
-        if (current.get("status") not in IN_FLIGHT_RUN_STATUSES or current.get("run_attempt") != run.get("run_attempt")
-                or current.get("head_sha") != run.get("head_sha")
-                or (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status"))):
-            out.append(SupersededDecision(run, "keep", "on recheck: it finished, moved or was re-run"))
-            continue
-        # The never-cancel-a-started-build rule, read again right before the cancel: a build, sign or publish job of
-        # this attempt that started after phase 1 keeps the run.
-        mine = attempt_jobs(current, jobs) if jobs is not None else None
-        started = "its jobs could not be read" if mine is None else build_started(mine)
-        if started:
-            out.append(SupersededDecision(run, "keep", f"on recheck, it has started: {started}"))
-            continue
-        try:
-            github.cancel(run_id)
-        except RuntimeError as error:
-            if not _cancel_refused(error):
-                failures += 1
-            out.append(SupersededDecision(run, "keep", f"cancel failed: {error}"))
-            continue
-        out.append(SupersededDecision(run, "cancel", decision.note.replace("planned: ", "cancelled: ", 1)))
+        done, failed = skip_superseded_delivery(github, [decision.run], [*runs, decision.run], jobs_by_run or {},
+                                                prs_by_branch or {}, dry_run=False, hold=hold, now=now, execute=True)
+        out.extend(done)
+        failures += failed
     return out, failures
 
 
@@ -2686,6 +2666,22 @@ def pr_recheck(github: "GitHub", run: Mapping[str, Any]) -> str | None:
     at_head = open_pr_at_head(run, prs)
     if at_head is not None:
         return f"on recheck, at the head of open PR #{at_head.get('number')}; {OPEN_HEAD_RULE}"
+    opted = next((pr for pr in prs if JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr)), None)
+    if opted is not None:
+        return f"on recheck, PR #{opted.get('number')} carries {JANITOR_OPT_OUT_LABEL} (or its labels were not all read)"
+    return None
+
+
+def opt_out_recheck(github: "GitHub", run: Mapping[str, Any]) -> str | None:
+    """For the dead-label pass, which moves runs at an open pull request's head on purpose (the re-run follows the
+    cancel; dead_labels.py): only a `no-janitor` label on the branch's pull requests (or labels not all read) keeps
+    the run. Read right before the cancel."""
+    branch = str(run.get("head_branch") or "")
+    if not branch:
+        return None
+    prs = github.pull_requests([branch]).get(branch, [])
+    if any(pr.get(OPEN_PRS_UNREAD) for pr in prs):
+        return "on recheck, its branch's open pull requests were not all read"
     opted = next((pr for pr in prs if JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr)), None)
     if opted is not None:
         return f"on recheck, PR #{opted.get('number')} carries {JANITOR_OPT_OUT_LABEL} (or its labels were not all read)"
@@ -3734,7 +3730,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions, hold=READS.hold)
         failures += orphan_failures
-        superseded_decisions, superseded_failures = cancel_superseded(github, superseded_decisions, hold=READS.hold)
+        superseded_decisions, superseded_failures = cancel_superseded(
+            github, superseded_decisions, hold=READS.hold, runs=runs, jobs_by_run=delivery_jobs,
+            prs_by_branch=prs_by_branch)
         failures += superseded_failures
     else:
         superseded_decisions = [SupersededDecision(d.run, d.action, d.note.replace("planned: ", "would cancel: ", 1))
@@ -3748,7 +3746,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             save_store()
         redispatch_results, redispatch_failures = dead_labels.redispatch(
             github, redispatch_decisions, dry_run=args.dry_run, store=store,
-            save=save_dead if store.known and snapshot is not None else None, hold=READS.hold)
+            save=save_dead if store.known and snapshot is not None else None, hold=READS.hold,
+            pr_check=lambda run: opt_out_recheck(github, run))
     except RuntimeError as error:  # a rate limit: every obligation made so far is in the snapshot already
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         redispatch_failures += 1

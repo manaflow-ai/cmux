@@ -3658,11 +3658,11 @@ class TwoPhaseTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
         with redirect_stderr(io.StringIO()):
             janitor.READS.failed("a later listing", "502")
-        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold)
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold, runs=[old, tip], jobs_by_run=jobs, now=NOW)
         self.assertEqual({d.run["id"]: d.action for d in done}[old["id"]], "keep")
         self.assertEqual(fake.posts(), [])
         janitor.READS.reset()
-        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold)
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold, runs=[old, tip], jobs_by_run=jobs, now=NOW)
         self.assertEqual({d.run["id"]: d.action for d in done}[old["id"]], "cancel")
         self.assertEqual(fake.posts(), [[str(old["id"]), "cancel"]])
 
@@ -3707,7 +3707,7 @@ class ReviewSixTests(unittest.TestCase):
         self.assertEqual({d.run["id"]: d.action for d in planned}[old["id"]], "cancel")
         # Between phase 1 and the cancel, the old run's build job starts.
         fake.job_map[old["id"]] = gate_jobs(70, build={"status": "in_progress", "runner_name": "mini-1"})
-        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold)
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold, runs=[old, tip], jobs_by_run=jobs, now=NOW)
         decision = {d.run["id"]: d for d in done}[old["id"]]
         self.assertEqual(decision.action, "keep")
         self.assertIn("started", decision.note)
@@ -3832,6 +3832,68 @@ class ReviewEightTests(unittest.TestCase):
         orphan = janitor.OrphanDecision(janitor.Orphan(run, "e", "job", NOW, 0), "cancel")
         results, _ = janitor.cancel_orphans(fake, [orphan], sleep=lambda _: None)
         self.assertIn("no-janitor", results[run["id"]])
+        self.assertEqual(fake.posts(), [])
+
+
+class ReviewNineTests(unittest.TestCase):
+    """cmux#27114 review (91af60e)."""
+
+    def setUp(self):
+        janitor.READS.reset()
+        self.addCleanup(janitor.READS.reset)
+
+    def test_a_failed_read_after_one_dead_label_cancel_stops_the_next(self):
+        a = make_run(branch="a", sha="aaa", status="queued")
+        b = make_run(branch="b", sha="bbb", status="queued")
+        stuck = {"name": "lint", "status": "queued", "labels": ["blacksmith-16vcpu-ubuntu-2404"], "runner_name": None,
+                 "created_at": iso(40), "started_at": iso(40)}
+        fake = TwoPhaseTests.Breaking({r["id"]: dict(r) for r in (a, b)}, {a["id"]: [stuck], b["id"]: [stuck]})
+        reads = {"n": 0}
+        original = fake.run
+
+        def run(run_id):
+            if run_id == a["id"]:
+                reads["n"] += 1
+                if reads["n"] == 2:  # A's read right after its own cancel
+                    fake.broken.add(a["id"])
+            return original(run_id)
+        fake.run = run
+        store = janitor.janitor_guard.OwedStore({janitor.LOST_RERUNS_KEY: [], janitor.dead_labels.OBLIGATIONS_KEY: []})
+        decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None) for r in (a, b)]
+        with redirect_stderr(io.StringIO()):
+            results, _ = janitor.dead_labels.redispatch(fake, decisions, dry_run=False, store=store,
+                                                        save=lambda entries: None, hold=janitor.READS.hold,
+                                                        sleep=lambda _: None)
+        self.assertIn([str(a["id"]), "force-cancel"], fake.posts())
+        self.assertNotIn([str(b["id"]), "force-cancel"], fake.posts())
+        self.assertIn("not moved", results[b["id"]])
+
+    def test_a_no_janitor_label_added_after_phase_one_keeps_a_dead_label_run(self):
+        run = make_run(branch="feature", sha="aaa", status="queued")
+        fake = FakeGitHub({run["id"]: dict(run)})
+        fake.prs["feature"] = [make_pr(5, head="aaa", labels=("no-janitor",))]
+        self.assertIn("no-janitor", janitor.opt_out_recheck(fake, run))
+        fake.prs["feature"] = [make_pr(5, head="aaa")]
+        self.assertIsNone(janitor.opt_out_recheck(fake, run))  # an open PR at the head alone does not keep it
+
+    def test_a_replacement_that_stopped_after_phase_one_keeps_the_superseded_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.branches = {"nightly-next": tip["head_sha"]}
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        planned, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False, now=NOW,
+                                                      hold=janitor.READS.hold, execute=False)
+        self.assertEqual({d.run["id"]: d.action for d in planned}[old["id"]], "cancel")
+        fake.runs[tip["id"]].update(status="completed", conclusion="cancelled")  # the replacement stopped
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold, runs=[old, tip], jobs_by_run=jobs,
+                                            now=NOW)
+        self.assertEqual({d.run["id"]: d.action for d in done}[old["id"]], "keep")
+        fake.runs[tip["id"]].update(status="in_progress", conclusion=None)
+        fake.prs = {"nightly-next": [make_pr(9, head="864dceb6")]}  # a PR opened at the old head
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold, runs=[old, tip], jobs_by_run=jobs,
+                                            now=NOW)
+        self.assertEqual({d.run["id"]: d.action for d in done}[old["id"]], "keep")
         self.assertEqual(fake.posts(), [])
 
 

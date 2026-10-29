@@ -549,7 +549,8 @@ def _rate_limited(error: BaseException) -> bool:
     return type(error).__name__ == "RateLimited"
 
 
-def recheck(github: Any, decision: Redispatch) -> str | None:
+def recheck(github: Any, decision: Redispatch, pr_check: Callable[[Mapping[str, Any]], str | None] | None = None
+            ) -> str | None:
     """Why a run planned to move must not be cancelled now, read again right before the cancel: its attempt moved
     or it finished, a nightly, DEV or promote build of it started, a job of it is running, or its stuck job took a
     runner. None when it still may go. Anything unread is a reason."""
@@ -570,6 +571,15 @@ def recheck(github: Any, decision: Redispatch) -> str | None:
         return why
     if not any(starved_labels.stuck(job) and str(job.get("name") or "") == decision.job for job in jobs):
         return f"its job `{decision.job}` is no longer queued without a runner"
+    if pr_check is not None:
+        try:
+            why = pr_check(fresh)
+        except RuntimeError as error:
+            if _rate_limited(error):
+                raise
+            return f"its pull requests could not be read again before the cancel ({error})"
+        if why:
+            return why
     return None
 
 
@@ -643,11 +653,13 @@ def resume(github: Any, obligations: Sequence[Mapping[str, Any]], *, now: float)
 def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, store: Any,
                save: Callable[[list[dict[str, Any]]], None] | None,
                hold: Callable[[], str | None] = lambda: None, now: Callable[[], float] = time.time,
+               pr_check: Callable[[Mapping[str, Any]], str | None] | None = None,
                sleep: Callable[[float], None] = time.sleep,
                settle_seconds: float = SETTLE_SECONDS) -> tuple[dict[int, str], int]:
-    """Move every run that goes: read it again (recheck()), write its obligation into the janitor's one store
-    (`store`, a janitor_guard.OwedStore; save() publishes this pass's list), force-cancel it, then settle() each until
-    its cancel finished or `settle_seconds` passed. ({run id: result}, failures). Nothing is cancelled with `save`
+    """Move every run that goes, one at a time: read it again (recheck(), with `pr_check` for its pull requests),
+    write its obligation into the janitor's one store (`store`, a janitor_guard.OwedStore; save() publishes this
+    pass's list), force-cancel it, and read it once (settle()) before the next run is touched. Cancels still
+    finishing after all of them are read again until `settle_seconds` passed; those reads come after every cancel. ({run id: result}, failures). Nothing is cancelled with `save`
     None, while hold() names a failed listing, for a run any list of the store owes, or with no room in the store.
     `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun_failed(id). A rate limit is
     raised; every obligation it leaves is saved first."""
@@ -673,7 +685,7 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, s
             results[run_id] = (f"not moved: the owed re-runs store is full ({store.count()} of {store.cap}) "
                                "or unread")
             continue
-        why = recheck(github, decision)
+        why = recheck(github, decision, pr_check)
         if why:
             results[run_id] = f"kept: {why}"
             continue
@@ -688,7 +700,17 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, s
             # Ambiguous: GitHub may have taken it. The obligation stays; settle() reads what happened.
             results[run_id] = f"force-cancel answered an error ({error}); kept owed, the next sweeps settle it"
             continue
-        mine.append(entry)
+        # Its own cancel read once, right away and before any other run is touched: a read that fails here holds the
+        # rest (GitHub.request() records it, and hold() is asked before the next run).
+        cleared, what, failed = settle(github, entry, now=now())
+        if "still finishing" in what:
+            mine.append(entry)
+            continue
+        results[run_id] = what
+        failures += failed
+        if cleared:
+            obligations.remove(entry)
+            save(list(obligations))
     deadline = now() + settle_seconds
     while mine:
         for entry in list(mine):
