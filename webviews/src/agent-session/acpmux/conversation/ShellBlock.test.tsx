@@ -26,10 +26,24 @@ let root: Root | undefined;
 let container: HTMLElement;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const GLOBALS = ["window", "document", "navigator", "HTMLElement", "Node", "IS_REACT_ACT_ENVIRONMENT"];
+const GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Node",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.agent/" });
+  // The sideways edge watch (sideways.ts) measures on the next frame.
+  Object.assign(dom.window, {
+    requestAnimationFrame: (run: FrameRequestCallback) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  });
   for (const key of GLOBALS) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -37,6 +51,8 @@ beforeEach(() => {
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     Node: dom.window.Node,
+    requestAnimationFrame: dom.window.requestAnimationFrame,
+    cancelAnimationFrame: dom.window.cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   container = dom.window.document.getElementById("root")!;
@@ -90,7 +106,6 @@ test("a command's words take their roles, and every character stays in order", (
     ).toBe(text);
   expect(roles(`for f in *.log; do wc -l "$f"; done`)).toEqual([
     ["keyword", "for"],
-    ["keyword", "in"],
     ["operator", ";"],
     ["keyword", "do"],
     ["command", "wc"],

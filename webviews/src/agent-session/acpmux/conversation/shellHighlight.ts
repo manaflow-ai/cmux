@@ -61,66 +61,81 @@ function push(out: ShellToken[], text: string, role?: ShellRole) {
   else out.push(role ? { text, role } : { text });
 }
 
-/// The end of the quoted string that starts at `at` (its closing quote included, or the source's end).
-function quoteEnd(src: string, at: number): number {
+/// The end of the quoted string that starts at `at` (its closing quote included), or `limit`.
+function quoteEnd(src: string, at: number, limit = src.length): number {
   const quote = src[at]!;
   let i = at + 1;
-  while (i < src.length && src[i] !== quote) i += quote === '"' && src[i] === "\\" ? 2 : 1;
-  return Math.min(i + 1, src.length);
+  while (i < limit && src[i] !== quote) i += quote === '"' && src[i] === "\\" ? 2 : 1;
+  return Math.min(i + 1, limit);
 }
 
 /// The end of the `$(…)`, `${…}` or backquote group that starts at `at`: past its matching close,
-/// skipping quoted text, or the source's end.
-function groupEnd(src: string, at: number, open: string, close: string): number {
+/// skipping quoted text, or `limit`.
+function groupEnd(src: string, at: number, open: string, close: string, limit = src.length): number {
   let depth = 0;
-  for (let i = at; i < src.length; i++) {
+  for (let i = at; i < limit; i++) {
     const c = src[i]!;
     if (c === "\\") i++;
-    else if ((c === "'" || c === '"') && open !== "`") i = quoteEnd(src, i) - 1;
+    else if ((c === "'" || c === '"') && open !== "`") i = quoteEnd(src, i, limit) - 1;
     else if (c === open && open !== close) depth++;
     else if (c === close && (open === close ? i > at : --depth === 0)) return i + 1;
   }
-  return src.length;
+  return limit;
 }
+
+/// How deep `$(…)` inside `$(…)` is highlighted as commands; deeper, one variable-colored run.
+const MAX_DEPTH = 8;
+let depth = 0;
 
 /// Whether the `$` at `at` starts an expansion (else it is a plain `$`).
 const startsExpansion = (src: string, at: number) => /^\$(?:[({']|[A-Za-z_0-9?#@*!$-])/.test(src.slice(at, at + 2));
 
-/// A `$` expansion at `at` (`$NAME`, `$1`, `$?`, `${…}`, `$(…)`, `$((…))`, `$'…'`): pushes it and
-/// returns its end, or `at` when the `$` starts none.
-function expansion(src: string, at: number, out: ShellToken[]): number {
-  const next = src[at + 1];
+/// A `$` expansion at `at` (`$NAME`, `$1`, `$?`, `${…}`, `$(…)`, `$((…))`, `$'…'`), none of it past
+/// `limit` (the end of the quote or word it is in): pushes it and returns its end.
+function expansion(src: string, at: number, out: ShellToken[], limit = src.length): number {
+  const name = /^(?:[A-Za-z_]\w*|[0-9?#@*!$-])/.exec(src.slice(at + 1, Math.min(at + 64, limit)));
+  const next = at + 1 < limit ? src[at + 1] : undefined;
+  if (next !== "(" && next !== "{" && next !== "'" && !name) {
+    // Cut at a quote's end: a plain `$`.
+    push(out, "$");
+    return at + 1;
+  }
   if (next === "(") {
-    // `$(…)`: its inner command is highlighted as a command; `$((…))` arithmetic reads as a variable.
-    const end = groupEnd(src, at + 1, "(", ")");
-    if (src[at + 2] === "(") {
+    // `$(…)`: its inner command is highlighted as a command; `$((…))` arithmetic (and a substitution
+    // nested past MAX_DEPTH) reads as a variable.
+    const end = groupEnd(src, at + 1, "(", ")", limit);
+    if (src[at + 2] === "(" || depth >= MAX_DEPTH) {
       push(out, src.slice(at, end), "variable");
       return end;
     }
     push(out, "$(", "variable");
     const closed = src[end - 1] === ")";
-    lex(src.slice(at + 2, closed ? end - 1 : end), out);
+    depth++;
+    try {
+      lex(src.slice(at + 2, closed ? end - 1 : end), out);
+    } finally {
+      depth--;
+    }
     if (closed) push(out, ")", "variable");
     return end;
   }
   if (next === "{") {
-    const end = groupEnd(src, at + 1, "{", "}");
+    const end = groupEnd(src, at + 1, "{", "}", limit);
     push(out, src.slice(at, end), "variable");
     return end;
   }
   if (next === "'") {
-    const end = quoteEnd(src, at + 1);
+    const end = quoteEnd(src, at + 1, limit);
     push(out, src.slice(at, end), "string");
     return end;
   }
-  const name = /^(?:[A-Za-z_]\w*|[0-9?#@*!$-])/.exec(src.slice(at + 1, at + 64))!;
-  push(out, src.slice(at, at + 1 + name[0].length), "variable");
-  return at + 1 + name[0].length;
+  push(out, src.slice(at, at + 1 + name![0].length), "variable");
+  return at + 1 + name![0].length;
 }
 
 /// A double-quoted string at `at`: green, its `$` expansions in their own color.
-function doubleQuoted(src: string, at: number, out: ShellToken[]): number {
-  const end = quoteEnd(src, at);
+function doubleQuoted(src: string, at: number, out: ShellToken[], limit = src.length): number {
+  const end = quoteEnd(src, at, limit);
   let from = at;
   for (let i = at + 1; i < end; i++) {
     if (src[i] === "\\") {
@@ -129,7 +144,7 @@ function doubleQuoted(src: string, at: number, out: ShellToken[]): number {
     }
     if (src[i] !== "$" || !startsExpansion(src, i)) continue;
     push(out, src.slice(from, i), "string");
-    const after = Math.min(expansion(src, i, out), end);
+    const after = expansion(src, i, out, end);
     from = after;
     i = after - 1;
   }
@@ -285,26 +300,26 @@ function word(src: string, at: number, out: ShellToken[], commandAt: boolean): {
     }
     if (c === "'") {
       flush(i);
-      const stop = Math.min(quoteEnd(src, i), end);
+      const stop = quoteEnd(src, i, end);
       push(out, src.slice(i, stop), "string");
       i = plainFrom = stop;
       continue;
     }
     if (c === '"') {
       flush(i);
-      i = plainFrom = Math.min(doubleQuoted(src, i, out), end);
+      i = plainFrom = doubleQuoted(src, i, out, end);
       continue;
     }
     if (c === "`") {
       flush(i);
-      const stop = Math.min(groupEnd(src, i, "`", "`"), end);
+      const stop = groupEnd(src, i, "`", "`", end);
       push(out, src.slice(i, stop), "variable");
       i = plainFrom = stop;
       continue;
     }
     if (c === "$" && startsExpansion(src, i)) {
       flush(i);
-      const after = expansion(src, i, out);
+      const after = expansion(src, i, out, end);
       i = plainFrom = Math.min(after, end);
       continue;
     }

@@ -1,5 +1,7 @@
 .shell-step-gallery {
   --ssg-space-22: 22px;
+  --ssg-space-8: 8px;
+  --ssg-space-10: 10px;
   box-sizing: border-box;
   min-height: 100%;
   padding: var(--ssg-space-22);
@@ -22,13 +24,13 @@
 }
 /* A command block apart from the output: its own inset fill, no hairline. */
 .shell-step-gallery[data-look="split"] .cv-shell__command {
-  padding: 8px 10px;
+  padding: var(--ssg-space-8) var(--ssg-space-10);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--ssg-space-8);
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .shell-step-gallery[data-look="split"] .cv-shell__command + .cv-shell__body {
-  margin-top: 10px;
+  margin-top: var(--ssg-space-10);
 }
 /* A "$" gutter: every line of the command and of the output starts after it. */
 .shell-step-gallery[data-look="gutter"] .cv-shell__command .cv-line {

@@ -7,14 +7,22 @@
 // never pushes the transcript down; while the command runs the box follows its newest line unless
 // the reader scrolled up. Output wraps by default, each line hanging under its start; unwrapped,
 // its right edge fades while more lies past.
-import { memo, useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
+import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import { lineCount, Lines, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import {
+  lineCount,
+  Lines,
+  PreviewMore,
+  SIDEWAYS_SCROLLER,
+  usePreview,
+  useSidewaysEdge,
+  WrapButton,
+} from "./BlockParts";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
-import { moreBelow, useMoreBelow } from "./moreBelow";
+import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 
@@ -52,17 +60,10 @@ export function ShellBlock({
   const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const marked = shown.cut || Boolean(cut && shown.shown);
-  const sideways = useSidewaysRef<HTMLPreElement>();
-  const below = useMoreBelow<HTMLPreElement>(shown.shown);
-  const follow = useFollowEnd(shown.shown, live && preview.cut);
-  const body = useCallback(
-    (node: HTMLPreElement | null) => {
-      sideways.current = node;
-      below.current = node;
-      follow.current = node;
-    },
-    [sideways, below, follow],
-  );
+  const body = useRef<HTMLPreElement>(null);
+  useSidewaysEdge(body);
+  useMoreBelowOn(body, shown.shown);
+  useFollowEnd(body, shown.shown, live && preview.cut);
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
@@ -166,8 +167,7 @@ export const ShellCommand = memo(function ShellCommand({ command }: { command: s
 /// While `following`, keeps the box scrolled to its newest line as `content` grows, unless the
 /// reader scrolled up from the end; scrolling back to the end follows again. One scroll listener for
 /// as long as it follows, and one assignment per change of `content`.
-function useFollowEnd(content: unknown, following: boolean) {
-  const ref = useRef<HTMLPreElement | null>(null);
+function useFollowEnd(ref: RefObject<HTMLElement | null>, content: unknown, following: boolean) {
   const away = useRef(false);
   useLayoutEffect(() => {
     const box = ref.current;
@@ -177,10 +177,9 @@ function useFollowEnd(content: unknown, following: boolean) {
     };
     box.addEventListener("scroll", onScroll, { passive: true });
     return () => box.removeEventListener("scroll", onScroll);
-  }, [following]);
+  }, [ref, following]);
   useLayoutEffect(() => {
     const box = ref.current;
     if (box && following && !away.current) box.scrollTop = box.scrollHeight;
-  }, [content, following]);
-  return ref;
+  }, [ref, content, following]);
 }
