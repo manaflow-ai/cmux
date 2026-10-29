@@ -456,6 +456,9 @@ fn jsonl_reads_as_json_and_quiet_is_taken_out() {
         super::output_flags(&words(&["--jsonl", "x", "--quiet"])),
         (words(&["--json", "x"]), true)
     );
-    assert_eq!(super::output_flags(&words(&["-q", "--", "--quiet"])), (words(&["--", "--quiet"]), true));
+    assert_eq!(
+        super::output_flags(&words(&["-q", "--", "--quiet"])),
+        (words(&["--", "--quiet"]), true)
+    );
     assert_eq!(super::output_flags(&words(&["--json"])), (words(&["--json"]), false));
 }

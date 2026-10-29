@@ -409,7 +409,8 @@ fn quiet_add_mints_and_prints_nothing() {
     assert!(requests.try_recv().is_err(), "quiet does not wait unless asked");
     // --quiet --wait waits and says how it ended only by its exit code.
     let (origin, _requests) = fake(joining(vec![json!([entry("jt_1")])], far()));
-    let ran = run_with(&["machine", "add", "--wait"], &origin, OutputMode::Quiet, false, true, never());
+    let ran =
+        run_with(&["machine", "add", "--wait"], &origin, OutputMode::Quiet, false, true, never());
     assert_eq!(ran.code, Ok(0));
     assert!(ran.out.is_empty(), "{}", ran.out);
 }
