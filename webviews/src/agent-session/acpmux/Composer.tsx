@@ -1366,8 +1366,10 @@ export function Composer({
         if (typed && !sent) return;
         openInWindow.current?.(sent);
       };
-      // A screenshot still being read: the prompt and the window wait for its chip, as Return does.
-      if (holdForAttachments(sendAndOpen)) return;
+      // Owned commands (especially /import) must open their picker immediately, even while an
+      // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
+      const owned = composerCommand(unwrapped().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
+      if (!owned && holdForAttachments(sendAndOpen)) return;
       sendAndOpen();
       return;
     }

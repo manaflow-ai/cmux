@@ -143,6 +143,7 @@ async function composer(
   importSandboxed = false,
   onImportFile?: (file: File) => void | Promise<void>,
   upload?: (files: File[]) => Promise<{ paths: string[] }>,
+  onOpenInWindow?: (sent: boolean) => void,
 ) {
   const sent: Sent[] = [];
   const sentAttachments: string[][] = [];
@@ -169,6 +170,7 @@ async function composer(
         {...(importSandboxed ? { importSandboxed } : {})}
         {...(onImportFile ? { onImportFile } : {})}
         {...(upload ? { upload } : {})}
+        {...(onOpenInWindow ? { onOpenInWindow } : {})}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
       />,
@@ -396,6 +398,29 @@ test("a terminal-only spelling waits for its pending image and sends as an attac
   await act(async () => resolve(bytes));
   expect(page.sent).toEqual([{ text: "/login", steer: false }]);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
+});
+
+test("Quick Chat Cmd-Return opens /import immediately despite an earlier pending image", async () => {
+  let opened = 0;
+  const page = await composer(chat(), "/import", undefined, false, async () => {}, undefined, () => {
+    opened += 1;
+  });
+  const file = new File([PNG], "pending.png", { type: "image/png" });
+  const bytes = await file.arrayBuffer();
+  let resolve!: (bytes: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", {
+    value: () => new Promise<ArrayBuffer>((done) => { resolve = done; }),
+  });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13, metaKey: true }));
+  expect(opened).toBe(0);
+  expect(host.querySelector(".acpmux-import-input")).not.toBeNull();
+  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+  await act(async () => resolve(bytes));
 });
 
 for (const outcome of ["resolve", "reject", "edited"] as const) {
