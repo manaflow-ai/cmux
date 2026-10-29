@@ -114,10 +114,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     await until(() => eventReads > before, "the lag resync's refetch");
   }
 
-  function answer(
-    method: string,
-    params: Record<string, any>,
-  ): { result?: unknown; error?: unknown } {
+  function answer(method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
     switch (method) {
       case "initialize":
         return {
@@ -142,11 +139,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           ? {
               result: {
                 cwd: "/home/dev/api",
-                level: trustResolved
-                  ? "trusted"
-                  : inlineHostFailure === "trust.untrusted"
-                    ? "untrusted"
-                    : "unknown",
+                level: trustResolved ? "trusted" : inlineHostFailure === "trust.untrusted" ? "untrusted" : "unknown",
               },
             }
           : { result: null };
@@ -207,9 +200,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
@@ -226,9 +217,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           lastSocket = ws;
           // A prompt mid-turn gets no reply until its turn; this stand-in never gives it one.
           if (message.id !== undefined && message.method !== "session/prompt")
-            ws.send(
-              JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }),
-            );
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }));
           for (const wake of waiting) wake();
         },
       },
@@ -282,8 +271,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     inlineHostFailure = hostFailure;
     trustMode = trust;
     trustResolved = true;
-    trustRefusalRemaining =
-      hostFailure === "trust.pending" || hostFailure === "trust.untrusted" ? 1 : 0;
+    trustRefusalRemaining = hostFailure === "trust.pending" || hostFailure === "trust.untrusted" ? 1 : 0;
     btws.length = 0;
     prompts.length = 0;
     cancels.length = 0;
@@ -330,8 +318,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
                         code: reply.error.code ?? "btw_failed",
                         message: reply.error.message,
                         details:
-                          reply.error.code === "trust.pending" ||
-                          reply.error.code === "trust.untrusted"
+                          reply.error.code === "trust.pending" || reply.error.code === "trust.untrusted"
                             ? {
                                 origin: "session_host",
                                 details: { reason: reply.error.code, cwd: "/home/dev/api" },
@@ -406,10 +393,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("an older daemon gets the legacy request and opens the side chat", async () => {
       const page = await openChat(MAIN, true, false);
       await type(page, `/btw ${QUESTION}`);
-      await page
-        .locator(".acpmux-btw-note")
-        .getByText("Opened a side session for this question.")
-        .waitFor();
+      await page.locator(".acpmux-btw-note").getByText("Opened a side session for this question.").waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
       expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
       expect(prompts).toEqual([]);
@@ -419,10 +403,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("an advertised inline daemon falls back when the app host is too old", async () => {
       const page = await openChat(MAIN, true, true, "unsupported");
       await type(page, `/btw ${QUESTION}`);
-      await page
-        .locator(".acpmux-btw-note")
-        .getByText("Opened a side session for this question.")
-        .waitFor();
+      await page.locator(".acpmux-btw-note").getByText("Opened a side session for this question.").waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
       expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
       await page.close();
@@ -455,10 +436,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("a refused /btw keeps the question in its aside and never sends a main prompt", async () => {
       const page = await openChat(MAIN, true);
       await type(page, "/btw refused");
-      await page
-        .getByRole("alert")
-        .filter({ hasText: "This chat's agent can't start a side session." })
-        .waitFor();
+      await page.getByRole("alert").filter({ hasText: "This chat's agent can't start a side session." }).waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: "refused", inline: true }]);
       expect(await sideChats(page)).toEqual([]);
       expect(await page.locator(".acpmux-btw-note").innerText()).toContain("refused");
@@ -488,25 +466,17 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("the palette's sideQuestion focuses the composer with /btw", async () => {
       const page = await openChat(MAIN, true);
       await page.evaluate(() =>
-        (
-          window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }
-        ).cmuxAcpmuxBridge.command("sideQuestion"),
+        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
+          "sideQuestion",
+        ),
       );
       await page.waitForFunction(
-        () =>
-          document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
+        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
       );
-      expect(
-        await page.evaluate(() =>
-          Boolean(document.activeElement?.closest(".acpmux-composer-prompt")),
-        ),
-      ).toBe(true);
+      expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer-prompt")))).toBe(true);
       await page.keyboard.type(QUESTION);
       await page.keyboard.press("Enter");
-      await page
-        .locator(".acpmux-btw-note")
-        .getByText("The retry timer raced the mocked clock.")
-        .waitFor();
+      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
@@ -514,9 +484,9 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("with Side sessions off, the palette's sideQuestion leaves the composer empty", async () => {
       const page = await openChat(MAIN, false);
       await page.evaluate(() =>
-        (
-          window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }
-        ).cmuxAcpmuxBridge.command("sideQuestion"),
+        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
+          "sideQuestion",
+        ),
       );
       await settled();
       expect(await composerText(page)).toBe("");
@@ -531,10 +501,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         ).cmuxAcpmuxBridge.applyHeaderState({ sideSessions: true, version: 2 }),
       );
       await type(page, `/btw ${QUESTION}`);
-      await page
-        .locator(".acpmux-btw-note")
-        .getByText("The retry timer raced the mocked clock.")
-        .waitFor();
+      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
