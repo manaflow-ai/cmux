@@ -38,8 +38,12 @@ def evaluate(node, context):
     if kind == 'cmp':
         left, right = (str(evaluate(arg, context)).lower() for arg in node[2:])
         return (left == right) == (node[1] == '==')
+    if kind == 'not':
+        return not evaluate(node[1], context)
     if kind == 'call':
         args = [evaluate(arg, context) for arg in node[2]]
+        if node[1].lower() == 'startswith':
+            return str(args[0]).lower().startswith(str(args[1]).lower())
         if node[1].lower() == 'format':
             return args[0].format(*args[1:])
         if node[1].lower() == 'fromjson':
@@ -201,6 +205,12 @@ class NightlyTrustedRouting(unittest.TestCase):
                 retry = label('prepare-nightly-variant-fallback', runner, 'failure')
                 self.assertNotEqual(retry, primary)
                 self.assertIn(retry, ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'))
+        # The overflow switch moves LINUX_RUNNER off Blacksmith: both jobs and signer-build follow it.
+        hosted = 'ubuntu-24.04'
+        self.assertEqual(label('prepare-nightly-variant-fallback', hosted, 'success'), hosted)
+        self.assertEqual(label('prepare-nightly-variant-fallback', hosted, 'failure'), hosted)
+        self.assertEqual(label('signer-build', hosted), hosted)
+        self.assertEqual(label('signer-build', ''), 'blacksmith-32vcpu-ubuntu-2404')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
