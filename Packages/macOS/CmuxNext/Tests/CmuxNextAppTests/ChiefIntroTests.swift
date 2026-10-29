@@ -88,3 +88,30 @@ import Testing
         #expect(panel.intro.isHidden)
     }
 }
+
+/// The Chief's posted welcome (#26053) stands in for the intro: the first-run panel stays, without
+/// the intro an empty cached conversation showed before the welcome arrived, and without the hero.
+@MainActor @Suite(.serialized) struct ChiefWelcomeReplacesIntroTests {
+    @Test func theWelcomeArrivingClearsAnIntroAlreadyShown() async throws {
+        let source = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
+        let id = ConversationID("conv_chief")
+        let inbox = try await source.inbox()
+        let store = HomeStore(source: source)
+        store.start()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 800), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 800)
+        window.contentView = view
+        await view.binding.opened()
+        view.showFirstRunIntro(.welcome)
+        #expect(view.firstRun.introText == HomeStrings.firstRunIntro)
+
+        view.isOnlyWelcome = { $0.id == id }
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.firstRun.isHidden, "the welcome alone keeps the first-run panel")
+        #expect(view.firstRun.introText == nil, "the welcome is the intro; never both")
+        #expect(!view.firstRun.showsHero)
+    }
+}
