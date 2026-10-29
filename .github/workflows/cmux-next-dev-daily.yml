@@ -289,7 +289,7 @@ jobs:
     if: needs.sign.outputs.signed == 'true'
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
     permissions:
@@ -300,15 +300,22 @@ jobs:
       label: ${{ steps.pool.outputs.label }}
       # The owned label for tip-dmg-build too (two machines free), or empty.
       dmg_label: ${{ steps.pool.outputs.dmg_label }}
+      # The Blacksmith macOS 26 label whose queue moves (6 vCPU first, then 12; never empty when
+      # read), for the Mac jobs that do not take an owned Mac, and the other one for a re-run, so a
+      # re-run never queues again on the label that stalled (classic_nightly_build_runner.py).
+      cloud: ${{ steps.cloud.outputs.cloud }}
+      alternate: ${{ steps.cloud.outputs.alternate }}
+      attempt: ${{ steps.cloud.outputs.attempt }}
     steps:
       # Only main's own dispatch of this workflow (the sign job's condition)
       # is offered an owned Mac, and only on its first attempt.
       - name: Checkout pool helper
-        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
+        if: github.repository_owner == 'manaflow-ai'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
+            scripts/ci/classic_nightly_build_runner.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/simple_pool_picker.py
@@ -340,6 +347,21 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
+      # The Blacksmith macOS 26 label with a moving queue (the queue janitor's snapshot and the one
+      # stall rule), so a stalled 6 vCPU queue no longer holds verify, tip-dmg-build and tip-deltas:
+      # 2026-10-27 12:03-12:46Z it started about one job a minute with the oldest waiting 52 min.
+      # Every attempt, so it is also what the owned pick below counts Blacksmith room on.
+      - name: Pick a cloud macOS label with a moving queue
+        id: cloud
+        if: github.repository_owner == 'manaflow-ai'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          FIRST: 6vcpu
+          ENABLED: '0'
+        run: python3 scripts/ci/classic_nightly_build_runner.py
+
       - name: Pick the macOS pool
         id: pool
         if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
@@ -355,7 +377,7 @@ jobs:
           # The only Blacksmith label verify and tip-dmg-build fall back to (their
           # runs-on; test_cmux_next_dev_tip_feed.py keeps the three equal). Free
           # room on another label (macOS 15) is none for them.
-          BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          BLACKSMITH_LABELS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.cloud.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
         run: |
           set -uo pipefail
           pick() {
@@ -443,7 +465,7 @@ jobs:
     needs: [sign, runner]
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -849,7 +871,7 @@ jobs:
     # takes Blacksmith. It runs no bundle code (ditto and hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
     # exception) does not apply; bundle code added here would fail that rule
     # on this runs-on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1379,13 +1401,13 @@ jobs:
     # Advisory, as tip is. A failure leaves the feed as tip wrote it: the full
     # DMG, signed, with no deltas for this build.
     continue-on-error: true
-    needs: [sign, tip-dmg, tip]
+    needs: [sign, tip-dmg, tip, runner]
     if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): the feed write is a compare-and-swap that adds deltas only
     # to this build's item while it is still the newest.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read

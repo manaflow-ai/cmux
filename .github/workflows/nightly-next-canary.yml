@@ -41,8 +41,11 @@ on:
 
 permissions: {}
 
+# A dispatch for one build has its own group, so the next scheduled tick never
+# replaces it; schedule ticks read the feed when they start, so one waiting
+# tick does the work of any it replaced.
 concurrency:
-  group: nightly-next-canary-${{ github.event.pull_request.number || 'feed' }}
+  group: nightly-next-canary-${{ github.event.pull_request.number || inputs.build != '' && format('build-{0}', inputs.build) || 'feed' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -53,7 +56,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -103,8 +106,11 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          if not url.startswith("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"):
-              sys.exit(f"{url} is not a nightly-next release asset")
+          # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
+          # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+                                 "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
+              sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"
@@ -124,8 +130,11 @@ jobs:
     name: canary ${{ needs.pick.outputs.build }}
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
-    # No secrets: this job runs the published app.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # No secrets: this job runs the published app. An owned Mac's side label on
+    # attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused
+    # job), Blacksmith macOS 26 from attempt 2 on. Never a GitHub-hosted Mac
+    # (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -250,7 +259,7 @@ jobs:
     name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     env:
       BUILD: ${{ needs.pick.outputs.build }}
@@ -318,7 +327,7 @@ jobs:
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml

@@ -209,9 +209,12 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
+            text = path.read_text(encoding="utf-8")
+            # runs_on_values.py's input in ci-repo-variables.yml also names other branches' runs-on variables.
+            text = re.sub(r"^( +)CMUX_CI_RUNS_ON_VARIABLES: \|\n(?:\1 +.*\n)+", "", text, flags=re.M)
             read |= {
                 name
-                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", text)
                 if name not in NON_LABEL_RUNNER_VARIABLES
             }
         self.assertTrue(read)

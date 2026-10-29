@@ -36,7 +36,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: read
       contents: read
@@ -165,7 +165,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -532,7 +532,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -804,7 +804,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -1043,7 +1043,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     env:
       # One writer at a time, newest first, without a concurrency group (a
       # group replaces a pending publisher): scripts/ci/classic_publish_lease.py.
@@ -1425,21 +1425,20 @@ jobs:
         env:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
           SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+          SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
         with:
+          # Parallel push runs publish in any order: this closes only the
+          # failures this commit includes (scripts/ci/nightly_failure_issue.mjs,
+          # from the trusted main checkout above).
           script: |
             const { owner, repo } = context.repo;
-            const label = `${process.env.CHANNEL}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
-            for (const issue of open.data) {
-              // The issue body keeps the first failed SHA; later failures are comments.
-              // The channel label identifies the one incident that this publication resolves.
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: issue.number,
-                body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
-              });
-              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-            }
+            const channel = process.env.CHANNEL;
+            const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
+            await incident.close({
+              github, owner, repo, channel, appName: channel === 'rc' ? 'cmux RC' : 'cmux NIGHTLY',
+              ref: process.env.SOURCE_BRANCH, sha: process.env.SOURCE_HEAD_SHA, runUrl, log: core.info,
+            });
 
   generate-deltas:
     # Delta generation remains downstream of the first accepted publication.
@@ -1548,7 +1547,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: release
     env:
       # One writer at a time, newest first, without a concurrency group (a

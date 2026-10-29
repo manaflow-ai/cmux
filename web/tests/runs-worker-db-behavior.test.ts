@@ -5,7 +5,7 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 const NOW = new Date("2026-10-18T06:00:00.000Z");
 type TestSql = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & { end(options?: { timeout?: number }): Promise<void>; json(value: unknown): unknown };
-type WorkerModule = typeof import("../services/runs/worker");
+type WorkerModule = typeof import("../services/runs/legacy/worker");
 let sqlClient: TestSql | null = null;
 let worker: Pick<WorkerModule, "cancelClaimedRunAttempt" | "cancelRun" | "claimNextRunAttempt" | "finishRunAttempt"> | null = null;
 const cleanupRunIds: string[] = [];
@@ -45,7 +45,7 @@ beforeAll(async () => {
   if (!runDbTests) return;
   const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
-  const [postgresModule, workerModule] = await Promise.all([import("postgres"), import("../services/runs/worker")]);
+  const [postgresModule, workerModule] = await Promise.all([import("postgres"), import("../services/runs/legacy/worker")]);
   sqlClient = postgresModule.default(url, { max: 2 }) as unknown as TestSql;
   worker = workerModule;
 });

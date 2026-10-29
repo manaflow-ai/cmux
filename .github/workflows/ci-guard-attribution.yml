@@ -97,6 +97,7 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main with history
         # A red fast guard on main is bisected: main's history, without blobs
@@ -128,12 +129,37 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: git fetch --no-tags --depth=1 --filter=blob:none origin "$HEAD_SHA" || true
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Analyze
         id: analyze
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -184,6 +210,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main's analyzed head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -250,6 +277,20 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Fix PR: $url" >> "$GITHUB_STEP_SUMMARY"
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/report/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Comment, and open, update or close the tracking issue
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
@@ -262,3 +303,14 @@ jobs:
             args+=(--fix-pr "$FIX_PR")
           fi
           python3 scripts/ci/guard_attribution.py "${args[@]}"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/report/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'

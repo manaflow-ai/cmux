@@ -1,7 +1,7 @@
 import { jsonResponse } from "../../../../../../../services/vms/routeHelpers";
-import { withRunRoute, validRunId, RunHttpError } from "../../../../../../../services/runs/http";
-import { runAttachTicket } from "../../../../../../../services/runs/attach";
-import { runCloudClient } from "../../../../../../../services/runs/cloudClient";
+import { withRunRoute, validRunId, RunHttpError } from "../../../../../../../services/runs/legacy/http";
+import { runAttachTicket } from "../../../../../../../services/runs/legacy/attach";
+import { runCloudClient } from "../../../../../../../services/runs/legacy/cloudClient";
 export const maxDuration = 300;
 export function POST(request: Request, context: { params: Promise<{ id: string; attemptId: string }> }): Promise<Response> {
   return withRunRoute(request, "/api/runs/:id/attempts/:attemptId/attach-ticket", async (scope) => {

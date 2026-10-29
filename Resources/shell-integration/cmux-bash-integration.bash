@@ -1292,8 +1292,10 @@ _cmux_terminal_history_prompt() {
             local limit="${HISTFILESIZE:-500}"
             if [[ "$limit" =~ ^[0-9]+$ ]] && (( $(wc -l <"$CMUX_HISTORY_FILE") > limit )); then
                 local trimmed
+                # `>|` so noclobber does not refuse to rewrite cmux's own
+                # file and print an error on every restart (#26514).
                 trimmed="$(tail -n "$limit" "$CMUX_HISTORY_FILE")" \
-                    && printf '%s\n' "$trimmed" >"$CMUX_HISTORY_FILE"
+                    && printf '%s\n' "$trimmed" >|"$CMUX_HISTORY_FILE"
             fi
             builtin history -r "$CMUX_HISTORY_FILE"
         fi

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
-import { cloudDb } from "../../db/client";
-import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { cloudDb } from "../../../db/client";
+import { runArtifacts, runAttempts, runEvents, runs } from "../../../db/schema";
 import type { RunSpec } from "./spec";
 
 export type RunScope = { readonly userId: string; readonly ownerTeamId: string };

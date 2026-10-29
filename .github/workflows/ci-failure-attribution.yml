@@ -77,9 +77,12 @@ jobs:
       # by its triggering actor) and pr_status finds the comment by its author.
       # Check-run annotations need `checks`, which the App lacks: GH_TOKEN reads
       # them (guard_attribution.GitHub).
+      # Only when the cmux-bot mint gave nothing: READ_TOKEN below prefers cmux-bot's
+      # token, so a glaeda-route token minted beside it went unused and its mint
+      # still spent the shared glaeda-route installation budget on every CI run.
       - name: Mint the glaeda-route token
         id: glaeda-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.cmux-bot-token.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -92,6 +95,7 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout main's classifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,8 +104,33 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/attribute/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Attribute failures and re-run machine failures
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/classify_failures.py act
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/attribute/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
