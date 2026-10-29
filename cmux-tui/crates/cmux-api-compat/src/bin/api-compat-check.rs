@@ -123,9 +123,6 @@ fn run(root: &Path, base: Option<&str>, write: bool) -> Result<ExitCode, Error> 
         for problem in &vector_problems {
             eprintln!("  - {problem}");
         }
-        eprintln!(
-            "After editing vectors, regenerate the oracle cases: python3 scripts/cmux-next/oracle/gen_api_compat.py"
-        );
         return Ok(ExitCode::FAILURE);
     }
 

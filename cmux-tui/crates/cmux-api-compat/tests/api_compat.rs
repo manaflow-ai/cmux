@@ -2,8 +2,8 @@
 //! so `scripts/ci/cmux-tui-focused-test.sh api_compat` selects them.
 //!
 //! Translation vectors (an input, a rule chain, the output or refusal) live in
-//! `cmux-tui/spec/api-compat-fixtures.json` (`vectors`), not here: the oracle's
-//! api-compat suite reads the same file. Tests here cover what a vector cannot
+//! `cmux-tui/spec/api-compat-fixtures.json` (`vectors`), not here: api-compat-check
+//! reads the same file. Tests here cover what a vector cannot
 //! say: borrowing, caching, broadcast counts, the handshake and properties.
 
 mod api_compat {
@@ -325,8 +325,8 @@ mod api_compat {
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
         }
 
-        /// The translator's behavior vectors live in the spec file, which the
-        /// oracle's api-compat suite also reads (gen_api_compat.py).
+        /// The translator's behavior vectors live in the spec file, which
+        /// api-compat-check also reads.
         #[test]
         fn api_compat_fixtures_spec_vectors_pass() {
             let fixtures = spec_fixtures();
@@ -420,7 +420,7 @@ mod api_compat {
             assert!(problems[0].ends_with("the id repeats"), "{problems:?}");
         }
 
-        /// The reply the oracle's `__oracle-api-compat` mode prints.
+        /// The outcome's wire form.
         #[test]
         fn api_compat_fixtures_outcome_wire_form() {
             let ok = vector("ok", r#"{"tab":1}"#, Expect::Json(json!({})));

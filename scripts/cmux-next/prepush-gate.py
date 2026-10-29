@@ -72,8 +72,8 @@ Swift files it reads and analyzes; --timings prints the wait). Its one escape is
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 Also local only: "Baseline paths follow renames" (follow-renames.py --check): refuses a push whose own commits leave
 an entry of a path-keyed baseline (crash allowlist, main-actor work, OWNERS.md, the route table and the rest of its
-REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git or
-move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open (only
+REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git.
+Entries already stale at the base pass. --no-guardrails turns it off; it fails open (only
 follow-renames' exit 1 with its findings header refuses; its exit 2, any failure, warns).
 Also local only: "p10 settings only through the lander" (apply-stability-settings.py --verify-commits, p10-stability-198):
 refuses a push whose own commits change a closure Package.swift's p10 settings (the generated block, the
@@ -272,7 +272,7 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def renamed_files(repo: Path, base: str, head: str, changed: list[str]) -> dict[str, str]:
-    """{new path: old path} for the CHANGED files git sees as renames over BASE (move-app-files.py moves): the base
+    """{new path: old path} for the CHANGED files git sees as renames over BASE (a `git mv`): the base
     tree checks the old file at its old path, and its findings count as the new path's, so a pure move adds none."""
     out = git(repo, "diff", "--name-status", "-M", "--diff-filter=R", "-z", base, head).decode().split("\0")
     wanted, renamed = set(changed), {}
@@ -606,7 +606,7 @@ class CrashMoves(NamedTuple):
 
 def followed_moves(allow: dict[tuple, dict], old: dict[tuple, dict], new: dict[tuple, dict],
                    renamed: dict[str, str]) -> tuple[dict[tuple, dict], dict[tuple, tuple]]:
-    """(ALLOW less the entries that only followed their file's rename (follow-renames.py, move-app-files.py), {old key:
+    """(ALLOW less the entries that only followed their file's rename (follow-renames.py --from-git), {old key:
     new key} of those): the old path's entry of the same class is gone and the count did not rise. A reviewed
     allowance moves with its code."""
     out, moved = {}, {}

@@ -26,14 +26,11 @@ public enum OracleRequestError: Error, Sendable, Hashable {
     case unknownFacet(String)
     /// `facets` is not a list of facet names.
     case notAList
-    /// `paths` is not `{root: [String], home: [String]}`, or a prefix normalize.py would refuse.
-    case badPaths(String)
 
     public var message: String {
         switch self {
         case .unknownFacet(let name): "unknown oracle facet \(name)"
         case .notAList: "facets must be a list of facet names"
-        case .badPaths(let reason): "paths: \(reason)"
         }
     }
 }

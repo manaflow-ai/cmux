@@ -12,8 +12,8 @@
 //!
 //! The module exists only in debug builds and `--features bench` builds: a
 //! release daemon has no such route and answers the line as an unknown
-//! command. Like `oracle-state`, it is answered before the `Command` parse,
-//! so it is not in the `Command` enum, its name table or the SDK catalog.
+//! command. It is answered before the `Command` parse, so it is not in the
+//! `Command` enum, its name table or the SDK catalog.
 //!
 //! The crash runs on a thread of its own, started before the reply. A
 //! `panic` ends only that thread (the owner's panic log records it); `abort`

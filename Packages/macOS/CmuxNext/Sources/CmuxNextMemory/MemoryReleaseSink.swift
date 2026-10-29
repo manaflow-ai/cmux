@@ -19,7 +19,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// in-process CEF heap is not relieved by it; that takes the fork's purge (Chrome's
 /// `partition_alloc::MemoryReclaimer::Instance()->ReclaimAll()`, `partition_alloc/memory_reclaimer.h`),
 /// which the fork does not export yet. Until the follow-up task "Fork PartitionAlloc purge"
-///  adds that entry and passes it in AppServices+Memory.swift, the app's
+/// adds that entry and passes it in AppServices+Memory.swift, the app's
 /// ``HeapRelief/system(partitionAllocPurge:)`` gets nil.
 ///
 /// ```swift

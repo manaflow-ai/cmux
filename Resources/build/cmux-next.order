@@ -1,7 +1,0 @@
-# The cmux-next Release link order (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 051).
-# The cmux-next target's Release configuration passes this file to ld as ORDER_FILE (-order_file) and writes
-# a link map (LD_GENERATE_MAP_FILE), which pgo/check.py (053) reads for coverage.
-# run-scenarios.py --stage order (109) writes it from the -profile-use build, bound to the profdata sha256 in
-# its header; the refresh script (054) commits it. One symbol per line, launch first; lines starting with #
-# are comments. ld skips a symbol the binary does not have (a warning, not an error), and with no symbol
-# lines the link keeps its default order.

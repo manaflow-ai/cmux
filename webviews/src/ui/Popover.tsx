@@ -5,7 +5,6 @@ import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
-import { useOraclePanel } from "./oraclePanel";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -80,7 +79,6 @@ export function Popover({
 }: PopoverProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
-  useOraclePanel("popover", open);
   return (
     <BasePopover.Root
       open={open}

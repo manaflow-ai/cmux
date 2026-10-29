@@ -1048,6 +1048,21 @@ class TaskIdTests(unittest.TestCase):
             with self.subTest(before=before):
                 self.assertEqual(self.strip(before), after)
 
+    def test_strip_keeps_a_list_items_continuation_indent(self):
+        # 5892d9fe22f cut ",\n//!   p14-energy-137" and took the next line's indent with it: the item's continuation
+        # line moved to column 0, which clippy's doc_lazy_continuation refuses in cmux-wake/src/maintenance.rs.
+        before = ("//! - On macOS the kqueue waits on a descriptor\n"
+                  "//!   ([`follow_power`], the daemon's own power reading,\n"
+                  "//!   p14-energy-137): a change of the power source wakes the thread like a\n"
+                  "//!   command, with no timer of its own.\n")
+        after = ("//! - On macOS the kqueue waits on a descriptor\n"
+                 "//!   ([`follow_power`], the daemon's own power reading):\n"
+                 "//!   a change of the power source wakes the thread like a\n"
+                 "//!   command, with no timer of its own.\n")
+        self.assertEqual(self.strip(before, "a.rs"), after)
+        block = "/*\n * - the reading,\n *   p14-energy-137): a change\n */\n"
+        self.assertEqual(self.strip(block), "/*\n * - the reading):\n *   a change\n */\n")
+
     def test_strip_changes_only_comments_and_lists_what_needs_a_person(self):
         text = ('let s = "p04-input-053 (p04-input-054)" // the flip is p02-threads-021\n'
                 "// BEGIN tool.py: generated from x.json; do not edit.\n// (p10-stability-039)\n// END tool.py\n")
@@ -1068,6 +1083,31 @@ class TaskIdTests(unittest.TestCase):
         text = "/// Built once (p04-input-053): the facts\n/// (p10-stability-182). Once the input\n"
         once = self.strip(text)
         self.assertEqual(self.strip(once), once)
+
+
+class ExecutorHookTests(unittest.TestCase):
+    """executor-hook (sequence-manager S6): the main-executor hook symbol in code outside MainJobRing.swift is refused,
+    with no escape; a comment may name it."""
+
+    RULE = next(rule for rule in guardrails.RULES if rule.id == "executor-hook")
+    LOOKUP = 'let slot = dlsym(handle, "swift_task_enqueueMainExecutor_hook")'
+
+    def hits(self, path: str, text: str) -> int:
+        self.assertTrue(guardrails.in_rule_scope(path, self.RULE.scope), path)
+        return len(self.RULE.find([change(path, text)], collections.Counter()))
+
+    def test_a_lookup_outside_the_ring_is_refused_in_sources_and_tests(self):
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", self.LOOKUP), 1)
+        self.assertEqual(self.hits("Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/HookTests.swift", self.LOOKUP), 1)
+
+    def test_the_ring_itself_and_comments_pass(self):
+        self.assertEqual(self.hits(SRC + "CmuxNextCompat/MainJobRing.swift", self.LOOKUP), 0)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "/// `swift_task_enqueueMainExecutor_hook` is one word"), 0)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "install() // swift_task_enqueueMainExecutor_hook"), 0)
+
+    def test_there_is_no_escape(self):
+        self.assertIsNone(self.RULE.escape)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "// executor-hook-allow: because\n" + self.LOOKUP), 1)
 
 
 if __name__ == "__main__":

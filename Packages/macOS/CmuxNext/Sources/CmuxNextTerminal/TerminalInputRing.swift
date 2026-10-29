@@ -15,7 +15,7 @@ nonisolated final class TerminalInputRing: Sendable {
     /// True while the drain handler holds a record (``TerminalInputDrain/Next/hold``).
     let held = Atomic<Bool>(false)
     // Lock carve-out: the drain queue's alone (the consumer), so never contended.
-    private let backlog = Mutex(TerminalInputBacklog(), rank: .terminalInputRingBacklog)
+    private let backlog = Mutex(TerminalInputBacklog())
 
     init(capacity: Int) {
         self.capacity = max(1, capacity)
@@ -64,7 +64,7 @@ nonisolated final class TerminalInputRing: Sendable {
 
 /// One ring slot (``TerminalInputRing``).
 private nonisolated final class TerminalInputSlot: Sendable {
-    let record = Mutex<TerminalInputRecord?>(nil, rank: .terminalInputRingSlot)
+    let record = Mutex<TerminalInputRecord?>(nil)
 }
 
 /// Records the consumer moved out of the ring and the overflow together, oldest first.

@@ -34,6 +34,12 @@ extension LineTransport {
         state.withLock { $0.attachStreams.release(handle) }
     }
 
+    /// Whether the daemon takes INPUT frames on the handle's stream: its opener went as a REQUEST frame naming
+    /// it (``submit(_:deadline:framed:opening:_:)``), and this side still holds the id.
+    func announcedAttachStream(_ handle: AttachStreamHandle) -> Bool {
+        state.withLock { $0.attachStreams.isAnnounced(handle) }
+    }
+
     /// Ids taken on this connection (tests, diagnostics).
     var attachStreamCount: Int { state.withLock { $0.attachStreams.count } }
 

@@ -142,11 +142,6 @@ impl HostLoss {
         }
     }
 
-    /// Whether the end is a host loss (it has a loss line).
-    pub(crate) fn is_loss(&self) -> bool {
-        self.line.is_some()
-    }
-
     /// The loss's structured cause (tab `end.cause`), if the host left one.
     pub(crate) fn cause(&self) -> Option<&serde_json::Value> {
         self.line.as_ref()?.get("summary").filter(|summary| !summary.is_null())

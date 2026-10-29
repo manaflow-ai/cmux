@@ -53,7 +53,6 @@ on:
       - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
-      - "scripts/cmux-next/pgo/rust-pgo.sh"
       - ".github/workflows/app-ffi-release.yml"
   workflow_dispatch:
 
