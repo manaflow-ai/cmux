@@ -697,7 +697,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
