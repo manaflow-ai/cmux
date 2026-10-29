@@ -137,8 +137,9 @@ import Testing
         #expect(h.updater.installAfterSwap)
         #expect(h.updater.newestFetch == .click)
 
-        // A cached appcast serves pulled build 300 again: the carried click drops it, installs
-        // nothing, and fetches nothing more.
+        // A cached appcast serves pulled build 300 again, and the carried click's read of the
+        // pulled list fails: the click still drops it, installs nothing, and fetches nothing more.
+        h.updater.pulledWatch.fetch = { _ in nil }
         h.sparkle.staged = nil
         h.updater.debugIndicatorPhase = .hidden
         h.updater.debugIndicatorPhase = .checking

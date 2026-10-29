@@ -101,7 +101,8 @@ final class StagedUpdateRefresh {
         pendingClick = nil
         clickTimer.cancel()
         guard updater.stagedBuild() == staged else { return install() }
-        let pulled = updater.pulledWatch.isPulled(staged)
+        // A build dropped as pulled before stays pulled, whatever the latest read of the list said.
+        let pulled = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
         var newer: String?
         if answered, case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) {
             newer = item.version
