@@ -685,7 +685,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { .. } => unreachable!("host join has its own arm"),
+                PeerCmd::Join { .. } => {
+                    return Err(anyhow!("host join reads its ticket before connecting"));
+                }
             };
             if json_out {
                 print_json(&v);

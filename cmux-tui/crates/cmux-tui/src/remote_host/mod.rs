@@ -150,9 +150,9 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
     rest.retain(|arg| verb != "join" || arg != "--serve");
     if rest.len() != before {
         let enabled = self_exe().and_then(|exe| {
-            Ok(enable_before_join(exe)
-                .stdout(std::process::Stdio::from(std::io::stderr()))
-                .status()?)
+            use std::os::fd::AsFd;
+            let stderr = std::io::stderr().as_fd().try_clone_to_owned()?;
+            Ok(enable_before_join(exe).stdout(stderr).status()?)
         });
         match enabled {
             Ok(status) if status.success() => {}
@@ -168,9 +168,9 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
 
 /// `cmux host enable`, run by `join --serve` before the join reads stdin.
 #[cfg(unix)]
-fn enable_before_join(exe: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
-    let mut cmd = std::process::Command::new(exe);
-    cmd.args(["host", "enable"]).stdin(std::process::Stdio::null());
+fn enable_before_join(exe: impl AsRef<std::ffi::OsStr>) -> cmux_process::Command {
+    let mut cmd = cmux_process::Command::new(exe);
+    cmd.args(["host", "enable"]).stdin(cmux_process::Stdio::null());
     cmd
 }
 
@@ -784,7 +784,8 @@ fn list_grants(args: &[String]) -> anyhow::Result<()> {
 #[cfg(all(test, unix))]
 mod join_tests {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+
+    use cmux_process::{Command, Stdio};
 
     const NAME: &str = "remote_host::join_tests::the_enable_before_a_join_gets_no_ticket";
     const FAKE: &str = "CMUX_TEST_JOIN_ENABLE_FAKE";
