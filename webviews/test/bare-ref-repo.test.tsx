@@ -306,3 +306,16 @@ test("Leo's #1 / #2: a bare number far below the repository's named numbers stay
   );
   expect(view.chips()).toEqual([["#27262", pr(CMUX, 27262)]]);
 });
+
+test("rule 4: with the folder's repository out of range, only the cache's answer links a number", async () => {
+  const view = await render(
+    [user(`Land ${pr(CMUX, 27262)} and look at ${pr("o/r", 3)}`), assistant("#5 is o/r's; #6 is nobody's.")],
+    [pr("o/r", 5)],
+    { folder: CMUX },
+  );
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([["#5", pr("o/r", 5)]]);
+  const asked = inspected(view.calls);
+  expect(asked).toContain(pr("o/r", 6));
+  // The folder's repository is out of range for both, so neither is asked about there.
+  expect(asked.filter((url) => url === pr(CMUX, 5) || url === pr(CMUX, 6))).toEqual([]);
+});

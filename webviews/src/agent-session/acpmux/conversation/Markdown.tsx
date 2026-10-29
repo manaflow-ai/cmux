@@ -312,6 +312,10 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Link a bare `#N` too (default). Off in a quote: quoted words are someone else's, whose `#1`
+   *  is rarely this repository's pull request (Leo 2026-10-29: "these auto render to the pr
+   *  instead of just #1 #2..."). `owner/repo#N` and addresses still link there. */
+  linkBareReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
   /** How a commit SHA draws: a GitHub chip (replies), or quiet monospace text that links to its
@@ -431,6 +435,7 @@ function linkedGithubText(
   repository?: string,
   enabled = true,
   quietCommits = false,
+  bare = true,
 ): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
@@ -444,7 +449,7 @@ function linkedGithubText(
   const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
   const outside = (ref: { start: number; end: number }) =>
     !spans.some((span) => ref.start < span.end && span.start < ref.end);
-  const refs = [...issues.filter((issue) => !issue.bare || outside(issue)), ...commits.filter(outside)]
+  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -523,6 +528,7 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
               opts.githubRepository,
               opts.linkGithubReferences !== false,
               opts.commits === "quiet",
+              opts.linkBareReferences !== false,
             )
           : [
               <StartedSessionChip
@@ -822,7 +828,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
+          <Blocks blocks={block.children} opts={quoted(opts)} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -890,6 +896,15 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
 
 /// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
 /// (`plainCode`) inside them too: no diagram or render card at any depth.
+/// A quote's options: the same object for the same `opts`, so its memoized blocks stay drawn.
+const quotedOptions = new WeakMap<InlineOptions, InlineOptions>();
+function quoted(opts: InlineOptions): InlineOptions {
+  if (opts.linkBareReferences === false) return opts;
+  let kept = quotedOptions.get(opts);
+  if (!kept) quotedOptions.set(opts, (kept = { ...opts, linkBareReferences: false }));
+  return kept;
+}
+
 function Blocks({
   blocks,
   opts,

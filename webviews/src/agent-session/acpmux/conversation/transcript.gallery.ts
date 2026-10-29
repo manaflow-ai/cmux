@@ -1214,6 +1214,19 @@ export default agentPaneEntry({
       ]),
       play: hoverReference(843, ".cv-link-preview.acpmux-pr-card"),
     },
+    "github-references-quoted-numbers": {
+      note: 'Leo 2026-10-29: "these auto render to the pr instead of just #1 #2...". The reply quotes his "what is #1 / #2": in the quote and in prose they stay text (the chat named #27262, so a one-digit number is no cmux pull request); #27262 and manaflow-ai/cmux#27262 stay chips.',
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Is https://github.com/manaflow-ai/cmux/pull/27262 green? Also what is #1 / #2", 3),
+        assistant(
+          "> what is #1 / #2\n\nThose are the two options I listed: #1 keeps the dock, #2 drops it. #27262 (manaflow-ai/cmux#27262) is green.",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 9_000 }),
+      ]),
+    },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
