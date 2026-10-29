@@ -167,3 +167,19 @@ export function streamedTool(
     content: [{ type: "diff", path, oldText: before, newText: edited(before, turn) }],
   };
 }
+
+/// A finished `start_session` call to the cmux-subsessions server, as Claude Code records one: the
+/// transcript draws it as sub-session `sessionId`'s card (conversation/SubsessionCallCard.tsx).
+export function subsessionStart(index: number, sessionId: string, shortName: string): Update {
+  return {
+    sessionUpdate: "tool_call",
+    toolCallId: `load-start-${index}`,
+    kind: "other",
+    title: "mcp__cmux-subsessions__start_session",
+    status: "completed",
+    rawInput: { prompt: `Own the ${shortName} lane`, name: shortName },
+    content: output(
+      `Started sub-session ${shortName} (sessionId ${sessionId}, depth 1). The user sees it under your chat in the sidebar. It works in parallel; use wait_for_sessions to get its result.`,
+    ),
+  };
+}

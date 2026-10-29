@@ -7,7 +7,7 @@
 // A frame's work is the time from its start (the rAF timestamp) until the page has rendered it
 // (a message posted from the frame runs after the rendering update), so a frame that misses a
 // 120 Hz display needs more than 8.33 ms however fast the display under the run is.
-import { MockAcpmuxSocket } from "./mock";
+import { loadChildId, loadChildTurn, MockAcpmuxSocket, type LoadSeedOptions } from "./mock";
 import { acpmuxPerf, frameStats, isBlank, median, percentile, round2 } from "./perf";
 
 export type LoadRunOptions = {
@@ -20,7 +20,34 @@ export type LoadRunOptions = {
   scroll_speed?: number;
   /// How far up the scroll goes before it turns back, in viewports.
   scroll_depth?: number;
+  /// Other agents' messages queued as the turn starts, then one more every `peer_every_ms` (0: none).
+  peer_messages?: number;
+  peer_every_ms?: number;
+  /// A sub-session's doing line changes every `child_touch_ms` (0: none).
+  child_touch_ms?: number;
 };
+
+/// Long tasks (Chromium's longtask entries, which WebKit lacks) from now until the returned stop.
+function watchLongTasks(): () => { count: number; total_ms: number; max_ms: number } {
+  const tasks: number[] = [];
+  let observer: PerformanceObserver | undefined;
+  try {
+    observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) tasks.push(entry.duration);
+    });
+    observer.observe({ type: "longtask" });
+  } catch {
+    observer = undefined;
+  }
+  return () => {
+    observer?.disconnect();
+    return {
+      count: tasks.length,
+      total_ms: round2(tasks.reduce((sum, ms) => sum + ms, 0)),
+      max_ms: round2(Math.max(0, ...tasks)),
+    };
+  };
+}
 
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const BUDGET_120 = 1000 / 120;
@@ -40,12 +67,14 @@ function afterRender(): Promise<number> {
 export async function loadSeed(
   host: { selectSession(sessionId: string): void; rowCount(): number },
   turns: number,
+  options: { subsessions?: number; child_turns?: number } = {},
 ): Promise<Record<string, unknown>> {
   const mock = MockAcpmuxSocket.live;
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)));
+  const seed: LoadSeedOptions = { subsessions: options.subsessions, childTurns: options.child_turns };
+  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), seed);
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on
@@ -127,7 +156,11 @@ export async function loadRun(
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
     chunkMs: Math.max(1, options.chunk_ms ?? 4),
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+    peerMessages: Math.max(0, Math.floor(options.peer_messages ?? 0)),
+    peerEveryMs: Math.max(0, options.peer_every_ms ?? 0),
+    childTouchMs: Math.max(0, options.child_touch_ms ?? 0),
   });
+  const stopLongTasks = watchLongTasks();
   let streamDone = false;
   void streaming.then(() => (streamDone = true));
   const timestamps: number[] = [];
@@ -165,6 +198,7 @@ export async function loadRun(
     if (streamDone) tail += 1;
   }
   const streamed = await streaming;
+  const longTasks = stopLongTasks();
   const sorted = [...work].sort((a, b) => a - b);
   const stats = acpmuxPerf.stats(false) as Record<string, unknown>;
   // The longest frames, in order, with what they spent where.
@@ -193,6 +227,7 @@ export async function loadRun(
         ),
       ),
     },
+    long_tasks: { ...longTasks, per_10s: round2((longTasks.count * 10) / seconds) },
     over_120hz_budget: sorted.filter((ms) => ms > BUDGET_120).length,
     over_60hz_budget: sorted.filter((ms) => ms > 1000 / 60).length,
     frames: work.length,
@@ -202,5 +237,63 @@ export async function loadRun(
     other_ms: stats.other,
     spans: stats.spans,
     longest,
+  };
+}
+
+/// A sub-session opened from the parent chat (the tray's or a card's click, which the host answers by
+/// showing that chat): from the select to the first frame that shows the sub-session's newest message,
+/// then until its rows stop changing. With `streaming` the parent keeps streaming a turn (and its peer
+/// messages and sub-session updates keep coming) through the open.
+export async function loadOpenSubsession(
+  host: { sessionId(): string | undefined; selectSession(sessionId: string): void; rowCount(): number },
+  options: { index?: number; child_turns?: number; streaming?: LoadRunOptions } = {},
+): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  const parent = host.sessionId();
+  if (!mock || !parent) return { error: "no load session (run load_seed with subsessions first)" };
+  const index = Math.max(0, Math.floor(options.index ?? 0));
+  const child = loadChildId(parent, index);
+  const marker = `Done with turn ${loadChildTurn(index, Math.max(1, Math.floor(options.child_turns ?? 20)) - 1)}`;
+  const streaming = options.streaming
+    ? mock.streamLoadTurn(parent, {
+        seconds: Math.max(1, options.streaming.seconds ?? 8),
+        chunkChars: Math.max(1, Math.floor(options.streaming.chunk_chars ?? 32)),
+        chunkMs: Math.max(1, options.streaming.chunk_ms ?? 4),
+        toolEvery: Math.max(0, Math.floor(options.streaming.tool_every ?? 60)),
+        peerEveryMs: Math.max(0, options.streaming.peer_every_ms ?? 0),
+        childTouchMs: Math.max(0, options.streaming.child_touch_ms ?? 0),
+      })
+    : undefined;
+  // Let the stream get going before the click.
+  if (streaming) for (let frames = 0; frames < 60; frames += 1) await frame();
+  const stopLongTasks = watchLongTasks();
+  const started = performance.now();
+  host.selectSession(child);
+  let firstContent: number | undefined;
+  let last = -1;
+  let still = 0;
+  const deadline = started + 25_000;
+  while (performance.now() < deadline && (firstContent === undefined || still < 20)) {
+    await frame();
+    const now = await afterRender();
+    if (firstContent === undefined) {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      if (scroller?.textContent?.includes(marker)) firstContent = now - started;
+    } else {
+      const count = host.rowCount();
+      still = count === last ? still + 1 : 0;
+      last = count;
+    }
+  }
+  const settled = performance.now() - started;
+  const longTasks = stopLongTasks();
+  if (streaming) await streaming;
+  return {
+    session: child,
+    first_content_ms: firstContent === undefined ? null : round2(firstContent),
+    settled_ms: round2(settled),
+    rows: host.rowCount(),
+    long_tasks: longTasks,
+    streaming: Boolean(streaming),
   };
 }

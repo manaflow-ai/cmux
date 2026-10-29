@@ -16,7 +16,7 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
-import { loadTurn, streamedReply, streamedTool } from "./loadFixture";
+import { loadTurn, streamedReply, streamedTool, subsessionStart } from "./loadFixture";
 
 /** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
 export type MockSessionAuth = {
@@ -180,7 +180,30 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+export type LoadStreamOptions = {
+  seconds: number;
+  chunkChars: number;
+  chunkMs: number;
+  toolEvery: number;
+  /// Other agents' messages queued behind the turn as it starts, then one more every `peerEveryMs` (0: none).
+  peerMessages?: number;
+  peerEveryMs?: number;
+  /// One of the session's sub-sessions reports a new doing line every `childTouchMs` (0: none).
+  childTouchMs?: number;
+};
+
+/// What a load session holds besides its turns (loadDebug.ts `loadSeed`).
+export type LoadSeedOptions = {
+  /// Sub-sessions its agent started (`start_session` calls in a last turn), each working, each
+  /// with `childTurns` finished turns of its own.
+  subsessions?: number;
+  childTurns?: number;
+};
+
+/// The id of load session `parent`'s sub-session `index`.
+export const loadChildId = (parent: string, index: number) => `${parent}-child-${index}`;
+/// A load sub-session's turn numbers start here, so its transcript text is its own.
+export const loadChildTurn = (index: number, turn: number) => 100_000 + index * 1_000 + turn;
 
 /// An in-page acpmux daemon behind the WebSocket interface the client uses.
 export class MockAcpmuxSocket {
@@ -303,18 +326,52 @@ export class MockAcpmuxSocket {
 
   /// A new session holding `turns` finished heavy turns (loadFixture.ts), recorded without
   /// delivery; the client reads them when it attaches. Returns the session id.
-  seedLoadSession(turns: number): string {
+  seedLoadSession(turns: number, options: LoadSeedOptions = {}): string {
     const now = Date.now();
     const id = `load-session-${this.sessions.length + 1}`;
+    const subsessions = Math.max(0, Math.floor(options.subsessions ?? 0));
     const created = {
       ...newSessionSummary(id, "~/code/cmux", now),
       title: `Load: ${turns} turns`,
-      turnCount: turns,
+      turnCount: turns + (subsessions ? 1 : 0),
       status: "idle",
     };
     for (let turn = 0; turn < turns; turn += 1) {
       const at = now - (turns - turn) * 60_000;
       for (const step of loadTurn(turn)) this.record(id, step, at);
+    }
+    // The sub-sessions, listed before the parent so the parent's first list already names them,
+    // and the turn that started them.
+    if (subsessions) {
+      const childTurns = Math.max(1, Math.floor(options.childTurns ?? 20));
+      this.record(id, { mux: "user_message", msg: { text: `Turn ${turns}: start the lanes` } }, now - 30_000);
+      this.record(id, { mux: "turn_started" }, now - 30_000);
+      for (let index = 0; index < subsessions; index += 1) {
+        const child = loadChildId(id, index);
+        for (let turn = 0; turn < childTurns; turn += 1)
+          for (const step of loadTurn(loadChildTurn(index, turn))) this.record(child, step, now - (childTurns - turn) * 1_000);
+        this.sessions.push({
+          ...newSessionSummary(child, "~/code/cmux", now),
+          title: `lane-${index}`,
+          name: `load/lane-${index}`,
+          shortName: `lane-${index}`,
+          spawnedBy: id,
+          startedBy: id,
+          createdAt: now - 30_000,
+          turnCount: childTurns + 1,
+          status: "running",
+          indicator: "working",
+          lane: { state: "working", step: `Own lane ${index}` },
+          turn: { planStep: `Step ${index}`, activity: `Run bun test lane${index}` },
+        });
+        this.record(id, { update: subsessionStart(index, child, `lane-${index}`) }, now - 30_000);
+        this.deliver({
+          jsonrpc: "2.0",
+          method: "_acpmux/session_changed",
+          params: { kind: "created", session: this.sessions.at(-1) },
+        });
+      }
+      this.record(id, { mux: "turn_result", msg: { status: "completed" } }, now - 29_000);
     }
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
@@ -326,7 +383,7 @@ export class MockAcpmuxSocket {
   async streamLoadTurn(
     target: string,
     options: LoadStreamOptions,
-  ): Promise<{ deltas: number; chars: number; tools: number }> {
+  ): Promise<{ deltas: number; chars: number; tools: number; peers: number; child_updates: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
@@ -336,8 +393,39 @@ export class MockAcpmuxSocket {
     let at = 0;
     let deltas = 0;
     let tools = 0;
+    // Other agents' messages, queued behind the turn as it starts and then as they keep arriving.
+    let peers = 0;
+    const peer = () => {
+      const from = `load/peer-${peers % 17}`;
+      this.emit(target, {
+        mux: "queued",
+        msg: {
+          promptId: `load-peer-${turn}-${peers}`,
+          fromAgent: from,
+          text: `[${from}] Message ${peers}: #${27000 + peers}'s fold is already in; rebase onto it and rerun the suite.`,
+        },
+      });
+      peers += 1;
+    };
+    for (let index = 0; index < (options.peerMessages ?? 0); index += 1) peer();
+    const children = this.sessions.filter((entry) => entry.spawnedBy === target).map((entry) => String(entry.sessionId));
+    const started = performance.now();
+    let nextPeer = options.peerEveryMs ? started + options.peerEveryMs : Infinity;
+    let nextChild = options.childTouchMs && children.length ? started + options.childTouchMs : Infinity;
+    let touches = 0;
     while (performance.now() < end && !this.closed) {
       await this.delay(options.chunkMs);
+      const now = performance.now();
+      if (now >= nextPeer) {
+        peer();
+        nextPeer = now + options.peerEveryMs!;
+      }
+      if (now >= nextChild) {
+        const child = children[touches % children.length]!;
+        this.touch(child, { turn: { planStep: `Step ${touches}`, activity: `Run bun test lane${touches}` } });
+        touches += 1;
+        nextChild = now + options.childTouchMs!;
+      }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
       this.emit(target, { update: text(chunk) });
@@ -349,7 +437,7 @@ export class MockAcpmuxSocket {
     }
     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
     this.touch(target, { status: "idle", indicator: "done" });
-    return { deltas, chars: at, tools };
+    return { deltas, chars: at, tools, peers, child_updates: touches };
   }
 
   send(raw: string): void {

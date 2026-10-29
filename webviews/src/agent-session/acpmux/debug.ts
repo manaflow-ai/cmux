@@ -5,7 +5,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
-import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
+import { loadOpenSubsession, loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { incomingRows } from "./incomingFixture";
 import { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
@@ -62,8 +62,15 @@ export type AcpmuxDebug = {
   layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
-  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns through the real client, with `subsessions`
+   *  working sub-sessions of `child_turns` turns each (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { subsessions?: number; child_turns?: number }): Promise<Record<string, unknown>>;
+  /** Opens one of the load session's sub-sessions, optionally while it streams, and times it (loadDebug.ts). */
+  loadOpenSubsession(options?: {
+    index?: number;
+    child_turns?: number;
+    streaming?: LoadRunOptions;
+  }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
 };
@@ -347,10 +354,18 @@ export function createAcpmuxDebug(
     stream(options = {}) {
       return runStream(host.replaceRows, options);
     },
-    loadSeed(turns = 5000) {
+    loadSeed(turns = 5000, options = {}) {
       const automationHost = host.automation;
       if (!automationHost) return Promise.resolve(NO_AUTOMATION);
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
+    },
+    loadOpenSubsession(options = {}) {
+      const automationHost = host.automation;
+      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      return loadOpenSubsession(
+        { sessionId: () => host.sessionId?.(), selectSession: automationHost.selectSession, rowCount: host.rowCount },
+        options,
+      );
     },
     loadRun(options = {}) {
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
