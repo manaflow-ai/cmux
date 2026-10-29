@@ -1119,14 +1119,14 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const nativeRows: NativePopupRow[] = [];
   const nativeModelId = (model: ModelChoice) => `model:${encodeURIComponent(model.id)}`;
-  if (selectedOther && loginFor(selected) !== undefined) {
+  if (selectedOther && selected && loginFor(selected) !== undefined) {
     nativeRows.push({ kind: "text", id: "signed-out", label: t("harnesses.signedOut"), disabled: true });
     if (onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
-  } else if (selectedOther && blockedProfile(selected)) {
+  } else if (selectedOther && selected && blockedProfile(selected)) {
     nativeRows.push({ kind: "text", id: "blocked", label: selected.folder?.diagnostic ?? unavailableText, disabled: true });
-  } else if (selectedOther && selected.folder?.state === "needs-enable") {
+  } else if (selectedOther && selected?.folder?.state === "needs-enable") {
     nativeRows.push({ kind: "action", id: "enable", label: t("harness.enable") });
-  } else if (selectedOther && selected.folder && visible.length === 0 && !query) {
+  } else if (selectedOther && selected?.folder && visible.length === 0 && !query) {
     nativeRows.push({ kind: "action", id: "new-chat", label: t("picker.newChat") });
   } else if (visible.length === 0) {
     nativeRows.push({ kind: "text", id: "empty", label: starredView && !query ? t("picker.starredEmpty") : !query && selected && selected.models.length === 0 ? t("picker.noModels") : noMatchesText, disabled: true });
