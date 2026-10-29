@@ -70,6 +70,9 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         if focus {
             #expect(harness.workspace.focusedPanelId == harness.outerPanelID)
             #expect(panel.preferredFocusIntentForActivation() == .terminal(.textBoxInput))
+        } else {
+            #expect(!panel.debugHasPendingTextBoxFocusRequest)
+            #expect(panel.preferredFocusIntentForActivation() == .terminal(.surface))
         }
     }
 
