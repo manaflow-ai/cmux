@@ -158,11 +158,6 @@ final class AppServices {
     let motionLateCommits = MotionLateCommits(displays: FrameScheduler.appDisplays)
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// The refactor oracle's turn checkpoints (`debug.oracle.turns`): the registry's perform-turn observer.
-    /// Release builds have none, and their registry has no observer.
-    let oracleTurns = OracleActionTurns()
-    #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` and the hang report sink (``BlockingReportSink``).
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build without
@@ -201,7 +196,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }), mainWork: mainWork)  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); (NSApp as? CmuxApplication)?.followMainJobGate(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
@@ -233,7 +228,6 @@ final class AppServices {
         return trace
     }()
     #endif
-    let switchHits = SwitchHits(counting: ControlRouter.debugMethodsAllowed) // refactor-switch sites' arm counts (debug.oracle.switch_hits)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     /// Built by the first drag. Its moves are frame-aligned with `pointerFrameDrags` and its ghost resampled with
     /// `resampledDrags`, off under Reduce Motion.
@@ -699,14 +693,6 @@ final class AppServices {
     let hoverCards: HoverCardCoordinator
     /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
     let overlayChanges = OverlayChangeFeed()
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// A terminal view's daemon screen or link changed (the terminals facet's wait): each step a view's attach driver
-    /// maps signals it. The overlays' broadcaster type, so no second lock site: it only says "read again".
-    let terminalScreenChanges = OverlayChangeFeed()
-    var terminalScreenChanged: (@Sendable () -> Void)? { { [terminalScreenChanges] in terminalScreenChanges.signal() } }
-    #else
-    var terminalScreenChanged: (@Sendable () -> Void)? { nil }
-    #endif
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -800,15 +786,9 @@ final class AppServices {
         chromiumRuntime = ChromiumRuntimeService.make(work: work, hostSupervisor: hostSupervisor)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(launch: environment.actionCatalog,
-                                           runTiming: runTiming,
-                                           turnObserver: oracleTurns, mainWork: mainWork)
-        #else
         registry = ActionRegistry.standard(launch: environment.actionCatalog,
                                            runTiming: runTiming,
                                            mainWork: mainWork)
-        #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         IconAssetImages.shared.attach(mainWork: mainWork)  // before any view maps an asset icon
@@ -914,6 +894,7 @@ final class AppServices {
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
+        cache.onStandInAdopted = { [weak self] key, real in self?.keyRouter.creationInputCoordinator.standInAdopted(key, as: real) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
             PageInfoHandlers.installRouter(on: entry, registry: registry)

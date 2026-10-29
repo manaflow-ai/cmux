@@ -1098,7 +1098,6 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
- "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",

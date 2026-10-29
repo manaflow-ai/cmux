@@ -22,7 +22,6 @@ import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
-import { useOraclePanel } from "./oraclePanel";
 
 export interface MenuProps {
   open?: boolean;
@@ -63,7 +62,6 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   // takes it (MenuButton).
   const pressed = useRef(false);
   const isOpen = open ?? internalOpen;
-  useOraclePanel("menu", isOpen);
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
       opener.current = trigger.current?.ownerDocument.activeElement ?? null;

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "ipcFrames",
+  "owner": "PL-daemon",
+  "description": "Framed IPC (ipc-frames-v2) to the local daemon: the daemon grants it to same-user local clients (REQUEST/CANCEL in, REPLY/ERROR out), and the app's connection asks for it, sends served typed commands as REQUEST frames and, with terminalStreams, keys as INPUT frames. Off keeps JSON lines.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "both",
+  "params": [],
+  "stories": ["new-surfaces", "typing-flood-stress", "split-latency"],
+  "sticky": false,
+  "runtimeMutable": false
+}

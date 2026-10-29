@@ -254,25 +254,6 @@ enum DaemonClosedHistory {
         }
     }
 
-    /// ``delete(_:services:)`` that answers once the daemon deleted `entry`:
-    /// nil, or why not (`debug.closed_forget` waits for it).
-    static func deleteNow(_ entry: Entry, services: AppServices) async -> String? {
-        let daemon = entry.daemon, id = entry.item.id
-        releaseWindow(of: entry.item, daemon: daemon, services: services)
-        guard let connection = daemon.connection else { return MiscHandlerStrings.daemonOffline }
-        do {
-            try await connection.state.deleteClosed(id)
-            if daemon.isLocal { emptyAgentHomeTrash() }
-            return nil
-        } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
-            // Already gone (a second Remove, or a reopen that ran first): the goal holds.
-            return nil
-        } catch {
-            daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
-            return "closed.delete: \(error)"
-        }
-    }
-
     /// Clears every connected daemon's closed history: the groups closed at
     /// or after `since`, every group for nil (Clear History). `since` is this
     /// Mac's clock; a remote daemon with a skewed clock clears a range off by

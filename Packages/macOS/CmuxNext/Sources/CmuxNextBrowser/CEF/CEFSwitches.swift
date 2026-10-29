@@ -198,7 +198,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
         // run times.
         // A feature the app turns off leaves this entry, so the two lists never name one feature.
-        let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
+        let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures
         let disabled = Set(disabledFeatures)
         for feature in named + chromiumFeatures
         where !features.contains(feature) && !disabled.contains(Self.featureName(of: feature)) {
@@ -251,20 +251,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// thread gets only from the absolute run times of p14-energy-046. It stays the default-off
     /// feature `cefTimerSlack` (``chromiumFeatures``).
     static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
-
-    /// Chromium features that quiet an idle source (Q8, p14-energy-042..044: a posting location at or above
-    /// 0.02 tasks/s in an idle session), one location each. Chromium 154.0.8037 sources:
-    /// - `PartitionAllocAdaptiveMemoryReclaimInterval` (base/allocator/partition_alloc_features.cc,
-    ///   `FEATURE_DISABLED_BY_DEFAULT`, so `disable-field-trial-config` leaves it off). Location
-    ///   `MemoryReclaimerSupport::Run` (base/allocator/partition_alloc_support.cc): every process with
-    ///   PartitionAlloc as malloc (all of them on Mac) decommits empty slot spans on its main thread every
-    ///   4 s (`MemoryReclaimer::GetRecommendedReclaimIntervalInMicroseconds`, partition_alloc/memory_reclaimer.cc),
-    ///   0.25/s each in the app's CrBrowserMain, the GPU and utility processes, and every renderer while it
-    ///   is foreground. With the feature the interval starts at 8 s and doubles up to 1 min while a reclaim
-    ///   decommits under 100 KiB (0.017/s at idle); above 200 KiB it halves back toward 4 s
-    ///   (`MemoryReclaimer::ComputeNextReclaimInterval`), so a process with memory to give back reclaims as
-    ///   often as before. Nothing visible depends on the cadence.
-    static let idleSourceOffFeatures = ["PartitionAllocAdaptiveMemoryReclaimInterval"]
 
     /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table
     /// (``CEFForkFeatures/pageSiteSharingForkAPI``, the fork train's number). API 29 has only
