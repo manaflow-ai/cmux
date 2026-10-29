@@ -91,3 +91,42 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     assert!(!socket.exists(), "the test should not need a detached socket");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn managed_unit_start_matches_shortened_sockets() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = cmux_unix_socket::short_test_dir("managed-socket");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit_home = dir.join("long-home-".repeat(15));
+    std::fs::create_dir_all(&unit_home).unwrap();
+    for configured in [None, Some(unit_home.join("configured.sock"))] {
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let socket = std::path::PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
+            configured.as_deref().and_then(|p| p.to_str()),
+            &unit_home,
+            uid,
+        ));
+        assert!(socket.as_os_str().len() < 104, "socket was not shortened");
+        let environment = format!(
+            "ACPMUX_HOME={} {}",
+            unit_home.display(),
+            configured
+                .as_ref()
+                .map(|p| format!("ACPMUX_SOCKET={}", p.display()))
+                .unwrap_or_default()
+        );
+        let systemctl = dir.join("systemctl");
+        std::fs::write(&systemctl, format!(
+            "#!/bin/sh\ncase \"$5\" in LoadState) echo loaded;; Environment) echo '{environment}';; esac\n"
+        )).unwrap();
+        std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let result =
+            managed_unit_connect_with(&systemctl, &unit_home, &socket, &|| async { Ok(()) })
+                .await
+                .unwrap();
+        assert_eq!(result, Some(()), "managed daemon rejected its short socket");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

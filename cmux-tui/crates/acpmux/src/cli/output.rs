@@ -150,7 +150,9 @@ pub(crate) async fn queue_prompt(
     match queue_prompt_once(client, id, text, steer, provenance, prompt).await {
         Ok(value) => Ok(value),
         Err(error) if daemon_closed_error(&error) => {
-            let client = reconnect_after_update().await?;
+            let client = reconnect_after_update().await.map_err(|reconnect| {
+                error.context(format!("reconnecting after daemon update: {reconnect}"))
+            })?;
             let mut retry = prompt.clone();
             retry.resend = true;
             queue_prompt_once(client, id, text, steer, provenance, &retry).await
@@ -310,9 +312,10 @@ pub(crate) struct CollectResult {
 
 #[derive(Default)]
 struct StreamProgress {
-    /// Number of assistant characters already written to stdout. A reconnect
-    /// receives the daemon's complete accumulated assistant item again.
-    printed_assistant: usize,
+    /// Text already emitted for the trailing assistant item. After a gap,
+    /// buffer deltas until the durable reply can fill the missing suffix.
+    printed_assistant: String,
+    reconnecting: bool,
     last_tool: String,
 }
 
@@ -383,6 +386,7 @@ pub(crate) async fn stream_prompt(
                 })?;
             let mut retry = prompt.clone();
             retry.resend = true;
+            progress.reconnecting = true;
             stream_prompt_once(
                 replacement,
                 id,
@@ -503,16 +507,16 @@ async fn stream_prompt_once(
                 match m.as_str() {
                     method::SESSION_UPDATE => {
                         t.apply_update(&p);
-                        if quiet { continue; }
+                        if quiet || progress.reconnecting { continue; }
                         let mut out = stdout.lock();
                         if let Some(Item::Assistant { text }) = t.items.last() {
-                            if text.len() > progress.printed_assistant {
-                                let _ = write!(out, "{}", &text[progress.printed_assistant..]);
+                            if text.len() > progress.printed_assistant.len() {
+                                let _ = write!(out, "{}", &text[progress.printed_assistant.len()..]);
                                 let _ = out.flush();
-                                progress.printed_assistant = text.len();
+                                progress.printed_assistant = text.clone();
                             }
                         } else {
-                            progress.printed_assistant = 0;
+                            progress.printed_assistant.clear();
                         }
                         if let Some(Item::Tool { title, status, kind, .. }) = t.items.last() {
                             let line = format!("[{kind} {status}] {title}");
@@ -572,9 +576,12 @@ async fn stream_prompt_once(
                 print_json(&v);
             } else {
                 // What the stream missed of it.
-                if let Some(text) = logged.filter(|l| !l.is_empty() && Some(l) != streamed.as_ref())
-                {
-                    println!("\n{text}");
+                if let Some(text) = logged.filter(|l| !l.is_empty()) {
+                    if let Some(missing) = text.strip_prefix(&progress.printed_assistant) {
+                        print!("{missing}");
+                    } else if Some(&text) != streamed.as_ref() || progress.reconnecting {
+                        println!("\n{text}");
+                    }
                 }
                 let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
                 if stop != "end_turn" {
