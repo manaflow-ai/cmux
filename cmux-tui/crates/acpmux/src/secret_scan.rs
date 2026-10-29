@@ -51,15 +51,15 @@ const LABELS: &str = include_str!("../rules/secrets/labels.toml");
 // form also treats header/bare key names as sensitive without requiring a token shape.
 const ASSIGNMENT_KEY_PATTERN: &str =
     r"api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key";
-static SENSITIVE_FIELD: LazyLock<Regex> = LazyLock::new(|| {
-    compile(&format!(r"(?i)(?:{ASSIGNMENT_KEY_PATTERN}|auth|cookie|key|pass)"))
-        .expect("constant credential field pattern") // crash-allow: constant pattern
+static SENSITIVE_FIELD: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    compile(&format!(r"(?i)(?:{ASSIGNMENT_KEY_PATTERN}|auth|cookie|key|pass)")).ok()
 });
 
 /// Structured field names supply secret context even for short/non-string values.
 /// Callers bounding previews must bound the key before invoking this matcher.
 pub(crate) fn sensitive_field_name(key: &str) -> bool {
-    SENSITIVE_FIELD.is_match(key.as_bytes())
+    // Failure to compile a future pattern must redact every field, not leak values.
+    SENSITIVE_FIELD.as_ref().is_none_or(|pattern| pattern.is_match(key.as_bytes()))
 }
 
 #[derive(Deserialize)]

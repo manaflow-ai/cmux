@@ -165,7 +165,7 @@ fn input_prefix(update: &Value) -> Option<String> {
                 Err(error) => error.valid_up_to(),
             };
             bytes.truncate(valid);
-            let text = String::from_utf8(bytes).expect("valid JSON prefix");
+            let text = String::from_utf8(bytes).unwrap_or_default();
             let masked = safe_tool_text(&text, truncated, MAX_TOOL_INPUT_CHARS);
             // The input budget is also a byte budget, including multibyte characters.
             let end = masked
@@ -273,13 +273,13 @@ fn bounded_text(value: &str) -> String {
 /// and concatenated quoted/unquoted fragments. An unfinished quote consumes the rest
 /// of the bounded preview rather than exposing a partial credential.
 fn mask_input_assignments(text: &str) -> String {
-    static ASSIGNMENT: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r#"\b([a-zA-Z0-9_-]+)["']?\s*[=:]\s*"#)
-            .expect("constant assignment pattern") // crash-allow: constant pattern
-    });
+    static ASSIGNMENT: LazyLock<Option<regex::Regex>> =
+        LazyLock::new(|| regex::Regex::new(r#"\b([a-zA-Z0-9_-]+)["']?\s*[=:]\s*"#).ok());
+    // A broken matcher must hide the preview, never expose an unscanned input.
+    let Some(assignment_pattern) = ASSIGNMENT.as_ref() else { return "[secret]".into() };
     let mut masked = String::with_capacity(text.len());
     let mut copied = 0;
-    for captures in ASSIGNMENT.captures_iter(text) {
+    for captures in assignment_pattern.captures_iter(text) {
         let Some(assignment) = captures.get(0) else { continue };
         if assignment.start() < copied || !sensitive_key(&captures[1]) {
             continue;
