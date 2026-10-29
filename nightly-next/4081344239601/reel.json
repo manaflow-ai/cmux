@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4081344239601",
+  "notes": "notes/4081344239601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27024,
+      "title": "webviews: diff-viewer-git test restores the global state it changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26996,
+      "title": "ci: signer parity --strict, a parity check that ignores only the signing time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27166,
+      "title": "fix(next): retire browser pages before chrome teardown",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27194,
+      "title": "ci(webviews): replay base reds on the merge parent; room for a slow retry",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
