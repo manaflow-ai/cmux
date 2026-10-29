@@ -47,6 +47,20 @@ class AttachmentCapsGuardTests(unittest.TestCase):
         self.check_source("let maximumUploadStageFile = 1024", 1,
                           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")
 
+    def test_swift_home_admission_paths_are_scanned(self):
+        paths = (
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
+        )
+        for relative in paths:
+            with self.subTest(path=relative):
+                self.check_source("let maximumUploadFileBytes = 100\n", 1, relative)
+
+    def test_swift_derived_preview_limits_are_explicitly_retained(self):
+        self.check_source("let previewMaxBytes = 512 * 1024\n", 0,
+                          "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift")
+
     def test_literal_admission_comparisons(self):
         for source in (
             "guard size <= 1 * 1024 * 1024 * 1024 else { return failure() }",

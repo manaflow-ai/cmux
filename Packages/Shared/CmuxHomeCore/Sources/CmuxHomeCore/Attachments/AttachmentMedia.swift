@@ -37,11 +37,9 @@ enum AttachmentMedia {
         return root.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(name)
     }
 
-    /// Hashes and copies a file into the cache in one streamed pass. Stops
-    /// one byte past `maxBytes` (the file grew after its size was read) and
-    /// throws `tooLarge`, leaving nothing in the cache.
-    static func ingest(fileURL: URL, root: URL,
-                       maxBytes: Int = HomeAttachmentPolicy.maxBytes) throws -> (hash: String, url: URL, byteCount: Int) {
+    /// Hashes and copies a file into the cache in one streamed pass. The
+    /// original is never rejected for its size.
+    static func ingest(fileURL: URL, root: URL) throws -> (hash: String, url: URL, byteCount: Int) {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString)")
@@ -54,12 +52,11 @@ enum AttachmentMedia {
         var hasher = SHA256()
         var count = 0
         do {
-            while let chunk = try input.read(upToCount: min(chunkSize, maxBytes + 1 - count)), !chunk.isEmpty {
+            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
                 try Task.checkCancellation()
                 hasher.update(data: chunk)
                 try output.write(contentsOf: chunk)
                 count += chunk.count
-                if count > maxBytes { throw HomeAttachmentError.tooLarge(byteCount: count, limit: maxBytes) }
             }
             try output.close()
         } catch {
@@ -202,12 +199,12 @@ enum AttachmentMedia {
     /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
-        let maxBytes = HomeAttachmentPolicy.previewMaxBytes
-        if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
+        let previewLimitBytes = HomeAttachmentPolicy.previewMaxBytes
+        if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= previewLimitBytes { return nil }
         guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
               !isTransparent(sample.source, sample: sample.image) else { return nil }
         for (pixels, quality) in [(maxPixel, 0.8), (maxPixel, 0.6), (maxPixel * 3 / 4, 0.6), (maxPixel / 2, 0.6)] {
-            if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= maxBytes { return data }
+            if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= previewLimitBytes { return data }
         }
         return nil
     }

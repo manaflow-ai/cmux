@@ -16,7 +16,7 @@ from pathlib import Path
 # Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
 # original: transfer loops split files at these boundaries. Never exempt a file/total cap.
 TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES", "maximumUploadStageChunk", "maximumChunkBytes", "maximumFrameBytes", "maximumRangeBytes"}
-FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
+FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*|max\w*(?:File|Bytes|Size))\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # Scan only Home's admission paths. Other attachment/upload files intentionally contain
@@ -30,6 +30,9 @@ ADMISSION_PATHS = {
     "webviews/src/pages/home-channels/attachmentService.ts",
     "webviews/src/agent-session/acpmux/attachments.ts",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
     "cmux-tui/crates/cmux-conversation/src/attachments.rs",
 }
 # This cache budget is unrelated to chat-upload admission and is deliberately retained.
@@ -37,19 +40,31 @@ RETAINED_BOUNDS = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
     },
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift": {
+        "streamMaxBytes": "Worker transport threshold; larger originals use presigned upload.",
+        "posterMaxBytes": "Derived video-poster representation budget.",
+        "previewMaxBytes": "Derived image-preview representation budget.",
+    },
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift": {
+        "previewMaxBytes": "Derived image-preview representation budget.",
+        "maximumSize": "Derived video-poster pixel dimensions, not original bytes.",
+    },
     "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
-        "MAX_ATTACHMENT_BYTES": "Local conversation admission remains separate from cloud staged uploads.",
         "MAX_POSTER_BYTES": "Derived video-poster representation budget.",
         "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget.",
+    },
+    "backend/packages/home-core/src/conversation/attachments.ts": {
+        "maxBytes": "Derived image representation budget; original upload is uncapped.",
+    },
+    "webviews/src/pages/home-channels/attachmentService.ts": {
+        "maxBytes": "Preview encoding budget; original upload is uncapped.",
+        "MAX_ATTACHMENT_BYTES": "Preview/legacy protocol budget; staged original upload is streamed separately.",
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
         "MAX_DOCUMENT_BYTES": "Inline protocol-frame budget; larger originals use file links.",
         "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
         "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not staged file admission.",
-    },
-    "webviews/src/pages/home-channels/attachmentService.ts": {
-        "MAX_ATTACHMENT_BYTES": "Preview/legacy protocol budget; staged original upload is streamed separately.",
     },
 }
 
