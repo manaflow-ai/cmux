@@ -53,6 +53,7 @@ final class DeclarativePopupHost {
         content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value) }
         content.openSubmenu = { [weak self] row, view in self?.open(row, from: view) }
         content.dismiss = { [weak self] in self?.dismiss(reason: "escape") }
+        content.commit = { [weak self] in self?.root.dismiss(reason: "commit") }
     }
 
     var shownFrame: CGRect? { popup.isShown && model != nil ? popup.cardFrame : nil }

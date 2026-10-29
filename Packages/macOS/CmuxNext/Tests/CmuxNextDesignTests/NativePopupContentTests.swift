@@ -67,14 +67,14 @@ import Testing
 
     @Test func permissionModeGlyphsRenderDistinctly() throws {
         var drawings = Set<Data>()
-        for name in [IconName.permissionAsk, .permissionAuto, .permissionFullAccess] {
+        for name in [IconName.permissionAsk, .permissionAuto, .permissionFullAccess, .permissionShield, .permissionChecked] {
             #expect(IconCatalog.bundled.entry(for: name) != nil)
             let image = try #require(CGImage.icon(name, size: 16, scale: 2, tint: CGColor(gray: 0, alpha: 1)))
             let pixels = try #require(image.dataProvider?.data) as Data
             #expect(pixels.contains { $0 != 0 }, "the mode glyph is empty")
             drawings.insert(pixels)
         }
-        #expect(drawings.count == 3, "the three modes must keep their distinct existing glyphs")
+        #expect(drawings.count == 5, "the five modes must keep their distinct existing glyphs")
     }
 
     @Test(arguments: ["rows", "rail", "footer"])

@@ -1312,6 +1312,13 @@
    "alias": false
   },
   {
+   "name": "permission.checked",
+   "meaning": "Permission mode with a checked shield: existing approval mode glyph.",
+   "sf": "checkmark.shield",
+   "family": "permission",
+   "alias": false
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",
@@ -1329,6 +1336,13 @@
    "meaning": "Composer permission-mode picker (ask / auto-accept edits / bypass...).",
    "sf": "questionmark.square.dashed",
    "family": "permission"
+  },
+  {
+   "name": "permission.shield",
+   "meaning": "Permission mode with a plain shield: existing auto/accept mode glyph.",
+   "sf": "shield",
+   "family": "permission",
+   "alias": false
   },
   {
    "name": "placeholder",

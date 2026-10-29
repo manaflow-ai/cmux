@@ -46,6 +46,32 @@
         "disabled": { "type": "boolean" }
       }
     },
+    "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },
+    "NativePopupSliderStop": {
+      "type": "object",
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "accessibilityLabel": { "type": "string" }
+      }
+    },
+    "NativePopupSlider": {
+      "type": "object",
+      "required": ["stops"],
+      "properties": {
+        "stops": { "type": "array", "items": { "$ref": "#/$defs/NativePopupSliderStop" } },
+        "selectedValue": { "type": "string" },
+        "defaultValue": { "type": "string" },
+        "recommendedValue": { "type": "string" },
+        "recommendedLabel": { "type": "string" },
+        "minimumLabel": { "type": "string" },
+        "maximumLabel": { "type": "string" },
+        "accessibilityLabel": { "type": "string" },
+        "style": { "$ref": "#/$defs/NativePopupSliderStyle" }
+      }
+    },
     "NativePopupRow": {
       "type": "object",
       "required": ["id", "kind", "label"],
@@ -67,7 +93,8 @@
         "children": { "type": "array", "items": { "$ref": "#/$defs/NativePopupRow" } },
         "minimum": { "type": "number" },
         "maximum": { "type": "number" },
-        "step": { "type": "number" }
+        "step": { "type": "number" },
+        "slider": { "$ref": "#/$defs/NativePopupSlider" }
       }
     },
     "NativePopupModel": {

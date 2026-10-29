@@ -7,6 +7,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var emit: (NativePopupEventType, String?, String?) -> Void = { _, _, _ in }
     var openSubmenu: (NativePopupRow, NSView) -> Void = { _, _ in }
     var dismiss: () -> Void = {}
+    var commit: () -> Void = {}
     private var model: NativePopupModel?
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
@@ -57,7 +58,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     func focusInitial() {
         if let search, search.isEnabled { window?.makeFirstResponder(search) }
-        else { window?.makeFirstResponder(self) }
+        else if let row = enabledRows.first, row.0.slider != nil {
+            window?.makeFirstResponder(editableControls[row.0.id] ?? self)
+        } else { window?.makeFirstResponder(self) }
     }
 
     func rowView(id: String) -> NSView? { rowViews.first { $0.0.id == id }?.1 }
@@ -112,6 +115,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             field.setAccessibilityLabel(row.label)
             fields[row.id] = field
             return field
+        }
+        if row.kind == .slider, let descriptor = row.slider {
+            let view = NativePopupSliderView(row: row, descriptor: descriptor)
+            view.change = { [weak self] value in self?.emit(.change, row.id, value) }
+            view.commit = { [weak self] in self?.commit() }
+            view.escape = { [weak self] in self?.dismiss() }
+            editableControls[row.id] = view.slider
+            return view
         }
         var trailing: [NSView] = []
         if let shortcut = row.shortcut { trailing.append(PopupRowView.shortcut(shortcut)) }
@@ -226,7 +237,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     private func activate(_ row: NativePopupRow, view: NSView) {
         guard row.disabled != true else { return }
-        if row.kind == .submenu { openSubmenu(row, view) }
+        if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
+        else if row.kind == .submenu { openSubmenu(row, view) }
         else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
         else if row.kind == .action { emit(.pick, row.id, nil) }
         else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
@@ -257,18 +269,18 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if let search { search.frame = NSRect(x: bodyX + 4, y: y, width: max(0, bodyWidth - 8), height: 28); y += 34 }
         var railY = inset
         for (row, view) in rowViews where railIDs.contains(row.id) {
-            let height: CGFloat = 40
+            let height: CGFloat = (view as? NativePopupSliderView)?.preferredHeight ?? 40
             view.frame = NSRect(x: inset, y: railY, width: railWidth, height: height)
             railY += height
         }
         for (row, view) in rowViews where !railIDs.contains(row.id) && !footerIDs.contains(row.id) {
-            let height: CGFloat = row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight
+            let height: CGFloat = (view as? NativePopupSliderView)?.preferredHeight ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
             view.frame = NSRect(x: bodyX, y: y, width: bodyWidth, height: height)
             y += height
         }
         y = max(y, railY)
         for (row, view) in rowViews where footerIDs.contains(row.id) {
-            let height: CGFloat = row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight
+            let height: CGFloat = (view as? NativePopupSliderView)?.preferredHeight ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
             view.frame = NSRect(x: bodyX, y: y, width: bodyWidth, height: height)
             y += height
         }

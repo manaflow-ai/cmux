@@ -45,6 +45,27 @@ export interface NativePopupField {
   disabled?: boolean;
 }
 
+export type NativePopupSliderStyle = "accent" | "minimal";
+
+export interface NativePopupSliderStop {
+  value: string;
+  label: string;
+  description?: string;
+  accessibilityLabel?: string;
+}
+
+export interface NativePopupSlider {
+  stops: NativePopupSliderStop[];
+  selectedValue?: string;
+  defaultValue?: string;
+  recommendedValue?: string;
+  recommendedLabel?: string;
+  minimumLabel?: string;
+  maximumLabel?: string;
+  accessibilityLabel?: string;
+  style?: NativePopupSliderStyle;
+}
+
 export interface NativePopupRow {
   id: string;
   kind: NativePopupRowKind;
@@ -64,6 +85,7 @@ export interface NativePopupRow {
   minimum?: number;
   maximum?: number;
   step?: number;
+  slider?: NativePopupSlider;
 }
 
 export interface NativePopupModel {

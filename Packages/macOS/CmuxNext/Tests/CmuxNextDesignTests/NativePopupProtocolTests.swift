@@ -36,6 +36,20 @@ import Testing
         #expect(!model.isValid)
     }
 
+    @Test func namedSliderRejectsDuplicateStopsAndMismatchedRange() {
+        var model = Self.model()
+        model.footer = nil
+        let stop = NativePopupSliderStop(value: "only", label: "Only")
+        model.rows = [NativePopupRow(id: "effort", kind: .slider, label: "Effort", value: "0",
+                                     minimum: 0, maximum: 0, step: 1, slider: NativePopupSlider(stops: [stop]))]
+        #expect(model.isValid)
+        model.rows[0].slider?.stops.append(stop)
+        #expect(!model.isValid)
+        model.rows[0].slider?.stops = [stop]
+        model.rows[0].maximum = 2
+        #expect(!model.isValid)
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "model-picker", revision: 2,
                          anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
