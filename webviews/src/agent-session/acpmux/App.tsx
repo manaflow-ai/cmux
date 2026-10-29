@@ -331,6 +331,7 @@ import {
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
+  messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
@@ -358,6 +359,7 @@ import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
+import { transcriptSelectionAttachment } from "./transcriptSelection";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -7815,6 +7817,45 @@ function AcpmuxPane() {
           "chat.editPrompt": async ({ text }) => {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
+          },
+          // Native transcript menus insert a Markdown quote into the existing draft. Composer
+          // quoteReply (PR #26655) appends after the current draft; the restore fallback keeps an
+          // older pane functional while that stack dependency is landing.
+          "chat.quoteReply": async ({ markdown }) => {
+            const handle = composerHandle.current as
+              | (ComposerHandle & {
+                  quoteReply?: (value: string) => void;
+                })
+              | null;
+            const quote = String(markdown ?? "");
+            if (handle?.quoteReply) handle.quoteReply(quote);
+            else restorePrompt(quote, []);
+            handle?.focus();
+          },
+          // Selected transcript text can be attached as a context chip without changing the
+          // draft text. The rail/menu owns only the gesture; the composer owns chip rendering.
+          "chat.attachSelection": async ({ text }) => {
+            const attachment = transcriptSelectionAttachment(String(text ?? ""));
+            if (!attachment) return;
+            composerHandle.current?.attach(attachment);
+            composerHandle.current?.focus();
+          },
+          // Pin as chapter is the native menu's named rail action. Marking true is idempotent:
+          // the bookmark transport publishes the resulting tick to every rail on this session.
+          "chat.pinChapter": async ({ rowId, sessionId }) => {
+            const match = /^(?:user|summary)-(\d+)$/.exec(String(rowId ?? ""));
+            const seq = match ? Number(match[1]) : NaN;
+            const requestedSessionId = typeof sessionId === "string" ? sessionId : "";
+            // The native menu can outlive the transcript that opened it. Require both the client
+            // selection and the drawn snapshot to still name the target session before touching
+            // the rail; a stale menu after switching chats must be a no-op.
+            if (
+              !messageMenuSessionMatches(requestedSessionId, client.selectedSession, snapshotRef.current?.sessionId) ||
+              !Number.isSafeInteger(seq) ||
+              seq <= 0
+            )
+              return;
+            await client.setBookmark(requestedSessionId, seq, true);
           },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).

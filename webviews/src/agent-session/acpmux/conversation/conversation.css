@@ -330,6 +330,15 @@
 .cv-user__text {
   display: contents;
 }
+/* Sent prompts share the transcript Markdown renderer so a quote is a quiet block with a muted
+   bar, rather than literal `>` characters. The normal prompt text keeps the bubble's existing ink. */
+.cv-user__markdown {
+  min-width: 0;
+}
+.cv-user__markdown .cv-quote {
+  color: var(--cv-text-muted);
+  --cv-strong-rule: color-mix(in srgb, var(--cv-text-muted) 58%, transparent);
+}
 .cv-user__text.is-clamped {
   display: block;
   max-height: calc(var(--cv-line-height) * 10);

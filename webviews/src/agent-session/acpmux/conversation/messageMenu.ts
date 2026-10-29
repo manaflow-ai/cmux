@@ -14,6 +14,10 @@ import { menuPartAt, type MenuPart } from "./menuParts";
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = {
+  /// The transcript row id, used by the native menu's Pin as chapter seam.
+  rowId?: string;
+  /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+  sessionId?: string;
   text: string;
   markdown?: string;
   forkSeq?: number;
@@ -38,6 +42,18 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// menu a right-click on the message opens under it, now (the report is the right-click's).
   popUp?: { left: number; top: number; right: number; bottom: number };
 };
+
+/// A native menu action may run after its page report. Require the selected and drawn sessions to
+/// still agree with that report before applying an action to a transcript row.
+export function messageMenuSessionMatches(
+  requestedSessionId: string,
+  selectedSessionId: string | undefined,
+  drawnSessionId: string | undefined,
+): boolean {
+  return (
+    requestedSessionId.length > 0 && requestedSessionId === selectedSessionId && requestedSessionId === drawnSessionId
+  );
+}
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
 /// chat is on this computer (acpmux refuses the rest).
@@ -129,15 +145,29 @@ export function messageMenuTarget(
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
   const row = snapshot.rows.find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
-  const turnSeq = canFork(snapshot)
-    ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
-    : undefined;
+  // Pinning remains valid for an older completed turn while a later one works. Fork eligibility
+  // is a separate concern: a working chat cannot offer Fork from here, but its completed summary
+  // still owns the rail chapter marker shown by PinButton.
+  const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
-      ? turnSeq
+    canFork(snapshot) &&
+    completedTurnSeq !== undefined &&
+    (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
+      ? completedTurnSeq
       : undefined;
+  // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
+  const markRowId =
+    row.kind === "user" ? id : completedTurnSeq !== undefined ? `summary-${completedTurnSeq}` : undefined;
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+    row.kind === "user"
+      ? { rowId: id, ...(sessionId ? { sessionId } : {}), text: row.text }
+      : {
+          ...(markRowId ? { rowId: markRowId } : {}),
+          ...(sessionId ? { sessionId } : {}),
+          text: plainText(row.text),
+          markdown: row.text,
+        };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;

@@ -54,6 +54,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
@@ -155,6 +156,64 @@ try {
     expect(body().textContent).toBe("Add retry with backoff to the uploader");
     expect(body().classList.contains("is-faded")).toBe(false);
     expect(toggle()).toBeNull();
+  });
+
+  test("a sent prompt renders Markdown blockquotes with the transcript quote treatment", () => {
+    resetTranscriptDisclosure();
+    const text = "> The upload retries forever\n> when offline.\n\nAdd a bounded backoff.";
+    render(prompt("user-quote", text));
+    const quote = host.querySelector(".cv-user__markdown .cv-quote");
+    expect(quote).not.toBeNull();
+    expect(quote?.textContent).toBe("The upload retries foreverwhen offline.");
+    expect(host.querySelector(".cv-user__markdown")?.textContent).not.toContain("> The");
+    expect(host.querySelector(".cv-user__markdown > .cv-p")?.textContent).toBe("Add a bounded backoff.");
+  });
+
+  test("a standalone Markdown list renders code and links while Copy keeps its original source", async () => {
+    resetTranscriptDisclosure();
+    const text = "1. Keep `retry_count` bounded.\n2. Read the [retry guide](https://example.com/retry).";
+    remount(prompt("user-markdown-list", text));
+    expect(body().querySelectorAll("ol > li").length).toBe(2);
+    expect(body().querySelector("code.cv-code")?.textContent).toBe("retry_count");
+    expect(body().querySelector("a")?.getAttribute("href")).toBe("https://example.com/retry");
+    copied.length = 0;
+    await act(async () => {
+      host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(copied).toEqual([text]);
+  });
+
+  test("editing a rendered prompt opens and resends the original Markdown source", async () => {
+    const text = "> Keep the source.\n\n1. Use `retry_count`.\n2. Read [the guide](https://example.com/retry).";
+    const row = prompt("user-markdown-edit", text);
+    const sent: string[] = [];
+    act(() =>
+      root.render(
+        <TurnActionsContext.Provider
+          value={{
+            edit: {
+              seqs: new Map([[row.id, 3]]),
+              send: async (_id, _seq, value) => {
+                sent.push(value);
+                return true;
+              },
+            },
+          }}
+        >
+          <UserBubble row={row} text={text} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    click(host.querySelector(`button[aria-label="${translate("message.edit")}"]`)!);
+    expect(host.querySelector("textarea")?.value).toBe(text);
+    await act(async () => {
+      host
+        .querySelector(`button[aria-label="${translate("message.editSend")}"]`)!
+        .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(sent).toEqual([text]);
   });
 
   // Leo 2026-10-21: prompts drew as empty grey bubbles. A prompt with no text to read draws no

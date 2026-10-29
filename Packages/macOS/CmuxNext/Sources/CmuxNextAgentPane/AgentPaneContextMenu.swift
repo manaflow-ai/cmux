@@ -5,6 +5,10 @@ import CmuxNextDesign
 /// reports them on `contextmenu` (webviews conversation/messageMenu.ts), before WebKit asks the host
 /// for the menu.
 struct AgentPaneMessageTarget: Equatable, Sendable {
+    /// The transcript row id, used by the rail-owned Pin as chapter seam.
+    var rowId: String?
+    /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+    var sessionId: String?
     /// The message as a person reads it; empty for an image outside a message (the gallery).
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
@@ -26,8 +30,10 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+    init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
+        self.rowId = rowId
+        self.sessionId = sessionId
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
@@ -47,6 +53,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     init?(report body: Any?) {
         guard let object = body as? [String: Any] else { return nil }
         let text = object["text"] as? String ?? ""
+        rowId = (object["rowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        sessionId = (object["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
@@ -69,13 +77,12 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
 /// Back, Look Up, Share...) never shows: on an image Open Image, Copy Image, Save Image As…, Quick Look and Show in Finder; the items
 /// of the code block, command, path or link under the pointer (``AgentPaneMenuPart``, cx-2lm4);
-/// Cut, Copy and Paste where WebKit offers them (Copy on a
-/// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
-/// reply's Markdown) and Copy as Plain Text, Retry on a prompt that was not sent, Edit and Resend
-/// on a prompt, Fork from Here when its turn can be forked, and Open Link for its links and images;
-/// the chat's menu (Change Background, zoom...) on empty space; on selected text Copy, Quote in
-/// Reply, Ask About This, Search the Web and Look Up; and Inspect Element in builds with developer
-/// tools.
+/// Cut, Copy and Paste where WebKit offers them (Copy on a selection, Cut and Paste in the
+/// composer); for the message under the pointer Copy message and Copy message as Markdown,
+/// Retry/Edit and Resend, the rail-owned Pin as chapter seam, Fork from Here and Open Link; the
+/// chat's menu (Change Background, zoom...) on empty space; and on selected text the combined
+/// Copy, Quote in Reply, Attach selection as context, Search the Web and Ask About This rows.
+/// Inspect Element remains available in builds with developer tools.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
@@ -91,12 +98,18 @@ enum AgentPaneContextMenu {
         var fork: (Int) -> Void
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
+        /// Inserts a Markdown quote into the composer's existing draft.
+        var quoteReply: (String) -> Void = { _ in }
+        /// Adds selected transcript text as a composer context chip.
+        var attachSelection: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
         var linkItems: ((URL) -> [NSMenuItem])? = nil
         /// A path part's rows after Open (``LinkMenu``); nil (or a nil answer): Copy Path.
         var pathItems: ((String) -> [NSMenuItem]?)? = nil
         var search: (String) -> Void = { _ in }
+        /// Toggle the rail-owned bookmark for a transcript row.
+        var pinChapter: (String, String) -> Void = { _, _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
@@ -176,17 +189,6 @@ enum AgentPaneContextMenu {
             item.image = webKitSymbols[item.identifier?.rawValue ?? ""].flatMap(icon)
         }
         menu.removeAllItems()
-        if let selection {
-            // Selected text gets the selection menu alone (macOS adds Services last).
-            let quote = Self.quote(selection)
-            let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quote) },
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
-            ]
-            let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
-            add([selected, find, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)
-            return
-        }
         var image: [NSMenuItem] = []
         if target?.opensImage == true {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage, symbol: "photo.on.rectangle") { actions.page("chat.menu.openImage", [:]) })
@@ -204,20 +206,43 @@ enum AgentPaneContextMenu {
         let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
                                        linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
         var copies = edits
+        var selectionActions: [NSMenuItem] = []
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
+        if let selection {
+            let quote = Self.quote(selection)
+            selectionActions.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") {
+                actions.quoteReply(quote)
+            })
+            selectionActions.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.attachSelectionAsContext, symbol: "paperclip") {
+                actions.attachSelection(selection)
+            })
+        }
         if let target, !target.text.isEmpty {
             if let markdown = target.markdown {
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(markdown) })
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsPlainText, symbol: "doc.plaintext") { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.plaintext") { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") { actions.copy(markdown) })
             } else {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
+                if target.isPrompt {
+                    // Prompts are already their Markdown source; keep the distinction from the
+                    // rendered copy without changing isPrompt (which drives Edit and Resend).
+                    copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") {
+                        actions.copy(target.text)
+                    })
+                }
             }
             if let row = target.retryRowId {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend, symbol: "pencil") { actions.edit(target.text) })
+            }
+            if let rowId = target.rowId, let sessionId = target.sessionId {
+                // The rail owns bookmark state; this callback is the menu's explicit seam.
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.pinAsChapter, symbol: "bookmark") {
+                    actions.pinChapter(rowId, sessionId)
+                })
             }
             if let seq = target.forkSeq {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
@@ -230,6 +255,20 @@ enum AgentPaneContextMenu {
             }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
+        }
+        if let selection {
+            // Keep selected-text actions at the end of the native menu, with Ask About This last.
+            // Look Up remains WebKit-owned but precedes the app's web search rows.
+            var find = lookUp.map { [$0] } ?? []
+            find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") {
+                actions.search(selection)
+            })
+            find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") {
+                actions.edit(Self.quote(selection) + AgentPaneMenuStrings.askAboutThisPrompt)
+            })
+            add([image, part, copies, selectionActions, message, links,
+                 inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? [], find], to: menu)
+            return
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
@@ -304,11 +343,16 @@ enum AgentPaneMenuStrings {
     }
 
     static var copyMessage: String {
-        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy Message", bundle: .module)
+        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy message", bundle: .module)
     }
 
+    static var copyMessageAsMarkdown: String {
+        String(localized: "agentPane.menu.copyMessageAsMarkdown", defaultValue: "Copy message as Markdown", bundle: .module)
+    }
+
+    /// Compatibility for callers that still refer to the old plain-text key.
     static var copyAsPlainText: String {
-        String(localized: "agentPane.menu.copyAsPlainText", defaultValue: "Copy as Plain Text", bundle: .module)
+        copyMessage
     }
 
     static var retry: String {
@@ -355,6 +399,10 @@ enum AgentPaneMenuStrings {
         String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
     }
 
+    static var attachSelectionAsContext: String {
+        String(localized: "agentPane.menu.attachSelectionAsContext", defaultValue: "Attach selection as context", bundle: .module)
+    }
+
     static var askAboutThis: String {
         String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .module)
     }
@@ -366,6 +414,10 @@ enum AgentPaneMenuStrings {
 
     static var searchTheWeb: String {
         String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
+    }
+
+    static var pinAsChapter: String {
+        String(localized: "agentPane.menu.pinAsChapter", defaultValue: "Pin as chapter", bundle: .module)
     }
 
     static var forkFromHere: String {

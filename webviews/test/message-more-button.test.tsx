@@ -37,13 +37,17 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, setMessageMenuSource } =
+const { installMessageMenuReporter, messageMenuSessionMatches, messageMenuTarget, setMessageMenuSource } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
 const answer: AcpmuxRow = { id: "answer", version: 1, at: 2, kind: "assistant", text: "Here is **the chart**." };
 const summary: AcpmuxRow = { id: "summary-9", version: 1, at: 3, kind: "turnSummary", seq: 9, durationMs: 1_000 };
-const snapshot = { rows: [prompt, answer, summary], connection: "connected" } as unknown as AcpmuxSnapshot;
+const snapshot = {
+  rows: [prompt, answer, summary],
+  connection: "connected",
+  summary: { sessionId: "chat-a" },
+} as unknown as AcpmuxSnapshot;
 // The footer as the transcript draws it (turns.ts): the answer's text, and the answer's row.
 const footer: AcpmuxRow = { ...summary, text: answer.text, answerId: answer.id };
 
@@ -88,6 +92,35 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
   const { popUp } = report;
   expect(popUp).toBeDefined();
+});
+
+test("an assistant body pins the turn summary row used by the rail", () => {
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, answer.id);
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.sessionId).toBe("chat-a");
+});
+
+test("an older completed assistant body keeps its pin target while a later turn works", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.forkSeq).toBeUndefined();
+});
+
+test("an assistant body without a completed summary has no pin target", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, rows: [prompt, answer], canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBeUndefined();
+});
+
+test("a pin menu becomes a no-op when the chat changes before its action runs", () => {
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-a")).toBe(true);
+  expect(messageMenuSessionMatches("chat-a", "chat-b", "chat-b")).toBe(false);
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-b")).toBe(false);
 });
 
 test("a footer with no answer has no More", async () => {

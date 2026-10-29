@@ -19,6 +19,11 @@ import {
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
+import { Markdown } from "./Markdown";
+
+// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
+// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
+const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
 
 export function PromptText({
   rowId,
@@ -154,9 +159,15 @@ export function PromptText({
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {parts.map((part, index) =>
           part.kind === "text" ? (
-            <span key={index} className="cv-user__typed">
-              {show(part.text)}
-            </span>
+            PROMPT_MARKDOWN.test(part.text) ? (
+              <Markdown key={index} className="cv-user__markdown" thumbnails={false}>
+                {show(part.text)}
+              </Markdown>
+            ) : (
+              <span key={index} className="cv-user__typed">
+                {show(part.text)}
+              </span>
+            )
           ) : (
             <PasteChip
               key={index}
