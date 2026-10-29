@@ -20,7 +20,9 @@
 # A newer tip is never a reason to cancel a run.
 #
 # Every read is fail-closed: an unreadable tip, run list, run, deployment list or job list cancels
-# nothing (the next tick decides again). The run lists are filtered to unfinished runs and read
+# nothing (the next tick decides again), and so does one of an unexpected shape (a run status that is
+# not a word and a number, deployments that are not a list, a job without a status, labels or a
+# creation time). The run lists are filtered to unfinished runs and read
 # page by page, so newer finished runs never hide a stuck one. Right before the cancel the run, its
 # deployments and its jobs are read again and must still be stuck, so a job a runner took, or a gate
 # the run entered, since the first read keeps the run. (GitHub has no conditional cancel; what is
@@ -82,28 +84,45 @@ for status in queued in_progress; do
   fi
 done
 sort -u -o "$scratch/runs" "$scratch/runs"
+# Every line must be "id event sha attempt"; any other shape is an unread listing.
+if grep -Evq '^[0-9]+ (push|workflow_dispatch|promote|[a-z_]+) [0-9a-f]{40} [0-9]+$' "$scratch/runs"; then
+  warn "the unfinished nightly runs came back in an unexpected shape; no run is cancelled this tick"
+  exit 0
+fi
 if [[ ! -s "$scratch/runs" ]]; then
   echo "nightly-next: no unfinished nightly or promotion run"
   exit 0
 fi
 
-# The first stuck job of a run's latest attempt (name<TAB>labels<TAB>minutes), or nothing.
+# The first stuck job of a run's latest attempt (name<TAB>labels<TAB>minutes), or nothing. Fail-closed
+# on shape: a job without a string status, a labels array of strings or a created_at timestamp makes
+# jq fail (error), and the caller then leaves the run alone; a job is never judged on a field it lacks.
 stuck_filter='
+  def checked: if (type == "object") and (.status | type) == "string"
+                   and ((.labels | type) == "array") and ((.labels | length) > 0)
+                   and all(.labels[]; type == "string")
+                   and ((.created_at | type) == "string")
+               then . else error("a job of an unexpected shape") end;
   def unserved: .status == "queued" and ((.runner_name // "") == "");
-  . as $jobs
-  | [$jobs[] | select(unserved and ((.labels // []) | any(startswith("glaeda-")) | not))
+  [.[] | checked] as $jobs
+  | if ($jobs | length) == 0 then error("no jobs") else . end
+  | [$jobs[] | select(unserved and (.labels | any(startswith("glaeda-")) | not))
      | . + {waited: (($now - (.created_at | fromdateiso8601)) / 60 | floor)}
      | select(.waited >= $minutes)] as $stuck
   | if ($stuck | length) > 0 and all($jobs[]; .status == "completed" or unserved)
-    then $stuck[0] | "\(.name)\t\((.labels // []) | join(","))\t\(.waited)" else empty end'
+    then $stuck[0] | "\(.name)\t\(.labels | join(","))\t\(.waited)" else empty end'
 
 # stuck ID: prints "ATTEMPT<TAB>job<TAB>labels<TAB>minutes" when the run is stuck, nothing when it
 # is not; fails when any read fails (the caller then leaves the run alone).
 stuck() {
   local state deployments
   state="$(gh api "repos/$repo/actions/runs/$1" --jq '"\(.status) \(.run_attempt)"')" || return 1
+  [[ "$state" =~ ^[a-z_]+\ [0-9]+$ ]] || return 1
   case "${state% *}" in queued | in_progress) ;; *) return 0 ;; esac
-  deployments="$(gh api "repos/$repo/actions/runs/$1/pending_deployments" --jq length)" || return 1
+  # Pending deployments must come back as an array: null, an object or anything else is unread.
+  deployments="$(gh api "repos/$repo/actions/runs/$1/pending_deployments" \
+    --jq 'if type == "array" then length else error("not a list") end')" || return 1
+  [[ "$deployments" =~ ^[0-9]+$ ]] || return 1
   [[ "$deployments" == 0 ]] || return 0
   gh api --paginate "repos/$repo/actions/runs/$1/jobs?filter=latest&per_page=100" --jq '.jobs[]' >"$scratch/jobs" || return 1
   local job
@@ -111,12 +130,16 @@ stuck() {
   [[ -z "$job" ]] || printf '%s\t%s\n' "${state#* }" "$job"
 }
 
+# A run's "status conclusion attempt", or a jq error when a field has an unexpected type.
+settle_filter='if (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then "\(.status) \(.conclusion // "-") \(.run_attempt)" else error("a run of an unexpected shape") end'
+
 # settled ID ATTEMPT: 0 when the run has finished cancelled on ATTEMPT, 1 when it has not finished,
 # 2 when it cannot be read, 3 when it finished some other way (it succeeded or failed before the
 # cancel reached it, or a new attempt started): then nothing is re-run or dispatched for it.
 settled() {
   local now
-  now="$(gh api "repos/$repo/actions/runs/$1" --jq '"\(.status) \(.conclusion // "-") \(.run_attempt)"')" || return 2
+  now="$(gh api "repos/$repo/actions/runs/$1" --jq "$settle_filter")" || return 2
+  [[ "$now" =~ ^[a-z_]+\ [a-z_-]+\ [0-9]+$ ]] || return 2
   case "$now" in
     "completed cancelled $2") return 0 ;;
     "completed "*) return 3 ;;

@@ -23,7 +23,7 @@
 #     record as it was, so the next tick dispatches again: at most one per tick, until a
 #     replacement exists.
 # Every write goes out with no wrapper retries (GH_BUDGET_WAIT_ATTEMPTS=1) right after a fresh
-# read of the tip's runs, so a stale decision is never sent; a refused write fails this step and the
+# read of the run and of nightly-next itself (it must still point at the tip that was read), so a stale decision is never sent; a refused write fails this step and the
 # next tick decides again.
 #
 #   nightly_next_cancelled_tip.sh REPO
@@ -45,6 +45,12 @@ tip_runs() {
     | sort -rn
 }
 runs="$(tip_runs)"
+# Every line must be "id status conclusion attempt"; a run of any other shape is unread, and nothing
+# is sent this tick.
+if [[ -n "$runs" ]] && grep -Evq '^[0-9]+ [a-z_]+ [a-z_-]+ [0-9]+$' <<<"$runs"; then
+  echo "::warning title=nightly-next tick::the tip ${tip:0:12}'s runs came back in an unexpected shape; nothing is re-run this tick"
+  exit 0
+fi
 if [[ -z "$runs" ]]; then
   echo "nightly-next tip ${tip:0:12}: no nightly run yet"
   exit 0
@@ -63,6 +69,12 @@ if (( attempt >= max_attempts )); then
   # so a replacement that started meanwhile is never doubled.
   if [[ "$(tip_runs | head -n1)" != "$id completed cancelled $attempt" ]]; then
     echo "nightly-next tip ${tip:0:12}: its runs changed since they were read; not dispatched"
+    exit 0
+  fi
+  # The dispatch builds whatever nightly-next points at then: send it only while that is still the
+  # tip whose runs were read, so the decision is about the commit that builds.
+  if ! line="$(git ls-remote origin refs/heads/nightly-next)" || [[ "${line%%[[:space:]]*}" != "$tip" ]]; then
+    echo "nightly-next tip ${tip:0:12}: nightly-next moved (or could not be read) since it was read; not dispatched, the next tick decides for the new tip"
     exit 0
   fi
   GH_BUDGET_WAIT_ATTEMPTS=1 gh workflow run nightly.yml -R "$repo" --ref nightly-next

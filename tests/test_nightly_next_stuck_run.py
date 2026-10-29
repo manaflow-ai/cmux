@@ -107,6 +107,8 @@ if not rest:
             sys.exit(1)
         after = os.environ.get("AFTER_CANCEL", "completed")
         run.update(status=after, conclusion=os.environ.get("CONCLUSION", "cancelled") if after == "completed" else None)
+        if os.environ.get("NULL_STATUS_AFTER_CANCEL"):
+            run["status"] = None
         run["run_attempt"] = int(os.environ.get("ATTEMPT_AFTER_CANCEL", run["run_attempt"]))
     elif reads >= 1 and run_id in env("STATE_LATER", "{}"):
         run["status"] = env("STATE_LATER", "{}")[run_id]
@@ -115,7 +117,9 @@ sys.exit(3)
 '''
 
 
-SETTLE_READ = 'api repos/o/r/actions/runs/7 --jq "\\(.status) \\(.conclusion // "-") \\(.run_attempt)"'
+def is_settle_read(call: str) -> bool:
+    """The read after a cancel: the run's status, conclusion and attempt."""
+    return call.startswith("api repos/o/r/actions/runs/7 --jq") and "conclusion" in call
 
 
 def ago(minutes: float) -> str:
@@ -241,6 +245,37 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.writes(calls), [], case)
 
+    def test_an_unexpected_shape_cancels_nothing(self):
+        # Valid JSON of the wrong shape is unread, not "nothing there": pending deployments that are
+        # null or an object, a job with no labels, null labels, empty labels or no status, and a run
+        # with no jobs at all.
+        stuck = dict(STUCK_DECIDE)
+        cases = {
+            "deployments null": ({7: [stuck]}, dict(PENDING={7: None})),
+            "deployments an object": ({7: [stuck]}, dict(PENDING={7: {}})),
+            "no labels": ({7: [{k: v for k, v in stuck.items() if k != "labels"}]}, {}),
+            "null labels": ({7: [dict(stuck, labels=None)]}, {}),
+            "empty labels": ({7: [dict(stuck, labels=[])]}, {}),
+            "a non-string label": ({7: [dict(stuck, labels=[3])]}, {}),
+            "no status": ({7: [{k: v for k, v in stuck.items() if k != "status"}]}, {}),
+            "no created_at": ({7: [{k: v for k, v in stuck.items() if k != "created_at"}]}, {}),
+            "no jobs": ({7: []}, {}),
+        }
+        for case, (jobs, env) in cases.items():
+            with self.subTest(case):
+                result, calls = self.run_script(jobs, next_runs=[run(7)], **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [], case)
+                self.assertIn("could not be read; left alone", result.stdout)
+
+    def test_a_run_listing_of_an_unexpected_shape_cancels_nothing(self):
+        for bad in (dict(run(7), head_sha=None), dict(run(7), id=None), dict(run(7), run_attempt=None)):
+            with self.subTest(bad=bad):
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[bad])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [])
+                self.assertIn("unexpected shape", result.stdout)
+
     def test_a_cancel_that_does_not_settle_is_force_cancelled(self):
         result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], AFTER_CANCEL="in_progress",
                                         FORCE_AFTER="2")
@@ -248,7 +283,7 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
                                               "api -X POST repos/o/r/actions/runs/7/force-cancel"])
         # Bounded: FORCE_AFTER + 1 reads after each cancel, then the next tick.
-        self.assertEqual(sum(call == SETTLE_READ for call in calls), 6)
+        self.assertEqual(sum(is_settle_read(call) for call in calls), 6)
         self.assertIn("the next tick checks again", result.stdout)
 
     def test_an_unreadable_status_after_the_cancel_never_force_cancels(self):
@@ -258,9 +293,17 @@ class StuckRun(unittest.TestCase):
                                         FORCE_AFTER="1", UNREADABLE_AFTER_CANCEL="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertEqual(sum(call == SETTLE_READ for call in calls), 1)
+        self.assertEqual(sum(is_settle_read(call) for call in calls), 1)
         self.assertNotIn("api -X POST repos/o/r/actions/runs/7/force-cancel", self.writes(calls))
         self.assertIn("has not been seen finished", result.stdout)
+
+    def test_a_run_of_an_unexpected_shape_after_the_cancel_is_never_force_cancelled(self):
+        # A null status reads as unknown, not as "still running": no force-cancel.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], NULL_STATUS_AFTER_CANCEL="1",
+                                        FORCE_AFTER="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+        self.assertEqual(sum(is_settle_read(call) for call in calls), 1)
 
     def test_a_run_that_finished_on_its_own_before_the_cancel_gets_nothing_more(self):
         # Between the last stuck read and the cancel, the run succeeded, failed, or a new attempt
@@ -306,10 +349,10 @@ class StuckRun(unittest.TestCase):
             self.assertEqual(calls[i + 1], "retries=1", calls)
         # The force-cancel follows a read that showed the same attempt unfinished.
         force = calls.index("api -X POST repos/o/r/actions/runs/7/force-cancel")
-        self.assertEqual(calls[force - 1], SETTLE_READ)
+        self.assertTrue(is_settle_read(calls[force - 1]), calls)
         result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], CANCEL_FAIL="1")
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertFalse(any(call == SETTLE_READ for call in calls), calls)
+        self.assertFalse(any(is_settle_read(call) for call in calls), calls)
         self.assertIn("the cancel was refused", result.stdout)
 
     def test_a_dispatch_and_older_commits_and_promotions_are_cancelled_and_never_re_run_here(self):

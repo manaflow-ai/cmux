@@ -6,6 +6,9 @@
 # Callers: nightly_next_cancelled_tip.sh (the tip's push run) and nightly_next_stuck_run.sh (a
 # dispatch on nightly-next it cancelled). Needs gh (GH_TOKEN with actions: write) and python3.
 #
+# Nothing is re-run unless, right before the write, the run is still finished cancelled on the
+# attempt that was read and nightly-next still points at HEAD_SHA.
+#
 # A re-run of failed jobs keeps the runner picker's outputs from the earlier attempt, so
 # the jobs that take their runner from that pick take its Blacksmith label again (nightly.yml takes
 # the owned pick only when it was made for the run's own attempt). That is right after a refusal,
@@ -58,6 +61,13 @@ fi
 now="$(gh api "repos/$repo/actions/runs/$id" --jq '"\(.status) \(.conclusion // "-") \(.run_attempt)"')"
 if [[ "$now" != "completed cancelled $attempt" ]]; then
   echo "$what changed to '$now' since it was read; not re-run"
+  exit 0
+fi
+# Only the tip is built again: nightly-next may have moved during the reads above (or a rate-limit
+# wait), and a re-run of the old commit would waste a whole nightly. Read the branch right before the
+# write; an unreadable branch sends nothing.
+if ! line="$(git ls-remote origin refs/heads/nightly-next)" || [[ "${line%%[[:space:]]*}" != "$head_sha" ]]; then
+  echo "$what: nightly-next is no longer at ${head_sha:0:12} (or could not be read); not re-run, the tip builds"
   exit 0
 fi
 if [[ -n "$unserved" ]]; then

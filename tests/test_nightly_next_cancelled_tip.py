@@ -23,8 +23,14 @@ TIP = "e22f93846f54d679fb95dea965" + "0" * 14
 # read fail. RUNS_LATER answers the runs list from its second read on; RUNS_FAIL fails it. Re-runs (gh
 # run rerun, POST .../jobs/N/rerun) and dispatches (gh workflow run) are logged with the wrapper's retry
 # setting; DISPATCH_FAIL refuses a dispatch.
+# GIT_TIP_LATER answers ls-remote from its second call on (nightly-next moved); "fail" makes it fail.
 FAKE_GIT = f"""#!/bin/bash
-[ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "{TIP}"
+[ "$1" = ls-remote ] || exit 0
+n=$(cat "$LOG.git" 2>/dev/null || echo 0); echo $((n + 1)) > "$LOG.git"
+tip="{TIP}"
+[ "$n" -ge 1 ] && [ -n "${{GIT_TIP_LATER:-}}" ] && tip="$GIT_TIP_LATER"
+[ "$tip" = fail ] && exit 128
+printf '%s\\trefs/heads/nightly-next\\n' "$tip"
 """
 FAKE_GH = """#!/bin/bash
 echo "$*" >> "$LOG"
@@ -274,6 +280,28 @@ class CancelledTip(unittest.TestCase):
         self.assertIn("changed since they were read", result.stdout)
         result, calls = self.run_script("40340830337 completed cancelled 3\n", RUNS_FAIL="1")
         self.assertFalse(any(call.startswith("workflow run") or call.startswith("run rerun") for call in calls), calls)
+
+    def test_nothing_is_built_once_nightly_next_has_moved(self):
+        # The branch moved (or could not be read) between the first read and the write: a re-run of
+        # the old commit, or a dispatch that would build some other commit, is never sent.
+        for later in ("f" * 40, "fail"):
+            for runs in ("40340830337 completed cancelled 1\n", "40340830337 completed cancelled 3\n"):
+                with self.subTest(later=later, runs=runs):
+                    result, calls = self.run_script(runs, GIT_TIP_LATER=later, JOBS=page(PICKER, unserved()),
+                                                    WORKFLOW=workflow())
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(any(call.startswith(("run rerun", "workflow run")) or "-X POST" in call
+                                         for call in calls), calls)
+                    self.assertRegex(result.stdout, "no longer at|moved")
+
+    def test_runs_of_an_unexpected_shape_send_nothing(self):
+        for runs in ("null completed cancelled 1\n", "40340830337 completed cancelled null\n",
+                     "40340830337 null - 1\n"):
+            with self.subTest(runs=runs):
+                result, calls = self.run_script(runs)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(any(call.startswith(("run rerun", "workflow run")) or "-X POST" in call
+                                     for call in calls), calls)
 
     def test_no_run_yet_is_left_alone(self):
         result, calls = self.run_script("")
