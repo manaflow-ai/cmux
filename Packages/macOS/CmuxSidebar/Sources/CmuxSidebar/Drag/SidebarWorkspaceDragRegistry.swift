@@ -25,6 +25,11 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
     public private(set) var mostRecentSessionId: UUID?
     /// Workspace identity paired with ``mostRecentSessionId``.
     public private(set) var mostRecentWorkspaceId: UUID?
+    /// Receives an unconsumed native workspace capability after registry cleanup.
+    /// Point coordinates are AppKit screen coordinates; the final value is the
+    /// native session's monotonic start time, used to reject stale input evidence.
+    public var onUnhandledNativeDragEnd: ((SidebarWorkspaceDragSession, NSPoint, NSDragOperation, TimeInterval) -> Void)?
+
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
     private var participants: [SidebarWorkspaceDragParticipantReference] = []
     private let dragPasteboardProvider: DragPasteboardProvider
@@ -156,6 +161,23 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
         nativeDragSources[sessionId] = nil
         end(sessionId: sessionId)
         clearResidualCapability(capabilityValue)
+    }
+
+    /// Completes a verified native source and reports its release to the host.
+    /// - Parameters:
+    ///   - sessionId: The exact native source generation.
+    ///   - capabilityValue: The opaque value written by this source.
+    ///   - point: AppKit screen completion point.
+    ///   - operation: The operation accepted by the destination, if any.
+    ///   - beganAt: The source's monotonic start time.
+    public func completeNativeDrag(
+        sessionId: UUID, capabilityValue: String, point: NSPoint,
+        operation: NSDragOperation, beganAt: TimeInterval
+    ) {
+        guard let session = currentSession, session.id == sessionId,
+              session.pasteboardValue == capabilityValue else { return }
+        nativeDraggingSessionDidEnd(sessionId: sessionId, capabilityValue: capabilityValue)
+        onUnhandledNativeDragEnd?(session, point, operation, beganAt)
     }
 
     /// Ends only the session whose generation token still matches.
