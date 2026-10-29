@@ -1970,7 +1970,7 @@
           "go": "true"
         },
         {
-          "label": "同時 Cloud VM 数",
+          "label": "保存済み Cloud VM 数（一時停止中を含む）",
           "free": "false",
           "pro": "5",
           "max": "5",

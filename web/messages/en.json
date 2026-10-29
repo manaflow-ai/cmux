@@ -1970,7 +1970,7 @@
           "go": "true"
         },
         {
-          "label": "Concurrent Cloud VMs",
+          "label": "Saved Cloud VMs, including paused machines",
           "free": "false",
           "pro": "5",
           "max": "5",

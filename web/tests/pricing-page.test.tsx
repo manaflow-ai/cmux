@@ -208,10 +208,10 @@ describe("localized pricing page", () => {
     });
     expect(
       enMessages.pricing.compare.rows.find(
-        (row) => row.label === "Concurrent Cloud VMs",
+        (row) => row.label === "Saved Cloud VMs, including paused machines",
       ),
     ).toEqual({
-      label: "Concurrent Cloud VMs",
+      label: "Saved Cloud VMs, including paused machines",
       go: "1",
       free: "false",
       pro: "5",
