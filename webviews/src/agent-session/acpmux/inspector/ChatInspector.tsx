@@ -335,7 +335,7 @@ export function useChatInspector({
   onOpenSourceFile?: (path: string) => unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
   onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
@@ -591,7 +591,7 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
@@ -1016,7 +1016,7 @@ export function ChatInspector({
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
+  onOpenImage?: (src: string, alt: string, path?: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
@@ -1292,9 +1292,9 @@ export function ChatInspector({
           onClose={() => setGallery(false)}
           onOpenImage={
             onOpenImage &&
-            ((src, alt) => {
+            ((src, alt, path) => {
               setGallery(false);
-              onOpenImage(src, alt);
+              onOpenImage(src, alt, path);
             })
           }
         />
