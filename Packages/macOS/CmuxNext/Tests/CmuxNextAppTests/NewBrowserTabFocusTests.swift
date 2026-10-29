@@ -43,6 +43,8 @@ struct NewBrowserTabFocusTests {
             try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's tab never replaced the stand-in", content)
             let real = try #require(Self.daemonTabSelected(content, store))
             #expect(!ProvisionalTab.isProvisional(real) && real != selected, "the selected tab \(real) is still the stand-in \(selected)")
+            // The new tab, not one that was there before: a fallback to the earlier terminal must not pass.
+            #expect(!before.contains(real), "after the reply the selection fell back to \(real), a tab from before the open")
             // And the daemon's tab has the keys in its address bar, with nothing left waiting.
             try await Self.until({
                 if case .addressBar(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
@@ -74,11 +76,14 @@ struct NewBrowserTabFocusTests {
             #expect(onIt && state.expectation == nil,
                     "in the key's turn the keys go to \(state.resolved), not the new terminal (expectation \(String(describing: state.expectation)))")
 
-            // The daemon's reply lands: the selected tab's surface is the daemon's (the terminal stand-in keeps its tab id
-            // for good, so its surface is what changes). Before the reply the check below already passes on the stand-in.
+            // The daemon's reply lands: the daemon's tab takes the stand-in's place under its own id
+            // (TabContentCache.adoptStandIn moves the view, NewTabSuccession the selection). Before the reply the check
+            // below already passes on the stand-in.
             let store = services.daemon.store
             try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's terminal never replaced the stand-in", content)
             let real = try #require(Self.daemonTabSelected(content, store))
+            // The new terminal, not one that was there before: a fallback to the set-up terminal must not pass.
+            #expect(!before.contains(real), "after the reply the selection fell back to \(real), a tab from before Ctrl-`")
             // And the daemon's terminal has the keys, with nothing left waiting.
             try await Self.until({
                 if case .terminal(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
