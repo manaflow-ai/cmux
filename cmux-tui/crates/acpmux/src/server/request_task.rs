@@ -55,11 +55,7 @@ pub(super) fn spawn(
                 Ok(_) => hub.wait_written(writes).await,
                 Err(_) => true,
             };
-            if saved {
-                result
-            } else {
-                Err(RpcError::internal("the chat's event log failed: this change is not saved"))
-            }
+            crate::hub::request_writes::answer(&method, result, saved)
         })
     };
     start(hub.supervisor(), conn, id, &method, slot, route);

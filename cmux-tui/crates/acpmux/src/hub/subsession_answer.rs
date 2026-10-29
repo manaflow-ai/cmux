@@ -264,6 +264,8 @@ mod tests {
         let entry = PendingPermission {
             request,
             reply,
+            // No asking task: closed, so the answer waits for no decision record.
+            decision_seq: oneshot::channel().1,
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
@@ -327,6 +329,8 @@ mod tests {
         let entry = PendingPermission {
             request,
             reply,
+            // No asking task: closed, so the answer waits for no decision record.
+            decision_seq: oneshot::channel().1,
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,

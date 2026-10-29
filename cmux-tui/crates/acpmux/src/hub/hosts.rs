@@ -791,6 +791,8 @@ impl Hub {
         // so its answers are checked like a new ask's.
         super::questions::normalize(&mut request, Self::preview_format(session));
         let (tx, rx) = oneshot::channel();
+        // The decision's seq, for the request that answers (`PendingPermission::decision_seq`).
+        let (seq_tx, seq_rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
         session.permissions.lock_or_recover().pending.insert(
             permission_id.clone(),
@@ -799,6 +801,7 @@ impl Hub {
                 ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
                 request: request.clone(),
                 reply: tx,
+                decision_seq: seq_rx,
                 decision_nonce: decision_nonce.clone(),
                 // Settled by the task below, from a turn or none (`status_after_ask`).
                 prev_status: SessionStatus::Waiting,
@@ -820,12 +823,15 @@ impl Hub {
         let c = child.clone();
         self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
-            hub.append(
+            let (record, stored) = hub.append_logged(
                 &s,
                 "mux",
                 "permission_decision",
                 json!({"permissionId": permission_id, "outcome": outcome}),
+                None,
             );
+            // Sent with no await since the answer woke this task: the answering request waits.
+            let _ = seq_tx.send(stored.then_some(record.seq));
             {
                 let state = s.permissions.lock_or_recover();
                 if state.pending.is_empty()

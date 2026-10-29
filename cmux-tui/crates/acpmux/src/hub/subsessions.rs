@@ -832,7 +832,13 @@ impl Hub {
             hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
         });
         match rx.await {
-            Ok(v) => Ok(v),
+            Ok(v) => {
+                // Its records up to the acceptance were appended on the turn's task, which the
+                // request's write scope does not see: the answer waits for them
+                // (`request_writes.rs`).
+                super::request_writes::note_session(to);
+                Ok(v)
+            }
             // Dropped before acceptance: the prompt was refused.
             Err(_) => match turn.await {
                 Ok(Err(e)) => Err(e),

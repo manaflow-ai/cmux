@@ -113,6 +113,8 @@ async fn idle_exit_a_pending_permission_is_live() {
     let pending = PendingPermission {
         request: json!({"toolCall": {"title": "rm -rf build"}}),
         reply,
+        // No asking task: closed, nothing to wait for.
+        decision_seq: tokio::sync::oneshot::channel().1,
         decision_nonce: "n1".into(),
         ancestor_may_answer: false,
         prev_status: SessionStatus::Running,
