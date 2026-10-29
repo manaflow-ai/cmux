@@ -20,17 +20,9 @@ struct InternalPageDiscardPolicyCoverageTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// Each page of the batch, the source that declares its policy, and the declaration there: a
-    /// provider's own `discardPolicy(for:)`, a `WebPageTab`'s `discardPolicy:` argument, or the
-    /// `// discard: default <why>` marker.
-    static let batchOne: [(page: InternalPageID, source: String, declaration: String)] = [
-        (.settings, "Sources/CmuxNextApp/Settings/SettingsWindowService.swift", "func discardPolicy(for key: String)"),
-        (.debugSettings, "Sources/CmuxNextApp/Settings/DebugSettingsService.swift", "func discardPolicy(for key: String)"),
-        (.keybindings, "Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift", "func discardPolicy(for key: String)"),
-        (.changelog, "Sources/CmuxNextApp/Pages/ChangelogPageTab.swift", "func discardPolicy(for key: String)"),
-        (.stats, "Sources/CmuxNextApp/Pages/StatsPage.swift", "discardPolicy: ."),
-        (.taskManager, "Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift", "func discardPolicy(for key: String)"),
-    ]
+    /// Each page of the batch. ``InternalPageProvider``'s default policy, and a `WebPageTab`'s, is never: a
+    /// page that answers another policy chose it.
+    static let batchOne: [InternalPageID] = [.settings, .debugSettings, .keybindings, .changelog, .stats, .taskManager]
 
     static func services() -> AppServices {
         let services = TaskManagerActionTests.services()
@@ -59,22 +51,22 @@ struct InternalPageDiscardPolicyCoverageTests {
 
     // MARK: Every page of the batch declares its policy
 
-    @Test func everyPageOfTheBatchDeclaresItsPolicy() throws {
+    @Test func everyPageOfTheBatchDeclaresItsPolicy() {
         let services = Self.services()
-        for entry in Self.batchOne {
-            #expect(services.pages.provider(entry.page) != nil, "\(entry.page.rawValue) registers at launch")
-            let source = try String(contentsOf: Self.packageRoot.appending(path: entry.source), encoding: .utf8)
-            #expect(source.contains(entry.declaration) || source.contains("// discard: default "),
-                    "\(entry.page.rawValue) chose its policy in \(entry.source)")
+        for page in Self.batchOne {
+            let provider = services.pages.provider(page)
+            #expect(provider != nil, "\(page.rawValue) registers at launch")
+            #expect(provider.map { $0.discardPolicy(for: "tab") != .never } == true,
+                    "\(page.rawValue) is on the default policy (never discarded)")
         }
     }
 
     @Test func theTaskManagerGoesAMinuteAfterItHidesAndTheOthersAfterTen() throws {
         let services = Self.services()
-        for entry in Self.batchOne {
-            let provider = try #require(services.pages.provider(entry.page))
-            let expected: ContentDiscardPolicy = entry.page == .taskManager ? .afterHidden(.seconds(60)) : .standard
-            #expect(provider.discardPolicy(for: "tab") == expected, "\(entry.page.rawValue)")
+        for page in Self.batchOne {
+            let provider = try #require(services.pages.provider(page))
+            let expected: ContentDiscardPolicy = page == .taskManager ? .afterHidden(.seconds(60)) : .standard
+            #expect(provider.discardPolicy(for: "tab") == expected, "\(page.rawValue)")
         }
     }
 
