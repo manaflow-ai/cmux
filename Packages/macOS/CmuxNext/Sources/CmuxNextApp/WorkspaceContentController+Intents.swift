@@ -12,7 +12,7 @@ extension WorkspaceContentController {
         case .focus(let pane):
             // Mouse-down in a pane or layout keyboard navigation. A press in a workspace shown beside the focused one
             // (`sidebar.multiView`) focuses it first: a parked content's pane is not in the window's topology.
-            if isParked, state.viewSet?.contains(workspace.id) == true { services.windows.show(workspaceID: workspace.id, in: state) }
+            if isParked, state.isOnScreenBeside(workspace.id) { services.windows.show(workspaceID: workspace.id, in: state) }
             focus.send(.focusPane(pane.rawValue, source: .intent))
         case .setSplitRatio(let split, let ratio, let transaction, _):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }

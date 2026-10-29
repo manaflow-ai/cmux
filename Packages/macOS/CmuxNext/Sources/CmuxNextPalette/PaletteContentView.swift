@@ -102,6 +102,7 @@ final class PaletteContentView: NSView {
         list.onHover = { model.hover($0) }
         list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
+        list.onMiddleClick = { model.closeRow(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
         footer.onCrumb = { model.openCrumb(at: $0) }

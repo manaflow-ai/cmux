@@ -42,6 +42,7 @@ import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
+import { GH_SHIM } from "./github-auth";
 import { HOST_CLI } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -133,7 +134,9 @@ export function programProblems(lock: InputsLock, stdout: string): string[] {
       const [, rc, resolved] = line.split(" ");
       const output = line.slice(line.indexOf(" :: ") + 4);
       if (rc !== "0") problems.push(`${command}: exit ${rc}: ${output.slice(0, 160)}`);
-      if (resolved !== `${CURRENT_BIN}/${command}`) problems.push(`${command}: resolves to ${resolved}, expected ${CURRENT_BIN}/${command}`);
+      // gh resolves to the GitHub shim (github-auth.ts), which runs the store's gh.
+      const expected = command === "gh" ? GH_SHIM : `${CURRENT_BIN}/${command}`;
+      if (resolved !== expected) problems.push(`${command}: resolves to ${resolved}, expected ${expected}`);
       if (p.expect && !output.includes(p.expect)) problems.push(`${command}: output lacks ${p.expect}: ${output.slice(0, 160)}`);
     }
   }

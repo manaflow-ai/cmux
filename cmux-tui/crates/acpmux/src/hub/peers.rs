@@ -55,8 +55,10 @@ impl Hub {
             && let Err(why) = crate::peer::ssh_target(url)
         {
             tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
-            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+            let old = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            if let Some(old) = old {
                 old.stop();
+                self.note_peer_removed(&old);
             }
             return tokio::sync::watch::channel(1).1;
         }
@@ -80,6 +82,7 @@ impl Hub {
             self.peer_notices.clone(),
         );
         peer.set_vm_boundary(pc.vm_boundary);
+        peer.set_github_broker(pc.github_broker);
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -96,6 +99,8 @@ impl Hub {
         if cached {
             self.load_peer_cache(&peer);
         }
+        // Its first state now, and each change after it (`_acpmux/peer_state_changed`).
+        peer.report_states(self.peer_states().clone());
         let generation = peer.generation;
         tokio::spawn(peer.run());
         (generation, settled)
@@ -114,6 +119,21 @@ impl Hub {
         peer_token: Option<String>,
         wait: bool,
     ) -> Result<(), RpcError> {
+        self.add_peer_lending(name, url, token, peer_token, None, wait).await
+    }
+
+    /// `add_peer`, saying whether this Mac lends the peer its GitHub login (`github_broker.rs`);
+    /// None keeps what a re-add of the same machine had. A re-add of the same machine that says
+    /// it (Add Machine on a peer added before) keeps the saved tokens it does not name.
+    pub async fn add_peer_lending(
+        &self,
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        github_broker: Option<bool>,
+        wait: bool,
+    ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
         if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
             return Err(RpcError::invalid_params(
@@ -125,14 +145,32 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
+        // The config lock is held through starting the peer: a reload never lands between the
+        // save and the start (`reload_saved_peers`).
+        let mut cfg = self.config.write().await;
+        self.peer_config_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let pc = {
-            let mut cfg = self.config.write().await;
             // A re-add of the same machine keeps the VM boundary its config gave it
             // (`vm_boundary.rs`); `peer_add` itself never turns it on.
             let vm_boundary =
                 cfg.peers.get(name).is_some_and(|old| old.url == url && old.vm_boundary);
-            let pc =
-                crate::config::PeerConfig { url: url.to_owned(), token, peer_token, vm_boundary };
+            let same = cfg.peers.get(name).filter(|old| old.url == url);
+            let (token, peer_token) = match same {
+                Some(old) if github_broker.is_some() => (
+                    token.or_else(|| old.token.clone()),
+                    peer_token.or_else(|| old.peer_token.clone()),
+                ),
+                _ => (token, peer_token),
+            };
+            let github_broker =
+                github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
+            let pc = crate::config::PeerConfig {
+                url: url.to_owned(),
+                token,
+                peer_token,
+                vm_boundary,
+                github_broker,
+            };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
@@ -157,28 +195,54 @@ impl Hub {
             }
             self.start_peer(name, &pc)
         };
+        drop(cfg);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
     }
 
-    /// A config reload's saved peers' VM boundaries (`catalog_reload.rs`), onto the running
-    /// peers of those names; a leased peer keeps its lease's. Lock order: `peer_leases`, then
-    /// `peers`.
-    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool)]) {
+    /// A config reload's saved peers' VM boundaries and GitHub lending (`catalog_reload.rs`),
+    /// from the file it read (`next`), into the saved config and onto the running peers of
+    /// those names at that url; a leased peer keeps its lease's. Called under the config write
+    /// lock, which `peer_add` holds through starting its peer, so the two never interleave; a
+    /// `peer_add` after the reload began its read (`read_gen`) wins, since the file read may be
+    /// from before its save. Lock order: config, `peer_leases`, then `peers`.
+    /// The `peer_add` generation a reload starts from, read under the config lock: a
+    /// `peer_add` holds the write lock from its count through its save, so this is from wholly
+    /// before one (which then counts past it) or after its save (which the file read then sees).
+    pub(super) async fn peer_read_gen(&self) -> u64 {
+        let _cfg = self.config.read().await;
+        self.peer_config_gen.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(super) fn reload_saved_peers(
+        &self,
+        current: &mut crate::config::Config,
+        next: &std::collections::BTreeMap<String, crate::config::PeerConfig>,
+        read_gen: u64,
+    ) {
+        if self.peer_config_gen.load(std::sync::atomic::Ordering::SeqCst) != read_gen {
+            return;
+        }
         let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        for (name, on) in boundaries {
+        for (name, pc) in current.peers.iter_mut() {
+            let same = next.get(name).filter(|n| n.url == pc.url);
+            pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
+            pc.github_broker = same.is_some_and(|n| n.github_broker);
             if !leases.contains_key(name)
                 && let Some(peer) = peers.get(name)
+                && peer.url == pc.url
             {
-                peer.set_vm_boundary(*on);
+                peer.set_vm_boundary(pc.vm_boundary);
+                peer.set_github_broker(pc.github_broker);
             }
         }
     }
 
-    /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
+    /// `_acpmux/peer_add {name, url, token?, peerToken?, githubBroker?, wait?}`: the unix socket
+    /// only (`remote_guard.rs`).
     pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         let required =
@@ -187,18 +251,51 @@ impl Hub {
         let token = text("token").map(str::to_owned);
         let peer_token = text("peerToken").map(str::to_owned);
         let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-        self.add_peer(name, url, token, peer_token, wait).await
+        let github_broker = params.get("githubBroker").and_then(Value::as_bool);
+        self.add_peer_lending(name, url, token, peer_token, github_broker, wait).await
     }
 
     /// Reconnect a configured peer now (its daemon was restarted), without
     /// waiting out the reconnect backoff; with `wait`, answer once the
     /// attempt settled.
     pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
-        let peer = self.config.read().await.peers.get(name).cloned();
-        let Some(peer) = peer else {
+        self.reconnect_peer_with(name, wait, true).await
+    }
+
+    /// ``reconnect_peer``; without `force`, a peer whose link is ready (connected, or `degraded`
+    /// because a ping went unanswered) or still in a handshake younger than the handshake deadline
+    /// is left alone, so a client that only saw it down, or a send to a slow machine, never cuts
+    /// a working link and the requests on it (`peer_disconnected`). A link past that deadline is
+    /// replaced (its own deadline drops it then too). The app's picks and sends ask this way; `host reconnect` forces.
+    pub async fn reconnect_peer_with(
+        &self,
+        name: &str,
+        wait: bool,
+        force: bool,
+    ) -> Result<(), RpcError> {
+        // Read under the config lock and held through the start: a `peer_add` or reload that
+        // changes the peer (its GitHub lending) lands wholly before or after, never between.
+        let cfg = self.config.read().await;
+        let Some(peer) = cfg.peers.get(name).cloned() else {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
+        // A ready link, or a handshake younger than the handshake deadline, is left to finish; with
+        // `wait`, an unfinished handshake is waited for as a new attempt would be. Subscribed before
+        // the link is read, so a handshake that settles in between is still heard.
+        if !force && let Some(running) = self.peer(name) {
+            let mut settled = running.settled();
+            let link = running.link();
+            let young = crate::peer_link::LinkTimings::from_env().handshake;
+            if link.keeps_on_reconnect(crate::store::now_ms(), young) {
+                drop(cfg);
+                if wait && !link.is_ready() {
+                    let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+                }
+                return Ok(());
+            }
+        }
         let mut settled = self.start_peer(name, &peer);
+        drop(cfg);
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -209,6 +306,11 @@ impl Hub {
     /// config.json, and it ends with the connection that holds it
     /// (`peer_lease.rs`).
     pub async fn remove_peer(&self, name: &str) -> Result<(), RpcError> {
+        // The config lock first, held through the save: a reconnect (which holds it through its
+        // start) never starts the peer again between its stop and its removal from the config,
+        // so no peer that still lends GitHub outlives its removal (lock order: config,
+        // `peer_leases`, `remote_sessions`, then `peers`).
+        let mut cfg = self.config.write().await;
         let gone = {
             // Under the lease lock, so no save of the removed peer's sessions
             // lands after its cache is gone (`save_peer_cache`).
@@ -227,6 +329,7 @@ impl Hub {
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
+            self.note_peer_removed(&peer);
             self.forget_peer_files(name);
             take_peer_rows(&mut rows, name)
         };
@@ -234,12 +337,17 @@ impl Hub {
         for summary in gone {
             self.announce_remote(name, summary, "purged");
         }
-        let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
             tracing::warn!("save config failed: {e}");
         }
         Ok(())
+    }
+
+    /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
+    /// unless another instance took its name meanwhile (`peer_states.rs`).
+    pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
+        self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
     }
 
     /// Drop every row of peer `name` and tell watching clients they left.
@@ -257,13 +365,11 @@ impl Hub {
             self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         // Released before the rows are counted (lock order: `remote_sessions`,
         // then `peers`; `apply_peer_notice`).
-        let listed: Vec<(String, Value)> = self
-            .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| (p.name.clone(), p.summary()))
-            .collect();
+        let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
+            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+            let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
+            (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
+        };
         let mut counts: HashMap<String, usize> = HashMap::new();
         for r in self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
             *counts.entry(r.peer.clone()).or_default() += 1;
@@ -274,6 +380,9 @@ impl Hub {
                 s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
                 if leased.contains(&name) {
                     s["leased"] = Value::Bool(true);
+                }
+                if brokers.contains(&name) {
+                    s["githubBroker"] = Value::Bool(true);
                 }
                 s
             })
@@ -547,7 +656,7 @@ impl Hub {
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
                         if let Some(old_id) = old_id {
-                            map.remove(&old_id);
+                            map.take(&old_id);
                         }
                         map.insert(
                             id.clone(),
@@ -823,7 +932,7 @@ impl Hub {
             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
-        let removed = key.and_then(|key| map.remove(&key));
+        let removed = key.and_then(|key| map.take(&key));
         // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
         // names no generation and found no such row removes no copy of another.
         if generation.is_some() || removed.is_some() {
@@ -839,6 +948,13 @@ impl Hub {
 
     /// [`Self::remote_sessions`] of the rows `keep` takes, cloning no other.
     fn remote_rows(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let mut rows = Vec::new();
+        self.visit_remote_rows(keep, |row| rows.push(row));
+        rows
+    }
+
+    /// Capture immutable row handles under the lock, then normalize and visit outside it.
+    fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -846,18 +962,30 @@ impl Hub {
             .values()
             .map(|p| (p.name.clone(), p.state().as_str()))
             .collect();
-        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.values()
+        let rows: Vec<_> = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
             .filter(|r| keep(&r.summary))
-            .map(|r| {
-                let mut summary = r.summary.clone();
-                summary["stale"] = Value::Bool(summary["stale"] == true);
-                if let Some(state) = states.get(&r.peer) {
-                    summary["peerState"] = Value::String((*state).to_owned());
-                }
-                summary
-            })
-            .collect()
+            .cloned()
+            .collect();
+        for r in rows {
+            let mut summary = r.summary.clone();
+            summary["stale"] = Value::Bool(summary["stale"] == true);
+            if let Some(state) = states.get(&r.peer) {
+                summary["peerState"] = Value::String((*state).to_owned());
+            }
+            visit(summary);
+        }
+    }
+
+    /// Each summary once, local before remote, without retaining the JSON trees.
+    pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
+        for session in self.sessions() {
+            visit(self.session_summary(&session));
+        }
+        self.visit_remote_rows(|_| true, visit);
     }
 
     /// Every session, local and remote, newest first.
@@ -900,6 +1028,114 @@ impl Hub {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Reviews of #24797 at d703168 and 828f855: a reload applied the lending it read to
+    /// whatever peer had the name by then, and a reload whose file read came before a
+    /// `peer_add` brought back what that add took away.
+    #[tokio::test]
+    async fn a_reload_lends_only_to_the_machine_and_the_add_it_read() {
+        use crate::config::PeerConfig;
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let url = "ws://127.0.0.1:9/m";
+        let lent = |url: &str| PeerConfig {
+            url: url.into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: true,
+            github_broker: true,
+        };
+        let file = |pc: PeerConfig| std::collections::BTreeMap::from([("m".to_owned(), pc)]);
+        let peer = || hub.peers.lock().unwrap().get("m").cloned().unwrap();
+        let reload = |next: std::collections::BTreeMap<String, PeerConfig>, read: u64| {
+            let hub = &hub;
+            async move {
+                let mut current = hub.config.write().await;
+                hub.reload_saved_peers(&mut current, &next, read);
+            }
+        };
+        hub.add_peer_lending("m", url, None, None, Some(false), false).await.unwrap();
+
+        // The file names `m` at another url: neither the saved peer nor the running one lends.
+        let read = hub.peer_read_gen().await;
+        reload(file(lent("ws://127.0.0.1:9/other")), read).await;
+        assert!(!peer().github_broker() && !peer().vm_boundary(), "read for another machine");
+
+        // The reload read the file, then `peer_add` took lending away (same url): it holds.
+        let read = hub.peer_read_gen().await;
+        hub.add_peer_lending("m", url, None, None, Some(false), false).await.unwrap();
+        reload(file(lent(url)), read).await;
+        assert!(!peer().github_broker(), "a later add takes it away for good");
+        assert!(!hub.config.read().await.peers["m"].github_broker);
+
+        // A reload with nothing between its read and its apply turns it on.
+        let read = hub.peer_read_gen().await;
+        reload(file(lent(url)), read).await;
+        assert!(peer().github_broker() && peer().vm_boundary(), "read for this machine");
+        assert!(hub.config.read().await.peers["m"].github_broker);
+        peer().stop();
+    }
+
+    /// Review of #24797 at b93f3a3: a reload read the add count outside the config lock (so
+    /// mid-add, before its save), and a reconnect started a peer from a config read it had let
+    /// go. Both now wait for a change in progress and see what it saved.
+    #[tokio::test]
+    async fn a_reload_or_reconnect_waits_for_a_peer_change_in_progress() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let url = "ws://127.0.0.1:9/m";
+        hub.add_peer_lending("m", url, None, None, Some(true), false).await.unwrap();
+        let wait = std::time::Duration::from_millis(200);
+
+        // A change in progress: counted, not yet saved (what `peer_add` does under the lock).
+        let mut held = hub.config.write().await;
+        hub.peer_config_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let read = tokio::time::timeout(wait, hub.peer_read_gen()).await;
+        assert!(read.is_err(), "the count is not read mid-change");
+        let reconnect = tokio::time::timeout(wait, hub.reconnect_peer("m", false)).await;
+        assert!(reconnect.is_err(), "no peer starts from a config mid-change");
+        held.peers.get_mut("m").unwrap().github_broker = false;
+        drop(held);
+
+        hub.reconnect_peer("m", false).await.unwrap();
+        let peer = hub.peers.lock().unwrap().get("m").cloned().unwrap();
+        assert!(!peer.github_broker(), "the reconnect started what the change saved");
+        peer.stop();
+    }
+
+    /// Review of #24797 at 30e24d1: a removal stopped the live peer before it took the config
+    /// lock, so a reconnect holding that lock started it again, still lending GitHub, after the
+    /// removal said it was gone. The removal now waits for the reconnect, and its stop is last.
+    #[tokio::test]
+    async fn a_removed_peer_is_never_started_again_by_a_reconnect_in_progress() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.add_peer_lending("m", "ws://127.0.0.1:9/m", None, None, Some(true), false)
+            .await
+            .unwrap();
+
+        // A reconnect in progress: it read the config and holds it through its start.
+        let held = hub.config.read().await;
+        let removing = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.remove_peer("m").await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!removing.is_finished(), "the removal waits for the reconnect");
+        assert!(hub.peers.lock().unwrap().contains_key("m"), "and stops nothing before it");
+        let restarted = hub.start_peer("m", &held.peers["m"]);
+        drop((held, restarted));
+
+        removing.await.unwrap().unwrap();
+        assert!(!hub.peers.lock().unwrap().contains_key("m"), "no peer outlives its removal");
+        assert!(!hub.config.read().await.peers.contains_key("m"));
+    }
 
     #[test]
     fn remote_summary_qualifies_the_mux_id_without_changing_legacy_name() {
@@ -944,6 +1180,38 @@ mod tests {
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
     }
 
+    #[test]
+    fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let rows = (0..3).map(|i| json!({"sessionId": format!("r{i}"), "status": "closed", "updatedAt": i, "tools": [{"id": "kept"}]})).collect();
+        hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+        let expected = hub.all_session_summaries();
+        let mut actual = Vec::new();
+        hub.visit_session_summaries(|row| {
+            // A writer can remove rows during serialization without changing this snapshot.
+            let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
+            let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
+            for (id, captured) in captured {
+                let writes = rows.writes;
+                let removed = rows.take(&id).unwrap();
+                assert!(Arc::ptr_eq(&removed, &captured), "discard must not deep-clone a row");
+                assert_eq!(rows.writes, writes + 1);
+                assert!(rows.get(&id).is_none());
+            }
+            actual.push(row);
+        });
+        super::super::session_pages::sort_session_summaries(&mut actual);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 3);
+        assert!(hub.remote_sessions.lock().unwrap().is_empty());
+    }
+
     /// A wait reads the row the full list puts first for each id: a peer's newer chat
     /// over a local one with the same bare id, and the newer of two peers' rows.
     #[test]
@@ -969,6 +1237,10 @@ mod tests {
         }
         let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
         let all = hub.all_session_summaries();
+        let mut streamed = Vec::new();
+        hub.visit_session_summaries(|row| streamed.push(row));
+        super::super::session_pages::sort_session_summaries(&mut streamed);
+        assert_eq!(streamed, all, "local and normalized remote summaries agree");
         let some = hub.session_summaries_of(&ids);
         for id in &ids {
             let first = all.iter().find(|s| s["sessionId"] == id.as_str());

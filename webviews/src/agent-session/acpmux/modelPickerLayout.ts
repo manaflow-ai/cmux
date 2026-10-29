@@ -3,7 +3,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
-import type { SpeedTiers } from "./FastToggle";
+import type { SessionAuth } from "./sessionAuth";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -14,6 +14,10 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// The current chat or New Tab target's auth, never host-wide cached health.
+  sessionAuth?: SessionAuth;
+  onSessionLogin?(): void;
+  onSessionAuthRefresh?(): void;
   /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
   /// vendor ("Opus 5.5") and its family ("Opus") for a narrow row; `title` names the model in the
   /// tooltip of the row's mark-only chip. Away from the row the chip shows `label`.
@@ -41,9 +45,10 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
-  speed?: SpeedTiers;
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.

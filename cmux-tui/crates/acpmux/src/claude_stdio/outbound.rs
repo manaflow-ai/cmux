@@ -101,32 +101,15 @@ impl Translator {
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
+                        if steer {
+                            // Claude Code reads it at its next tool boundary and echoes it; the
+                            // echo answers this request. Another session's message may join the
+                            // waiting line of others' (`steer_batch.rs`).
+                            return self.write_steer(id, &p, content).await;
+                        }
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
-                        if steer {
-                            // Claude Code reads it at its next tool boundary
-                            // and echoes it; the echo answers this request.
-                            let mut steers = self.steers.lock().await;
-                            steers.push_back((uuid.clone(), id.to_string()));
-                            // Named by its promptId, for a withdraw (`steer_withdraw.rs`).
-                            if let Some(prompt_id) =
-                                p.pointer("/_meta/promptId").and_then(Value::as_str)
-                            {
-                                let mut lines = self.steer_lines.lock().await;
-                                lines.retain(|_, u| steers.iter().any(|(s, _)| s == u));
-                                lines.insert(prompt_id.to_owned(), uuid);
-                            }
-                            drop(steers);
-                            // Sent now (`_meta.steerNow`): the current step stops, so it
-                            // reads the line at once; the turn runs on. Not while a subagent
-                            // or a background shell runs (`interrupt_ends_work`).
-                            let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool);
-                            if now == Some(true) && !self.interrupt_ends_work().await {
-                                return Outbound::Lines(vec![line, self.step_interrupt(None)]);
-                            }
-                            return Outbound::Lines(vec![line]);
-                        }
                         self.in_turn.store(true, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
@@ -426,7 +409,7 @@ impl Translator {
     /// running subagent (background ones too) and every background shell, so Send now never
     /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
     /// subagents). The steer is then read at the next tool boundary instead.
-    async fn interrupt_ends_work(&self) -> bool {
+    pub(super) async fn interrupt_ends_work(&self) -> bool {
         !self.subagents.lock().await.is_empty()
             || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
@@ -434,7 +417,7 @@ impl Translator {
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
     /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
     /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
-    fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+    pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),

@@ -19,7 +19,9 @@
 //! - **Outcome ledger.** A finished subagent (not one the person stopped)
 //!   waits until a Chief post names it as a word. A turn that saw its report
 //!   and ended without naming it leaves a check; one `[untold]` retry note,
-//!   then it is dropped. The host never posts on the Chief's behalf here.
+//!   then it is dropped. One Chief sends back to work (`subagent_resumed`:
+//!   a tell, restart or resume) leaves at once: its next report is the one
+//!   to tell. The host never posts on the Chief's behalf here.
 //!
 //! - **Ask ledger.** One person message often holds several asks. A turn
 //!   records the asks it took (`asks_taken`), each with an owner: a subagent
@@ -31,15 +33,25 @@
 //!   message has an owner, an `ack` intent marks it. An ask with no owner
 //!   after its turn ends gets an `[unowned]` retry note, once.
 //!
+//! - **Schedule ledger.** A Chief's jobs: `schedule_set` keeps one (a 5-field
+//!   cron on the person's clock, `ctx.utc_offset_minutes`, or a one-shot
+//!   `at_ms`), `schedule_removed` drops it. When a slot is due and no turn
+//!   runs, `check_due` fires it as a `[schedule <id>] <prompt>` notice keyed
+//!   `fire-<id>-<slot>`; a computer that slept through several slots fires it
+//!   once, for the latest. A recurring job expires `SCHEDULE_TTL` after it was
+//!   set unless it names `expires_ms`, with one note when it does.
+//!
 //! Events: `message_logged {id, seq, text, from_person}`, `turn_started
 //! {seen: [message ids], reports: [subagent ids]}`, `reply_posted {answers?,
 //! reply_to?, chief, text}`, `turn_ended {said_no_reply}`, `outcome_reported
 //! {id, stopped}`, `asks_taken {message, asks: [{ask, owner?, reason?}]}`,
 //! `spawn_requested {message, tasks: [{ask, task}]}`, `spawn_started {key,
-//! id}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice {text, key}`
+//! id}`, `schedule_set {id, cron | at_ms, prompt, expires_ms?}`,
+//! `schedule_removed {id}`, `subagent_resumed {id}`, `check_due`. Intents: `schedule {at_ms, key}`, `notice {text, key}`
 //! (a note that starts a turn), `post {text, reply_to, key}`, `spawn {task,
 //! message, key}`, `ack {message, key}`.
 
+use crate::cron::Cron;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -71,6 +83,12 @@ pub const UNOWNED_WAIT: u64 = 5_000;
 /// Retry turns per unowned ask before it is dropped.
 pub const MAX_UNOWNED_TRIES: u32 = 1;
 
+/// How long a recurring job lives when it names no expiry: 7 days.
+pub const SCHEDULE_TTL: u64 = 7 * 24 * 3_600_000;
+
+/// The first word of a scheduled job's note.
+pub const SCHEDULE_TAG: &str = "[schedule";
+
 const PREVIEW_CHARS: usize = 120;
 const WHY_NO_REPLY: &str = "the turn ended with NO_REPLY";
 const WHY_SILENT: &str = "the turn ended without a reply";
@@ -87,9 +105,40 @@ pub struct Ledgers {
     /// The asks the person's messages hold, with their owners.
     #[serde(default)]
     pub asks: Vec<Ask>,
+    /// The Chief's scheduled jobs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schedules: Vec<Schedule>,
     /// A turn runs now.
     #[serde(default)]
     pub turn_running: bool,
+}
+
+/// A recurring (cron) or one-shot (at) job of the Chief.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Schedule {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
+    pub prompt: String,
+    /// Its next slot (UTC ms).
+    pub next_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_ms: Option<u64>,
+    /// A running turn held its firing until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_ms: Option<u64>,
+}
+
+impl Schedule {
+    fn due_at(&self) -> u64 {
+        self.next_ms.max(self.hold_ms.unwrap_or(0))
+    }
+
+    /// When a check must look at it: its slot, or its expiry when sooner.
+    fn check_at(&self) -> u64 {
+        self.expires_ms
+            .map_or(self.due_at(), |e| e.min(self.due_at()))
+    }
 }
 
 /// One ask of a person message.
@@ -211,6 +260,22 @@ enum Event {
         key: String,
         id: String,
     },
+    ScheduleSet {
+        id: String,
+        #[serde(default)]
+        cron: Option<String>,
+        #[serde(default)]
+        at_ms: Option<u64>,
+        prompt: String,
+        #[serde(default)]
+        expires_ms: Option<u64>,
+    },
+    ScheduleRemoved {
+        id: String,
+    },
+    SubagentResumed {
+        id: String,
+    },
     CheckDue,
 }
 
@@ -224,6 +289,10 @@ pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Resul
         .get("now_ms")
         .and_then(Value::as_u64)
         .ok_or("ctx: `now_ms` is required")?;
+    let offset = ctx
+        .get("utc_offset_minutes")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
     let mut intents: Vec<Value> = Vec::new();
     match event {
         Event::MessageLogged {
@@ -391,7 +460,47 @@ pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Resul
                 ack_if_owned(&s, &m, &mut intents);
             }
         }
-        Event::CheckDue => fire(&mut s, now, &mut intents),
+        Event::ScheduleSet {
+            id,
+            cron,
+            at_ms,
+            prompt,
+            expires_ms,
+        } => {
+            if id.trim().is_empty() || prompt.trim().is_empty() {
+                return Err("schedule_set: `id` and `prompt` are required".into());
+            }
+            let (next_ms, expires_ms) = match (&cron, at_ms) {
+                (Some(c), None) => {
+                    let next = Cron::parse(c)?
+                        .next_after(now, offset)
+                        .ok_or_else(|| format!("schedule_set: cron {c:?} never fires"))?;
+                    (next, Some(expires_ms.unwrap_or(now + SCHEDULE_TTL)))
+                }
+                (None, Some(at)) => (at, expires_ms),
+                _ => return Err("schedule_set: give exactly one of `cron` and `at_ms`".into()),
+            };
+            s.schedules.retain(|j| j.id != id);
+            s.schedules.push(Schedule {
+                id,
+                cron,
+                prompt,
+                next_ms,
+                expires_ms,
+                hold_ms: None,
+            });
+            schedule_next(&s, &mut intents);
+        }
+        // Chief sent it back to work: its next report is the one to tell.
+        Event::SubagentResumed { id } => s.untold.retain(|u| u.id != id),
+        Event::ScheduleRemoved { id } => {
+            s.schedules.retain(|j| j.id != id);
+            schedule_next(&s, &mut intents);
+        }
+        Event::CheckDue => {
+            fire_schedules(&mut s, now, offset, &mut intents);
+            fire(&mut s, now, &mut intents);
+        }
     }
     Ok(json!({"state": s, "intents": intents}).to_string())
 }
@@ -497,10 +606,77 @@ fn schedule_next(s: &Ledgers, intents: &mut Vec<Value>) {
         .filter_map(|a| a.due_ms)
         .chain(s.untold.iter().filter_map(|u| u.due_ms))
         .chain(s.asks.iter().filter_map(|a| a.due_ms))
+        .chain(s.schedules.iter().map(Schedule::check_at))
         .min();
     if let Some(at) = next {
         intents.push(json!({"kind": "schedule", "at_ms": at, "key": format!("reply-check-{at}")}));
     }
+}
+
+/// The scheduled jobs due at `now`: a running turn holds them a little; else
+/// each fires once for its latest due slot, and an expired one is dropped
+/// with a note. `fire` asks for the next check after.
+fn fire_schedules(s: &mut Ledgers, now: u64, offset: i64, intents: &mut Vec<Value>) {
+    if s.turn_running {
+        for j in s.schedules.iter_mut().filter(|j| j.due_at() <= now) {
+            j.hold_ms = Some(now + REPLY_RETRY_WAITS[0]);
+        }
+        return;
+    }
+    let mut expired: Vec<String> = Vec::new();
+    for j in s.schedules.iter_mut() {
+        let limit = j.expires_ms.map_or(now, |e| e.min(now));
+        if j.due_at() <= now && j.next_ms <= limit {
+            // The latest slot it missed; the ones before it fire nothing.
+            let cron = j.cron.as_deref().and_then(|c| Cron::parse(c).ok());
+            let mut slot = j.next_ms;
+            let mut missed = 1u32;
+            let mut next = None;
+            if let Some(cron) = &cron {
+                loop {
+                    match cron.next_after(slot, offset) {
+                        Some(n) if n <= limit => {
+                            slot = n;
+                            missed += 1;
+                        }
+                        n => {
+                            next = n;
+                            break;
+                        }
+                    }
+                }
+            }
+            let mut text = format!("{SCHEDULE_TAG} {}] {}", j.id, j.prompt);
+            if missed > 1 {
+                text.push_str(&format!(
+                    "\n(This computer slept through {missed} of its times; it runs once now.)"
+                ));
+            }
+            intents.push(
+                json!({"kind": "notice", "text": text, "key": format!("fire-{}-{slot}", j.id)}),
+            );
+            j.hold_ms = None;
+            match next {
+                Some(n) => j.next_ms = n,
+                None => expired.push(j.id.clone()),
+            }
+            if cron.is_none() {
+                continue;
+            }
+        }
+        if j.expires_ms.is_some_and(|e| e <= now) && !expired.contains(&j.id) {
+            intents.push(json!({
+                "kind": "notice",
+                "text": format!(
+                    "{SCHEDULE_TAG} {}] expired: \"{}\" no longer runs. Set it again if the person still wants it.",
+                    j.id, preview(&j.prompt)
+                ),
+                "key": format!("expired-{}", j.id),
+            }));
+            expired.push(j.id.clone());
+        }
+    }
+    s.schedules.retain(|j| !expired.contains(&j.id));
 }
 
 fn wait_of(tries: u32) -> u64 {
