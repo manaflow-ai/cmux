@@ -27,16 +27,7 @@ struct ChiefLiveBubble: View {
         VStack(alignment: .leading, spacing: 6) {
             if let live = session.shownLive {
                 if let text = Self.replyText(live) {
-                    Text(text)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        // The newest text: the head is cut, not the tail.
-                        .lineLimit(8)
-                        .truncationMode(.head)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
-                        .frame(maxWidth: 300, alignment: .leading)
+                    ChiefLiveReplyText(text: text)
                         .transition(.opacity)
                         .accessibilityIdentifier("chief.live.reply")
                 }
@@ -82,6 +73,53 @@ struct ChiefLiveBubble: View {
         let seconds = max(0, Int(now.timeIntervalSince(since)))
         let elapsed = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
         return "\(line) · \(elapsed)"
+    }
+}
+
+/// Lay out only the bounded tail, then expose its bottom eight lines. SwiftUI's
+/// multiline head truncation can retain the first wrapped lines instead of the
+/// newest words, even when the source string already contains only the tail.
+struct ChiefLiveReplyText: View {
+    let text: String
+    @ScaledMetric(relativeTo: .body) private var lineHeight = UIFont.preferredFont(
+        forTextStyle: .body,
+        compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)
+    ).lineHeight
+
+    var body: some View {
+        ChiefLiveReplyViewport(maxHeight: lineHeight * 8) {
+            Text(text)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .clipped()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+}
+
+/// A short reply keeps its natural bubble size. A long reply lays out at
+/// the available width with unlimited height, then shows its bottom edge
+/// through a bounded viewport instead of asking Text to truncate it.
+private struct ChiefLiveReplyViewport: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let text = subviews.first else { return .zero }
+        let width = min(276, max(0, proposal.width ?? 276))
+        let size = text.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: min(width, size.width), height: min(maxHeight, size.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.maxY),
+            anchor: .bottomLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
     }
 }
 
