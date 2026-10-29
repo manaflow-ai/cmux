@@ -1,0 +1,38 @@
+import Foundation
+import Testing
+@testable import CmuxMobileAgentChat
+
+@MainActor
+@Suite struct FailedTurnRetryTests {
+    @Test func retryUsesTheDaemonOperationAndWaitsForItsRecord() throws {
+        let source = PromptResendTests.Recorder()
+        let store = AgentChatStore(source: source)
+        let attachment = AgentAttachment(kind: .file, name: "notes.txt", data: Data("notes".utf8))
+        store.apply(.userMessage(text: "Read this", promptId: "p", turnId: "t", attachments: [attachment], at: Date()))
+        store.apply(.turnResult(turnId: "t", status: .failed, errorText: "unavailable", at: Date()))
+        let turn = try #require(store.turns.last)
+        store.retryFailedTurn(turn)
+        store.retryFailedTurn(turn)
+        #expect(source.sent == [.retryFailedTurn])
+        #expect(store.turns == [turn]) // A refused request must not remove the failed input.
+        store.apply(.clientError("Disconnected"))
+        store.retryFailedTurn(turn)
+        #expect(source.sent.count == 2)
+        store.apply(.turnRetried(previousTurnID: "t", turnID: "retry"))
+        store.apply(.userMessage(text: "Continue", promptId: "p~resume-1", turnId: "retry", attachments: [], at: Date()))
+        #expect(store.turns.count == 1)
+        #expect(store.turns.last?.prompt == "Read this")
+        #expect(store.turns.last?.attachments == [attachment])
+        #expect(store.turns.last?.errorText == nil)
+        #expect(store.turns.last?.status == .running)
+        store.retryFailedTurn(turn) // The stale menu cannot retry another turn.
+        #expect(source.sent.count == 2)
+    }
+
+    @Test func aRetryWhoseOriginalIsOutsideLoadedHistoryStillAppears() {
+        let store = AgentChatStore(source: PromptResendTests.Recorder())
+        store.apply(.turnRetried(previousTurnID: "older", turnID: "retry"))
+        store.apply(.userMessage(text: "Continue", promptId: "p~resume-1", turnId: "retry", attachments: [], at: Date()))
+        #expect(store.turns.map(\.id) == ["retry"])
+    }
+}

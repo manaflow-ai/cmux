@@ -1,4 +1,4 @@
-import CmuxMobileAgentChat
+@testable import CmuxMobileAgentChat
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -11,14 +11,13 @@ import Testing
         var eventsToReplay: [AgentSessionEvent] = []
         func events() -> AsyncStream<AgentSessionEvent> {
             AsyncStream { continuation in
-                continuation.yield(.batch(eventsToReplay))
                 continuation.finish()
             }
         }
         func send(_ intent: AgentClientIntent) {}
     }
 
-    @Test func aRetryReplacesTheFailedTurnDuringHistoryReplay() async throws {
+    @Test func aRetryReplacesTheFailedTurnDuringHistoryReplay() throws {
         let records = AcpmuxRecords(sessionID: "s")
         let lines = [
             #"{"dir":"mux","kind":"user_message","msg":{"turnId":"t1","promptId":"p1","text":"Read this","images":[{"id":"image"}]}}"#,
@@ -31,8 +30,7 @@ import Testing
             records.map(try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)))
         }
         let store = AgentChatStore(source: source)
-        // The stream is finite; allow its actor task to reduce the replay batch.
-        for _ in 0..<20 where store.turns.last?.status != .completed { await Task.yield() }
+        store.apply(.batch(source.eventsToReplay))
         #expect(store.turns.count == 1)
         let turn = try #require(store.turns.last)
         #expect(turn.id == "t2")

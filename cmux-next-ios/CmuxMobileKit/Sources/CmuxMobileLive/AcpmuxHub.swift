@@ -417,6 +417,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
                                                  reason: AcpmuxSessionSource.message(error)))
                     }
+                case .retryFailedTurn:
+                    _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):

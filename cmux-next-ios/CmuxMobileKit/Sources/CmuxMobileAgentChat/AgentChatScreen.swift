@@ -698,7 +698,7 @@ struct TurnView: View {
                 case .failed:
                     let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
                     FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
-                        store.send(prompt: turn.prompt)
+                        store.retryFailedTurn(turn)
                     }
                 case .completed:
                     AnswerActionRow(turn: turn, isLast: isLast) { store.send(prompt: turn.prompt) }

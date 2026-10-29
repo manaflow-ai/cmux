@@ -308,6 +308,16 @@ public final class AgentChatStore {
         if clientError != nil { clientError = nil }
     }
 
+    /// A failed latest turn retries through acpmux, which preserves its input and context.
+    public func retryFailedTurn(_ turn: AgentTurn) {
+        guard turns.last?.id == turn.id, turns.last?.status == .failed, !retryRequested else { return }
+        clientError = nil
+        retryRequested = true
+        source.send(.retryFailedTurn)
+    }
+
+    private var retryRequested = false
+
     public func cancel() { source.send(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
@@ -384,7 +394,23 @@ public final class AgentChatStore {
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
         switch event {
+        case .turnRetried(let previousTurnID, let turnID):
+            guard let index = turns.indices.last, turns[index].id == previousTurnID,
+                  turns[index].status == .failed else { break }
+            // Keep the original input and partial work: the daemon may continue a cut turn.
+            // Its new user_message is an attempt, not another user-authored turn.
+            turns[index].id = turnID
+            turns[index].status = .running
+            turns[index].errorText = nil
+            turns[index].retry = nil
+            turns[index].endedAt = nil
+            for agentIndex in subagents.indices where subagents[agentIndex].turnID == previousTurnID {
+                subagents[agentIndex].turnID = turnID
+            }
+            retryRequested = false
+            currentMessageID = nil
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
+            retryRequested = false
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
@@ -495,6 +521,7 @@ public final class AgentChatStore {
             summary.status = status
         case .clientError(let message):
             approvingOptionID = nil
+            retryRequested = false
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.

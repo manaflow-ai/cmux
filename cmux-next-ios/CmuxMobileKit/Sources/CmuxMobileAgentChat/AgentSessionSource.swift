@@ -46,6 +46,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case queueUpdated(promptId: String, text: String)
     /// The waiting prompts' order (`queue_order`, Move up / Move down).
     case queueOrder([String])
+    /// The daemon retried the failed turn under a new attempt id.
+    case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
     /// The agent's request to its model failed and it is trying again (Claude Code's
@@ -86,6 +88,7 @@ public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
     /// sent again after its reply was lost (acpmux also looks for the id in the session log).
     case prompt(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String, resend: Bool)
+    case retryFailedTurn
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
