@@ -1137,6 +1137,55 @@ mod tests {
         assert_eq!(activity.idle_since(), Some(1_300), "after a command");
     }
 
+    /// Review 4 of cp/fix-tip-continuation-prompt-idle-2, blocker 1: with no
+    /// `B`, a line typed ahead of an earlier command (`true`, then
+    /// `cat <<EOF`) is still unread when that command's `C` clears the "line
+    /// typed" flag; its PS2 after a transient PS1 redraw must not read idle.
+    #[test]
+    fn shell_idle_a_heredoc_typed_ahead_with_no_b_marks_is_not_idle() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        activity.note_input(b"sleep 1\r");
+        activity.observe(ShellMark::PromptStart, 1_050);
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"true\rcat <<EOF\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        activity.observe(ShellMark::PromptStart, 1_310);
+        activity.observe(ShellMark::CommandStart, 1_400);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_500);
+        activity.observe(ShellMark::PromptStart, 1_600);
+        activity.observe(ShellMark::PromptStart, 1_610);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_620);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+        assert_eq!(activity.idle_since(), None, "the heredoc is open");
+    }
+
+    /// Blocker 2: a `B` from a nested shell (ssh to a host whose integration
+    /// sends `B`) must not make a local shell that sends no `B` read its PS2
+    /// as a line of its prompt.
+    #[test]
+    fn shell_idle_a_nested_shells_b_does_not_vouch_for_the_local_prompt() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        activity.note_input(b"ssh host\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        // The remote shell's prompt marks, then `exit`.
+        activity.observe(ShellMark::PromptStart, 1_200);
+        activity.observe(ShellMark::InputStart, 1_201);
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_300);
+        activity.observe(ShellMark::PromptStart, 1_400);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_500);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_510);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+        assert_eq!(activity.idle_since(), None, "the heredoc is open");
+    }
+
     #[test]
     fn shell_idle_a_check_that_raced_a_mark_or_input_is_dropped() {
         let mut activity = ShellActivity::default();
