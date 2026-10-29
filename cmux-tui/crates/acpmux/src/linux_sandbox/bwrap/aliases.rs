@@ -544,7 +544,7 @@ mod tests {
         assert!(reasons.iter().any(|r| r.contains("autofs")), "{reasons:?}");
     }
 
-    // Copied from big-red's /proc/self/mountinfo (Ubuntu with snapd).
+    // Copied from a real Ubuntu host's /proc/self/mountinfo (snapd installed).
     const SNAPD_NS: &str = "34 1 0:29 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=6349032k,mode=755,inode64
 1190 34 0:29 /snapd/ns /run/snapd/ns rw,nosuid,nodev - tmpfs tmpfs rw,size=6349028k,nr_inodes=819200,mode=755,inode64
 4043 1190 0:5 mnt:[4026533090] /run/snapd/ns/snapd-desktop-integration.mnt rw - nsfs nsfs rw

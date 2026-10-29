@@ -220,8 +220,22 @@ struct Owner {
     child: Child,
     input: FramedWrite<ChildStdin, LinesCodec>,
     output: FramedRead<ChildStdout, LinesCodec>,
+    lock: File,
     next_id: u64,
     account: Option<String>,
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        if let Some(pid) = self.child.id() {
+            // SAFETY: this unreaped child leads the group we created. Drop
+            // cannot await Tokio's reaper, so kill the group without unlocking.
+            // Its inherited descriptor keeps the lock until Codex really exits.
+            unsafe {
+                libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
+    }
 }
 
 enum StartupCancellation<'a> {
@@ -252,8 +266,16 @@ impl Owner {
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
             }
-            self.child.wait().await.ok();
+            if self.child.wait().await.is_err() {
+                // No confirmed exit: retain the inherited lock protection.
+                return;
+            }
         }
+        // A child forked before exec can retain the inherited open file
+        // description after its owner exits. Explicitly unlocking our clone
+        // releases the flock without waiting for every inherited descriptor
+        // to close. Only the reaped stop path may explicitly unlock.
+        let _ = self.lock.unlock();
     }
 
     async fn start(
@@ -273,6 +295,7 @@ impl Owner {
     ) -> Result<Option<Self>> {
         let mut command = Command::new(codex);
         command.process_group(0);
+        let owned_lock = lock.try_clone().map_err(|_| anyhow!("cannot retain broker lock"))?;
         let lock_fd = lock.as_raw_fd();
         // SAFETY: the lock lives through this child. fcntl is async-signal-safe.
         // The child retains the same locked open-file description if its parent
@@ -309,6 +332,7 @@ impl Owner {
             child,
             input: FramedWrite::new(stdin, LinesCodec::new_with_max_length(LIMIT)),
             output: FramedRead::new(stdout, LinesCodec::new_with_max_length(LIMIT)),
+            lock: owned_lock,
             next_id: 0,
             account: None,
         };
