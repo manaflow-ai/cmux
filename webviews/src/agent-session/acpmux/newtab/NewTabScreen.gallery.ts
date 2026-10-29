@@ -368,7 +368,7 @@ export default agentPaneEntry({
     },
     "inherited-project": {
       note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
-      ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD }),
+      ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
       snapshot: noChat(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
