@@ -1,5 +1,9 @@
 name: Fast checks
-run-name: Fast checks ${{ inputs.source_sha }}
+# A run that tests a commit names it as <owner>/<repo>@<full sha>, so a receipt reader
+# (glaeda-gh wait run|pr --sha) can match it: a dispatched run's head_sha is the
+# dispatch ref's tip (main), never the commit it tests. Only a tested_sha the
+# "Confirm the tested commit" step proves is named; a wrong claim fails the run.
+run-name: Fast checks ${{ inputs.source_sha }}${{ inputs.tested_sha && format(' tests {0}@{1}', github.repository, inputs.tested_sha) || '' }}
 
 on:
   workflow_dispatch:
@@ -13,6 +17,9 @@ on:
       directory:
         description: Worktree-relative working directory
         default: '.'
+      tested_sha:
+        description: The commit this run tests (the snapshot's parent, same tree), or empty
+        default: ''
       setup:
         type: choice
         options: [none, webviews, playwright, rust]
@@ -29,7 +36,7 @@ permissions:
 jobs:
   checks:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     defaults:
       run:
@@ -45,10 +52,12 @@ jobs:
       - name: Validate request
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          TESTED_SHA: ${{ inputs.tested_sha }}
           COMMAND_TIMEOUT: ${{ inputs.timeout }}
         working-directory: ${{ github.workspace }}
         run: |
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$TESTED_SHA" || "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
           (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
 
@@ -96,6 +105,26 @@ jobs:
           path: .fast-checks-checkout
           persist-credentials: false
           clean: true
+          # The tested commit is the snapshot's parent: depth 2 brings it (its tree is the
+          # snapshot's, so only the commit object is new).
+          fetch-depth: ${{ inputs.tested_sha && 2 || 1 }}
+
+      # The run-name names tested_sha as the commit this run tests. Hold it to that:
+      # the snapshot's only parent, with the very same tree (no uncommitted edits).
+      - name: Confirm the tested commit
+        if: inputs.tested_sha != ''
+        env:
+          TESTED_SHA: ${{ inputs.tested_sha }}
+        run: |
+          parents=$(git rev-list --parents -n 1 HEAD | cut -d' ' -f2-)
+          if [[ "$parents" != "$TESTED_SHA" ]]; then
+            echo "tested_sha $TESTED_SHA is not the snapshot's only parent ($parents)" >&2
+            exit 2
+          fi
+          if [[ "$(git rev-parse 'HEAD^{tree}')" != "$(git rev-parse "$TESTED_SHA^{tree}")" ]]; then
+            echo "the snapshot's tree differs from $TESTED_SHA's: it does not test that commit" >&2
+            exit 2
+          fi
 
       # This cache namespace is private to fast checks. Release/signing jobs
       # never read it. Concurrent callers fork snapshots without a global queue.
@@ -137,6 +166,33 @@ jobs:
         working-directory: ${{ github.workspace }}/.fast-checks-checkout/webviews
         run: bun install --frozen-lockfile
 
+      # Bun resolves a package from the importing file's directory upward, so
+      # webviews/node_modules never serves a scripts/<tool>/ workspace that
+      # commits its own package.json and bun.lock (scripts/gallery-matrix needs
+      # pngjs). Install each one, frozen to its own lockfile.
+      - name: Install script workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          shopt -s nullglob
+          for manifest in scripts/*/package.json; do
+            workspace=${manifest%/package.json}
+            [[ -f "$workspace/bun.lock" ]] || continue
+            echo "bun install --frozen-lockfile in $workspace"
+            (cd "$workspace" && bun install --frozen-lockfile)
+          done
+
+      # The cloud backend (backend/, on feat-cmux-next) is one Bun workspace with
+      # its own lockfile: its apps' tests (vitest with the Workers pool in
+      # backend/apps/api, bun test in backend/apps/home-server) import from
+      # backend/node_modules, which no other install provides.
+      - name: Install backend workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          if [[ -f backend/package.json && -f backend/bun.lock ]]; then
+            echo "bun install --frozen-lockfile in backend"
+            (cd backend && bun install --frozen-lockfile)
+          fi
+
       - name: Prepare full webview tests
         if: inputs.setup == 'webviews'
         run: |
@@ -152,8 +208,8 @@ jobs:
         if: inputs.setup == 'playwright'
         run: |
           if [[ -f scripts/gallery-matrix/package.json ]]; then
+            # Its dependencies were installed with the other script workspaces.
             cd scripts/gallery-matrix
-            bun install --frozen-lockfile
           else
             cd webviews
             if [[ ! -x node_modules/.bin/playwright ]]; then

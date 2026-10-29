@@ -60,7 +60,8 @@ jobs:
     concurrency:
       group: ci-cla-quota-rerun
       cancel-in-progress: false
-    continue-on-error: true
+    # No continue-on-error: a pass that ends on a spent budget it cannot wait out exits 1,
+    # so the run is red rather than green while CLA checks stay failed.
     permissions:
       contents: read
     steps:
@@ -79,6 +80,19 @@ jobs:
           # Lists open pull requests into main and feat-cmux-next, forks included.
           permission-pull-requests: read
 
+      # The glaeda-route installation's own budget, which CLA policy guard reads on, logged
+      # every pass (a free rate_limit read), so its hourly use is a number in these logs rather
+      # than a guess (on 2026-10-28 it ran out at 06:44Z and the guard rejected every PR).
+      - name: Log the glaeda-route App's budget
+        if: steps.glaeda-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+        run: >-
+          gh api rate_limit --jq '.resources.core | "glaeda-route App budget: \(.remaining) of \(.limit) left,
+          \(.used) used, resets \(.reset | todate)"'
+
       - name: Check out the CLA quota re-run
         if: steps.glaeda-token.outputs.token != ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -87,7 +101,8 @@ jobs:
           sparse-checkout: scripts/ci/cla_quota_rerun.py
           sparse-checkout-cone-mode: false
 
-      # Waits at most WAIT_FOR_RESET (40 minutes) for a near reset, then one pass.
+      # Waits at most WAIT_FOR_RESET (40 minutes) for a near reset, then one pass; a 403,
+      # 429 or spent X-RateLimit-Remaining waits for its reset within PASS_DEADLINE (43).
       - name: Re-run CLA checks the spent budget failed
         if: steps.glaeda-token.outputs.token != ''
         timeout-minutes: 44

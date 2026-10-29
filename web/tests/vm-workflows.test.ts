@@ -2982,7 +2982,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
@@ -3083,7 +3083,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(attachCalls).toBe(1);
@@ -3362,7 +3362,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(2);
     // The forced preflight probe and the failure recovery probe cover the
     // pause race without a third provider call after the running resume handle.
@@ -4060,8 +4060,8 @@ describe("VM Effect workflows", () => {
       getStatus: (_provider, providerVmId) =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(`VM_DELETED: Vm ${providerVmId} is marked as deleted but still exists in the database`);
-          deleted.name = "VmDeletedError";
+          // Freestyle's explicit answer; a bare or message-only 404 is an outage.
+          const deleted = Object.assign(new Error(`VM ${providerVmId} not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -4205,8 +4205,8 @@ describe("VM Effect workflows", () => {
           : Effect.fail(new Error("stop after recovery reservation check") as never);
       },
     } as unknown as VmRepositoryShape;
-    const deleted = new Error("VM_DELETED: provider VM is gone");
-    deleted.name = "VmDeletedError";
+    // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+    const deleted = Object.assign(new Error("VM_DELETED: provider VM is gone"), { status: 404, code: "VM_DELETED" });
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
       getStatus: () => {
@@ -6154,10 +6154,10 @@ describe("VM Effect workflows", () => {
       getStatus: () =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(
+          // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+          const deleted = Object.assign(new Error(
             "VM_DELETED: Vm provider-vm-provider-deleted-old is marked as deleted but still exists in the database",
-          );
-          deleted.name = "VmDeletedError";
+          ), { status: 404, code: "VM_DELETED" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -6694,8 +6694,8 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       getStatus: (_provider, vmId) =>
         Effect.suspend(() => {
-          const gone = new Error(`sandbox ${vmId} -> 404 not found`);
-          (gone as Error & { status?: number }).status = 404;
+          // Freestyle's explicit answer; a bare 404 is an outage, not a missing machine.
+          const gone = Object.assign(new Error(`sandbox ${vmId} -> 404 not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -8753,6 +8753,55 @@ describe("status read that observes a gone machine", () => {
       eventType: "vm.destroyed",
       metadata: { source: "provider_status_read" },
     });
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/21820: a status read that a
+  // gateway or endpoint answered with a bare 404 retired a live machine, and
+  // the next Base open handed the user a blank replacement.
+  test.each([
+    { name: "a bare gateway 404", cause: { status: 404, code: "UNKNOWN_ERROR", message: "<html>404 Not Found</html>" } },
+    { name: "a message that only says not found", cause: new Error("VM not found in upstream cache") },
+  ])("a status read that fails with $name keeps the machine", async ({ cause }) => {
+    const userId = "user-status-read-ambiguous-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000156");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getStatus", cause })),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    ));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).not.toBeInstanceOf(VmNotFoundError);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("a status read the provider answers with an explicit NOT_FOUND still retires the row", async () => {
+    const userId = "user-status-read-confirmed-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000157");
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "getStatus",
+        cause: { status: 404, code: "NOT_FOUND", message: "VM not found" },
+      })),
+    };
+
+    const entry = await Effect.runPromise(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(entry.status).toBe("destroyed");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
   });
 
   test("an access preflight that retires the row records vm.destroyed too", async () => {

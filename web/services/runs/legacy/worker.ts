@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { cloudDb } from "../../db/client";
+import { cloudDb } from "../../../db/client";
 import { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision, type RunAttemptTerminalStatus } from "./worker-contract";
 
 export { canApplyRunAttemptMutation, isRunAttemptLeaseActive, runAttemptTransitionDecision };

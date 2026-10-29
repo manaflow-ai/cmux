@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, setSystemTime, test } from "bun:test";
-import { FreestyleApiError, type Freestyle } from "freestyle";
+import { Freestyle, FreestyleApiError } from "freestyle";
 import {
+  FREESTYLE_CREATE_ATTEMPT_METADATA_KEY,
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
   FreestyleProvider,
@@ -24,6 +25,7 @@ import {
 import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
+import { isProviderCreateCleanupError, type ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
@@ -86,6 +88,29 @@ function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
     client: () => fake.client,
   });
 }
+
+// https://github.com/manaflow-ai/cmux/issues/21820: a "destroyed" answer
+// retires the machine's row, so only Freestyle's explicit not-found contract
+// may produce it. A bare 404 from a gateway or a moved endpoint is an outage.
+describe("FreestyleProvider status of a missing machine", () => {
+  function statusProvider(response: () => Response): FreestyleProvider {
+    const client = new Freestyle({ apiKey: "test-only", fetch: (async () => response()) as typeof fetch });
+    return new FreestyleProvider({ client: () => client });
+  }
+
+  test("an explicit NOT_FOUND answer reports the machine destroyed", async () => {
+    const provider = statusProvider(() => Response.json({ code: "NOT_FOUND", message: "VM not found" }, { status: 404 }));
+    await expect(provider.getStatus(VM_ID)).resolves.toBe("destroyed");
+  });
+
+  test.each([
+    { name: "an HTML gateway page", response: () => new Response("<html>404 Not Found</html>", { status: 404 }) },
+    { name: "an unrecognized code", response: () => Response.json({ code: "ROUTE_NOT_FOUND", message: "no route" }, { status: 404 }) },
+  ])("a bare 404 with $name is a provider error, not a destroyed machine", async ({ response }) => {
+    const provider = statusProvider(response);
+    await expect(provider.getStatus(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+  });
+});
 
 describe("FreestyleProvider transport contract", () => {
   test("cmux-remote is the only session transport", () => {
@@ -165,6 +190,128 @@ describe("Freestyle fork readiness", () => {
     const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
     expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
     expect((error as Error).message).not.toContain("rm -rf");
+  });
+
+  test("a clone whose rollback delete fails is reported as unconfirmed cleanup, not dropped", async () => {
+    const client = {
+      vms: {
+        create: async () => ({
+          vmId: VM_ID,
+          data: {},
+          vm: {
+            exec: async () => ({ statusCode: 1, stdout: "", stderr: "" }),
+            delete: async () => { throw new FreestyleApiError(502, { code: "BAD_GATEWAY", message: "upstream" }); },
+          },
+        }),
+      },
+    } as unknown as Freestyle;
+    const error = await providerWith({ client }).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(isProviderCreateCleanupError(error)).toBe(true);
+    expect((error as ProviderCreateCleanupError).providerVmId).toBe(VM_ID);
+  });
+});
+
+// A create can fail after Freestyle already allocated the VM: the error carries
+// no VM id, so the machine used to survive with no row pointing at it (stopped
+// "cmux Cloud VM" ghosts on the account). Every create is tagged with a one-off
+// attempt id, and a failed create deletes whatever Freestyle made under it.
+describe("Freestyle failed create leaves no VM behind", () => {
+  const LEAKED_VM_ID = "vm-0f725dd3d5664d1d8c5e0a6f0b7c1e22";
+  function leakingClient(options: {
+    readonly failLeakedDelete?: boolean;
+    readonly leakedDeleteNotFound?: boolean;
+    readonly ignoreListFilter?: boolean;
+    readonly failList?: boolean;
+  } = {}) {
+    const store: Array<{ id: string; metadata: Record<string, string> }> = [];
+    const creates: Array<{ metadata?: Record<string, string> }> = [];
+    const lists: string[] = [];
+    const deletes: string[] = [];
+    const client = {
+      vms: {
+        create: async (request: { metadata?: Record<string, string> }) => {
+          creates.push(request);
+          store.push({ id: LEAKED_VM_ID, metadata: request.metadata ?? {} });
+          store.push({ id: "vm-unrelated", metadata: { cmux: "cloud", [FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]: "other-attempt" } });
+          throw new FreestyleApiError(502, { code: "VM_START_FAILED", message: "guest did not start" }, "/v5/vms");
+        },
+        list: async ({ metadata }: { metadata?: string }) => {
+          lists.push(metadata ?? "");
+          if (options.failList) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
+          const [key, value] = (metadata ?? "").split(":");
+          return { vms: options.ignoreListFilter ? store : store.filter((vm) => vm.metadata[key!] === value) };
+        },
+        ref: (id: string) => ({
+          delete: async () => {
+            if (options.failLeakedDelete) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
+            if (options.leakedDeleteNotFound) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "gone" });
+            deletes.push(id);
+          },
+        }),
+      },
+    } as unknown as Freestyle;
+    return { client, creates, lists, deletes };
+  }
+
+  test.each([
+    { name: "create", run: (provider: FreestyleProvider) => provider.create({ image: "sh-image" }) },
+    { name: "restore", run: (provider: FreestyleProvider) => provider.restore("sh-snapshot") },
+  ])("a failed $name deletes the VM Freestyle allocated for it, and only that VM", async ({ run }) => {
+    const fake = leakingClient();
+    const error = await run(providerWith(fake)).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+    const attempt = fake.creates[0]?.metadata?.[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY];
+    expect(attempt).toMatch(/^[0-9a-f-]{36}$/);
+    expect(fake.creates[0]?.metadata?.cmux).toBe("cloud");
+    expect(fake.lists).toEqual([`${FREESTYLE_CREATE_ATTEMPT_METADATA_KEY}:${attempt}`]);
+    expect(fake.deletes).toEqual([LEAKED_VM_ID]);
+  });
+
+  test("a leaked VM that cannot be deleted keeps the create's cleanup pending with its id", async () => {
+    const fake = leakingClient({ failLeakedDelete: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(isProviderCreateCleanupError(error)).toBe(true);
+    expect((error as ProviderCreateCleanupError).providerVmId).toBe(LEAKED_VM_ID);
+  });
+
+  test("a list answer that ignored the filter deletes only the VM carrying this attempt's tag", async () => {
+    const fake = leakingClient({ ignoreListFilter: true });
+    await providerWith(fake).create({ image: "sh-image" }).catch(() => {});
+    expect(fake.deletes).toEqual([LEAKED_VM_ID]);
+  });
+
+  test("a leaked VM already gone counts as cleaned up", async () => {
+    const fake = leakingClient({ leakedDeleteNotFound: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+  });
+
+  test("a lookup that fails reports the create's own failure, not unconfirmed cleanup", async () => {
+    const fake = leakingClient({ failList: true });
+    const logged: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err).finally(() => {
+      console.error = original;
+    });
+    // Reported as an operator fault so the attempt can be found by its tag.
+    expect(logged.some(([event, context]) => event === "cmux.observability.error"
+      && (context as { code?: string }).code === "provider_create_cleanup_lookup_failed")).toBe(true);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+    expect(((error as ProviderError).cause as FreestyleApiError).code).toBe("VM_START_FAILED");
+    expect(fake.deletes).toEqual([]);
+  });
+
+  test("every create carries a fresh attempt id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-image" });
+    await providerWith(fake).create({ image: "sh-image" });
+    const attempts = (fake.creates as Array<{ metadata: Record<string, string> }>)
+      .map((request) => request.metadata[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]);
+    expect(new Set(attempts).size).toBe(2);
   });
 });
 

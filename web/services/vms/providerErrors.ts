@@ -151,3 +151,28 @@ export function isProviderTunnelNetworkOverlap(err: unknown): boolean {
   }
   return false;
 }
+
+/** Provider codes that name a missing or deleted machine on a 404. */
+const providerMachineGoneCodes = new Set(["NOT_FOUND", "VM_DELETED"]);
+
+/**
+ * Whether a failed read proves the provider machine is gone, so its row may be
+ * retired. Retiring hides the machine from its owner and lets the next Base
+ * open allocate a blank replacement, so it takes a 404 whose code names the
+ * machine missing or deleted: a bare or message-only 404 is an outage
+ * (https://github.com/manaflow-ai/cmux/issues/21820).
+ */
+export function isProviderMachineGone(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current = err;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as ProviderFailure;
+    const status = httpStatus(candidate);
+    if (status !== undefined) {
+      return status === 404 && providerMachineGoneCodes.has(String(candidate.code ?? "").toUpperCase());
+    }
+    current = candidate.cause;
+  }
+  return false;
+}

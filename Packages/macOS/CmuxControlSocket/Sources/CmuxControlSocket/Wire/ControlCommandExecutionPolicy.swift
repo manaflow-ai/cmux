@@ -218,6 +218,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "current.list",
         "surface.project",
         "surface.new_terminal",
+        "surface.new_display",
         // SSH-session attach resolves ownership and reads the remote PTY
         // registry before any surface mutation; keep the bounded remote query
         // off the main actor.

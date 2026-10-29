@@ -30,13 +30,30 @@ failover of each variable (failover_values()) is derived from the lane's
 Xcode pin, the same way pr_runner_pool.py names owned pools: the macOS
 capability variables take the std owned pool (the GUI one for
 MACOS_RUNNER_DISPLAY, the simulator capability label for MACOS_RUNNER_IOS),
-and LINUX_RUNNER and CI_TRUSTED_RUNNER take GitHub-hosted ubuntu-24.04. CI_CLOUD_FAILOVER (JSON,
+and LINUX_RUNNER and CI_TRUSTED_RUNNER take another Blacksmith Linux size
+(LINUX_FAILOVER, TRUSTED_FAILOVER), never GitHub-hosted Ubuntu: hosted
+Ubuntu sits behind the plan's concurrency limit, and on 2026-10-27 the
+switch's own failover filled it so this workflow's watch waited 94 minutes
+for a runner (Leo: "just put it on blacksmith / 16vcpu blacksmiths do
+exist"). CI_CLOUD_FAILOVER (JSON,
 variable name to value, "" to leave one alone) overrides any of them. Only a
 variable that is unset (its readers then fall back to Blacksmith) or holds a
 blacksmith-* label is changed, so a lane someone deliberately pointed
 elsewhere is left alone. Nothing here touches the lane switches
 (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...): minis-first routing
 never changes, only where overflow goes.
+
+Signing jobs read their runner from the variables in
+signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
+MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py on
+feat-cmux-next, checked live by cmux-next-guards.yml there; the variables are
+repository-wide, and this scheduled switch runs from main). The switch
+never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
+jobs wait for Blacksmith), an override that names a reused machine for one is
+refused, and an older record that still names one as switched to an owned
+pool is not re-applied. Turning overflow back on still puts back the value a
+record names.
 """
 
 from __future__ import annotations
@@ -58,6 +75,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+from runner_label_policy import HOSTED_MACOS_LABEL  # noqa: E402
+import signing_runner_variables  # noqa: E402
 
 API = "https://api.github.com"
 UTC = dt.timezone.utc
@@ -68,7 +87,18 @@ PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # Every workflow's fallback when LINUX_RUNNER is unset (docs/ci-runners.md).
 DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
-HOSTED_LINUX = "ubuntu-24.04"
+# Where Linux overflow goes while the probed label stalls: another Blacksmith
+# Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
+# only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
+# takes 2 vCPU.
+LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
+TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
+# When the probed label is that failover itself, the next size over.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-32vcpu-ubuntu-2404",
+                       TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
+# The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
+TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
+HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
 LINUX_VARIABLE = "LINUX_RUNNER"
 # The merge-gating checks (CLA, backend migrations) read this; it falls back to
 # Blacksmith, so it leaves with the rest of Linux and comes back with it.
@@ -79,13 +109,21 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # lane goes through e2e_runner_pool.py, the iOS lane through
 # MACOS_RUNNER_IOS) and MACOS_RUNNER_BACKGROUND is GitHub-hosted, so neither
 # is here; CI_CLOUD_FAILOVER can add one.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+# MACOS_RUNNER_26 is not either: signing jobs run on it, so it never names an owned
+# mini (SIGNING_VARIABLES below). On 2026-10-28 the failover pointed it at the std
+# pool and turned cmux-next-guards.yml's signing-runner-variables red on every PR.
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR", "MACOS_RUNNER_DUAL_XCODE")
+# The variables signing jobs take their runner from: the switch writes only an
+# ephemeral label (blacksmith-* or ubuntu-*) to these, or puts back a recorded value.
+SIGNING_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
 SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
-# so a restore never guesses what a variable held.
+# so a restore never guesses what a variable held. MACOS_RUNNER_26 is not
+# one: every value an override could give it is refused (GitHub-hosted, a
+# Blacksmith label for a macOS variable, or a reused machine signing jobs
+# would run on).
 OVERRIDABLE_VARIABLES = (*SWITCHED_VARIABLES, "MACOS_RUNNER_TESTS")
 
 # Blacksmith Linux started 35,454 jobs on 2026-09-27 with a queue p90 of 13 s;
@@ -133,6 +171,11 @@ def cloud_label(label: str | None) -> bool:
     return bool(label) and str(label).startswith(CLOUD_PREFIX)
 
 
+def linux_cloud_label(label: str | None) -> bool:
+    """An x64 Blacksmith Linux label: a Linux failover may name another size of the pool it probes."""
+    return bool(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+", str(label or "")))
+
+
 def probe_label(record: Mapping[str, Any] | None, linux_runner: str | None) -> str:
     """The Blacksmith label a probe asks for; the workflow's runs-on restates this."""
     saved = (record or {}).get("probe")
@@ -153,6 +196,11 @@ def parse_record(raw: str | None) -> dict[str, Any] | None:
     return record
 
 
+def signing_safe(name: str, value: str | None) -> bool:
+    """Whether the switch may write `value` to `name`: anything, unless signing jobs read `name`."""
+    return signing_runner_variables.allowed_value(name, value)
+
+
 def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[dict[str, str], list[str]]:
     """What each overflow variable points at while Blacksmith is down, and any problems.
 
@@ -161,7 +209,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
     macOS variables are left alone (named in the problems).
     """
     problems: list[str] = []
-    values: dict[str, str] = {name: HOSTED_LINUX for name in LINUX_VARIABLES}
+    values: dict[str, str] = {LINUX_VARIABLE: LINUX_FAILOVER, TRUSTED_VARIABLE: TRUSTED_FAILOVER}
     owned = pr_runner_pool.owned_pools(xcode_app_pr)
     if owned:
         std = owned[0]
@@ -185,11 +233,29 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     problems.append(f"{OVERRIDES_VARIABLE} names {name!r}, which the switch does not set; ignored")
                 elif not value.strip():
                     values.pop(name, None)
-                elif cloud_label(value.strip()):
+                elif HOSTED_LINUX_LABEL.match(value.strip().lower()):
+                    # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
+                                    "Ubuntu; ignored")
+                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
+                                    "not accept; ignored")
+                elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a Blacksmith label; "
                                     "ignored")
+                elif HOSTED_MACOS_LABEL.search(value.strip().lower()):
+                    # No job runs on a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a GitHub-hosted Mac; "
+                                    "ignored")
+                elif not signing_safe(name, value):
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}; signing jobs run on "
+                                    f"{name}, so it may only name blacksmith-* or ubuntu-*; ignored")
                 else:
                     values[name] = value.strip()
+    for name in [name for name, value in values.items() if not signing_safe(name, value)]:
+        # Nothing above should produce one; this is the backstop the tests pin.
+        problems.append(f"the failover for {name} is {values.pop(name)}, not an ephemeral runner; signing jobs "
+                        "run on it, so it is left alone")
     if any(name not in LINUX_VARIABLES for name in values):
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
@@ -203,12 +269,13 @@ def plan_off(current: Mapping[str, str | None], failover: Mapping[str, str]) -> 
     unset (its readers fall back to Blacksmith) or a blacksmith-* label.
     CI_PAID_MACOS_OVERFLOW changes when it is not already 1. A variable
     already at its failover is not recorded, so turning overflow back on
-    never "restores" a value this switch did not set.
+    never "restores" a value this switch did not set. A variable signing jobs
+    read never gets a label other than blacksmith-* or ubuntu-*.
     """
     changed: dict[str, dict[str, str | None]] = {}
     for name, after in failover.items():
         before = (current.get(name) or "").strip() or None
-        if before == after:
+        if before == after or not signing_safe(name, after):
             continue
         if name != PAID_OVERFLOW_VARIABLE and before is not None and not cloud_label(before):
             continue
@@ -238,7 +305,7 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> lis
             continue
         before, after = change.get("before"), change.get("after")
         now = (current.get(name) or "").strip() or None
-        if now != after:
+        if now != after and not (now is not None and now == change.get("was")):
             restores.append(Restore(name, before, f"now {now or 'unset'}, not the failover {after}; "
                                                   "someone changed it, so it is left alone"))
             continue
@@ -251,7 +318,10 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
 
     A value still at the recorded ``before`` value was never switched, so it
     is safe to apply its recorded failover. Any other value is either already
-    at ``after`` or was edited by someone else and is left alone.
+    at ``after`` or was edited by someone else and is left alone. A record
+    written before signing variables were kept ephemeral may name one with an
+    owned ``after``; that is never applied (on 2026-10-28 a retry re-applied
+    MACOS_RUNNER_26 eight minutes after it was put back by hand).
     """
     resumes: list[Resume] = []
     for name, change in sorted((record.get("changed") or {}).items()):
@@ -264,12 +334,72 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
         now = (current.get(name) or "").strip() or None
         if now == after:
             continue
-        if now == before:
+        if not signing_safe(name, after):
+            resumes.append(Resume(name, after, f"signing jobs run on {name}, and {after} is not an ephemeral "
+                                  "runner; left alone"))
+            continue
+        if now == before or (now is not None and now == change.get("was")):
             resumes.append(Resume(name, after))
         else:
             resumes.append(Resume(name, after, f"now {now or 'unset'}, not the recorded before {before or 'unset'}; "
                                   "someone changed it, so it is left alone"))
     return resumes
+
+
+# Where each Linux variable may go, in order, when its failover is the stalled label.
+LINUX_FAILOVER_CHAIN = {LINUX_VARIABLE: (LINUX_FAILOVER, ALTERNATE_FAILOVERS[LINUX_FAILOVER]),
+                        TRUSTED_VARIABLE: (TRUSTED_FAILOVER, ALTERNATE_FAILOVERS[TRUSTED_FAILOVER])}
+
+
+def away_from_probe(failover: Mapping[str, str], probe: str) -> dict[str, str]:
+    """A Linux failover, an override included, never names the label whose stall triggered it."""
+    values = dict(failover)
+    for name in LINUX_VARIABLES:
+        if values.get(name) == probe:
+            values[name] = next(label for label in LINUX_FAILOVER_CHAIN[name] if label != probe)
+    return values
+
+
+def migrate_hosted_linux(record: Mapping[str, Any], current: Mapping[str, str | None],
+                         failover: Mapping[str, str]) -> tuple[dict[str, Any], list[Resume]]:
+    """Move a record written when Linux failed over to GitHub-hosted Ubuntu onto today's failover.
+
+    The record keeps each variable's value before; only the destination
+    changes. A variable still at the old hosted destination (or at its value
+    before, which plan_resume then retries) moves to the new one; one someone
+    changed since keeps its old entry and is left alone.
+    """
+    changed = dict(record.get("changed") or {})
+    moves: list[Resume] = []
+    for name, change in sorted(changed.items()):
+        if name not in LINUX_VARIABLES or not isinstance(change, Mapping):
+            continue
+        old, new = change.get("after"), failover.get(name)
+        if not isinstance(old, str) or not HOSTED_LINUX_LABEL.match(old.lower()) or not new or new == old \
+                or "was" in change:
+            continue
+        now = (current.get(name) or "").strip() or None
+        if now == old:
+            moves.append(Resume(name, new))
+        elif now != change.get("before"):
+            continue
+        # "was" keeps the hosted destination, so a move that fails after the record
+        # is written is still recognised (plan_resume, plan_on) rather than read as a hand edit.
+        changed[name] = {**change, "after": new, "was": old}
+    return {**record, "changed": changed}, moves
+
+
+def failover_destinations(record: Mapping[str, Any] | None, probe: str) -> set[str]:
+    """Linux labels the switch moved overflow onto: a job queued there has nowhere better to go.
+
+    A label that was also some variable's value before (or the probed one)
+    still carries stalled overflow, so it is not one of them.
+    """
+    changes = [change for name, change in ((record or {}).get("changed") or {}).items()
+               if name in LINUX_VARIABLES and isinstance(change, Mapping)]
+    afters = {str(change.get("after")) for change in changes if change.get("after")}
+    befores = {str(change.get("before")) for change in changes if change.get("before")}
+    return afters - befores - {probe}
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -302,13 +432,19 @@ def protected_reason(run: Mapping[str, Any]) -> str:
     return ""
 
 
-def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int) -> Mapping[str, Any] | None:
-    """The oldest job queued with no runner on a Blacksmith label for `minutes` or more."""
+def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
+              failovers: Iterable[str] = ()) -> Mapping[str, Any] | None:
+    """The oldest job queued with no runner on a Blacksmith label for `minutes` or more.
+
+    A job queued on a failover label (another Blacksmith size) already went
+    where the switch sends overflow, so re-running it moves nothing.
+    """
+    skip = {str(label) for label in failovers}
     stuck = []
     for job in jobs:
         if job.get("status") != "queued" or job.get("runner_name"):
             continue
-        if not any(cloud_label(str(label)) for label in job.get("labels") or ()):
+        if not any(cloud_label(str(label)) and str(label) not in skip for label in job.get("labels") or ()):
             continue
         created = parse_time(job.get("created_at"))
         if created is not None and (now - created).total_seconds() >= minutes * 60:
@@ -397,7 +533,8 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, *,
 
 
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
-                      sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool) -> list[str]:
+                      sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
+                      failovers: Iterable[str] = ()) -> list[str]:
     """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched."""
     lines: list[str] = []
     seen: dict[int, dict[str, Any]] = {}
@@ -414,7 +551,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         if len(chosen) >= MAX_RESCUES:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes)
+            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers)
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
@@ -530,6 +667,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # A drill (workflow_dispatch probe_label) probes another label and never writes.
         label, args.dry_run = drill, True
         log(f"drill: probing {drill} instead; a dry run whatever it finds")
+    failover = away_from_probe(failover, label)
     state = f"off since {record.get('since')}" if record else "on"
     log(f"Blacksmith overflow is {state}; probing {label} (a probe queued {minutes} min with no runner is a stall)")
 
@@ -587,7 +725,25 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 log(f"overflow off; {RECORD_VARIABLE} holds the values to put back")
                 record = new_record
         else:
-            resumes = plan_resume(record, current)
+            migrated, moves = migrate_hosted_linux(record, current, failover)
+            if migrated != record:
+                if args.dry_run:
+                    for item in moves:
+                        log(f"- {item.name}: would move from GitHub-hosted Ubuntu to {item.value} (dry run)")
+                elif switch is None:
+                    log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); Linux "
+                        "overflow stays on GitHub-hosted Ubuntu. Move it by hand: " + "; ".join(
+                            f"{item.name} -> {item.value}" for item in moves) + f", and update {RECORD_VARIABLE}")
+                    code = 1
+                else:
+                    # The record first, as for a new switch: a failure halfway still knows the way back.
+                    switch.set_variable(RECORD_VARIABLE, json.dumps(migrated, sort_keys=True))
+                    for item in moves:
+                        switch.set_variable(item.name, item.value)
+                        log(f"- {item.name}: moved from GitHub-hosted Ubuntu to {item.value}")
+                    record = migrated
+                    current = {**current, **{item.name: item.value for item in moves}}
+            resumes = plan_resume(migrated if args.dry_run else record, current)
             if args.dry_run:
                 for item in resumes:
                     if item.skipped:
@@ -607,7 +763,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         log(f"- {item.name}: retried {item.value}")
         if record or args.dry_run:
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
-                                          log=log, dry_run=args.dry_run):
+                                          log=log, dry_run=args.dry_run,
+                                          failovers=failover_destinations(
+                                              record or {"changed": plan_off(current, failover)}, label)):
                 log(f"- {line}")
     out = env.get("GITHUB_OUTPUT")
     if out:
