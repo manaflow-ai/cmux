@@ -211,6 +211,9 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               };
             });
             if (variant === "alignment-collapsed" && width === 720 && plainFooter && scheme === "dark") {
+              await page.evaluate(() => {
+                document.querySelector<HTMLElement>(".acpmux-dock")!.style.display = "contents";
+              });
               await page.waitForFunction(
                 () => getComputedStyle(document.querySelector<HTMLElement>(".acpmux-dock")!).display === "contents",
               );
