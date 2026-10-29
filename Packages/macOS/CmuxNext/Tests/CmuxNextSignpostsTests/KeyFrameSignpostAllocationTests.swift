@@ -99,8 +99,13 @@ struct KeyFrameSignpostAllocationTests {
 
     /// `count` key-downs through ``KeyFrameSignpost``, both targets, with and without a timestamp, ended by the
     /// observer's callout as one, two or three keys per turn, committed and missed.
+    // The drivers below loop on an index, not `for`: a Debug build runs a range's `IndexingIterator` unspecialized in
+    // libswiftCore, whose read coroutine heap-allocates its frame on the macOS 27 runtime, so the counted loop would add
+    // allocations of its own.
     private func keyDowns(_ keyFrames: KeyFrameSignpost, count: Int) {
-        for index in 0..<count {
+        var index = 0
+        while index < count {
+            defer { index += 1 }
             let target: KeyFrameSignpost.Target = index & 1 == 0 ? .view : .terminal
             if index % 4 == 0 {
                 keyFrames.begin(target: target, eventTimestamp: 0)
@@ -114,9 +119,13 @@ struct KeyFrameSignpostAllocationTests {
         keyFrames.runLoopReached(.exit)
     }
 
+    /// Every hop, made once: `allCases` builds a new array on each read in a Debug build.
+    private let hops = KeyFlowHop.allCases
+
     private func flowHops(_ signposter: Signposter, count: Int) {
-        let hops = KeyFlowHop.allCases
-        for index in 0..<count {
+        var index = 0
+        while index < count {
+            defer { index += 1 }
             signposter.flowHop(hops[index % hops.count], flow: UInt64(index) | 1 << 40,
                                ageMicroseconds: index % 3 == 0 ? -1 : Int64(index))
         }
@@ -130,7 +139,9 @@ struct KeyFrameSignpostAllocationTests {
     private let classes = ["input", "frame", "visible", "automation", "background"]
 
     private func stallTasks(_ signposter: Signposter, count: Int) {
-        for index in 0..<count {
+        var index = 0
+        while index < count {
+            defer { index += 1 }
             let task = signposter.begin(.stallMainTask, taskClass: classes[index % classes.count],
                                         owner: owners[index % owners.count],
                                         classID: UInt8(index % classes.count), ownerID: UInt32(index % owners.count + 1))
@@ -139,7 +150,9 @@ struct KeyFrameSignpostAllocationTests {
     }
 
     private func overBudgetEvents(_ signposter: Signposter, count: Int) {
-        for index in 0..<count {
+        var index = 0
+        while index < count {
+            defer { index += 1 }
             signposter.event(.stallOverBudget, taskClass: classes[index % classes.count], owner: owners[index % owners.count],
                              classID: UInt8(index % classes.count), ownerID: UInt32(index % owners.count + 1),
                              ownNanos: 5_000_000 + UInt64(index) * 1_000, budgetNanos: 4_000_000)

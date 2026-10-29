@@ -327,8 +327,14 @@ import Testing
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         // Warm up: the first turns fill the top-turn slots.
         for _ in 0..<16 { oneTurn(turns, clock: clock, read: read) }
+        // An index loop: a `for` over a range allocates in a Debug build on the macOS 27 runtime (its iterator's read
+        // coroutine frame), which would be counted against the meter.
         let measured = try #require(TurnMallocProbe.allocations {
-            for _ in 0..<1_000 { oneTurn(turns, clock: clock, read: read) }
+            var turn = 0
+            while turn < 1_000 {
+                oneTurn(turns, clock: clock, read: read)
+                turn += 1
+            }
         })
         #expect(measured == 0)
         #expect(turns.snapshot().turns > 3_000)
@@ -343,7 +349,11 @@ import Testing
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         for _ in 0..<16 { stallTurn(turns, clock: clock) }
         let measured = try #require(TurnMallocProbe.allocations {
-            for _ in 0..<500 { stallTurn(turns, clock: clock) }
+            var turn = 0  // an index loop, as in aTurnAllocatesNothing
+            while turn < 500 {
+                stallTurn(turns, clock: clock)
+                turn += 1
+            }
         })
         #expect(measured == 0)
         #expect(turns.snapshot().turnsOverStall == 516)
