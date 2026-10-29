@@ -62,7 +62,8 @@ final class CrashRecoveryService {
         if let runMarker, runMarker.value == nil {
             Logger(subsystem: "com.cmuxterm.app.next", category: "crash").fault("run marker launch read had not ended: this run is not marked")
         }
-        writer = CrashReportWriter.standard(bundleID: bundleID)
+        let writer = CrashReportWriter.standard(bundleID: bundleID)
+        self.writer = writer
         // This run's marker keeps the build, so a crash report of this run names the build that crashed.
         marker = runMarker?.value.map { AppRunMarker(launch: $0, build: (writer.version, Bundle.main.infoDictionary?["CMUXCommit"] as? String)) }
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }

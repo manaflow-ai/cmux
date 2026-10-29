@@ -55,7 +55,7 @@ extension AppServices {
     /// its view or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs); each outcome
     /// leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
-        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
+        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.isSafeRestart { startChromiumWarmup() } },
                                      spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) },
                                      agentPageWarmup: { [weak self] in
                                          if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
