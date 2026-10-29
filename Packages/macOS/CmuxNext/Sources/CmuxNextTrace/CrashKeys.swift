@@ -355,12 +355,21 @@ extension CrashKeyPage {
         }
 
         /// The single-word keys that are set, as a report's tags (`crash_key.<name>`): decimal numbers, the Ghostty
-        /// commit in hex. The hang's frames and images are not tags.
+        /// commit in hex, the unclosed agent pane as `<maker>@<uptime s>` (``CrashKeySlot/unclosedAgentPane(_:)``;
+        /// compare with ``CrashKeySlot/lastInputUptime`` or the report's uptime). The hang's frames and images are not tags.
         public var tags: [String: String] {
             var tags: [String: String] = [:]
             for slot in CrashKeySlot.allCases where slot.wordCount == 1 && self[slot] != 0 {
                 let value = self[slot]
-                tags["crash_key.\(slot.name)"] = slot == .ghosttyCommit ? String(value, radix: 16) : String(value)
+                switch slot {
+                case .ghosttyCommit: tags["crash_key.\(slot.name)"] = String(value, radix: 16)
+                case .unclosedAgentPaneMaker:
+                    let (maker, uptime) = CrashKeySlot.unclosedAgentPane(value)
+                    let millis = uptime / 1_000_000
+                    // Three digits: 1000 plus the remainder, without its leading 1.
+                    tags["crash_key.\(slot.name)"] = "\(maker)@\(millis / 1000)." + String(1000 + millis % 1000).dropFirst() + "s"
+                default: tags["crash_key.\(slot.name)"] = String(value)
+                }
             }
             return tags
         }

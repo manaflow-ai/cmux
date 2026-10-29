@@ -60,7 +60,7 @@ struct TraceRuntimeContractTests {
             (.windowCount, 13), (.workspaceCount, 14), (.terminalCount, 15), (.chromiumBrowserCount, 16),
             (.webKitViewCount, 17), (.daemonPID, 18), (.daemonState, 19), (.cefAPIVersion, 20), (.ghosttyCommit, 21),
             (.hangInProgressStart, 22), (.hangInProgressFrameCount, 23), (.hangInProgressImages, 24),
-            (.hangInProgressFrames, 56),
+            (.hangInProgressFrames, 56), (.unclosedAgentPaneMaker, 120),
         ]
         for (slot, word) in pinned { #expect(slot.rawValue == word, "\(slot)") }
         #expect(CrashKeySlot.allCases.count == pinned.count)
