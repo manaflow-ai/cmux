@@ -29,13 +29,17 @@ import Testing
     /// The harness with the install seams counted.
     final class Installs {
         var count = 0
+        var downloads = 0
     }
 
-    static func make(newer: Bool, held: Bool = false) -> (Base.Harness, Installs) {
-        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held)
+    /// The harness with the install seams counted. `downloadsAsk`: found updates wait for a click
+    /// (`updates.downloadAutomatically` off, the nightly default); `pulled`: pulled.json's builds.
+    static func make(newer: Bool, held: Bool = false, downloadsAsk: Bool = false, pulled: [String] = []) -> (Base.Harness, Installs) {
+        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held, replaceable: !downloadsAsk, pulled: pulled)
         let installs = Installs()
         h.updater.preflightOverride = { nil }
         h.updater.installStaged = { installs.count += 1 }
+        h.updater.acceptAvailable = { installs.downloads += 1 }
         return (h, installs)
     }
 
@@ -84,5 +88,53 @@ import Testing
         #expect(installs.count == 1, "the click waits on a feed that never answers")
         #expect(h.sparkle.cancels == 0)
         h.feed.release()
+    }
+
+    /// Leo 2026-10-29: build 4091813159501 was staged at 18:16Z, 4092299464301 was on the feed at
+    /// 18:19Z, and Restart to Update installed the stale one. The nightly asks before it downloads
+    /// (`updates.downloadAutomatically` off by default), and the click's read of the feed only ran
+    /// when found updates downloaded by themselves. Now the click is the yes to the newest build's
+    /// download too: the staged build gives way, the card says "Getting the Newest Build…", the
+    /// newest build downloads with no second click, and it installs once staged.
+    @Test func withDownloadsAskingOneClickStillInstallsTheNewestBuild() async throws {
+        let (h, installs) = Self.make(newer: true, downloadsAsk: true)
+        h.updater.installClicked()
+        #expect(await eventually { h.sparkle.cancels == 1 }, "the click kept stale staged build 300 though 500 is out")
+        #expect(h.sparkle.backgroundChecks == 1, "nothing looked for build 500")
+        #expect(installs.count == 0, "the click installed stale build 300")
+
+        // Sparkle drops 300 and finds 500, which waits for a download (downloads ask).
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        #expect(h.updater.card == .gettingNewest(nil, pulled: false), "nothing says the newest build is coming")
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == .gettingNewest(nil, pulled: false))
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        #expect(installs.downloads == 1, "build 500 waits for another click to download")
+        let transfer = UpdateTransfer(stage: .downloading, fraction: 0.5)
+        h.updater.debugIndicatorPhase = .downloading(transfer)
+        #expect(h.updater.card == .gettingNewest(transfer, pulled: false))
+        let shown = try #require(h.updater.cardPresentation)
+        #expect(shown.title == UpdaterStrings.gettingNewest && shown.actions.isEmpty && shown.showsProgress)
+        #expect(installs.count == 0)
+
+        h.sparkle.staged = "500"
+        h.updater.debugIndicatorPhase = .ready(version: "5.0.0")
+        #expect(await eventually { installs.count == 1 }, "staged build 500 waits for a second click")
+        #expect(h.sparkle.cancels == 1, "build 500 was dropped too")
+        #expect(h.updater.newestFetch == nil)
+    }
+
+    /// A staged build that was pulled is never installed by the click, even when the feed has
+    /// nothing newer than it (the feed serves an older good build): it is dropped, and the newest
+    /// good build is fetched instead.
+    @Test func aClickNeverInstallsAPulledStagedBuild() async throws {
+        let (h, installs) = Self.make(newer: false, pulled: ["300"])
+        h.updater.installClicked()
+        #expect(await eventually { h.sparkle.cancels == 1 }, "the click installed pulled build 300")
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(installs.count == 0)
+        #expect(h.updater.installAfterSwap)
+        #expect(h.updater.newestFetch == .click)
     }
 }
