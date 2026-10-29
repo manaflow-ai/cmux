@@ -2814,7 +2814,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            if registry_state_has_foreign_key_violation(&connection)? {
+            if first_state_foreign_key_violation(&connection)?.is_some() {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -3821,12 +3821,15 @@ fn skipped_by_open_check(table: &str) -> bool {
         || mutation_ledger_retention::is_quarantined_ledger(table)
 }
 
-/// True when a registry state table holds a row whose foreign key names a
-/// missing parent. The open migrates state tables with foreign keys off, so
-/// it checks them; an unscoped `pragma_foreign_key_check` also walked every
+/// The first row of a registry state table whose foreign key names a missing
+/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
+/// state tables with foreign keys off and validates the resource topology, so
+/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
 /// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
 /// socket waited.
-fn registry_state_has_foreign_key_violation(connection: &Connection) -> anyhow::Result<bool> {
+pub(crate) fn first_state_foreign_key_violation(
+    connection: &Connection,
+) -> anyhow::Result<Option<(String, i64, Option<String>, i64)>> {
     let tables = {
         let mut statement = connection.prepare(
             "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
@@ -3836,14 +3839,20 @@ fn registry_state_has_foreign_key_violation(connection: &Connection) -> anyhow::
     };
     for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
         let query = format!(
-            "SELECT 1 FROM pragma_foreign_key_check('{}') LIMIT 1",
+            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
             table.replace('\'', "''")
         );
-        if connection.query_row(&query, [], |_| Ok(())).optional()?.is_some() {
-            return Ok(true);
+        let violation = connection
+            .query_row(&query, [], |row| {
+                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
+                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
+            })
+            .optional()?;
+        if violation.is_some() {
+            return Ok(violation);
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// Structural check of the registry state on open. An unscoped quick_check
