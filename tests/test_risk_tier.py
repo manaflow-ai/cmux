@@ -377,7 +377,9 @@ class RustTestModuleTests(unittest.TestCase):
                                             "+" + CLEANUP, "+    }", " }"])), "normal")
         for opening in ("#[cfg(test)]\n/// Tests.\n\n#[allow(dead_code)]\npub(crate) mod tests {",
                         "#[cfg(test)] mod tests {", "#[cfg( test )]\n#[path = \"x\"]\nmod tests {",
-                        "#[cfg(all(test, unix))]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(windows), test))]\nmod tests {"):
+                        "#[cfg(all(test, unix))]\nmod tests {",
+                        "#[cfg(test)]\n/** Tests. */\nmod tests {", "#[cfg(test)]\n/**\n * Tests.\n */\nmod tests {",
+                        "#[cfg(test)] /* a */ /* b /* c */ */ mod tests {", "#[cfg(test)]\n/* x */ #[allow(dead_code)]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(windows), test))]\nmod tests {"):
             with self.subTest(opening=opening):
                 self.assertEqual(self.tier(self.around(opening)), "normal")
         # A new file whose test module holds the cleanup.

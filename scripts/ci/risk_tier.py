@@ -283,6 +283,22 @@ class RustBraces:
         return closed
 
 
+def skip_block_comment(text: str) -> str:
+    """What follows the (possibly nested) block comment `text` starts with, or "" when it runs
+    past the line: a comment between `#[cfg(test)]` and its `mod` keeps the attribute pending."""
+    depth, i = 0, 0
+    while i < len(text):
+        if text.startswith("/*", i):
+            depth, i = depth + 1, i + 2
+        elif text.startswith("*/", i):
+            depth, i = depth - 1, i + 2
+            if depth == 0:
+                return text[i:].lstrip()
+        else:
+            i += 1
+    return ""
+
+
 def rust_test_lines(lines: list[str]) -> set[int]:
     """Of a Rust file's lines from its first line on, the indexes of those inside a
     `#[cfg(test)] mod name { ... }`. The lines that open and close the module count as product
@@ -294,9 +310,14 @@ def rust_test_lines(lines: list[str]) -> set[int]:
         opened = False
         if module_depth is None and braces.in_code():
             rest = text.strip()
-            while attribute := RUST_ATTRIBUTE.match(rest):
-                test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None
-                rest = rest[attribute.end():]
+            while True:
+                if attribute := RUST_ATTRIBUTE.match(rest):
+                    test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None
+                    rest = rest[attribute.end():]
+                elif rest.startswith("/*"):
+                    rest = skip_block_comment(rest)
+                else:
+                    break
             if test_attribute and RUST_MOD.match(rest):
                 module_depth, opened = braces.depth, True
             # Blank lines, comments and attribute-only lines keep looking for the item.
