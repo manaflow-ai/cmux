@@ -345,6 +345,7 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
 /// server's program as a script (a `#!` line: `node /usr/local/bin/npx`) and its executable is the
 /// interpreter that script's `#!` line runs. Then exactly the server's args. A server that is a
 /// bare interpreter with no args says nothing about what it runs, so it never matches.
+#[cfg(unix)]
 fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     let interpreter = |w: &str| {
         Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned()).is_some_and(|n| {
