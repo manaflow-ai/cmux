@@ -32,7 +32,7 @@
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:18px;outline:none;letter-spacing:var(--text-control--letter-spacing)}
-.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap}
+.ui-context-menu .ui-menu-item{width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-highlight);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
@@ -302,10 +302,8 @@
 .acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
-.acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:var(--ui-row-padding-inline)}
 .acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
-.acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 /* Every badge sits on the same quiet neutral tile, so a dark or a white icon reads in either theme
    and the rows line up. A framework's or language's mark (ProjectBadge.tsx) takes its brand color; a

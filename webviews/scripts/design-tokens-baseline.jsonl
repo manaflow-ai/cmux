@@ -39,12 +39,11 @@
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1,"2px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1,"0 28px 0 10px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
-{"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"padding","values":{"0 8px 6px":1,"6px 10px 4px":1,"0 6px 0 8px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"height","values":{"46px":1,"calc(46px + var(--acpmux-strip-gap, 4px))":2,"22px":4,"1px":3,"12px":1,"16px":3,"6px":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"height","values":{"46px":1,"calc(46px + var(--acpmux-strip-gap, 4px))":2,"22px":4,"1px":3,"12px":1,"16px":2,"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"height","property":"min-height","values":{"52px":1,"16px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"gap","values":{"var(--acpmux-location-gap, 6px)":2,"1px":1,"6px":1,"3px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"2px 8px 2px 10px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1,"calc(11px * var(--cmux-interface-scale, 1)) max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px))) calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1))":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"gap","values":{"var(--acpmux-location-gap, 6px)":2,"6px":1,"3px":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":2,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1,"calc(11px * var(--cmux-interface-scale, 1)) max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px))) calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-block","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-inline","values":{"calc(var(--acpmux-top-strip-edge) - 6px)":1}}
@@ -98,8 +97,6 @@
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding","values":{"calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))":1,"0 5px":1,"1px 4px":1,"8px 10px":1}}
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding-left","values":{"22px":1,"10px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"height","values":{"44px":1}}
-{"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"min-height","values":{"22px":1}}
-{"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"padding","values":{"6px":1,"4px var(--ui-row-padding-inline) 2px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"height","property":"height","values":{"8px":1,"6px":2,"16px":1,"34px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"spacing","property":"column-gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"spacing","property":"gap","values":{"5px":4,"6px":4,"2px":1,"1px":1}}
@@ -345,8 +342,7 @@
 {"file":"ui/MinimapTick.gallery.css","kind":"spacing","property":"gap","values":{"14px":1,"5px":1}}
 {"file":"ui/MinimapTick.gallery.css","kind":"spacing","property":"padding","values":{"28px":1,"6px":1}}
 {"file":"ui/popupSurface.css","kind":"height","property":"height","values":{"1px":1,"6px":1}}
-{"file":"ui/popupSurface.css","kind":"spacing","property":"gap","values":{"6px":1}}
-{"file":"ui/popupSurface.css","kind":"spacing","property":"padding","values":{"6px var(--ui-row-padding-inline) 2px":1,"2px var(--ui-row-padding-inline)":1}}
+{"file":"ui/popupSurface.css","kind":"spacing","property":"padding","values":{"6px var(--ui-row-padding-inline) 2px":1}}
 {"file":"ui/ScrollArea.gallery.css","kind":"height","property":"height","values":{"116px":1}}
 {"file":"ui/ScrollArea.gallery.css","kind":"spacing","property":"padding","values":{"4px 10px 4px 4px":1,"6px 8px":1}}
 {"file":"ui/Select.gallery.css","kind":"height","property":"min-height","values":{"200px":1}}
@@ -357,8 +353,8 @@
 {"file":"ui/Toolbar.gallery.css","kind":"spacing","property":"gap","values":{"14px":1,"2px":2}}
 {"file":"ui/Toolbar.gallery.css","kind":"spacing","property":"padding","values":{"28px":1,"0 7px":1,"2px":1}}
 {"file":"ui/ui.css","kind":"height","property":"height","values":{"6px":2,"1px":2,"16px":1}}
-{"file":"ui/ui.css","kind":"spacing","property":"gap","values":{"6px":1,"2px":1}}
-{"file":"ui/ui.css","kind":"spacing","property":"padding","values":{"2px var(--ui-row-padding-inline)":1,"6px 8px 2px":1,"0 6px":1,"3px 8px":1}}
+{"file":"ui/ui.css","kind":"spacing","property":"gap","values":{"2px":1}}
+{"file":"ui/ui.css","kind":"spacing","property":"padding","values":{"6px 8px 2px":1,"0 6px":1}}
 {"file":"ui/variant-pick/variant-pick.css","kind":"spacing","property":"padding","values":{"3px":1}}
 {"file":"viewer-empty/EmptyState.gallery.css","kind":"height","property":"min-height","values":{"430px":1}}
 {"file":"viewer-empty/PathPicker.gallery.css","kind":"height","property":"height","values":{"min(480px, 78vh)":1}}

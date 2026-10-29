@@ -50,8 +50,8 @@
   background: var(--acpmux-mp-press);
 }
 .acpmux-mp .acpmux-menu-header {
-  min-height: 22px;
-  margin-top: 2px;
+  min-height: var(--ui-row-height);
+  margin-top: 0;
 }
 .acpmux-mp .acpmux-menu-header:first-child {
   margin-top: 0;
@@ -78,10 +78,10 @@
   .acpmux-mp-rail-viewport {
     scroll-snap-type: inline mandatory;
     scroll-snap-stop: always;
-    scroll-padding-inline: 6px;
+    scroll-padding-inline: var(--ds-space-2);
     /* Keep the padding peek visual-only: edge hits must not activate a partly visible tab. */
-    -webkit-clip-path: inset(0 6px);
-    clip-path: inset(0 6px);
+    -webkit-clip-path: inset(0 var(--ds-space-2));
+    clip-path: inset(0 var(--ds-space-2));
     /* A partial edge item is a deliberate, bounded peek rather than a clipped-looking icon. */
     mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   }
@@ -96,8 +96,8 @@
     min-width: 100%;
     flex-direction: row !important;
     align-items: center;
-    padding: 6px;
-    gap: 4px;
+    padding: var(--ds-space-2);
+    gap: var(--ds-space-1);
   }
   .acpmux-mp-rail-list > .acpmux-mp-rail-tab {
     scroll-snap-align: start;
@@ -129,24 +129,22 @@
 }
 
 /* The compact model menu (QuickModelMenu.tsx, Claude Code's look, Leo 2026-10-18): a short rounded
-   menu with no boxes inside it. Rows are one line; the chosen row's check and the other rows' number
-   keys share the trailing edge; Effort and Account name their value in secondary text before the
+   menu with no boxes inside it. Rows are one line; the chosen row's check uses the state column
+   and number keys use the trailing edge; Effort and Account name their value in secondary text before the
    chevron. Theme tokens only. Its width keeps to the room its side of the chip has inside the chat
    column (Base UI's --available-width, MenuPopup `boundary`), its floor giving way in a narrow one;
    submenus are the same surface and keep to theirs.
    Density is a native macOS menu's (Leo 2026-10-28: "AND I THINK IT'S ALL SO STUPIDLY SPACED AND
-   STYLED IT'S FUCKING TONKA TOYS"): 28px rows and 24px in submenus, chrome type (13px, never the
+   STYLED IT'S FUCKING TONKA TOYS"): the shared row height in menus and submenus, chrome type (13px, never the
    transcript's content size), 16px marks, compact insets, as Claude desktop's and Codex's pickers. */
 .acpmux-quick-menu {
-  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
-  --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-body);
   width: max-content;
   min-width: min(280px, var(--available-width, calc(100vw - 24px)));
   max-width: min(440px, var(--available-width, calc(100vw - 24px)));
-  padding: 4px;
+  padding: var(--ui-popup-padding);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--ui-popup-radius);
   /* Size to visible rows, then give the list room up to the popup boundary and viewport. */
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);
@@ -154,10 +152,9 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.acpmux-quick-menu.acpmux-quick-submenu { --ui-row-height: calc(24px * var(--cmux-interface-scale, 1)); }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
-  padding: 4px var(--ui-row-padding-inline) 2px;
+  padding: var(--ds-space-1) var(--ui-row-padding-inline);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -165,7 +162,7 @@
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
-  margin: 4px var(--ui-row-padding-inline);
+  margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
@@ -182,19 +179,6 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   letter-spacing: var(--text-body--letter-spacing);
-}
-.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub, .acpmux-quick-fast):has(.ui-menu-shortcut, .ui-menu-check) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  column-gap: var(--ds-space-2);
-}
-.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub, .acpmux-quick-fast):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-quick-label {
-  grid-column: 1;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 4px;
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -213,30 +197,14 @@
   min-width: 0;
   gap: 4px;
 }
-/* The check moves to the trailing edge, where the other rows show their number key: a 16px column
-   centred on the label's line. */
+/* Selection stays in the shared leading state column; shortcuts keep the trailing edge. */
 .acpmux-quick-item .ui-menu-check {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  width: 16px;
-  margin: 0;
-  padding: 0;
-  justify-content: center;
-  align-items: center;
-  line-height: 1;
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
-.acpmux-quick-item .ui-menu-check:empty { display: none; }
 .acpmux-quick-item .ui-menu-shortcut {
-  grid-column: 2;
-  grid-row: 1;
-  margin: 0;
-  padding: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
-  text-align: center;
 }
 .acpmux-quick-sub > .acpmux-menu-label { flex: none; }
 .acpmux-quick-sub .acpmux-quick-value {

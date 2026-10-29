@@ -257,12 +257,12 @@
 .acpmux-mode .acpmux-picker-button:hover { color: var(--agent-text); }
 .acpmux-mode .acpmux-access-trigger {
   width: 34px;
-  gap: 1px;
-  padding: 0 3px;
+  gap: 0;
+  padding: 0 var(--ds-space-1);
 }
 .acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: block; width: 12px; height: 12px; }
 .acpmux-access-trigger { color: var(--agent-muted); }
-.acpmux-access-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-access-trigger:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--agent-text); outline-offset: 2px; }
 .acpmux-access-menu {
   /* As wide as its longest row, as Claude Code's and Codex's mode menus are. */
   width: max-content;
@@ -274,40 +274,21 @@
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }
+/* The shared row owns its leading state/icon columns and trailing shortcut. */
 .ui-menu-item.acpmux-access-item {
-  display: grid;
-  /* Claude Code's mode menu (Leo 2026-10-19): the mode's shield, its name and description, then a
-     trailing gutter holding its number, or the check on the chosen row, as Claude's model menu. */
-  grid-template-columns: 16px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 8px;
-  min-height: var(--ui-row-height);
-  /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
-     popup's 4px and the row's 4px put the text about 8pt from the menu's edge. */
-  padding: 5px 4px;
-  border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
-/* The chosen row's check is the theme's lit accent (never system blue, never orange). */
-.acpmux-access-item .ui-menu-check { grid-row: 1; grid-column: 3; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); font-weight: 600; }
-.acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
-.acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-access-item .acpmux-access-item-icon { grid-row: 1; grid-column: 1; }
-.acpmux-access-item .acpmux-menu-text { grid-row: 1; grid-column: 2; min-width: 0; }
-/* The numbers are secondary, as a native menu's key equivalents: quieter than the row's title. */
-.acpmux-access-item .ui-menu-shortcut { grid-row: 1; grid-column: 3; justify-self: center; margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-item .ui-menu-check { color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); font-weight: var(--weight-emphasis); }
+.acpmux-access-item-icon { color: var(--agent-muted); }
+.acpmux-access-item .acpmux-menu-text { min-width: 0; }
+.acpmux-access-item .ui-menu-shortcut { color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); letter-spacing: var(--text-control--letter-spacing); }
-/* The chosen row shows its check where its number was. */
 .acpmux-access-item[data-checked] .ui-menu-shortcut { visibility: hidden; }
-.acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-item .acpmux-menu-description { display: block; margin: 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
-/* Claude Code's mode menu draws no icon column: the name, its description, then the number or check. */
-.ui-menu-item.acpmux-access-item.acpmux-access-item-iconless { grid-template-columns: minmax(0, 1fr) 16px; }
-.acpmux-access-item-iconless .acpmux-menu-text { grid-column: 1; }
-.acpmux-access-item-iconless :is(.ui-menu-check, .ui-menu-shortcut) { grid-column: 2; }
 /* The harness's own title over its modes ("Mode", "How should actions be approved?"). */
-.acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; letter-spacing: var(--text-detail--letter-spacing); }
+.acpmux-access-heading { padding: var(--ds-space-1) var(--ui-row-padding-inline); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; letter-spacing: var(--text-detail--letter-spacing); }
 /* Claude Code's Recommended badge beside Auto, on the name's line. */
 .acpmux-access-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .acpmux-menu-badge {
@@ -324,12 +305,12 @@
 .acpmux-access-grants {
   min-inline-size: 0;
   border: 0;
-  margin: 8px 4px 2px;
-  padding-top: 8px;
+  margin: var(--ds-space-2) 0 0;
+  padding: var(--ds-space-2) 0 0;
   border-top: .5px solid var(--acpmux-composer-edge);
 }
 .acpmux-access-grants-heading {
-  padding: 0 8px 4px;
+  padding: 0 var(--ui-row-padding-inline) var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -339,7 +320,7 @@
   align-items: center;
   gap: 8px;
   min-height: var(--ui-row-height);
-  padding: 2px 8px 2px 10px;
+  padding: 0 calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) 0 var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
 }
 .acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
@@ -360,7 +341,7 @@
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
-.acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
+.acpmux-access-grant-remove:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--agent-text); outline-offset: -1px; }
 
 /* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
    so the two always match. */
@@ -1161,7 +1142,7 @@
 .acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-fast:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
 }

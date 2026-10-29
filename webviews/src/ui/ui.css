@@ -89,15 +89,6 @@
   overflow: hidden;
 }
 
-.ui-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--ui-row-height, var(--cmux-control-height));
-  padding: 2px var(--ui-row-padding-inline);
-  border-radius: var(--ui-row-radius);
-  outline: none;
-}
 
 .ui-menu-shortcut {
   margin-inline-start: auto;
@@ -155,13 +146,6 @@
   white-space: nowrap;
 }
 
-.ui-menu-check {
-  display: inline-flex;
-  align-items: center;
-  width: 12px;
-  justify-content: center;
-  line-height: 1;
-}
 
 .ui-select {
   position: relative;
@@ -344,10 +328,6 @@
   list-style: none;
 }
 
-.ui-combobox-item {
-  padding: 3px 8px;
-  border-radius: 5px;
-}
 
 .ui-combobox-item[data-highlighted] {
   background: var(--ui-row);

@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 240
 // Leo 2026-10-28, on the compact model menu: "AND I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED
 // IT'S FUCKING TONKA TOYS". Real Chromium lays the menu out with the pane's styles and holds it to a
-// native macOS menu's density: 28px rows, 24px submenu rows, 13px chrome type, 16px marks, a small
+// native macOS menu's density: 28px rows, 28px submenu rows, 13px chrome type, 16px marks, a small
 // switch, the check centred on its label's line, and no fade-in when it opens.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -85,13 +85,13 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("the Effort submenu is 24px rows with the check centred on its label's line", async () => {
+  test("the Effort submenu is 28px rows with the check centred on its label's line", async () => {
     const page = await opened();
     await page.hover('.acpmux-quick-menu [role="menuitem"]:has-text("Effort")');
     await page.waitForSelector(".acpmux-quick-submenu .ui-menu-item");
     const rows = await heights(page, ".acpmux-quick-submenu .ui-menu-item");
     expect(rows.length).toBe(6);
-    expect(rows.every((height) => height === 24)).toBe(true);
+    expect(rows.every((height) => height === 28)).toBe(true);
     const offset = await page.$eval(".acpmux-quick-submenu [aria-checked='true']", (row) => {
       const center = (node: Element | null) => {
         const box = node!.getBoundingClientRect();

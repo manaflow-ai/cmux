@@ -1,10 +1,5 @@
-/* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
-   row's trailing edge as Claude's model list marks it, so every label starts at the row's own
-   inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
-   separators on the label column's rhythm. Theme tokens only. */
+/* Reasoning levels share the menu state, text and trailing columns. */
 .acpmux-effort-menu {
-  --acpmux-menu-gutter: 16px;
-  --acpmux-menu-gutter-gap: 8px;
   width: max-content;
   min-width: 160px;
   max-width: min(280px, calc(100vw - 24px));
@@ -14,36 +9,19 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--acpmux-menu-gutter);
-  align-items: center;
-  gap: var(--acpmux-menu-gutter-gap);
-  height: var(--ui-row-height);
-  min-height: 0;
-  padding-block: 0;
-  padding-inline: var(--ui-row-padding-inline);
-  border-radius: var(--ui-row-radius);
   font-size: var(--text-control);
   color: var(--agent-text);
   letter-spacing: var(--text-control--letter-spacing);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-effort-item .ui-menu-check {
-  grid-row: 1;
-  grid-column: 2;
-  display: inline-flex;
-  width: var(--acpmux-menu-gutter);
-  justify-content: center;
-  margin: 0;
   color: var(--agent-text);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-effort-text {
-  grid-row: 1;
-  grid-column: 1;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--cmux-menu-icon-gap);
   min-width: 0;
   white-space: nowrap;
 }
@@ -74,7 +52,7 @@
 /* A hairline between sections, inset to the rows' edges, with even space above and below. */
 .acpmux-effort-menu .ui-separator {
   height: 1px;
-  margin: 5px var(--ui-row-padding-inline);
+  margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
