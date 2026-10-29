@@ -1492,9 +1492,11 @@ const defaultRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
+/// `actions`: whether a reply drew its own action row then (model.ts `hasReplyActions`); a drawn
+/// height taken without it, or with it, is stale once the row after the reply changes that.
+type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; actions?: boolean };
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
-type ReportDrawn = (id: string, version: number, height: number | undefined) => void;
+type ReportDrawn = (id: string, version: number, height: number | undefined, actions?: boolean) => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -1542,7 +1544,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.sessionId === entry.sessionId &&
     old.version === entry.version &&
     old.width === entry.width &&
-    old.height === entry.height
+    old.height === entry.height &&
+    Boolean(old.actions) === Boolean(entry.actions)
   );
 }
 
@@ -1632,6 +1635,7 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious,
   joinsNext,
   beforeFooter,
+  replyActions,
   lastFooter,
   continuationFooter,
   lastTurn,
@@ -1662,6 +1666,9 @@ const RowFrame = React.memo(function RowFrame({
   joinsNext: boolean;
   /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
   beforeFooter: boolean;
+  /// Whether the row (a reply) draws its own action row (model.ts `hasReplyActions`): its height
+  /// depends on it, so the frame redraws and measures again when it changes.
+  replyActions: boolean;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
@@ -1735,10 +1742,12 @@ const RowFrame = React.memo(function RowFrame({
         row.id,
         row.version,
         acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+        replyActions,
       );
   }, [
     row.id,
     row.version,
+    replyActions,
     rowWidth,
     expanded,
     joinsPrevious,
@@ -2489,7 +2498,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight) => {
+    (id, version, drawnHeight, actions) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2497,6 +2506,7 @@ export function VirtualTranscript({
           version,
           width: rowWidthRef.current,
           height: drawnHeight,
+          ...(actions ? { actions } : {}),
         });
     },
     [sessionId],
@@ -2816,6 +2826,17 @@ export function VirtualTranscript({
     ) {
       const limit = Math.min(rows.length, last.rows.length);
       while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      // A row after the kept ones can give the last kept reply its own action row (a steer or a
+      // message after it): that reply is placed again, as layoutConversation estimates it again.
+      let reply = kept - 1;
+      while (reply >= 0 && rows[reply]!.incoming?.kind === "hidden") reply -= 1;
+      if (
+        reply >= 0 &&
+        rows[reply]!.kind === "assistant" &&
+        hasReplyActions(rows[reply]!, nextDrawnRow(rows, reply)) !==
+          hasReplyActions(last.rows[reply]!, nextDrawnRow(last.rows, reply))
+      )
+        kept = reply;
       if (changed.size > 0) {
         let found = 0;
         const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
@@ -2844,8 +2865,17 @@ export function VirtualTranscript({
             // of the drawn text, and its drawn height then pulled the view back a line or more at
             // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
             (index) => {
-              const known = drawn.get(rows[index].id);
-              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
+              const row = rows[index]!;
+              const known = drawn.get(row.id);
+              if (!known || known.sessionId !== sessionId || known.width !== rowWidth) return undefined;
+              // A reply drawn before (or after) the row that gives it its own action row: its estimate
+              // holds until it is drawn again (`hasReplyActions` reads only the next drawn row).
+              if (
+                row.kind === "assistant" &&
+                Boolean(known.actions) !== hasReplyActions(row, nextDrawnRow(rows, index))
+              )
+                return undefined;
+              return known.height;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
           );
@@ -4123,6 +4153,7 @@ export function VirtualTranscript({
                 rows.slice(first, last).map((row, index) => {
                   const absoluteIndex = first + index;
                   const next = nextDrawnRow(rows, absoluteIndex);
+                  const actions = hasReplyActions(row, next);
                   const kind = rowKind(row);
                   const Component = registry[kind] ?? NoticeRow;
                   const isExpanded = expanded.has(row.id);
@@ -4136,6 +4167,7 @@ export function VirtualTranscript({
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
+                      replyActions={actions}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
@@ -4164,7 +4196,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
-                        replyActions={hasReplyActions(row, next)}
+                        replyActions={actions}
                         sessionId={sessionId}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
