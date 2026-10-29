@@ -479,13 +479,15 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
-        let mut started = self.child_for_since(session, stops).await;
+        // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
+        // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
+        let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
-            && self.back_from_fallback(session, e, &turn_id).await
+            && Box::pin(self.back_from_fallback(session, e, &turn_id)).await
         {
-            started = self.child_for_since(session, stops).await;
+            started = Box::pin(self.child_for_since(session, stops)).await;
         }
         let started = match started {
             Ok(child) => session
@@ -669,7 +671,7 @@ impl Hub {
             // Its route cannot start (a local router that is down): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
-                && let Some(why) = self.route_refusal(&session.meta(), to).await
+                && let Some(why) = Box::pin(self.route_refusal(&session.meta(), to)).await
             {
                 unstartable = Some((to.clone(), why.message));
                 target = None;
@@ -706,7 +708,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for_since(session, stops).await;
+                let fallback = Box::pin(self.child_for_since(session, stops)).await;
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
