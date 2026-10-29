@@ -242,7 +242,6 @@ pub struct HubEvent {
     pub remote: Option<RemoteRef>,
 }
 
-#[derive(Debug, Clone)]
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
 /// that received it and the peer holding that chat.
 fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
@@ -253,6 +252,7 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
     pub summary: Value,
