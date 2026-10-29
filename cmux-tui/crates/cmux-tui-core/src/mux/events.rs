@@ -280,7 +280,9 @@ pub struct TreeDelta {
     /// (`Mux::emit_committed_workspace_delta`), so writing the delta for each
     /// subscriber reads no registry (a subscriber's turn runs on a thread
     /// that disallows blocking). `None` exactly when `workspace_revision` is.
-    pub registry_event: Option<RegistryEventStamp>,
+    /// Shared by every subscriber's copy of the event, and kept out of line
+    /// so a delta stays small in the enums that carry one.
+    pub registry_event: Option<Arc<RegistryEventStamp>>,
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,

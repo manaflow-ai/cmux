@@ -211,14 +211,16 @@ impl Mux {
         selection_resync: bool,
     ) {
         debug_assert!(delta.workspace_revision.is_some());
-        delta.registry_event = delta.workspace_revision.map(|revision| RegistryEventStamp {
-            registry_id: registry.registry_id().to_string(),
-            generation: registry.generation().to_string(),
-            mutation: registry
-                .workspace_event(revision)
-                .ok()
-                .flatten()
-                .map(|event| (event.origin, event.mutation_id)),
+        delta.registry_event = delta.workspace_revision.map(|revision| {
+            Arc::new(RegistryEventStamp {
+                registry_id: registry.registry_id().to_string(),
+                generation: registry.generation().to_string(),
+                mutation: registry
+                    .workspace_event(revision)
+                    .ok()
+                    .flatten()
+                    .map(|event| (event.origin, event.mutation_id)),
+            })
         });
         self.emit_tree_delta(delta, selection_resync);
     }
