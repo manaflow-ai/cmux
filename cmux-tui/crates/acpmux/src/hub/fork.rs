@@ -11,6 +11,7 @@
 //! cancelled, a tool call still running shown failed. The chat is not touched.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
@@ -291,6 +292,7 @@ impl Hub {
             hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
+            harness_failures: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -422,14 +424,20 @@ impl Hub {
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
             self.append(&new, "mux", "turn_result", result);
         }
+        // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
+        // and a restore scans only past them.
+        {
+            let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+        }
         let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
         if running.is_some() {
-            forked["midTurn"] = json!(true);
+            forked.set("midTurn", json!(true));
         }
         if let Some(note) = &note {
-            forked["note"] = json!(note);
-            forked["from"] = json!("transcript");
-            forked["harness"] = json!(parent_meta.harness);
+            forked.set("note", json!(note));
+            forked.set("from", json!("transcript"));
+            forked.set("harness", json!(parent_meta.harness));
         }
         self.append(&new, "mux", "forked", forked);
         self.append(session, "mux", "fork_child", json!({"childId": id}));

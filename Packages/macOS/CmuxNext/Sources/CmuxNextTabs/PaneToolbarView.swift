@@ -149,6 +149,8 @@ public final class PaneToolbarView: NSView {
                 button.target = self
                 button.action = #selector(pressNative(_:))
             } else {
+                button.target = self
+                button.action = #selector(pressNative(_:))
                 button.pressMenu = { [weak self] in self?.menu(for: item) }
                 let present = button.presentMenu
                 button.presentMenu = { [weak self] menu, source in
@@ -268,6 +270,9 @@ public final class PaneToolbarView: NSView {
     private func applyTint() {
         moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
         for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
+        for (button, item) in zip(nativeButtons, nativeItems) {
+            button.contentTintColor = performWithTheme { item.toggled ? Palette.litGlyph : Palette.textSecondary }
+        }
     }
 
     // MARK: The tab bar
