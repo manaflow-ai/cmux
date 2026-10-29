@@ -43,9 +43,11 @@ struct SidebarWorkspaceTabHierarchyTests {
         return workspace
     }
 
-    static func sections() throws -> [SidebarSection] {
+    static let clippedBrowserTitle = "A long browser title that exceeds every available child row width"
+
+    static func sections(longTabTitle: Bool = false) throws -> [SidebarSection] {
         let looseTab = SidebarTab(id: TabID("loose-tab"), title: "shell")
-        let groupedTab = SidebarTab(id: TabID("grouped-tab"), title: "browser", isUnread: true,
+        let groupedTab = SidebarTab(id: TabID("grouped-tab"), title: longTabTitle ? clippedBrowserTitle : "browser", isUnread: true,
                                      favicon: SidebarFavicon(try Self.favicon()))
         let nestedTab = SidebarTab(id: TabID("nested-tab"), title: "agent", kind: .agentChat, brand: "claude")
         let looseWorkspace = workspace(loose, "Loose workspace", tabs: [looseTab], focused: looseTab.id)
@@ -61,20 +63,26 @@ struct SidebarWorkspaceTabHierarchyTests {
         ])]
     }
 
-    static func list(width: CGFloat) throws -> (SidebarListView, NSWindow) {
+    static func list(width: CGFloat, tabOnly: Bool = false) throws -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
         window.contentView = root
-        let model = SidebarModel(sections: try sections())
+        let model = SidebarModel(sections: try sections(longTabTitle: tabOnly))
         model.showWorkspaceTabs = true
         let list = SidebarListView(model: model)
         list.frame = root.bounds
+        if tabOnly { list.pageViewport = .zero }
         root.addSubview(list)
         window.orderFrontRegardless()
         list.reload(animated: false)
+        if tabOnly {
+            #expect(list.rowViews.isEmpty, "the parent must never be realized in the tab-only fixture")
+            list.pageViewport = list.frame(for: try sidebarRow(list, .tab(grouped, TabID("grouped-tab"))))
+            list.realizeVisibleRows()
+        }
         list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         return (list, window)
     }
@@ -239,6 +247,111 @@ struct SidebarWorkspaceTabHierarchyTests {
         let inset = Self.listX(list, tab, title.frame.minX) - Self.listX(list, parent, parent.titleFrame.minX)
         let expectedInset = CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
         #expect(abs(inset - expectedInset) < 0.5, "late parent realization changed the exact child anchor")
+    }
+
+    @Test(arguments: [false, true])
+    func offscreenParentModelChangesReanchorUnchangedTabs(_ reload: Bool) throws {
+        TunableStore.shared.register(SidebarTunables.all)
+        let markKey = SidebarTunables.agentMark.key
+        let oldMark = SidebarTunables.agentMark.value
+        defer {
+            TunableStore.shared.set(markKey, oldMark.tunableValue)
+            SidebarTunablesWatch.shared.changed()
+        }
+        try #require(TunableStore.shared.set(markKey, SidebarAgentMarkVariant.besideTitle.tunableValue)
+            == SidebarAgentMarkVariant.besideTitle.tunableValue)
+        SidebarTunablesWatch.shared.changed()
+        let (list, window) = try Self.list(width: 260, tabOnly: true)
+        defer { window.close() }
+        let parentKey = SidebarRowKey.workspace(Self.grouped)
+        let tab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let title = try Self.tabTitle(tab, Self.clippedBrowserTitle)
+        try #require(title.naturalSize.width > title.frame.width, "width regression needs a clipped title")
+        var workspace = try #require(list.workspaces[Self.grouped])
+        func expectAnchor() throws {
+            #expect(list.rowViews[parentKey] == nil)
+            let row = try Self.sidebarRow(list, parentKey)
+            let parentX = list.frame(for: row).minX + WorkspaceRowView.titleColumn(workspace: workspace, row: row)
+            let expected = parentX + 16 + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
+            #expect(abs(Self.listX(list, tab, title.frame.minX) - expected) < 0.5,
+                    "unchanged tab did not follow its offscreen parent's model title column")
+        }
+        try expectAnchor()
+        var oldX = Self.listX(list, tab, title.frame.minX)
+        var oldWidth = title.frame.width
+        // Every mutation leaves the tab model unchanged. Include icon removal, the smaller
+        // swatch well, a full icon, and both sources of the optional leading agent mark.
+        for step in 0..<6 {
+            switch step {
+            case 0: workspace.icon = nil
+            case 1: workspace.icon = .swatch(.blue)
+            case 2: workspace.icon = .emoji("🧭")
+            case 3: workspace.agentIcon = .symbol("terminal")
+            case 4: workspace.agentIcon = nil; workspace.agentBrand = "claude"
+            default: workspace.agentBrand = nil
+            }
+            if reload {
+                list.model.setSections(SidebarSection.patching([workspace], in: list.model.sections))
+                list.reload(animated: false)
+            } else {
+                try #require(list.model.patchWorkspaces([workspace]))
+            }
+            list.layoutSubtreeIfNeeded()
+            try expectAnchor()
+            let x = Self.listX(list, tab, title.frame.minX)
+            #expect(abs((title.frame.width - oldWidth) + (x - oldX)) < 0.5,
+                    "moving the child title did not update its available text width")
+            if step != 4 { #expect(abs(x - oldX) > 0.5, "geometry-changing model patch did not move the child") }
+            oldX = x
+            oldWidth = title.frame.width
+        }
+        // A content-only status tick leaves the child layout untouched.
+        workspace.agentStep = "checking the next file"
+        try #require(list.model.patchWorkspaces([workspace]))
+        #expect(!tab.needsLayout, "a content-only status tick invalidated child geometry")
+
+        let parentFrame = list.frame(for: try Self.sidebarRow(list, parentKey))
+        list.pageViewport = parentFrame.union(try #require(list.pageViewport))
+        list.realizeVisibleRows()
+        list.layoutSubtreeIfNeeded()
+        let parent = try Self.workspaceRow(list, Self.grouped)
+        let expected = CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
+        #expect(abs(Self.listX(list, tab, title.frame.minX) - Self.listX(list, parent, parent.titleFrame.minX) - expected) < 0.5)
+        #expect(abs(Self.listX(list, tab, title.frame.minX) - oldX) < 0.5, "late parent realization moved the child")
+    }
+
+    @Test
+    func offscreenParentAgentMarkSettingReanchorsUnchangedTab() throws {
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarTunables.agentMark.key
+        let before = SidebarTunables.agentMark.value
+        defer {
+            TunableStore.shared.set(key, before.tunableValue)
+            SidebarTunablesWatch.shared.changed()
+        }
+        try #require(TunableStore.shared.set(key, SidebarAgentMarkVariant.off.tunableValue)
+            == SidebarAgentMarkVariant.off.tunableValue)
+        SidebarTunablesWatch.shared.changed()
+        let (list, window) = try Self.list(width: 260, tabOnly: true)
+        defer { window.close() }
+        var workspace = try #require(list.workspaces[Self.grouped])
+        workspace.agentIcon = .symbol("terminal")
+        try #require(list.model.patchWorkspaces([workspace]))
+        list.layoutSubtreeIfNeeded()
+        let tab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let title = try Self.tabTitle(tab, Self.clippedBrowserTitle)
+        try #require(title.naturalSize.width > title.frame.width, "width regression needs a clipped title")
+        let x = Self.listX(list, tab, title.frame.minX)
+        let width = title.frame.width
+        try #require(TunableStore.shared.set(key, SidebarAgentMarkVariant.besideTitle.tunableValue)
+            == SidebarAgentMarkVariant.besideTitle.tunableValue)
+        // Match the production observer's main-actor callback in the same test turn.
+        SidebarTunablesWatch.shared.changed()
+        list.layoutSubtreeIfNeeded()
+        #expect(list.rowViews[.workspace(Self.grouped)] == nil)
+        let delta = SidebarStyle.titleXAfterLeadingMark(0)
+        #expect(abs(Self.listX(list, tab, title.frame.minX) - x - delta) < 0.5)
+        #expect(abs(title.frame.width - width + delta) < 0.5)
     }
 
     @Test(arguments: SidebarAgentMarkVariant.allCases)
