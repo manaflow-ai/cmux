@@ -635,12 +635,9 @@ impl Translator {
             "result" => {
                 // A compaction's summary comes before its turn's result.
                 self.awaiting_summary.store(false, Ordering::SeqCst);
-                let compact_result_shape = line.get("num_turns").and_then(Value::as_u64) == Some(0)
-                    && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0);
                 let cancelled_compaction = main_line
                     && self.cancelled_compaction.load(Ordering::SeqCst)
-                    && (self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst)
-                        || compact_result_shape);
+                    && self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst);
                 if cancelled_compaction {
                     self.cancelled_compaction.store(false, Ordering::SeqCst);
                 }
