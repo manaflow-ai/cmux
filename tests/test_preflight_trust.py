@@ -41,7 +41,13 @@ class PreflightTrustTests(unittest.TestCase):
         # Copy installed behavior, including the vulnerable hook when running
         # this regression against the before-fix source tree. Everything the
         # installer installs must be here, or it exits before wiring any hook.
+        # The checks too: a hook copy without guardrails.py refuses every push (it judged nothing).
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files", "scripts/cmux-next"],
+                                 text=True, capture_output=True, check=True).stdout.split()
+        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
+                  or p.startswith(tuple(f"scripts/cmux-next/{d}/" for d in ("lint", "arch_rules", "ast-grep")))]
         for relative in (
+            *checks,
             "scripts/git-hooks",
             "scripts/install-git-hooks.sh",
             "scripts/web_lint_prepush.py",
@@ -62,6 +68,8 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/verify-push.py",
         ):
             source, target = SOURCE / relative, self.repo / relative
+            if target.exists():
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
                 shutil.copytree(source, target)

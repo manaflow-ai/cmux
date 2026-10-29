@@ -2667,7 +2667,7 @@ class BlobReadTests(Fixture):
         self.commit("an escaped main hop")
         self.assertEqual(self.refused(), [])
 
-    def test_a_failed_blob_read_stops_the_check_and_the_hook_fails_open(self):
+    def test_a_failed_blob_read_stops_the_check_and_the_hook_refuses(self):
         self.fake_git("    echo 'fake git: cat-file failed' >&2; exit 1")
         self.write(f"{KIT}/Added.swift", self.TEXT)
         self.commit("an escaped main hop")
@@ -2685,13 +2685,33 @@ class BlobReadTests(Fixture):
         finally:
             os.environ.update(saved)
             sys.modules[_spec.name] = guardrails
-        self.assertFalse(refused, stdout.getvalue())
+        self.assertTrue(refused, stdout.getvalue())  # it judged nothing: fail closed
         self.assertIn("guardrails.py failed", stderr.getvalue())
+        self.assertIn("refuses this push (fail closed)", stderr.getvalue())
         self.assertNotIn("[main-async]", stdout.getvalue())
 
 
 class GateWrapperTests(Fixture):
-    """guardrails.run_push(): a checker failure lets through only the range it could not judge."""
+    """guardrails.run_push(): a range the checker could not judge refuses the push; the others are still judged."""
+
+    def test_a_range_it_could_not_judge_refuses_even_when_the_others_pass(self):
+        def check_own(repo, base, head, before=()):
+            if head == "feat-b":
+                raise SystemExit("guardrails: git diff failed")
+            return [], []
+
+        class Finished:
+            def finish(self):
+                return "", False
+
+        ranges = [types.SimpleNamespace(base=self.base, head=head, before=()) for head in ("feat-a", "feat-b")]
+        stderr = io.StringIO()
+        with mock.patch.object(guardrails, "check_own", check_own), \
+                contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            refused = guardrails.run_push(self.repo, ranges, Finished())
+        self.assertTrue(refused, stderr.getvalue())
+        self.assertIn("refuses this push (fail closed)", stderr.getvalue())
+        self.assertIn("feat-b", stderr.getvalue(), "the refusal names the range it could not judge")
 
     def test_a_failure_on_one_pushed_range_keeps_the_refusal_of_another(self):
         rule = next(r for r in guardrails.RULES if r.id == "main-async")
@@ -2863,14 +2883,26 @@ class HookTests(Fixture):
         self.assertEqual(skipped.returncode, 0, output)
         self.assertIn("SKIPPED by CMUX_GUARDRAILS_SKIP_REASON", output)
 
-    def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
+    def test_a_guardrails_script_that_raises_or_does_not_load_refuses_the_push(self):
+        # Fail closed: a gate that cannot load, or that raises before it answers, has judged nothing.
         installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
         self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
-        (installed / "guardrails.py").write_text("def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n")
-        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
-        output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 0, output)
-        self.assertIn("guardrails.py failed (ValueError: boom)", output)
+        for name, text, said in (
+                ("raises", "def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n",
+                 "guardrails.py failed (ValueError: boom)"),
+                ("does not load", "def run_push(:\n", "guardrails.py failed to load (SyntaxError"),
+                ("is missing", None, "guardrails.py is not installed")):
+            with self.subTest(guardrails=name):
+                if text is None:
+                    (installed / "guardrails.py").unlink()
+                else:
+                    (installed / "guardrails.py").write_text(text)
+                result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                                   CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(said, output)
+                self.assertIn("install-git-hooks.sh", output, "the refusal says how to repair the hook")
 
     def test_a_second_install_keeps_the_checks_in_place(self):
         before = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()

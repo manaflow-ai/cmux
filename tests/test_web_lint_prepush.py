@@ -111,7 +111,14 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
     def copy_sources(self):
+        # The checks install-git-hooks.sh installs: a hook without guardrails.py refuses every push (it judged
+        # nothing), so the fixture installs the whole top-level set and the folders the installer takes.
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files", "scripts/cmux-next"],
+                                 text=True, capture_output=True, check=True).stdout.split()
+        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
+                  or p.startswith(tuple(f"scripts/cmux-next/{d}/" for d in ("lint", "arch_rules", "ast-grep")))]
         for relative in (
+            *checks,
             "scripts/git-hooks",
             INSTALLER,
             "scripts/web_lint_prepush.py",
@@ -134,6 +141,8 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
         ):
             source, target = SOURCE / relative, self.repo / relative
+            if target.exists():
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
                 shutil.copytree(source, target)

@@ -836,6 +836,114 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_install_fetches_the_pinned_ast_grep_into_the_hook_cache(self):
+        key = subprocess.run(["python3", "-c", "import platform; print(platform.system(), platform.machine())"],
+                             text=True, capture_output=True, check=True).stdout.split()
+        system = {"Darwin": "darwin", "Linux": "linux"}.get(key[0], key[0].lower())
+        machine = {"aarch64": "arm64", "amd64": "x86_64"}.get(key[1], key[1])
+        archive = self.root / "tool.zip"
+        sha = fake_tool_zip(archive)
+        self.write("scripts/cmux-next/lint-tools.lock",
+                   f"ast-grep\t0.51.0\t{system}-{machine}\t{archive.as_uri()}\t{sha}\tast-grep\n")
+        self.commit("a lock whose ast-grep is a local archive")
+        env = {k: v for k, v in self.env.items() if k != "CMUX_LINT_TOOLS_DIR"}
+        env["XDG_CACHE_HOME"] = str(self.root / "xdg")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        tool = self.repo / ".git/cmux-git-hooks/lint-tools" / f"ast-grep-0.51.0-{system}-{machine}" / "ast-grep"
+        self.assertEqual(tool.read_bytes() if tool.is_file() else None, FAKE_TOOL, installed.stderr)
+        self.assertTrue(tool.with_name("ast-grep.sha256").is_file(), "the binary's sha256 is recorded")
+
+
+FAKE_TOOL = b"#!/bin/sh\necho fake-ast-grep\n"
+
+
+def fake_tool_zip(path: Path) -> str:
+    """A pinned-tool archive holding FAKE_TOOL as `ast-grep`; its sha256."""
+    import hashlib
+    import zipfile
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("ast-grep", FAKE_TOOL)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class PinnedToolTests(unittest.TestCase):
+    """The pinned tools of an installed hook: the guardrails' Rust rules refuse a push they cannot run ast-grep for
+    (fail closed), so a flaky download must not be what refuses it. The hook keeps its own sha256-checked copy
+    (install-git-hooks.sh --fetch-tool), a failed download is tried again, and a cached binary that changed is not
+    run. A platform with no pinned build still refuses."""
+
+    def setUp(self):
+        import io
+        from unittest import mock
+        self.mock, self.io = mock, io
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-pinned-tool-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.hooks = self.root / "repository/.git/cmux-git-hooks"
+        checks = self.hooks / "cmux-next-checks.v1"
+        checks.mkdir(parents=True)
+        for script in (SOURCE / "scripts/cmux-next").glob("*.py"):
+            shutil.copy(script, checks)
+        env = mock.patch.dict(os.environ, {"HOME": str(self.root / "home"), "XDG_CACHE_HOME": str(self.root / "xdg")})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("CMUX_LINT_TOOLS_DIR", None)
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_installed", checks / "prepush-gate.py")
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        self.archive = self.root / "tool.zip"
+        sha = fake_tool_zip(self.archive)
+        self.lock = self.root / "lint-tools.lock"
+        self.lock.write_text(f"ast-grep\t0.51.0\t{self.gate.platform_key()}\thttps://example.invalid/tool.zip\t{sha}"
+                             "\tast-grep\n")
+        self.cached = self.hooks / "lint-tools" / f"ast-grep-0.51.0-{self.gate.platform_key()}" / "ast-grep"
+        delay = mock.patch.object(self.gate, "TOOL_RETRY_DELAY_S", 0, create=True)
+        delay.start()
+        self.addCleanup(delay.stop)
+
+    def urlopen(self, *answers):
+        """urlopen giving ANSWERS in turn: an exception is raised, True is the archive."""
+        def answer(url, timeout=None):
+            item = next(queue)
+            if isinstance(item, BaseException):
+                raise item
+            return self.io.BytesIO(self.archive.read_bytes())
+        queue = iter(answers)
+        return self.mock.patch.object(self.gate.urllib.request, "urlopen", side_effect=answer)
+
+    def test_a_flaky_download_is_tried_again_into_the_hooks_own_cache(self):
+        import urllib.error
+        with self.urlopen(urllib.error.URLError("connection reset"), True) as opened:
+            path = self.gate.ensure_tool(self.lock, "ast-grep")
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(path, self.cached)
+        self.assertEqual(path.read_bytes(), FAKE_TOOL)
+
+    def test_the_installed_hook_fetches_once_and_then_needs_no_network(self):
+        with self.urlopen(True):
+            self.assertEqual(self.gate.fetch_tool(self.lock, "ast-grep"), self.cached)
+        with self.urlopen(OSError("offline")) as opened:
+            self.assertEqual(self.gate.ensure_tool(self.lock, "ast-grep"), self.cached)
+        self.assertEqual(opened.call_count, 0, "a cached, verified tool needs no download")
+
+    def test_a_cached_binary_that_changed_is_not_run(self):
+        with self.urlopen(True):
+            self.gate.fetch_tool(self.lock, "ast-grep")
+        self.cached.write_bytes(b"#!/bin/sh\necho not-the-pinned-tool\n")
+        with self.urlopen(OSError("offline"), OSError("offline"), OSError("offline")):
+            with self.assertRaises(SystemExit) as refused:
+                self.gate.ensure_tool(self.lock, "ast-grep")
+        self.assertIn("could not get ast-grep", str(refused.exception))
+        with self.urlopen(True):
+            self.assertEqual(self.gate.ensure_tool(self.lock, "ast-grep").read_bytes(), FAKE_TOOL, "fetched again")
+
+    def test_a_platform_with_no_pinned_build_still_refuses(self):
+        self.lock.write_text("ast-grep\t0.51.0\tplan9-mips\thttps://example.invalid/tool.zip\t00\tast-grep\n")
+        with self.assertRaises(SystemExit) as refused:
+            self.gate.ensure_tool(self.lock, "ast-grep")
+        self.assertIn("no pinned build", str(refused.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
