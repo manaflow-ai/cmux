@@ -31,13 +31,14 @@ afterAll(async () => {
   }
 });
 
-test("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {
+test("Resume survives incomplete inventories and transient list failures; disposal stops recovery", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
   const calls: string[] = [];
   let stage = "paused";
   let failRead = true;
+  let resumeReads = 0;
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
@@ -51,6 +52,14 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
             if (method === "cloudMachine.attach") {
               stage = "connecting";
               return { ok: true, value: {} };
+            }
+            if (method === "cloudMachine.list") {
+              resumeReads += 1;
+              // Attach's own fresh inventory request can supersede a concurrent list.
+              if (resumeReads === 1)
+                return { ok: true, value: { signedIn: true, loaded: false, complete: false, machines: [] } };
+              // A transient network error during the next read must also preserve the watcher.
+              if (resumeReads === 2) return { ok: false, error: { code: "network" } };
             }
             return {
               ok: true,
@@ -99,6 +108,12 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
   await act(async () => button!.click());
   expect(calls.filter((method) => method === "cloudMachine.attach")).toHaveLength(1);
   expect(calls).not.toContain("cloudMachine.open");
+  // The first list is incomplete and the second throws. Neither establishes resume failure.
+  expect(opened).toBe(false);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+  });
+  expect(resumeReads).toBeGreaterThanOrEqual(3);
   expect(opened).toBe(true);
   await act(async () => root.render(null));
 });
