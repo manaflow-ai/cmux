@@ -71,11 +71,12 @@ struct TerminalSizeSheet: View {
     private func list(_ presentation: MobileTerminalSizingPresentation) -> some View {
         List {
             Section {
-                Picker(TerminalSizingText.sizePicker(), selection: modeBinding(presentation)) {
-                    ForEach(TerminalSizingMode.allCases, id: \.self) { mode in
-                        Text(TerminalSizingText.modeName(mode)).tag(mode)
+                Picker(TerminalSizingText.sizePicker(), selection: choiceBinding(presentation)) {
+                    ForEach(TerminalSizingChoice.allCases, id: \.self) { choice in
+                        Text(TerminalSizingText.choiceName(choice)).tag(choice)
                     }
                 }
+                .accessibilityIdentifier("MobileTerminalSizingModePicker")
                 .pickerStyle(.menu)
                 if presentation.policy.mode == .fixed {
                     fixedSizeRow(presentation)
@@ -263,18 +264,16 @@ struct TerminalSizeSheet: View {
 
     // MARK: Actions
 
-    private func modeBinding(_ presentation: MobileTerminalSizingPresentation) -> Binding<TerminalSizingMode> {
+    private func choiceBinding(_ presentation: MobileTerminalSizingPresentation) -> Binding<TerminalSizingChoice> {
         Binding(
-            get: { presentation.policy.mode },
-            set: { mode in
-                var policy = presentation.policy
-                policy.mode = mode
-                if mode == .fixed, policy.fixed == nil {
-                    policy.fixed = presentation.grid
+            get: { presentation.policy.choice },
+            set: { choice in
+                var policy = presentation.policy.withChoice(choice, fallbackFixed: presentation.grid)
+                if policy.mode == .fixed, presentation.policy.fixed == nil {
                     fixedColumns = presentation.grid.cols
                     fixedRows = presentation.grid.rows
                 }
-                if mode == .priority, policy.priority.isEmpty {
+                if policy.mode == .priority, policy.priority.isEmpty {
                     policy.priority = allRows(presentation).map(\.priorityKey)
                 }
                 run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }

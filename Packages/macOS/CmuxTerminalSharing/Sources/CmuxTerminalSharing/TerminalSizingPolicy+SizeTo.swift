@@ -9,9 +9,16 @@ extension TerminalSizingPolicy {
     ///   activity then makes the participant the owner.
     /// - `latest`: unchanged; activity alone decides.
     ///
+    /// "iPhone First" stays on for a phone or tablet, which already owns the
+    /// grid by its activity; any other participant turns it off first.
+    ///
     /// - Parameter participant: the participant that should own the grid.
     /// - Returns: the adjusted policy.
     public func sizedTo(_ participant: TerminalSizingParticipant) -> TerminalSizingPolicy {
+        if handheldFirst {
+            if participant.deviceKind.isHandheld { return self }
+            return TerminalSizingPolicy(mode: mode, priority: priority, fixed: fixed).sizedTo(participant)
+        }
         switch mode {
         case .latest:
             return self
@@ -26,17 +33,14 @@ extension TerminalSizingPolicy {
         }
     }
 
-    /// The same policy in another mode, keeping the priority list and fixed grid.
+    /// The same policy in another mode, keeping the priority list and fixed
+    /// grid. Picking a mode turns "iPhone First" off.
     ///
     /// - Parameters:
     ///   - mode: the new mode.
     ///   - fallbackFixed: the grid `fixed` uses when no fixed grid is set yet.
     /// - Returns: the adjusted policy.
     public func withMode(_ mode: TerminalSizingMode, fallbackFixed: TerminalGridSize) -> TerminalSizingPolicy {
-        TerminalSizingPolicy(
-            mode: mode,
-            priority: priority,
-            fixed: mode == .fixed ? (fixed ?? fallbackFixed) : fixed
-        )
+        withChoice(.mode(mode), fallbackFixed: fallbackFixed)
     }
 }

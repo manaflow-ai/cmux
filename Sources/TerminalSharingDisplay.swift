@@ -65,6 +65,15 @@ struct TerminalSharingDisplay {
         }
     }
 
+    static func choiceTitle(_ choice: TerminalSizingChoice) -> String {
+        switch choice {
+        case .handheldFirst:
+            return String(localized: "terminalSharing.sizeMode.handheldFirst", defaultValue: "iPhone First")
+        case let .mode(mode):
+            return modeTitle(mode)
+        }
+    }
+
     static func modeTitle(_ mode: TerminalSizingMode) -> String {
         switch mode {
         case .latest: return String(localized: "terminalSharing.sizeMode.latest", defaultValue: "Follow Latest")

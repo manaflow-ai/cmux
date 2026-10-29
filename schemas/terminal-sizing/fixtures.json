@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
+  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key. A policy without 'handheld_first' has it off; the engine's default policy has it on.",
   "cases": [
     {
-      "name": "default policy is fit everyone",
+      "name": "default policy is iPhone first: the open phone sets the grid",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -37,16 +37,28 @@
         {
           "op": "expect",
           "cols": 54,
-          "rows": 42,
+          "rows": 44,
           "owners": [
-            "mac",
             "phone"
           ],
-          "reason": "smallest",
+          "reason": "latest",
           "counts": {
             "mac": true,
             "phone": true
           }
+        },
+        {
+          "op": "detach",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
         }
       ]
     },

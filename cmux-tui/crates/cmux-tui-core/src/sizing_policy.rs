@@ -154,22 +154,35 @@ pub enum TerminalSizingMode {
 }
 
 /// A sizing policy for one terminal or a workspace default.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct TerminalSizingPolicy {
     pub mode: TerminalSizingMode,
     /// Priority keys, highest first. Used by [`TerminalSizingMode::Priority`].
     pub priority: Vec<String>,
     /// Grid used by [`TerminalSizingMode::Fixed`].
     pub fixed: Option<TerminalGridSize>,
+    /// "iPhone First": while a phone or tablet counts, the newest active one
+    /// sets the whole grid and `mode` waits. `fixed` with a grid still wins.
+    /// A policy decoded without this key is an explicit choice and has it off.
+    pub handheld_first: bool,
 }
 
 impl TerminalSizingPolicy {
+    /// An explicit policy, with "iPhone First" off.
     pub fn new(
         mode: TerminalSizingMode,
         priority: Vec<String>,
         fixed: Option<TerminalGridSize>,
     ) -> Self {
-        Self { mode, priority, fixed: fixed.map(TerminalGridSize::clamped) }
+        Self { mode, priority, fixed: fixed.map(TerminalGridSize::clamped), handheld_first: false }
+    }
+}
+
+impl Default for TerminalSizingPolicy {
+    /// The default: an attached phone sets the grid while it views the
+    /// terminal, and the grid fits everyone when no phone is attached.
+    fn default() -> Self {
+        Self { handheld_first: true, ..Self::new(TerminalSizingMode::Smallest, Vec::new(), None) }
     }
 }
 
@@ -183,9 +196,14 @@ impl<'de> Deserialize<'de> for TerminalSizingPolicy {
             priority: Option<Vec<String>>,
             #[serde(default)]
             fixed: Option<TerminalGridSize>,
+            #[serde(default)]
+            handheld_first: Option<bool>,
         }
         let wire = Wire::deserialize(deserializer)?;
-        Ok(Self::new(wire.mode.unwrap_or_default(), wire.priority.unwrap_or_default(), wire.fixed))
+        Ok(Self {
+            handheld_first: wire.handheld_first.unwrap_or(false),
+            ..Self::new(wire.mode.unwrap_or_default(), wire.priority.unwrap_or_default(), wire.fixed)
+        })
     }
 }
 
@@ -417,6 +435,10 @@ impl TerminalSizingEngine {
         if let Some(explicit) = participant.counts_override {
             return explicit;
         }
+        // iPhone First: an open phone always counts, so it can own the grid.
+        if self.policy.handheld_first && participant.device_kind.is_handheld() {
+            return true;
+        }
         // Fit-everyone modes promise to count every attached view; the handheld
         // deferral only stops a phone from taking the grid by activity.
         if matches!(self.policy.mode, TerminalSizingMode::Smallest | TerminalSizingMode::Largest) {
@@ -458,6 +480,15 @@ impl TerminalSizingEngine {
                 reason,
             )
         };
+        if self.policy.handheld_first {
+            let mut handhelds = counting
+                .iter()
+                .filter(|entry| entry.participant.device_kind.is_handheld())
+                .peekable();
+            if handhelds.peek().is_some() {
+                return single(newest(handhelds), TerminalSizingReason::Latest);
+            }
+        }
         match self.policy.mode {
             TerminalSizingMode::Latest | TerminalSizingMode::Fixed => {
                 single(newest(counting.iter()), TerminalSizingReason::Latest)
@@ -669,7 +700,7 @@ mod tests {
             wire,
             serde_json::json!({
                 "generation": 1, "cols": 118, "rows": 38, "reason": "latest", "owners": ["c3"],
-                "policy": {"mode": "latest", "priority": [], "fixed": null},
+                "policy": {"mode": "latest", "priority": [], "fixed": null, "handheld_first": false},
                 "participants": [{
                     "id": "c3", "user_id": "u_maya", "display_name": "Maya Ortiz",
                     "device_kind": "mac", "device_name": "Mac Studio", "device_id": null,
@@ -681,6 +712,20 @@ mod tests {
         );
         let decoded: TerminalSizingState = serde_json::from_value(wire).unwrap();
         assert_eq!(&decoded, engine.state());
+    }
+
+    #[test]
+    fn sizing_policy_default_is_handheld_first_and_old_wire_policies_stay_off() {
+        let standard = TerminalSizingPolicy::default();
+        assert!(standard.handheld_first);
+        assert_eq!(standard.mode, TerminalSizingMode::Smallest);
+        let old: TerminalSizingPolicy =
+            serde_json::from_value(serde_json::json!({"mode": "latest"})).unwrap();
+        assert_eq!(old, TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None));
+        assert!(!old.handheld_first);
+        let wire = serde_json::to_value(&standard).unwrap();
+        assert_eq!(wire["handheld_first"], serde_json::json!(true));
+        assert_eq!(serde_json::from_value::<TerminalSizingPolicy>(wire).unwrap(), standard);
     }
 
     #[test]

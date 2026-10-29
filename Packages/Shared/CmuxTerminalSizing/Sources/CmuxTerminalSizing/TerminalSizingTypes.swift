@@ -126,14 +126,30 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
     public var priority: [String]
     /// Grid used by `.fixed`.
     public var fixed: TerminalGridSize?
+    /// Whether an attached phone or tablet sets the grid ("iPhone First").
+    /// While one counts, the newest active handheld owns the whole grid and
+    /// `mode` waits; when none is attached, `mode` decides. `fixed` with a
+    /// grid still wins. A policy decoded without this key is an explicit
+    /// choice and has it off.
+    public var handheldFirst: Bool
 
-    public init(mode: TerminalSizingMode = .smallest, priority: [String] = [], fixed: TerminalGridSize? = nil) {
+    public init(
+        mode: TerminalSizingMode = .smallest,
+        priority: [String] = [],
+        fixed: TerminalGridSize? = nil,
+        handheldFirst: Bool = false
+    ) {
         self.mode = mode
         self.priority = priority
         self.fixed = fixed?.clamped
+        self.handheldFirst = handheldFirst
     }
 
-    /// The default: fit everyone, so every attached device sees the whole grid.
+    /// The default: an attached phone sets the grid while it views the
+    /// terminal, and the grid fits everyone else when no phone is attached.
+    public static let standard = TerminalSizingPolicy(mode: .smallest, handheldFirst: true)
+
+    /// Fit everyone, so every attached device sees the whole grid.
     public static let fitEveryone = TerminalSizingPolicy(mode: .smallest)
 
     public static let latest = TerminalSizingPolicy(mode: .latest)
@@ -154,7 +170,8 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
         self.init(
             mode: try c.decodeIfPresent(TerminalSizingMode.self, forKey: .mode) ?? .smallest,
             priority: try c.decodeIfPresent([String].self, forKey: .priority) ?? [],
-            fixed: try c.decodeIfPresent(TerminalGridSize.self, forKey: .fixed)
+            fixed: try c.decodeIfPresent(TerminalGridSize.self, forKey: .fixed),
+            handheldFirst: try c.decodeIfPresent(Bool.self, forKey: .handheldFirst) ?? false
         )
     }
 
@@ -163,9 +180,51 @@ public struct TerminalSizingPolicy: Codable, Hashable, Sendable {
         try c.encode(mode, forKey: .mode)
         try c.encode(priority, forKey: .priority)
         try c.encode(fixed, forKey: .fixed)
+        try c.encode(handheldFirst, forKey: .handheldFirst)
     }
 
-    enum CodingKeys: String, CodingKey { case mode, priority, fixed }
+    enum CodingKeys: String, CodingKey {
+        case mode, priority, fixed
+        case handheldFirst = "handheld_first"
+    }
+}
+
+/// One entry of a size picker: "iPhone First" or one plain mode.
+public enum TerminalSizingChoice: Hashable, Sendable {
+    case handheldFirst
+    case mode(TerminalSizingMode)
+
+    /// Every picker entry, "iPhone First" first.
+    public static let allCases: [TerminalSizingChoice] =
+        [.handheldFirst] + TerminalSizingMode.allCases.map(TerminalSizingChoice.mode)
+}
+
+extension TerminalSizingPolicy {
+    /// The picker entry this policy shows as.
+    public var choice: TerminalSizingChoice {
+        handheldFirst ? .handheldFirst : .mode(mode)
+    }
+
+    /// The same policy with another picker entry chosen, keeping the
+    /// priority list and fixed grid. A plain mode turns "iPhone First" off;
+    /// "iPhone First" fits everyone while no phone is attached.
+    ///
+    /// - Parameters:
+    ///   - choice: the picked entry.
+    ///   - fallbackFixed: the grid `fixed` uses when no fixed grid is set yet.
+    /// - Returns: the adjusted policy.
+    public func withChoice(_ choice: TerminalSizingChoice, fallbackFixed: TerminalGridSize) -> TerminalSizingPolicy {
+        switch choice {
+        case .handheldFirst:
+            return TerminalSizingPolicy(mode: .smallest, priority: priority, fixed: fixed, handheldFirst: true)
+        case let .mode(mode):
+            return TerminalSizingPolicy(
+                mode: mode,
+                priority: priority,
+                fixed: mode == .fixed ? (fixed ?? fallbackFixed) : fixed
+            )
+        }
+    }
 }
 
 /// Why the grid has its current size.
@@ -320,6 +379,6 @@ extension TerminalSizingPolicy {
                 keys.append(next)
             }
         }
-        return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed)
+        return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed, handheldFirst: handheldFirst)
     }
 }

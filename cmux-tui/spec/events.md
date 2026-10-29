@@ -1148,7 +1148,7 @@ generation is not newer than the last one applied.
 Example:
 
 ```json
-{"event":"size-state","surface":4,"self_participant":"c3","state":{"generation":7,"cols":118,"rows":38,"reason":"latest","owners":["c3"],"policy":{"mode":"latest","priority":[],"fixed":null},"participants":[{"id":"c3","user_id":"u_maya","display_name":"Maya Ortiz","device_kind":"mac","device_name":"Mac Studio","via":null,"viewport":{"cols":118,"rows":38},"counts_override":null,"counts":true,"priority_key":"u_maya/mac"}]}}
+{"event":"size-state","surface":4,"self_participant":"c3","state":{"generation":7,"cols":118,"rows":38,"reason":"latest","owners":["c3"],"policy":{"mode":"latest","priority":[],"fixed":null,"handheld_first":false},"participants":[{"id":"c3","user_id":"u_maya","display_name":"Maya Ortiz","device_kind":"mac","device_name":"Mac Studio","via":null,"viewport":{"cols":118,"rows":38},"counts_override":null,"counts":true,"priority_key":"u_maya/mac"}]}}
 ```
 
 ### agent-changed

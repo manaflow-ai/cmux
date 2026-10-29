@@ -296,7 +296,7 @@ struct SurfaceSizePolicyCommand: SharedLegacyFacadeCommand {
     // Strings, not Int: the legacy runner owns the integer check.
     @Option(name: .customLong("cols")) var cols: String?
     @Option(name: .customLong("rows")) var rows: String?
-    @Argument(completion: .list(["latest", "smallest", "largest", "priority", "fixed"])) var mode: String?
+    @Argument(completion: .list(["iphone-first", "latest", "smallest", "largest", "priority", "fixed"])) var mode: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "size-policy", helpNames: [])
 }

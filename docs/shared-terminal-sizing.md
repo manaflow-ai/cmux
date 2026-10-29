@@ -66,6 +66,7 @@ Older clients send none.
 A participant **counts toward size** when it is attached, has a viewport, and:
 
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
+- otherwise, with `handheld_first`, a phone or tablet counts.
 - otherwise, in `smallest` and `largest`, every attached participant counts.
 - otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
   while a `mac` or `tui` participant of the same `user_id` is attached and
@@ -85,9 +86,18 @@ keys.
 
 ## Policy
 
+`handheld_first` ("iPhone First", on in the default policy): while a phone or
+tablet counts, the newest active one sets the whole grid (reason `latest`,
+that device the only owner) and `mode` waits. A phone counts while it views
+the terminal: it reports its viewport when the terminal is on screen in the
+foreground and clears it when the terminal leaves the screen or the app goes
+to the background, so the grid returns to `mode` over the other participants.
+`fixed` with a grid still wins. A policy sent without the key has it off, so
+an explicit choice from an older client stays as chosen.
+
 `mode` is one of:
 
-- `smallest` (default, "Fit everyone"): component-wise min over counting
+- `smallest` (default `mode`, "Fit everyone"): component-wise min over counting
   participants, so every attached device sees the whole grid.
 - `latest` (tmux 3.1+ `window-size latest`): the counting participant with
   the newest activity. Activity is attach, explicit focus-click, and keyboard,
@@ -105,6 +115,10 @@ With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
 waiting for a departed owner.
 
+The default policy is `{"mode":"smallest","handheld_first":true}`. Size panels
+list "iPhone First" above the five modes; picking a mode turns
+`handheld_first` off, and "Size to My Window" on a Mac or TUI does too.
+
 Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
@@ -115,7 +129,7 @@ Hosts publish one JSON object per change, the same shape on both hosts:
 
 ```json
 {"generation":7,"cols":118,"rows":38,"reason":"latest","owners":["c3"],
- "policy":{"mode":"latest","priority":[],"fixed":null},
+ "policy":{"mode":"latest","priority":[],"fixed":null,"handheld_first":false},
  "participants":[{"id":"c3","user_id":"u_maya","display_name":"Maya Ortiz",
    "device_kind":"mac","device_name":"Mac Studio","device_id":"9f2c41d07a3e5b18",
    "via":null,"viewport":{"cols":118,"rows":38},"counts_override":null,

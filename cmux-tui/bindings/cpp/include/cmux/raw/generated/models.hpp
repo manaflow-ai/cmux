@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+inline constexpr std::string_view kProtocolIrSha256 = "2798dcbb7c033ae6cdf04f75d2238dd8204a631c5445ddc1692c66dc85b7985e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1360,6 +1360,7 @@ enum class SizeMode {
 
 struct SizePolicy {
     Field<Size> fixed{};
+    std::optional<bool> handheld_first{};
     std::optional<SizeMode> mode{};
     std::optional<std::vector<std::string>> priority{};
     friend bool operator==(const SizePolicy&, const SizePolicy&) = default;

@@ -73,8 +73,15 @@ public final class TerminalSharingStore {
     /// `fixed` without a fixed grid fixes the current grid.
     @discardableResult
     public func setMode(_ mode: TerminalSizingMode, surfaceID: UUID) -> Bool {
+        setChoice(.mode(mode), surfaceID: surfaceID)
+    }
+
+    /// Picks a size picker entry ("iPhone First" or a mode), keeping the
+    /// priority list and fixed grid.
+    @discardableResult
+    public func setChoice(_ choice: TerminalSizingChoice, surfaceID: UUID) -> Bool {
         guard let snapshot = snapshots[surfaceID] else { return false }
-        let policy = snapshot.state.policy.withMode(mode, fallbackFixed: snapshot.state.size)
+        let policy = snapshot.state.policy.withChoice(choice, fallbackFixed: snapshot.state.size)
         guard policy != snapshot.state.policy else { return true }
         return setPolicy(policy, surfaceID: surfaceID)
     }
@@ -92,7 +99,10 @@ public final class TerminalSharingStore {
     public func setPriority(_ keys: [String], surfaceID: UUID) -> Bool {
         guard let snapshot = snapshots[surfaceID] else { return false }
         let current = snapshot.state.policy
-        return setPolicy(TerminalSizingPolicy(mode: current.mode, priority: keys, fixed: current.fixed), surfaceID: surfaceID)
+        return setPolicy(
+            TerminalSizingPolicy(mode: current.mode, priority: keys, fixed: current.fixed, handheldFirst: current.handheldFirst),
+            surfaceID: surfaceID
+        )
     }
 
     /// Sets or clears one participant's counts override.

@@ -30,10 +30,16 @@ extension CMUXCLI {
             let (rows, afterRows) = parseOption(afterCols, name: "--rows")
             remaining = afterRows
             guard let mode = remaining.first else {
-                throw CLIError(message: "surface size-policy requires a mode: latest, smallest, largest, priority or fixed")
+                throw CLIError(message: "surface size-policy requires a mode: iphone-first, latest, smallest, largest, priority or fixed")
             }
             remaining.removeFirst()
-            params["mode"] = mode.lowercased()
+            if mode.lowercased() == "iphone-first" {
+                // iPhone First fits everyone while no phone is attached.
+                params["mode"] = "smallest"
+                params["handheld_first"] = true
+            } else {
+                params["mode"] = mode.lowercased()
+            }
             if let cols, let rows {
                 guard let colsValue = Int(cols), let rowsValue = Int(rows) else {
                     throw CLIError(message: "surface size-policy: --cols and --rows must be integers")
@@ -86,7 +92,9 @@ extension CMUXCLI {
         }
         let selfID = payload["self_participant_id"] as? String
         let owners = Set(state["owners"] as? [String] ?? [])
-        let mode = (state["policy"] as? [String: Any])?["mode"] as? String ?? "smallest"
+        let policy = state["policy"] as? [String: Any]
+        let mode = policy?["handheld_first"] as? Bool == true
+            ? "iphone-first" : policy?["mode"] as? String ?? "smallest"
         var lines = ["\(cols)x\(rows)  mode=\(mode)  reason=\(state["reason"] as? String ?? "")"]
         if let detachment = payload["detachment"] as? [String: Any] {
             // The grid above is the last state seen before this view was detached.

@@ -98,6 +98,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
     try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");
+    try expectExplicitNullRejected(protocol.SizePolicy, "handheld_first");
     try expectExplicitNullRejected(protocol.SizePolicy, "mode");
     try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.Tab, "short_id");

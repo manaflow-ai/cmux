@@ -836,7 +836,7 @@ extension CMUXCLI {
                \(String(localized: "cli.surface.newDisplay.usage", defaultValue: "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
                cmux surface size [--surface <id|ref>] [--json]
-               cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols N --rows N] [--surface <id|ref>]
+               cmux surface size-policy <iphone-first|latest|smallest|largest|priority|fixed> [--cols N --rows N] [--surface <id|ref>]
                cmux surface size-to-me [--surface <id|ref>]
                cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref>]
                cmux surface participants [--surface <id|ref>] [--json]

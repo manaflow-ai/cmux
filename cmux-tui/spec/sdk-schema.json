@@ -5447,6 +5447,18 @@
      "constraints": [
       "Grid used by mode fixed; clamped to at least 2 x 1."
      ]
+    },
+    "handheld_first": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false,
+     "constraints": [
+      "iPhone First: while a phone or tablet counts, the newest active one sets the grid. A policy sent without it has it off; the daemon's default policy has it on."
+     ]
     }
    },
    "additional_properties": false

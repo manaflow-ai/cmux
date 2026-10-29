@@ -112,6 +112,13 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.chip.accessibilityHint", defaultValue: "Opens terminal size settings")
     }
 
+    static func choiceName(_ choice: TerminalSizingChoice) -> String {
+        switch choice {
+        case .handheldFirst: L10n.string("mobile.terminal.sizing.mode.handheldFirst", defaultValue: "iPhone first")
+        case let .mode(mode): modeName(mode)
+        }
+    }
+
     static func modeName(_ mode: TerminalSizingMode) -> String {
         switch mode {
         case .latest: L10n.string("mobile.terminal.sizing.mode.latest", defaultValue: "Follow latest")

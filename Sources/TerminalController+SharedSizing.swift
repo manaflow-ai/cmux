@@ -648,7 +648,8 @@ extension TerminalController {
         return .ok(sizeStatePayload(surfaceID: surfaceID))
     }
 
-    /// `terminal.size_policy.set {surface_id?, mode?, policy?, fixed_cols?, fixed_rows?, priority?}`.
+    /// `terminal.size_policy.set {surface_id?, mode?, policy?, fixed_cols?, fixed_rows?, priority?, handheld_first?}`.
+    /// `mode` turns "iPhone First" off unless `handheld_first` is also given.
     func v2TerminalSizePolicySet(params: [String: Any]) -> V2CallResult {
         guard let surfaceID = sharingSocketSurfaceID(params: params),
               let snapshot = terminalSharing.snapshot(for: surfaceID) else { return Self.sharingSurfaceNotFound }
@@ -667,12 +668,20 @@ extension TerminalController {
             policy = policy.withMode(mode, fallbackFixed: snapshot.state.size)
         }
         if let cols = v2Int(params, "fixed_cols"), let rows = v2Int(params, "fixed_rows") {
-            let requested = TerminalSizingPolicy(mode: policy.mode, priority: policy.priority, fixed: TerminalGridSize(cols: cols, rows: rows))
+            let requested = TerminalSizingPolicy(
+                mode: policy.mode,
+                priority: policy.priority,
+                fixed: TerminalGridSize(cols: cols, rows: rows),
+                handheldFirst: policy.handheldFirst
+            )
             guard requested.fixedSizeIsWithinLimit else { return Self.fixedSizeTooLarge }
             policy = requested
         }
         if let priority = params["priority"] as? [String] {
-            policy = TerminalSizingPolicy(mode: policy.mode, priority: priority, fixed: policy.fixed)
+            policy = TerminalSizingPolicy(mode: policy.mode, priority: priority, fixed: policy.fixed, handheldFirst: policy.handheldFirst)
+        }
+        if let handheldFirst = v2Bool(params, "handheld_first") {
+            policy.handheldFirst = handheldFirst
         }
         guard terminalSharing.setPolicy(policy, surfaceID: surfaceID) else {
             return .err(code: "unavailable", message: "Terminal size policy is unavailable", data: nil)
