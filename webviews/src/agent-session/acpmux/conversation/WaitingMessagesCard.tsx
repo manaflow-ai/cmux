@@ -86,12 +86,7 @@ export function WaitingMessagesCard({
           onClick={() => show(!open)}
         >
           <span className="cv-waiting__icon">
-            <Icon
-              name={open ? "disclosure.expanded" : "disclosure.collapsed"}
-              size={ROW_ICON}
-              row
-              className={`cv-rotor${open ? " is-open" : ""}`}
-            />
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
           <span className="cv-waiting__count">{count}</span>
           <span className="cv-waiting__senders">

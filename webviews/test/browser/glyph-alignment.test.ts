@@ -8,6 +8,7 @@ import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 type Check = {
+  family: string;
   row: string;
   glyph: string;
   text: string;
@@ -20,6 +21,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
   const CASES = [
     {
       id: "agent-pane.workflow-side-tab",
+      variant: undefined,
       selectors: [
         [
           ".acpmux-workflow-side-tab__phase",
@@ -35,22 +37,25 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
     },
     {
       id: "agent-pane.workflow-card",
+      variant: undefined,
       selectors: [
         [".acpmux-workflow-card__head", ".acpmux-workflow-card__head svg[data-icon]", ".acpmux-workflow-card__name"],
       ] as const,
     },
     {
       id: "agent-pane.chat-inspector",
+      variant: "workflow-running",
       selectors: [
         [
           ".acpmux-workflow-agent",
           ".acpmux-workflow-agent__icon svg[data-icon], .acpmux-workflow-agent__icon .cv-spinner",
-          ".acpmux-workflow-agent__name",
+          ".acpmux-workflow-agent__text",
         ],
       ] as const,
     },
     {
-      id: "agent-pane.subagents",
+      id: "agent-pane.chat-inspector",
+      variant: "subagents-open",
       selectors: [
         [
           ".acpmux-agent-line",
@@ -61,6 +66,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
     },
     {
       id: "agent-pane.subagent-tray",
+      variant: undefined,
       selectors: [
         [
           ".acpmux-agent-line",
@@ -71,6 +77,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
     },
     {
       id: "agent-pane.waiting-messages-card",
+      variant: undefined,
       selectors: [[".cv-waiting__toggle", ".cv-waiting__icon svg", ".cv-waiting__count"]] as const,
     },
   ];
@@ -101,11 +108,15 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
           });
           try {
             await page.goto(
-              `http://127.0.0.1:${port}${galleryFrame(entry.id, { colorScheme, reducedMotion: "true" })}`,
+              `http://127.0.0.1:${port}${galleryFrame(entry.id, {
+                colorScheme,
+                reducedMotion: "true",
+                variant: entry.variant,
+              })}`,
             );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
             const checks = (await page.evaluate(
-              (selectors) =>
+              ({ selectors, family }) =>
                 selectors.flatMap(([rowSelector, glyphSelector, textSelector]) =>
                   [...document.querySelectorAll<HTMLElement>(rowSelector)].flatMap((row) => {
                     const glyph = row.querySelector<SVGElement>(glyphSelector);
@@ -115,6 +126,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
                       tr = text.getBoundingClientRect();
                     return [
                       {
+                        family,
                         row: rowSelector,
                         glyph: glyph.getAttribute("data-icon") ?? glyph.className.baseVal ?? "svg",
                         text: text.textContent?.trim() ?? "",
@@ -127,8 +139,12 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
                     ];
                   }),
                 ),
-              entry.selectors as readonly (readonly [string, string, string | null])[],
+              {
+                selectors: entry.selectors as readonly (readonly [string, string, string | null])[],
+                family: `${entry.id}#${entry.variant ?? "default"}`,
+              },
             )) as Check[];
+            if (checks.length === 0) failures.push(`${colorScheme} ${entry.id} produced no glyph observations`);
             const captureDir = process.env.GLYPH_CAPTURE_DIR;
             if (captureDir) {
               const { mkdir } = await import("node:fs/promises");
@@ -151,8 +167,8 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
             await page.close();
           }
         }
-      for (const group of new Set(observed.map((check) => check.row))) {
-        const lefts = observed.filter((check) => check.row === group).map((check) => check.left);
+      for (const group of new Set(observed.map((check) => `${check.family}:${check.row}`))) {
+        const lefts = observed.filter((check) => `${check.family}:${check.row}` === group).map((check) => check.left);
         const left = lefts[0];
         if (left !== undefined && lefts.some((value) => Math.abs(value - left) > 0.5))
           failures.push(`${group} glyphs do not share an icon-column left edge`);
