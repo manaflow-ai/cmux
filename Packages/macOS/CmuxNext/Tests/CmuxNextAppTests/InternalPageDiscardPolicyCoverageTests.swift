@@ -272,7 +272,7 @@ struct InternalPageDiscardPolicyCoverageTests {
         // The real page (TaskManagerPageService.makeView) over the samples, its saved top row restored.
         let services = Self.services()
         let service = services.taskManager
-        #expect(service.useCaptureFixture(source))
+        try #require(service.useCaptureFixture(source), "a fresh service takes the fixture (no page open yet)")
         let key = LocalPageTab.makeKey(.taskManager)
         let host = service.makeView(for: key, in: nil)
         defer { service.tabClosed(key) }
