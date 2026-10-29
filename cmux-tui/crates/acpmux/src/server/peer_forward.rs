@@ -269,7 +269,7 @@ async fn forward_inner(
             conn.message_notices
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(id.clone(), super::MessageNotices::default());
+                .reopen(Some(&peer.name), &id);
         }
         // A peer's handles are this connection's own here (`media_forward.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {

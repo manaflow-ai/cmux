@@ -72,6 +72,43 @@ impl MessageNotices {
     }
 }
 
+/// A connection's `MessageNotices`, one per chat it hears: by the chat's owner (None for this
+/// daemon, Some(peer) for a peer's chat) and raw id. A peer's chat may keep the raw id of one here
+/// (an export and import keeps ids), and each counts its own seqs.
+#[derive(Default)]
+pub(super) struct MessageNoticeBook {
+    chats: HashMap<(Option<String>, String), MessageNotices>,
+}
+
+impl MessageNoticeBook {
+    /// A fresh count for this connection's own reopen of the chat; one raw id is one owner's chat
+    /// on a connection (`view::subscribe_remote`), so the other owner's count ends.
+    pub(super) fn reopen(&mut self, owner: Option<&str>, id: &str) {
+        self.chats.retain(|(o, i), _| i != id);
+        self.chats.insert((owner.map(str::to_owned), id.to_owned()), MessageNotices::default());
+    }
+
+    /// `MessageNotices::live` for the chat.
+    pub(super) fn live(&mut self, owner: Option<&str>, id: &str, seq: u64) -> bool {
+        self.chats.entry((owner.map(str::to_owned), id.to_owned())).or_default().live(seq)
+    }
+
+    /// `MessageNotices::replay` for the chat; a chat with no count (none reopened) always sends.
+    pub(super) fn replay(&mut self, owner: Option<&str>, id: &str, seq: u64) -> bool {
+        self.chats.get_mut(&(owner.map(str::to_owned), id.to_owned())).is_none_or(|n| n.replay(seq))
+    }
+
+    /// The connection no longer hears the chat.
+    pub(super) fn forget(&mut self, owner: Option<&str>, id: &str) {
+        self.chats.remove(&(owner.map(str::to_owned), id.to_owned()));
+    }
+
+    /// The connection no longer hears raw id `id` from any owner but `keep`.
+    pub(super) fn forget_others(&mut self, keep: Option<&str>, id: &str) {
+        self.chats.retain(|(o, i), _| i != id || o.as_deref() == keep);
+    }
+}
+
 pub struct Conn {
     pub id: String,
     /// The listener this connection came in on.
@@ -97,7 +134,7 @@ pub struct Conn {
     outbound_pending_controls: Arc<AtomicUsize>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
-    message_notices: StdMutex<HashMap<String, MessageNotices>>,
+    message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
@@ -1353,7 +1390,7 @@ async fn serve_connection_from(
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
         subs: StdMutex::new(HashMap::new()),
-        message_notices: StdMutex::new(HashMap::new()),
+        message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
@@ -1626,8 +1663,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
         let heard = !sub.event_stream || sub.filter.matches(rec);
         let repeat = message && heard && {
-            let mut notices = conn.message_notices.lock_or_recover();
-            !notices.entry(ev.session_id.clone()).or_default().live(rec.seq)
+            let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
+            !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
         };
         if repeat {
             // Sent by the replay.
@@ -2120,7 +2157,31 @@ pub mod tailnet_ingress;
 
 #[cfg(test)]
 mod message_notice_tests {
-    use super::MessageNotices;
+    use super::{MessageNoticeBook, MessageNotices};
+
+    /// A peer's chat that keeps the raw id of one here (an export and import keeps ids) counts its
+    /// own seqs: neither chat's record silences the other's of the same seq.
+    #[test]
+    fn a_peer_chat_with_a_local_raw_id_hears_its_own_messages() {
+        let mut book = MessageNoticeBook::default();
+        assert!(book.live(None, "c", 3));
+        assert!(book.live(Some("p"), "c", 3));
+        assert!(!book.live(None, "c", 3));
+        assert!(!book.live(Some("p"), "c", 3));
+        assert!(book.live(Some("q"), "c", 3));
+        // A reopen of the peer's chat replays it afresh and ends the local chat's count.
+        book.reopen(Some("p"), "c");
+        assert!(book.replay(Some("p"), "c", 3));
+        assert!(book.live(None, "c", 3));
+        // Detaching the local chat leaves the peer's count.
+        book.forget(None, "c");
+        assert!(!book.live(Some("p"), "c", 3));
+        // Switching to the local chat drops every peer's count of that raw id.
+        book.forget_others(None, "c");
+        assert!(book.live(Some("p"), "c", 3));
+        // A chat with no count from a reopen sends its replay.
+        assert!(book.replay(None, "d", 1));
+    }
 
     /// A replay racing the live stream sends each message notice once, whichever sends first.
     #[test]

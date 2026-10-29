@@ -1121,10 +1121,7 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             // Before the attach: a message the live stream sends during the replay is not
             // replayed again, nor one replayed sent live (`MessageNotices`).
-            conn.message_notices
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(s.id.clone(), super::MessageNotices::default());
+            conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             // One record at a time, the first 100,000 as before: the log is never held whole.
@@ -1143,8 +1140,7 @@ async fn dispatch_request(
                         .message_notices
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .get_mut(&s.id)
-                        .is_none_or(|n| n.replay(rec.seq));
+                        .replay(None, &s.id, rec.seq);
                     // Another daemon's link, served as Peer or added with the dashboard token
                     // (`view::a_link`), takes the event envelope, so its hub keeps the sequence
                     // and replays it after a reconnect: its hub reads no compact notice.
