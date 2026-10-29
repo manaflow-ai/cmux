@@ -239,15 +239,20 @@ export function ContextMenu({
         if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
+        const target = event.target instanceof Element ? event.target : null;
+        // The native host needs an HTMLElement anchor. SVG descendants use their nearest HTML
+        // parent; with no such anchor, leave the browser's context menu untouched.
+        const nativeAnchor =
+          target instanceof HTMLElement ? target : target?.parentElement instanceof HTMLElement ? target.parentElement : null;
+        if (native && !nativeAnchor) return;
         event.preventDefault();
         onOpen?.();
         setActive(0);
-        const target = event.target instanceof Element ? event.target : null;
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         const at = { x: event.clientX, y: event.clientY };
         if (native) {
-          setNativeTarget(target instanceof HTMLElement ? target : null);
-          setNativeOpen(target instanceof HTMLElement);
+          setNativeTarget(nativeAnchor);
+          setNativeOpen(true);
           return;
         }
         const native = nativeMenu();
