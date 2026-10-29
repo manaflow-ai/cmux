@@ -580,32 +580,52 @@ for (const terminal of ["turn_end", "turn_result"])
     }
   });
 
-test("an expired Stop grace resets when a distinct turn starts without its old result", async () => {
-  const daemon = fakeDaemon(
-    record([
-      ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
-      ["mux", "turn_started", { turnId: "turn-old" }],
-    ]),
-  );
-  const { client, working } = await connect(daemon);
-  jest.useFakeTimers();
-  try {
-    await client.cancel();
-    jest.advanceTimersByTime(5_001);
-    daemon.push(
-      record([
-        ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
-        ["mux", "turn_started", { turnId: "turn-new" }],
-      ], 3),
-    );
-    expect(working()).toBe(true);
-    await client.cancel();
-    expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(2);
-  } finally {
-    client.close();
-    jest.useRealTimers();
-  }
-});
+for (const oldTurnId of ["turn-old", undefined])
+  for (const action of ["stop", "send-now"])
+    test(`expired Stop grace releases a new known turn (${oldTurnId ?? "unknown"}, ${action})`, async () => {
+      const daemon = fakeDaemon(
+        record([
+          ["mux", "user_message", { text: "old prompt", turnId: oldTurnId }],
+          ["mux", "turn_started", { turnId: oldTurnId }],
+        ]),
+      );
+      const { client, working, rows } = await connect(daemon);
+      jest.useFakeTimers();
+      try {
+        await client.cancel();
+        jest.advanceTimersByTime(5_001);
+        expect(working()).toBe(false);
+        daemon.push(
+          record(
+            [
+              ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+              ["mux", "turn_started", { turnId: "turn-new" }],
+            ],
+            3,
+          ),
+        );
+        expect(working()).toBe(true);
+        if (action === "stop") {
+          await client.cancel();
+          expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(2);
+        } else {
+          daemon.push(
+            record(
+              [
+                ["mux", "queued", { promptId: "p-now", text: "send now" }],
+                ["mux", "queue_order", { promptId: "p-now", next: true, order: ["p-now"] }],
+                ["mux", "turn_result", { status: "cancelled", turnId: "turn-new" }],
+              ],
+              5,
+            ),
+          );
+          expect(rows().find((row) => row.id === "summary-turn-new")?.continued).toBe(true);
+        }
+      } finally {
+        client.close();
+        jest.useRealTimers();
+      }
+    });
 
 for (const turnId of ["turn-grace", undefined])
   test(`Stop grace and its authoritative result share one notice (${turnId ?? "unknown identity"})`, async () => {
