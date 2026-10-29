@@ -4146,6 +4146,8 @@ article.acpmux-row:empty {
   line-height: var(--cv-meta-row);
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-received .cv-received__queued {
   opacity: 0;
 }
 .cv-received:hover .cv-received__queued,

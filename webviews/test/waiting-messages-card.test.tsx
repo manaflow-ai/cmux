@@ -6,6 +6,8 @@
 // turn ("Read after this turn"), never mixed; open, each message is its own received card with its
 // own actions, oldest first. One message alone draws as before.
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -96,6 +98,12 @@ async function connect(steps: Step[]) {
 }
 
 const doc = dom.window.document;
+const conversationStyle = doc.createElement("style");
+conversationStyle.textContent = readFileSync(
+  path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
+  "utf8",
+);
+doc.head.append(conversationStyle);
 const root = createRoot(doc.getElementById("root")!);
 /// The chat's rows as the pane draws them (turns.ts), the steers that wait among them.
 const drawn = (snapshot: AcpmuxSnapshot) =>
@@ -130,7 +138,11 @@ test("three steered messages from two sessions are one card; open, each is its r
     "lane-a",
     "lane-b",
   ]);
-  expect(card.querySelector(".cv-received__queued")?.textContent).toBe(translate("message.readAfterStep"));
+  const delivery = card.querySelector<HTMLElement>(".cv-received__queued")!;
+  expect(delivery.textContent).toBe(translate("message.readAfterStep"));
+  // The grouped waiting card owns this label, so it stays visible; only each opened received row
+  // uses the interaction-only reveal rule.
+  expect(getComputedStyle(delivery).opacity).toBe("1");
   // No Copy of its own over the note: each message has its own.
   expect(card.closest("[data-floating-copy]")).toBeNull();
   // Closed, no message draws on its own.
