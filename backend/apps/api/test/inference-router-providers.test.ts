@@ -85,13 +85,6 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     expect(r.headers.get("x-cmux-provider")).toBe("vercel")
   })
 
-  it("fails over from Vercel to OpenRouter before the first byte", async () => {
-    const { t } = await paidPerson("router-vercel-failover")
-    const seen = record((p) => (p === "vercel" ? new Response("no credit", { status: 402 }) : ok()))
-    expect((await call(t, allKeys(), DS)).status).toBe(200)
-    expect(seen.map((s) => s.provider)).toEqual(["vercel", "openrouter"])
-  })
-
   it("reaches Vercel through the OIDC relay when one is configured, with the relay key", async () => {
     const { t } = await paidPerson("router-vercel-relay")
     const seen = record(() => ok())
@@ -151,5 +144,13 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     const r = await call(t, allKeys(), "openai/gpt-oss-120b", imageMessages)
     expect(r.status).toBe(400)
     expect(JSON.parse(r.text).error.message).toContain("image")
+  })
+
+  // Last: a failed Vercel attempt puts Vercel in the spend guard's cooldown for the next tests.
+  it("fails over from Vercel to OpenRouter before the first byte", async () => {
+    const { t } = await paidPerson("router-vercel-failover")
+    const seen = record((p) => (p === "vercel" ? new Response("no credit", { status: 402 }) : ok()))
+    expect((await call(t, allKeys(), DS)).status).toBe(200)
+    expect(seen.map((s) => s.provider)).toEqual(["vercel", "openrouter"])
   })
 })
