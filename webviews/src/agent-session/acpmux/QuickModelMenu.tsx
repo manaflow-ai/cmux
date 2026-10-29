@@ -1,9 +1,7 @@
-import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
+import { authText, canSessionLogin } from "./sessionAuth";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
-import type { Choice } from "./ComposerPickers";
-import type { HarnessPlacement, ReasoningSliderStyle } from "./composerSettings";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { useOpenSide } from "../../ui/openSide";
@@ -11,167 +9,28 @@ import { useNativePopup, type NativePopupDescription, type NativePopupEvent, typ
 import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenuFallback } from "./QuickModelMenuFallback";
 
-/// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
-/// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
-export type QuickMenu = {
-  /// The numbered rows: this harness's top models, with the running one among them.
-  models: readonly Omit<QuickModel, "family">[];
-  current?: string;
-  onModel(id: string): void;
-  /// The reasoning levels; absent when the model offers no choice.
-  effort?: {
-    levels: Choice[];
-    current?: string;
-    onPick(value: string): void;
-    /// The optional stepped slider is opt-in; the Effort submenu remains the default.
-    slider?: boolean;
-    sliderStyle?: ReasoningSliderStyle;
-  };
-  /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
-  account?: { sessionId: string; accounts: ChatAccounts };
-  /// Provider presentation alternatives for the gallery; the compact submenu is the default.
-  routeLayout?: "submenu" | "inline" | "grouped";
-  /// Auth for the selected session/route only, as acpmux last verified it.
-  auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
-  /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
-  /// none; the model button owns it for every harness.
-  fast?: { checked: boolean; onChange(on: boolean): void };
-  /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
-  /// `models` alone and More models opens the full picker.
-  families?: QuickFamilies;
-  /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
-  /// from the model choices and their held height.
-  update?: { text: string; run(): void };
-  /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
-  /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
-  /// the effort and fast mode the query named. Without it typing opens the full picker.
-  search?: {
-    find(query: string): QuickModel[];
-    pick(model: QuickModel): void;
-  };
-  /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
-  /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
-  searchField?: QuickSearchField;
-  /// How a model several providers serve offers them (gallery versions; Lawrence 2026-10-22,
-  /// OpenCode's DeepSeek rows): `row` (the default) lists it once and adds a Provider row for the
-  /// running one, `submenu` makes its row a submenu of providers, `expanded` lists its providers
-  /// under its name.
-  providers?: QuickProviderLook;
-  /// How a search with a rail lists its matches: grouped under each harness or flat.
-  searchGroups?: QuickSearchGroups;
-  harnessPlacement?: HarnessPlacement;
-};
+import { usePopupHost } from "../../ui/UiProvider";
+import { searchGroups, twinRows, type QuickMenu, type QuickModel } from "./QuickModelMenuFallback";
+export { searchGroups, twinRows } from "./QuickModelMenuFallback";
+export type { QuickMenu, QuickMenuExtras, QuickModel, QuickFamily, QuickFamilies, QuickSearchField, QuickProviderLook, QuickSearchGroups, QuickSearchGroup } from "./QuickModelMenuFallback";
 
-export type QuickSearchField = "always" | "typed" | "long";
-
-/// How many models (the tab's rows and More models) make a list long enough for the `long`
-/// version's search field.
 const LONG_LIST = 8;
-
-export type QuickProviderLook = "row" | "submenu" | "expanded";
-export type QuickSearchGroups = "harness" | "flat";
-
-/// A model row of any harness: `family` is the rail tab (harness) it belongs to. A searched row
-/// names its harness, effort and fast mode in `hint`, and lands `effort` and `fast` when picked. A
-/// model several providers serve is one row (modelVariants.ts): it lands its own `id`, and `offers`
-/// holds every provider's row; `tag` is a note its name carried ("New").
-export type QuickModel = {
-  id: string;
-  name: string;
-  family: string;
-  disabled?: boolean;
-  /// A searched row's harness name, used as its group heading or flat detail.
-  harness?: string;
-  hint?: string;
-  effort?: string;
-  fast?: boolean;
-  tag?: string;
-  /// The provider the row lands, named at its trailing edge (a harness that routes to several).
-  provider?: string;
-  offers?: (QuickModel & { provider: string })[];
-};
-
-/// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
-/// their place (a signed-out harness). `mark` is the AgentMark brand; without one the tab draws
-/// the name's initial.
-export type QuickFamily = {
-  id: string;
-  name: string;
-  mark?: string;
-  starred?: boolean;
-  models: QuickModel[];
-  more: QuickModel[];
-  note?: string;
-  /// Runs a signed-out harness's login (its Log In row).
-  logIn?(): void;
-  /// A distinctly named launch configuration; choosing it changes the harness.
-  launch?: boolean;
-  /// A started chat's other harness: offer Fork to it in place of models.
-  fork?: boolean;
-};
-
-export type QuickFamilies = {
-  list: QuickFamily[];
-  /// The chat's harness: its tab opens first, and only it shows Effort and Account.
-  current?: string;
-  onPick(model: QuickModel): void;
-  /// Add harness…, the last row of More models.
-  onAddHarness?(): void;
-  onLaunch?(id: string): void;
-  onFork?(id: string): void;
-  forkReady?: boolean;
-};
-
-/// Keys 1 to 9 pick a tab's first rows; this does not limit the visible model list.
 const FILTER_ROWS = 9;
-const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
+const rowValue = (model: Pick<QuickModel, "family" | "id">) => JSON.stringify([model.family, model.id]);
+const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) => !!model.offers?.some((offer) => offer.id === current);
+type QuickProps = React.ComponentProps<typeof QuickModelMenuFallback>;
 
-const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
-/// The running model's row when several providers serve it: the running offer may be another
-/// provider's than the row lands, when the running one is unavailable.
-const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
-  !!model.offers?.some((offer) => offer.id === current);
-
-export type QuickSearchGroup = { id: string; name: string; rows: QuickModel[] };
-
-export function searchGroups(found: readonly QuickModel[], rail: readonly QuickFamily[]): QuickSearchGroup[] {
-  const groups = new Map<string, QuickSearchGroup>();
-  for (const family of rail) if (!family.starred) groups.set(family.id, { id: family.id, name: family.name, rows: [] });
-  for (const row of found) {
-    let group = groups.get(row.family);
-    if (!group) groups.set(row.family, (group = { id: row.family, name: row.harness ?? row.family, rows: [] }));
-    group.rows.push(row);
-  }
-  return [...groups.values()].filter((group) => group.rows.length > 0);
+/** The browser gallery mounts its explicit fallback; an app host mounts only native descriptors. */
+export function QuickModelMenu(props: QuickProps) {
+  const native = usePopupHost()?.native;
+  return native ? <NativeQuickModelMenu {...props} /> : <QuickModelMenuFallback {...props} />;
 }
-
-export function twinRows(groups: readonly QuickSearchGroup[]): Set<QuickModel> {
-  const twins = new Set<QuickModel>();
-  for (const group of groups) {
-    const seen = new Map<string, QuickModel>();
-    for (const row of group.rows) {
-      const key = [row.name, row.harness ?? row.family, row.hint ?? row.provider ?? ""].join("\u0000");
-      const first = seen.get(key);
-      if (first) twins.add(first).add(row);
-      else seen.set(key, row);
-    }
-  }
-  return twins;
-}
-
-/// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement">;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
-export function QuickModelMenu({
+function NativeQuickModelMenu({
   open, onOpenChange, trigger, chip, menu, onMore, children,
-}: {
-  open: boolean; onOpenChange(open: boolean): void;
-  trigger: React.RefObject<HTMLButtonElement | null>;
-  chip: { "data-menu": string; label: string; title: string };
-  menu: QuickMenu; onMore(query?: string): void; children: React.ReactNode;
-}) {
+}: QuickProps) {
   const t = useT();
   const newTab = useContext(OnNewTab);
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
@@ -221,80 +80,115 @@ export function QuickModelMenu({
   const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
   const runningRow = onChatTab ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current)) : undefined;
   const runningProvider = runningRow?.offers?.find((offer) => offer.id === current)?.provider;
-  const modelRow = (choice: QuickModel, index?: number): NativePopupRow => {
-    const value = valueOf(choice);
-    return {
-      id: `model:${value}`, kind: choice.offers && providerLook === "submenu" ? "submenu" : choice.offers && providerLook === "expanded" ? "section" : "choice", label: choice.name,
-      ...([groups ? undefined : choice.harness, choice.hint ?? choice.provider, choice.tag].filter(Boolean).length
-        ? { description: [groups ? undefined : choice.harness, choice.hint ?? choice.provider, choice.tag].filter(Boolean).join(" · ") }
-        : {}),
-      ...(choice.disabled ? { disabled: true } : {}), checked: value === currentValue,
-      ...(!newTab && !query && index !== undefined && index < FILTER_ROWS && value !== currentValue ? { shortcut: String(index + 1) } : {}),
-      ...(choice.offers && (providerLook === "submenu" || providerLook === "expanded") ? { children: choice.offers.map((offer) => modelRow(offer)) } : {}),
-    };
+  // Identifiers are short, stable across updates, and distinct even when a provider offer also
+  // appears in the primary list. The native host requires uniqueness across the entire tree.
+  const ids = useRef(new Map<string, string>());
+  const idFor = (key: string) => {
+    let id = ids.current.get(key);
+    if (!id) { id = `row-${ids.current.size}`; ids.current.set(key, id); }
+    return id;
   };
-  const visibleRows: NativePopupRow[] = groups
-    ? groups.map((group) => ({ kind: "section" as const, id: `group:${group.id}`, label: group.name, children: group.rows.map((choice, index) => modelRow(choice, index)) }))
-    : rows.map((choice, index) => modelRow(choice, index));
-  if (!visibleRows.length) visibleRows.push({ kind: "text", id: "empty", label: query ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query }) : (shown?.note ?? t("picker.noMatches")), disabled: true });
-  if (!query && shown?.note && shown.logIn) visibleRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
-  if (forkTab) visibleRows.splice(0, visibleRows.length, { kind: "action", id: `fork:${forkTab.id}`, label: t("picker.forkTo", { harness: forkTab.name }), disabled: families?.forkReady === false });
-  if (!query && inlineMore && shown && shown.more.length > 0) {
-    const moreRows = moreShown ? shown.more.map((choice) => modelRow(choice)) : [];
-    visibleRows.push({ kind: moreShown ? "section" : "action", id: "more-models", label: t("picker.moreModels"), keepOpen: true, ...(moreRows.length ? { children: moreRows } : {}) });
-  }
-  if (!query && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length)) visibleRows.push({ kind: "action", id: "add-harness", label: t("modelPicker.addHarness") });
-  if (!query && onChatTab && effort && levels.length > 1) visibleRows.push({ kind: "submenu", id: "effort", label: t("effort.title"), value: level?.name, children: effort.slider ? [{ kind: "slider", id: "effort-slider", label: t("effort.title"), value: effort.current, minimum: 0, maximum: Math.max(0, levels.length - 1), step: 1 }] : levels.map((choice) => ({ kind: "choice" as const, id: `effort:${choice.id}`, label: choice.name, checked: choice.id === effort.current })) });
-  if (!query && runningRow?.offers && providerLook === "row") visibleRows.push({ kind: "submenu", id: "provider", label: t("picker.provider"), value: runningProvider, children: runningRow.offers.map((offer) => modelRow(offer)) });
-  if (!query && !forkTab && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness)) visibleRows.push({ kind: "submenu", id: "more-models", label: t("picker.moreModels"), children: [...(shown?.more.map((choice) => modelRow(choice)) ?? []), ...(families.onAddHarness ? [{ kind: "action" as const, id: "add-harness", label: t("modelPicker.addHarness") }] : [])] });
-  if (!query && !families) visibleRows.push({ kind: "action", id: "more-models", label: t("picker.moreModels") });
-  if (!query && onChatTab && account) {
-    const accountValue = accounts.switchFailed ? t("picker.accountSwitchFailed") : accounts.list ? (accounts.list.accounts.find((choice) => choice.id === accounts.list?.active)?.name ?? t("picker.harnessLogin")) : undefined;
-    const choices = accounts.list?.accounts.filter((choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || isModelRouterKind(choice.kind) || choice.id === accounts.list?.active) ?? [];
-    const accountRows: NativePopupRow[] = accounts.list ? [{ kind: "choice", id: "provider:", label: t("picker.harnessLogin"), checked: !accounts.list.active, disabled: accounts.list.scope !== "chat" && !!accounts.list.active }, ...choices.map((choice) => ({ kind: "choice" as const, id: `provider:${choice.id}`, label: choice.name, checked: choice.id === accounts.list?.active }))] : [{ kind: "text", id: "provider-status", label: accounts.failed ? t("picker.accountFailed") : "…", disabled: true }];
-    visibleRows.push({ kind: "submenu", id: "provider", label: t("picker.provider"), value: accountValue, children: accountRows });
-  }
-  if (!query && onChatTab && auth && authText(auth.verdict, t)) {
-    visibleRows.push({ kind: "separator", id: "auth-separator", label: "" });
-    visibleRows.push({ kind: "text", id: "auth-status", label: authText(auth.verdict, t), disabled: true });
-    if (canSessionLogin(auth.verdict) && auth.onLogin) visibleRows.push({ kind: "action", id: "auth-login", label: t("harness.logIn") });
-    if (auth.onRefresh) visibleRows.push({ kind: "action", id: "auth-refresh", label: t("harnesses.checkAgain") });
-  }
-  if (!query && onChatTab && fast) visibleRows.push({ kind: "toggle", id: "fast", label: t("picker.fastMode"), checked: fast.checked });
-  const rail = families?.list && railTabs.map((family) => ({ kind: "action" as const, id: `family:${family.id}`, label: family.name, ...(family.mark ? { icon: family.mark } : {}), checked: family.id === tab, disabled: family.launch && families.forkReady === false }));
-  const model: NativePopupDescription = { side, align: "start", width: families ? 310 : 280, title: t("picker.model"), rows: visibleRows, ...(rail ? { rail, railWidth: 44 } : {}), ...(showField ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}), ...(menu.update ? { footer: [{ kind: "action", id: "update", label: t("harness.update"), description: menu.update.text }] } : {}) };
-  const findModel = (id: string): QuickModel | undefined => [...rows, ...(shown?.more ?? []), ...(runningRow?.offers ?? []), ...rows.flatMap((choice) => choice.offers ?? [])].find((choice) => `model:${valueOf(choice)}` === id);
+  const actions = new Map<string, (event: NativePopupEvent) => void>();
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
-    if (query && search) search.pick(row); else if (!families) menu.onModel(row.id); else families.onPick(row);
+    if (query && search) search.pick(row);
+    else if (!families) menu.onModel(row.id);
+    else families.onPick(row);
+  };
+  const action = (key: string, label: string, run: (event: NativePopupEvent) => void, extra: Partial<NativePopupRow> = {}): NativePopupRow => {
+    const id = idFor(key);
+    if (!extra.disabled) actions.set(id, run);
+    return { id, kind: "action", label, ...extra };
+  };
+  const closeThen = (run: () => void) => () => { onOpenChange(false); run(); };
+  const providerRows = (choice: QuickModel, scope: string): NativePopupRow[] => (choice.offers ?? []).map((offer) =>
+    action(`${scope}:offer:${rowValue(offer)}`, offer.provider, () => pickRow(offer), { checked: valueOf(offer) === currentValue, disabled: offer.disabled }),
+  );
+  const modelRows = (choices: readonly QuickModel[], scope: string, numbered = false): NativePopupRow[] => choices.flatMap((choice, index) => {
+    const key = `${scope}:${rowValue(choice)}`;
+    const detail = [groups ? undefined : choice.harness, choice.hint ?? choice.provider, choice.tag, twins.has(choice) ? choice.id : undefined].filter(Boolean).join(" · ");
+    const row = action(key, choice.name, () => pickRow(choice), {
+      checked: valueOf(choice) === currentValue, disabled: choice.disabled,
+      ...(detail ? { description: detail } : {}),
+      ...(!newTab && !query && numbered && index < FILTER_ROWS && valueOf(choice) !== currentValue ? { shortcut: String(index + 1) } : {}),
+    });
+    if (choice.offers?.length && providerLook === "submenu") return [{ ...row, kind: "submenu", children: providerRows(choice, key) }];
+    if (choice.offers?.length && providerLook === "expanded") return [{ ...row, kind: "section" }, ...providerRows(choice, key)];
+    return [row];
+  });
+  const visibleRows: NativePopupRow[] = groups
+    ? groups.flatMap((group) => [{ kind: "section" as const, id: idFor(`group:${group.id}`), label: group.name }, ...modelRows(group.rows, `group:${group.id}`)])
+    : modelRows(rows, "models", true);
+  if (!visibleRows.length) visibleRows.push({ kind: "text", id: "empty", label: query ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query }) : (shown?.note ?? t("picker.noMatches")) });
+  if (!query && shown?.note && shown.logIn) visibleRows.push(action("login", t("harness.logIn"), closeThen(shown.logIn)));
+  if (forkTab) visibleRows.splice(0, visibleRows.length, action("fork", t("picker.forkTo", { harness: forkTab.name }), closeThen(() => families?.onFork?.(forkTab.id)), { disabled: !families?.forkReady }));
+  if (!query && !forkTab && inlineMore && shown?.more.length) {
+    visibleRows.push(action("more-toggle", t("picker.moreModels"), () => setMoreFor(moreShown ? undefined : tab), { keepOpen: true }));
+    if (moreShown) visibleRows.push(...modelRows(shown.more, "more"));
+  }
+  if (!query && !forkTab && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length)) visibleRows.push(action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)));
+  if (!query && onChatTab && effort && levels.length > 1) {
+    const selected = levels.findIndex((choice) => choice.id === effort.current);
+    const recommended = levels.findIndex((choice) => choice.recommended);
+    const children = effort.slider
+      ? [action("effort-slider", t("effort.title"), (event) => {
+          const index = Number(event.value);
+          if (event.value !== undefined && Number.isInteger(index) && levels[index]) effort.onPick(levels[index].id);
+        }, { kind: "slider", value: String(selected >= 0 ? selected : Math.max(0, recommended)), minimum: 0, maximum: levels.length - 1, step: 1, keepOpen: true })]
+      : levels.map((choice) => action(`effort:${choice.id}`, choice.name, closeThen(() => effort.onPick(choice.id)), { checked: choice.id === effort.current }));
+    visibleRows.push({ kind: "submenu", id: "effort", label: t("effort.title"), value: level?.name, children });
+  }
+  if (!query && runningRow?.offers?.length && providerLook === "row") visibleRows.push({ kind: "submenu", id: "model-providers", label: t("picker.provider"), value: runningProvider, children: providerRows({ ...runningRow, family: families?.current ?? "" }, "running-provider") });
+  if (!query && !forkTab && !inlineMore && families && (shown?.more.length || families.onAddHarness)) visibleRows.push({ kind: "submenu", id: "more-models", label: t("picker.moreModels"), children: [...modelRows(shown?.more ?? [], "more"), ...(families.onAddHarness ? [action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness))] : [])] });
+  if (!query && !families) visibleRows.push(action("more-full", t("picker.moreModels"), closeThen(() => onMore())));
+  if (!query && onChatTab && account) {
+    const list = accounts.list;
+    const choices = list?.accounts.filter((choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || isModelRouterKind(choice.kind) || choice.id === list.active) ?? [];
+    const accountRows: NativePopupRow[] = [];
+    if (accounts.switchFailed) accountRows.push({ kind: "text", id: "provider-refused", label: t("picker.accountSwitchFailed") });
+    if (!list) accountRows.push({ kind: "text", id: "provider-status", label: accounts.failed ? t("picker.accountFailed") : "…" });
+    else {
+      const pickAccount = (id: string | null) => closeThen(() => { if ((list.active ?? null) !== id) accounts.pick(id); });
+      accountRows.push(action("provider-default", t("picker.harnessLogin"), pickAccount(null), { checked: !list.active, disabled: list.scope !== "chat" && !!list.active }));
+      const direct = choices.filter((choice) => !isModelRouterKind(choice.kind));
+      const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
+      const routes = (items: typeof choices) => items.map((choice) => action(`provider:${choice.id}`, choice.name, pickAccount(choice.id), { checked: choice.id === list.active }));
+      if (menu.routeLayout === "grouped") {
+        accountRows.push(...routes(direct));
+        if (routers.length) accountRows.push({ kind: "section", id: "provider-group", label: t("picker.provider") }, ...routes(routers));
+      } else accountRows.push(...routes(choices));
+      if (!choices.length) accountRows.push({ kind: "text", id: "provider-hint", label: t("picker.accountHint") });
+    }
+    const accountValue = accounts.switchFailed ? t("picker.accountSwitchFailed") : list ? (list.accounts.find((choice) => choice.id === list.active)?.name ?? t("picker.harnessLogin")) : undefined;
+    if (menu.routeLayout === "inline") visibleRows.push({ kind: "section", id: "providers", label: t("picker.provider") }, ...accountRows);
+    else visibleRows.push({ kind: "submenu", id: "providers", label: t("picker.provider"), value: accountValue, children: accountRows });
+  }
+  const authLabel = auth && authText(auth.verdict, t);
+  if (!query && authLabel) {
+    visibleRows.push({ kind: "text", id: "auth-status", label: authLabel });
+    if (canSessionLogin(auth.verdict) && auth.onLogin) visibleRows.push(action("auth-login", t("harness.logIn"), closeThen(auth.onLogin)));
+    if (auth.onRefresh) visibleRows.push(action("auth-refresh", t("harnesses.checkAgain"), closeThen(auth.onRefresh)));
+  }
+  if (!query && onChatTab && fast) visibleRows.push(action("fast", t("picker.fastMode"), (event) => fast.onChange(event.value === undefined ? !fast.checked : event.value === "true"), { kind: "toggle", checked: fast.checked, keepOpen: true }));
+  const rail = families && railTabs.map((family) => action(`family:${family.id}`, family.name, () => {
+    if (family.launch && !family.note) { onOpenChange(false); families.onLaunch?.(family.id); }
+    else { setTab(family.id); setQuery(""); setMoreFor(undefined); }
+  }, { ...(family.mark ? { icon: family.mark } : {}), checked: family.id === tab, keepOpen: true, disabled: family.launch && families.forkReady === false }));
+  const model: NativePopupDescription = {
+    side, align: "start", width: families ? 310 : 280, rows: visibleRows,
+    ...(rail ? { rail, railWidth: 44 } : {}),
+    ...(showField ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}),
+    ...(menu.update ? { footer: [action("update", t("harness.update"), closeThen(menu.update.run), { description: menu.update.text })] } : {}),
   };
   const onEvent = (event: NativePopupEvent) => {
-    const id = event.id ?? "";
-    if (event.type === "search" && id === "query") { setQuery(event.value ?? ""); return; }
-    if (event.type !== "pick" && event.type !== "change") return;
-    if (id.startsWith("model:")) { const row = findModel(id); if (row) pickRow(row); }
-    else if (id.startsWith("family:") && families) { const family = families.list.find((candidate) => `family:${candidate.id}` === id); if (!family) return; if (family.launch && !family.note) { onOpenChange(false); families.onLaunch?.(family.id); } else { setTab(family.id); setQuery(""); setMoreFor(undefined); } }
-    else if (id === "more-models") { if (inlineMore) setMoreFor((value) => (value === tab ? undefined : tab)); else { onOpenChange(false); onMore(query || undefined); } }
-    else if (id === "add-harness") { onOpenChange(false); families?.onAddHarness?.(); }
-    else if (id === "login") { onOpenChange(false); shown?.logIn?.(); }
-    else if (id.startsWith("fork:") && families) { onOpenChange(false); families.onFork?.(id.slice("fork:".length)); }
-    else if (id.startsWith("effort:")) effort?.onPick(id.slice("effort:".length));
-    else if (id.startsWith("provider:")) { onOpenChange(false); accounts.pick(id.slice("provider:".length) || null); }
-    else if (id === "auth-login") { onOpenChange(false); auth?.onLogin?.(); }
-    else if (id === "auth-refresh") { onOpenChange(false); auth?.onRefresh?.(); }
-    else if (id === "fast") fast?.onChange(event.value === undefined ? !fast.checked : event.value === "true");
-    else if (id === "update") { onOpenChange(false); menu.update?.run(); }
+    if (event.type === "search" && event.id === "query") { setQuery(event.value ?? ""); return; }
+    if (event.type === "pick" || event.type === "change") actions.get(event.id ?? "")?.(event);
   };
-  const { available } = useNativePopup({ open, model, anchor: () => trigger.current, onEvent, onDismiss: () => onOpenChange(false) });
-  useEffect(() => {
-    // Gallery and other browser mounts have no WebPopupHost. Keep their explicit DOM menu so the
-    // native descriptor never creates hidden rows or silently eats the interaction.
-  }, [available]);
-  if (!available) return <QuickModelMenuFallback open={open} onOpenChange={onOpenChange} trigger={trigger} chip={chip} menu={menu} onMore={onMore}>{children}</QuickModelMenuFallback>;
-  return <button type="button" ref={trigger} className="acpmux-picker-button" data-menu={chip["data-menu"]} aria-label={chip.label} title={chip.title} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)}>{children}</button>;
+  useNativePopup({ open, model, anchor: () => trigger.current, onEvent, onDismiss: () => onOpenChange(false) });
+  return <button type="button" ref={trigger} className="acpmux-picker-button" data-menu={chip["data-menu"]} aria-label={chip.label} title={chip.title} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); onOpenChange(true); } }}>{children}</button>;
 }
 
 function useAccountList(open: boolean, account: QuickMenu["account"]) {

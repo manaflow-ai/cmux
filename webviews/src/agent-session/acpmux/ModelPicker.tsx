@@ -1126,7 +1126,13 @@ export function ModelPicker(props: ModelPickerProps) {
     </>
   );
   const nativeRows: NativePopupRow[] = [];
-  const nativeModelId = (model: ModelChoice) => `model:${encodeURIComponent(model.id)}`;
+  const nativeIds = useRef(new Map<string, string>());
+  const nativeModelId = (model: ModelChoice) => {
+    const key = JSON.stringify([owners.get(model)?.id, model.id]);
+    let id = nativeIds.current.get(key);
+    if (!id) { id = `model-${nativeIds.current.size}`; nativeIds.current.set(key, id); }
+    return id;
+  };
   if (selectedOther && selected && loginFor(selected) !== undefined) {
     nativeRows.push({ kind: "text", id: "signed-out", label: t("harnesses.signedOut"), disabled: true });
     if (onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
@@ -1142,36 +1148,44 @@ export function ModelPicker(props: ModelPickerProps) {
     for (const [index, model] of visible.entries()) {
       const owner = owners.get(model);
       nativeRows.push({
-        kind: "choice",
+        kind: "action",
         id: nativeModelId(model),
         label: model.name,
         ...(searching && (parsed.effort || parsed.fast) ? { value: [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined].filter(Boolean).join(" · ") } : {}),
         ...(model.unavailable ? { disabled: true, disabledReason: unavailableText } : {}),
         checked: model.id === props.model && owner?.ids.includes(harness ?? ""),
         shortcut: !searching && index < 9 ? String(index + 1) : undefined,
-        actions: [{ id: `favorite:${encodeURIComponent(model.id)}`, label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"), keepOpen: true }],
+        actions: [{ id: `favorite:${nativeModelId(model)}`, label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"), keepOpen: true }],
       });
     }
   }
   if (olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0)) nativeRows.push({ kind: "action", id: "more-models", label: t("picker.moreModels"), value: String(olderCount), keepOpen: true });
   if (onAddAgent) nativeRows.push({ kind: "action", id: "add-harness", label: addHarnessText });
   const nativeRail: NativePopupRow[] | undefined = harnessFixed ? undefined : [
-    { kind: "action", id: `harness:${STARRED}`, label: starredText, checked: starredView },
-    ...railHarnesses.map((entry) => ({ kind: "action" as const, id: `harness:${entry.id}`, label: entry.name, ...(entry.mark ? { icon: entry.mark } : {}), checked: entry.id === selectedHarness, disabled: !entry.pickable || blockedProfile(entry) })),
+    { kind: "action", id: `harness:${STARRED}`, label: starredText, checked: starredView, keepOpen: true },
+    ...railHarnesses.map((entry) => ({ kind: "action" as const, id: `harness:${entry.id}`, label: entry.name, ...(entry.mark ? { icon: entry.mark } : {}), checked: entry.id === selectedHarness, keepOpen: true, disabled: !entry.pickable || blockedProfile(entry) })),
   ];
+  if (sessionAuthText) {
+    nativeRows.push({ kind: "text", id: "auth-status", label: sessionAuthText });
+    if (canSessionLogin(props.sessionAuth) && props.onSessionLogin) nativeRows.push({ kind: "action", id: "auth-login", label: t("harness.logIn") });
+    if (props.onSessionAuthRefresh) nativeRows.push({ kind: "action", id: "auth-refresh", label: t("harnesses.checkAgain") });
+  }
+  const footer: NativePopupRow[] = [];
+  if (catalogRefresh) footer.push({ kind: "action", id: "refresh-catalog", label: t("picker.refreshCatalog"), description: refreshTitle, disabled: refreshStatus === "fetching", keepOpen: true });
+  if (update) footer.push({ kind: "action", id: "update", label: t("harness.update"), description: updateText }, { kind: "action", id: "skip-update", label: t("harness.skipVersion"), keepOpen: true });
+  if (fastMode) footer.push({ kind: "toggle", id: "fast", label: fastMode.name, checked: fastModeIsOn(fastMode), keepOpen: true });
   const nativeModel: NativePopupDescription = {
     side: newTab ? "bottom" : "top", align: "start", width: 310, title: modelText, rows: nativeRows,
     ...(nativeRail ? { rail: nativeRail, railWidth: 44 } : {}),
     search: { id: "query", value: query, placeholder: searchText },
-    ...(update ? { footer: [{ kind: "action", id: "update", label: t("harness.update"), description: updateText }] } : {}),
-    ...(fastMode ? { footer: [...(update ? [{ kind: "action" as const, id: "update", label: t("harness.update"), description: updateText }] : []), { kind: "toggle" as const, id: "fast", label: fastMode.name, checked: fastModeIsOn(fastMode) }] } : {}),
+    ...(footer.length ? { footer } : {}),
   };
   const onNativeEvent = (event: NativePopupEvent) => {
     const id = event.id ?? "";
     if (event.type === "search" && id === "query") { setQuery(event.value ?? ""); setActive(0); setAddChosen(false); return; }
     if (event.type !== "pick" && event.type !== "change") return;
     if (id.startsWith("model:")) { const model = visible.find((candidate) => nativeModelId(candidate) === id); if (model) selectModel(model); }
-    else if (id.startsWith("favorite:")) toggleFavorite(decodeURIComponent(id.slice("favorite:".length)));
+    else if (id.startsWith("favorite:")) { const model = visible.find((candidate) => `favorite:${nativeModelId(candidate)}` === id); if (model) toggleFavorite(model.id); }
     else if (id.startsWith("harness:")) { const next = id.slice("harness:".length); if (next === STARRED) showTab(STARRED, -1); else { const index = railHarnesses.findIndex((entry) => entry.id === next); showTab(next, index); } }
     else if (id === "more-models") { setOlderOpen((value) => !value); }
     else if (id === "add-harness") addHarness();
@@ -1179,10 +1193,13 @@ export function ModelPicker(props: ModelPickerProps) {
     else if (id === "enable" && selected) enableProfile(selected);
     else if (id === "new-chat" && selected) { onHarness?.(selected.id); close(); }
     else if (id === "update") { update?.update(); close(); }
+    else if (id === "skip-update") update?.skip();
+    else if (id === "refresh-catalog") refreshCatalog();
+    else if (id === "auth-login") { props.onSessionLogin?.(); close(); }
+    else if (id === "auth-refresh") { props.onSessionAuthRefresh?.(); close(); }
     else if (id === "fast") fastMode?.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values));
   };
-  const { available: nativeAvailable } = useNativePopup({ open: !quick && open, model: nativeModel, anchor: () => trigger.current, onEvent: onNativeEvent, onDismiss: () => close(false) });
-  useEffect(() => { if (!quick && open && !nativeAvailable) close(false); }, [close, nativeAvailable, open, quick]);
+  const { available: nativeAvailable } = useNativePopup({ open, model: nativeModel, anchor: () => trigger.current, onEvent: onNativeEvent, onDismiss: () => close(false) });
   return (
     <span
       ref={root}
