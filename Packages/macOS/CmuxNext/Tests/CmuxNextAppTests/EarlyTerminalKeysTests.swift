@@ -318,9 +318,6 @@ struct EarlyTerminalKeysTests {
             let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
-            // The harness's window is never key, so `NSApplication.sendEvent` delivers a replayed key nowhere (fleet
-            // fbfdc200: mover.keys 0): the replays go to the window, as the app's `sendEvent` sends them.
-            coordinator.deliversThroughWindow = true
             let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
             window.contentView?.addSubview(composer)
             defer { composer.removeFromSuperview() }

@@ -42,9 +42,6 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
     private(set) var replayedCount = 0
-    /// Tests only: their window is never the key window, so `NSApplication.sendEvent` delivers a held key nowhere. True
-    /// runs it through the key router and then straight to its window, as `CmuxApplication.sendEvent` does.
-    var deliversThroughWindow = false
 
     init(router: KeyRouter) { self.router = router }
 
@@ -334,6 +331,8 @@ final class CreationInputCoordinator {
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the hold.
         let shell = controller?.window ?? window
+        // A key the window's queue delivers now (this hold's or the New Tab hold's) is never captured again.
+        if router.inputQueues.existing(for: shell.windowNumber)?.isDelivering == true { return false }
         guard let hold = holds[shell.windowNumber], hold.isActive else {
             droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
             return droppedLastKey
@@ -402,16 +401,17 @@ final class CreationInputCoordinator {
     /// still waiting for its reply) its view takes keys before the reply (its early tab, cx-wb5.78). Never another view:
     /// not another terminal, an agent's composer or Home's message box.
     private func takesKeys(_ target: WindowInputQueue.Target, hold: WindowHold, controller: WindowController, window: NSWindow) -> Bool {
-        guard controller.focus.currentState().resolved.tab == target.id else { return false }
+        // A key typed into one cmux window never reaches it while another is key (`CmuxApplication.dropsCrossWindowKey`).
+        guard NewTabInputCoordinator.mayTakeKey(window, keyWindow: NSApp.keyWindow),
+              controller.focus.currentState().resolved.tab == target.id else { return false }
         if let creation = hold.creations.all.first(where: { $0.creation.target == target })?.creation,
            !creation.landed, creation.earlyTab != target.id { return false }
         return Self.responderTakesKeys(controller, window: window)
     }
 
     /// Runs held key `event` of `window`, typed for `target`, again through the seam (``HeldKeyReplay``, held_by
-    /// `creation`), so the hold is a measured stage in `debug.input late_keys`. It goes through `NSApplication.sendEvent`,
-    /// as typed (the key router, key equivalents and the menu included), which opens its one latency slot. `replaying`
-    /// keeps it from being captured again by this hold.
+    /// `creation`), so the hold is a measured stage in `debug.input late_keys` with its own latency slot. While it runs
+    /// the window's queue is delivering (``WindowInputQueue/isDelivering``), so no hold captures it again.
     ///
     /// A key that makes another target (a Cmd-D opened a creation, a Ctrl-2 selected a cold tab, a pane focus key moved
     /// the focus) takes the keys typed after it, still waiting for `target`, to that target: the person typed them for it.
@@ -420,13 +420,17 @@ final class CreationInputCoordinator {
         let before = (current: hold.current?.target, generation: controller?.focus.currentState().generation ?? 0)
         replaying = true
         replayedCount += 1
-        if deliversThroughWindow {
-            router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in
+        // The one replay path of held keys (as the New Tab hold's): the key router, then the window's key equivalents and
+        // the menu for a chord, then the window that takesKeys found has the target's view as first responder (its own
+        // Chromium page window when that is key). Never `NSApplication.sendEvent`, which routes by the key window.
+        let to = NSApp.keyWindow.flatMap { $0.parent === window ? $0 : nil } ?? window
+        router.heldKeys.replay(event, heldBy: .creation, keyWindow: to) { send in
+            router.dispatchingSynthetic(event) {
                 guard !router.interceptKeyDown(event, in: window) else { return }
-                send.window(window, event)
+                if KeyRouter.isChord(event.modifierFlags),
+                   to.performKeyEquivalent(with: event) || NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return }
+                send.window(to, event)
             }
-        } else {
-            router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { $0.application(event) }
         }
         replaying = false
         guard hold.queue.waiting(for: target) > 0, let state = router.focus(for: window).0?.focus.currentState() else { return }
@@ -497,10 +501,8 @@ final class CreationInputCoordinator {
     func reconcile(_ window: NSWindow) {
         guard let hold = holds[window.windowNumber] else { return }
         guard let router, let controller = router.focus(for: window).0 else {
-            // The window is gone: its keys go with it.
-            holds[window.windowNumber] = nil
-            router?.inputQueues.close(window.windowNumber)
-            syncMode()
+            // The window is gone: its keys go with it (the New Tab hold's too: one queue, one owner).
+            windowClosed(window)
             return
         }
         // A reconcile asked for while one runs (a held key's run settled the focus) runs after it, on the state it left.
@@ -512,6 +514,15 @@ final class CreationInputCoordinator {
     }
 
     private func reconcileOnce(_ hold: WindowHold, controller: WindowController, window: NSWindow, router: KeyRouter) {
+        // 0. Another cmux window is key: the person left this one (its keys could not reach it: `dropsCrossWindowKey`).
+        if NSApp.isActive, let key = NSApp.keyWindow, router.focus(for: key).0 != nil,
+           !NewTabInputCoordinator.mayTakeKey(window, keyWindow: key) {
+            for target in hold.queue.targets where !target.isNewTabPage { hold.queue.drop(target, .focusMovedAway) }
+            drop(hold.creations.remove { _ in true }, .focusMovedAway, in: hold)
+            hold.shown = nil
+            hold.current = nil
+            return
+        }
         let state = controller.focus.currentState()
         let named = state.resolved.tab.map(WindowInputQueue.Target.init)
         // 1. Creations the person moved on from (a newer intent replaced the focus each asked for), unless the model names

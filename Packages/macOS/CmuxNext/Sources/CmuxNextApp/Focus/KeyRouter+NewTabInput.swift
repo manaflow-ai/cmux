@@ -317,7 +317,8 @@ final class NewTabInputCoordinator {
         let (controller, kind) = router.focus(for: keyWindow)
         // A Chromium page window is a child of the shell, whose number keys the hold.
         let window = controller?.window ?? keyWindow
-        guard let entry = entry(for: window), !entry.buffer.replaying else { return false }
+        guard let entry = entry(for: window), !entry.buffer.replaying,
+              router.inputQueues.existing(for: window.windowNumber)?.isDelivering != true else { return false }
         // Text and Delete wait; any other key (Return, Tab, an arrow, a chord) waits only behind held keys, so it never
         // runs before the text typed ahead of it.
         let typing = !KeyRouter.isChord(event.modifierFlags) && (KeyRouter.isPrintable(event) || event.keyCode == KeyRouter.deleteKeyCode)

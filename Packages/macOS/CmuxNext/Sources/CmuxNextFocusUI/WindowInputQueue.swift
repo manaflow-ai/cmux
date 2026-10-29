@@ -60,7 +60,7 @@ public final class WindowInputQueue {
     private var nextSequence: UInt64 = 0
     /// The last delivered key's sequence per target (the order half of the invariant).
     private var lastDelivered: [Target: UInt64] = [:]
-    private var orderBroken: [Target] = []
+    private var orderBroken: Set<Target> = []
     public private(set) var counts = Counts()
     /// Called once per drop with the target, the reason and how many keys dropped (the owner logs it).
     private let dropped: (Target, DropReason, Int) -> Void
@@ -75,6 +75,10 @@ public final class WindowInputQueue {
     public static func logDrop(_ target: Target, _ reason: DropReason, _ count: Int) {
         logger.info("held keys dropped: target=\(target.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) count=\(count)")
     }
+
+    private var delivering = 0
+    /// A key of this queue is being delivered now: no hold captures it again.
+    public var isDelivering: Bool { delivering > 0 }
 
     /// Whether no key waits.
     public var isEmpty: Bool { held.isEmpty }
@@ -107,11 +111,13 @@ public final class WindowInputQueue {
         var count = 0
         while let index = held.firstIndex(where: { $0.target == target }), takesKeys() {
             let key = held.remove(at: index)
-            if let last = lastDelivered[target], key.sequence < last { orderBroken.append(target) }
+            if let last = lastDelivered[target], key.sequence < last { orderBroken.insert(target) }
             lastDelivered[target] = key.sequence
             counts.delivered += 1
             count += 1
+            delivering += 1
             deliver(key.event)
+            delivering -= 1
         }
         debugCheck()
         return count
@@ -160,7 +166,7 @@ public final class WindowInputQueue {
         if counts.captured != counts.delivered + counts.dropped + held.count {
             out.append("captured \(counts.captured) != delivered \(counts.delivered) + dropped \(counts.dropped) + waiting \(held.count)")
         }
-        for target in orderBroken { out.append("keys for \(target) delivered out of typed order") }
+        for target in orderBroken.sorted(by: { $0.id < $1.id }) { out.append("keys for \(target) delivered out of typed order") }
         return out
     }
 
@@ -187,6 +193,9 @@ public final class WindowInputQueues {
     private var queues: [Int: WindowInputQueue] = [:]
 
     public init() {}
+
+    /// Window `number`'s queue, if it has one.
+    public func existing(for number: Int) -> WindowInputQueue? { queues[number] }
 
     /// Window `number`'s queue, made on first use.
     public func queue(for number: Int) -> WindowInputQueue {
