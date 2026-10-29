@@ -45,7 +45,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       edge: ".acpmux-composer-box",
       blocks: {
         transcript: ".acpmux-row:not(.acpmux-user)",
-        "PR dock": ".acpmux-pr-dock > *",
+        // The disclosure's label is the dock's only direct text block when its chip list is display:contents.
+        "PR dock disclosure": ".acpmux-pr-dock__more",
       },
     },
     {

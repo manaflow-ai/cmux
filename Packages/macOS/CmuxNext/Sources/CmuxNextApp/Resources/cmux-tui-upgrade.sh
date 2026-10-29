@@ -17,6 +17,13 @@
 # <run-dir> holds install.cmd (the pinned install command) and receives
 # `result` (one line: OK, UNVERIFIED, SKIP, PENDING, ROLLBACK or FAIL), `log`, and the
 # replaced binary. One run at a time per machine: a second run reports SKIP busy.
+# An optional <run-dir>/expect-build (one 40-hex commit, written by the cmux NEXT
+# app's automatic update) is checked under the lock before anything changes: a
+# binary whose `--version` does not name that commit (another, none, or no
+# answer) was updated since the caller chose to replace it, maybe to a newer
+# build, so the run reports SKIP changed. Such a run also holds the in-place
+# updater's lock (`cmux link machine update`, apply.rs) for its whole run, so
+# neither replaces the other's build mid-run.
 set -u
 TARGET_SHA=${1:?target sha256}
 TARGET_COMMIT=${2:?target commit}
@@ -30,6 +37,25 @@ exec 9> "$(dirname "$RUN")/lock"
 flock -n 9 || finish "SKIP busy another upgrade run holds the lock"
 
 daemon_pid() { pgrep -f "cmux-tui server start --session cloud" | head -1; }
+# The commit the binary on disk names in `--version` (`cmux X (COMMIT; ghostty ...)`), run as the
+# daemon's user like term_count, within 10 seconds; empty when none.
+bin_commit() { if [ "$H" = /root ]; then U=root; else U=cmux; fi; sudo -n -u "$U" env HOME="$H" timeout --signal=KILL 10s "$BIN" --version 2>/dev/null | sed -n 's/.*(\([0-9a-f]\{40\}\)[;)].*/\1/p' | head -n 1; }
+# Under the lock: the binary still names the commit the caller saw (<run-dir>/expect-build), or
+# there is no such file (the fleet runner's runs).
+still_expected() {
+  [ -f "$RUN/expect-build" ] || return 0
+  want=$(tr -d '[:space:]' < "$RUN/expect-build")
+  now=$(bin_commit)
+  [ -n "$now" ] && [ "$now" = "$want" ]
+}
+# With <run-dir>/expect-build: the in-place updater's lock beside the binary, held on fd 8 until
+# the run ends (created as the daemon's user, so that updater can still open it).
+hold_inplace_lock() {
+  [ -f "$RUN/expect-build" ] || return 0
+  L="$(dirname "$BIN")/.cmux-tui.update.lock"
+  if [ ! -e "$L" ]; then : > "$L" && { [ "$H" = /root ] || chown cmux:cmux "$L"; }; fi
+  exec 8>> "$L" && flock -n 8
+}
 # A process's start time (field 22 of /proc/PID/stat; the command name before it may hold spaces).
 proc_start() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f20; }
 # Each live terminal host as PID:START, so a pid the kernel reuses after a host exits never
@@ -180,6 +206,8 @@ canary_crash_loop() {
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
+hold_inplace_lock || finish "SKIP busy an in-place update of this machine is running"
+still_expected || finish "SKIP changed binary=$(bin_commit) expected=$(tr -d '[:space:]' < "$RUN/expect-build")"
 # A crash-looping daemon is between restarts some of the time. Without a
 # live child, its carrier contract cannot be proven; retry after inspecting it.
 D=$(daemon_pid)

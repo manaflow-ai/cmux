@@ -9,9 +9,11 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod auth;
 pub mod events;
 pub mod inventory;
 pub mod mailbox;
+pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
@@ -149,6 +151,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_LOGIN, Request),
+        untyped(method::MUX_TAILNET_LOGOUT, Request),
+        untyped(method::MUX_TAILNET_START, Request),
+        untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
@@ -181,19 +188,27 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKFLOWS, Request),
         untyped(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
+        untyped(method::MUX_GITHUB_ACTION, Request),
+        untyped(method::MUX_GITHUB_APP_LEASE, Request),
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
+        untyped(method::MUX_MESH_CONTROL, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
+        request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
+        untyped(method::MUX_BG_START, Request),
+        untyped(method::MUX_BG_LIST, Request),
+        untyped(method::MUX_BG_OUTPUT, Request),
+        untyped(method::MUX_BG_STOP, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
@@ -214,6 +229,10 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
         request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
+        untyped(method::MUX_TEAM_SEND, Request),
+        untyped(method::MUX_TEAM_INBOX, Request),
+        untyped(method::MUX_TEAM_READ, Request),
+        untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
@@ -237,6 +256,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FILE_PUT_CHUNK, Request),
         untyped(method::MUX_FILE_PUT_FINISH, Request),
         untyped(method::MUX_FILE_PUT_CANCEL, Request),
+        untyped(method::MUX_FILE_PUT_STATUS, Request),
+        untyped(method::MUX_FILE_PUT_DATA, Request),
         untyped(method::MUX_DISPATCH, Request),
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),
@@ -258,6 +279,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SET_POLICY, Request),
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
+        untyped(method::MUX_SET_TURN_CAP, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
@@ -265,6 +287,9 @@ pub fn registry() -> Vec<MethodDecl> {
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
         untyped(method::MUX_APPROVERS, Request),
         untyped(method::MUX_APPROVERS_SET, Request),
+        // Enrolled Macs (`hub/mac_approvers.rs`).
+        untyped(method::MUX_MAC_APPROVER_SET, Request),
+        untyped(method::MUX_MAC_APPROVERS, Request),
         untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
         untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),
@@ -279,6 +304,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
@@ -338,6 +364,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
@@ -349,12 +376,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
         untyped(method::MUX_PAIR_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_GET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
+        notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),

@@ -347,6 +347,16 @@ pub(crate) fn dispatch(
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
                 attention_page: None,
+                attention_request_id: match fields.get("attention_request_id") {
+                    None => None,
+                    Some(Value::String(id)) => Some(id.clone()),
+                    Some(_) => {
+                        return Err(validation_error(
+                            "attention_request_id must be a string",
+                            json!({"field": "attention_request_id"}),
+                        ));
+                    }
+                },
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)

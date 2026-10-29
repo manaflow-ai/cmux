@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // Gallery health: every gallery state must render. A state is broken when its stage errors (a
 // fixture that cannot find its control fails the mount), never reports ready, the renderer dies, or
-// its play cannot find or reach the state it describes. A stage that draws nothing is not broken by
-// itself: some states are empty on purpose. Quality findings (layout shift, long frames, motion) are
-// the matrix's, not this check's.
+// its play throws (it cannot find or reach the state it describes, or fails its own assertion). A
+// stage that draws nothing is not broken by itself: some states are empty on purpose. Quality
+// findings (layout shift, long frames, motion) are the matrix's, not this check's.
 //
 // A case broken on the first run is rendered twice more; only a case broken every time counts.
 // broken-allowlist.json names known broken states (`entry#variant`) with the reason each is
@@ -29,10 +29,10 @@ export type HealthResult = {
   /** Navigation start to the stage's first ready report (runner.ts). */
   readyMs?: number | null;
   error?: string;
-  play?: { status?: string; error?: string } | null;
+  play?: { status?: string; error?: string; motion?: { status?: string; problems?: string[] } | null } | null;
 };
 
-/** Play errors (frame/playRunner.ts) that mean the state was never reached, not reached imperfectly. */
+/** Play errors (frame/playRunner.ts) that mean the state was never reached; they are their own label. */
 const UNREACHED = /no element for|waitFor did not hold/;
 
 /** Why a rendered case is broken, or null when it rendered. */
@@ -40,8 +40,19 @@ export function brokenReason(result: HealthResult): string | null {
   if (result.error) return `did not render: ${result.error}`;
   if (result.ready === "error") return "the stage reported an error";
   if (result.ready !== "1") return "never reported ready";
+  // runPlay (frame/playRunner.ts) sets `error` only when the play threw: a missing element, a wait
+  // that never held, or the play's own assertion. Each means the stage does not show the state it
+  // describes, whatever the status says. A play that finished with failing quality steps (layout
+  // shift, long frames) has no `error`, and one that threw its own motion probe's problem
+  // (motionEvidence.ts) failed on motion: both are the matrix's findings, not a broken state.
   const play = result.play;
-  if (play?.status === "fail" && play.error && UNREACHED.test(play.error)) return play.error;
+  if (play && play.error !== undefined && play.error !== null) {
+    const error = String(play.error);
+    const first = error.split("\n")[0].trim();
+    if (UNREACHED.test(first)) return first;
+    if (play.motion?.status === "fail" && play.motion.problems?.includes(error)) return null;
+    return first ? `play threw: ${first}` : "play threw with no message";
+  }
   return null;
 }
 

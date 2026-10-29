@@ -26,7 +26,7 @@ fn refusals() -> Vec<String> {
 #[test]
 fn a_refusal_is_retried_not_kept() {
     for refusal in refusals() {
-        match size_check_for(&[refusal.clone()], NODE, INPUT) {
+        match size_check_for(std::slice::from_ref(&refusal), NODE, INPUT) {
             SizeCheck::Retry(text) => assert!(
                 text.to_lowercase().contains("never refuse"),
                 "retry for {refusal:?} should say never refuse: {text}"

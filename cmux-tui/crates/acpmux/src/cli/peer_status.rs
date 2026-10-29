@@ -196,8 +196,43 @@ fn gb(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
+/// `acpmux host vm-host`'s line for an `_acpmux/vm_host` reply:
+/// `this machine: vmHost on (unsandboxed only for its owner's own sessions, …)`.
+pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
+    let who = name.unwrap_or("this machine");
+    let on = v["vmHost"] == true;
+    let state = if on { "on" } else { "off" };
+    let why = match (on, v["configured"].as_bool()) {
+        (_, Some(false)) => "turned off in its config",
+        (true, _) => "unsandboxed only for its owner's own sessions, when the Cloud API says so",
+        (false, _) => "always sandboxed here",
+    };
+    format!("{who}: vmHost {state} ({why})")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vm_host_line_says_why() {
+        use serde_json::json;
+        let v = json!({"vmHost": true, "cmuxVm": true, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost on (unsandboxed only for its owner's own sessions, when the Cloud API says so)"
+        );
+        let v = json!({"vmHost": false, "cmuxVm": true, "configured": false});
+        assert_eq!(
+            super::vm_host_line(Some("cloud-a"), &v),
+            "cloud-a: vmHost off (turned off in its config)"
+        );
+        // A Mac: its Seatbelt sandbox always runs.
+        let v = json!({"vmHost": false, "cmuxVm": false, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost off (always sandboxed here)"
+        );
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -347,13 +347,9 @@ test("a New Tab row of a model lands an available provider when the first one is
       ),
     },
   ];
-  // The chat runs another model, so nothing pins the row to the unavailable provider.
+  // The chat runs another model, so nothing pins the row to the unavailable provider. The menu
+  // lists each family's newest available model (relevantModels.ts, #26071), so the row is in it.
   await mount("zai/glm-5.3", { catalog, fixed: false });
-  const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("More models"),
-  )!;
-  await act(async () => more.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   const pro = menus()
     .flatMap(modelRows)
     .find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
@@ -382,6 +378,9 @@ test("More models names each model's provider and tag", async () => {
         ...openCode[0]!.models,
         { id: "opencode/kimi-k3", name: "Kimi K3 [New]" },
         { id: "opencode/qwen-coder-3", name: "Qwen Coder 3" },
+        // Older releases of a family fold under More models (relevantModels.ts, #26071).
+        { id: "opencode/kimi-k2", name: "Kimi K2 [Preview]" },
+        { id: "opencode/qwen-coder-2.5", name: "Qwen Coder 2.5" },
       ],
     },
   ];
@@ -395,6 +394,8 @@ test("More models names each model's provider and tag", async () => {
   const rows = modelRows(menus().at(-1)!);
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
-  const kimi = rows.find((row) => nameOf(row) === "Kimi K3");
-  if (kimi) expect(kimi.querySelector(".acpmux-quick-tag")?.textContent).toBe("New");
+  expect(rows.map(nameOf).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);
+  const kimi = rows.find((row) => nameOf(row) === "Kimi K2")!;
+  expect(kimi.querySelector(".acpmux-quick-tag")?.textContent).toBe("Preview");
+  expect(detailOf(kimi)).toBe("OpenCode");
 });
