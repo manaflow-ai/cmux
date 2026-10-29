@@ -13,7 +13,8 @@ struct CloudWorkPickTests {
     /// A working copy with `files` at its top, an `origin` (a bare repo here, then named by
     /// `remote`), and one commit pushed when `push`.
     private static func repo(_ files: [String], remote: String? = "https://github.com/Manaflow-AI/cmux.git", push: Bool = true,
-                             branch: String = "feature/pick", upstreamBranch: String? = nil) throws -> (folder: String, cleanup: () -> Void) {
+                             branch: String = "feature/pick", upstreamBranch: String? = nil,
+                             remoteName: String = "origin") throws -> (folder: String, cleanup: () -> Void) {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-work-pick-\(UUID().uuidString)").path
         let folder = base + "/work", upstream = base + "/up.git"
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -26,10 +27,10 @@ struct CloudWorkPickTests {
         }
         try git(folder, "add", "-A")
         try git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first")
-        try git(folder, "remote", "add", "origin", upstream)
-        if push { try git(folder, "push", "-q", "--no-verify", "-u", "origin", branch + ":" + (upstreamBranch ?? branch)) }
+        try git(folder, "remote", "add", remoteName, upstream)
+        if push { try git(folder, "push", "-q", "--no-verify", "-u", remoteName, branch + ":" + (upstreamBranch ?? branch)) }
         // The pushed copy is named like a hosted repo; a pick never talks to it.
-        if let remote { try git(folder, "remote", "set-url", "origin", remote) }
+        if let remote { try git(folder, "remote", "set-url", remoteName, remote) }
         return (folder, { try? FileManager.default.removeItem(atPath: base) })
     }
 
@@ -114,6 +115,14 @@ struct CloudWorkPickTests {
         let localPick = await Self.pick(local)
         #expect(localPick.repoKey == nil)
         #expect(localPick.repo == nil, "a relative path remote is not a GitHub spec")
+    }
+
+    @Test func theCloneRefIsTheRemotesBranchUnderARemoteNameWithASlash() async throws {
+        let (folder, cleanup) = try Self.repo(["Package.swift"], branch: "local", upstreamBranch: "feature", remoteName: "team/origin")
+        defer { cleanup() }
+        let pick = await Self.pick(folder)
+        #expect(pick.pushed)
+        #expect(pick.repo?.ref == "feature", "not origin/feature, the tail of refs/remotes/team/origin/feature")
     }
 
     @Test func aFolderOutsideGitIsPickedAsItselfWithNoRepo() async throws {

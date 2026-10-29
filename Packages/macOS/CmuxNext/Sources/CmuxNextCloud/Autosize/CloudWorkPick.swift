@@ -74,11 +74,14 @@ public struct CloudWorkPick: Equatable, Sendable {
         let root = top ?? folder
         let branch = top == nil ? nil : await run(["symbolic-ref", "--quiet", "--short", "HEAD"])
         let remote = top == nil ? nil : await run(["ls-remote", "--get-url"])
-        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:lstrip=3)%00%(upstream:track)", "refs/heads/" + (branch ?? "")])
+        let upstream = branch == nil ? nil : await run(["for-each-ref", "--format=%(upstream:remoteref)%00%(upstream:track)", "refs/heads/" + (branch ?? "")])
         let objects = top == nil ? nil : await run(["count-objects", "-v"])
         let listing = try? await work.run(.userBlocking, mayBlock: .files) { listRoot(root) }
         let pushed = upstream.map(isPushed) ?? false
-        let remoteBranch = upstream?.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init)
+        // The branch as the remote names it (`refs/heads/topic` there), never the local tracking ref's
+        // tail, which a remote named `team/origin` or a custom fetch mapping would get wrong.
+        let remoteBranch = upstream?.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false).first
+            .flatMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }
         // A branch name the repo step can't carry unquoted (git allows a `'`) clones the default branch.
         let ref = remoteBranch.flatMap { pushed && CloudMachineRepo.isRef($0) ? $0 : nil }
         // A local path remote (`../paint`, even `octo/paint`) has no key and names no GitHub repo.
