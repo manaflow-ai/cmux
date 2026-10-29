@@ -88,6 +88,41 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
   })
 
+  it("pins repository pagination to the selected connection and refuses a stale account list", async () => {
+    const a = await signedInWithInstall("gh-repo-cursor", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const second = await op(a.session, "integration.connect", { provider: "github", sharing: "team" })
+    const state = new URL(second.body.value.authorize_url).searchParams.get("state")!
+    const finished = await op(a.session, "integration.complete", { state, code: "c", installation_id: "99", setup_action: "install" })
+    expect(finished.body.value.status).toBe("active")
+    gh.routes["https://api.github.com/installation/repositories"] = () =>
+      ok({ repositories: Array.from({ length: 100 }, (_, i) => ({ full_name: i % 2 ? "acme/web" : "acme/api", private: true })), total_count: 101 })
+
+    const list = async (cursor?: string, search?: string) => {
+      const query = new URLSearchParams({ team: a.team, ...(cursor ? { cursor } : {}), ...(search ? { query: search } : {}) })
+      const response = await worker.fetch(`https://api.test/v1/integrations/github/repos?${query}`, { headers: { authorization: `Bearer ${a.installToken}` } })
+      return { status: response.status, body: await response.json() as any }
+    }
+    const first = await list()
+    expect(first.status).toBe(200)
+    expect(first.body.repos).toHaveLength(100)
+    const selected = first.body.repos[0]!.connection_id as string
+    expect(first.body.repos.every((r: any) => r.connection_id === selected)).toBe(true)
+    expect(typeof first.body.cursor).toBe("string")
+
+    const next = await list(first.body.cursor)
+    expect(next.status).toBe(200)
+    expect(next.body.repos.every((r: any) => r.connection_id === selected)).toBe(true)
+    const differentSearch = await list(first.body.cursor, "another")
+    expect([differentSearch.status, differentSearch.body.error?.code]).toEqual([409, "cursor_stale"])
+
+    expect((await op(a.session, "integration.revoke", { connection: selected })).body.value.status).toBe("revoked")
+    const stale = await list(first.body.cursor)
+    expect([stale.status, stale.body.error?.code]).toEqual([409, "cursor_stale"])
+    const oversized = await list("x".repeat(2048))
+    expect([oversized.status, oversized.body.error?.code]).toEqual([400, "request.invalid"])
+  })
+
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {
     const a = await signedInWithInstall("gh-token-2", "cli")
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("integration.not_found")
