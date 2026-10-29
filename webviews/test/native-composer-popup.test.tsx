@@ -247,6 +247,21 @@ test("native effort slider commits a resting default once and rejects invalid ch
   );
   const row = menu.model.rows.find((item) => item.kind === "slider")!;
   expect(row.value).toBe("1");
+  expect(row.slider).toMatchObject({
+    selectedValue: undefined,
+    defaultValue: "high",
+    recommendedValue: "high",
+    recommendedLabel: "Recommended: High",
+    minimumLabel: "Faster",
+    maximumLabel: "Smarter",
+    accessibilityLabel: "Effort",
+    style: "minimal",
+  });
+  expect(row.slider?.stops).toEqual([
+    { value: "low", label: "Low", description: "Faster answers", accessibilityLabel: "Low" },
+    { value: "high", label: "High", description: "More reasoning", accessibilityLabel: "High, recommended" },
+    { value: "max", label: "Maximum", description: undefined, accessibilityLabel: "Maximum" },
+  ]);
   expect(picks).toEqual([]);
   const change = async (value: string) => {
     await act(async () => {
@@ -280,6 +295,8 @@ test("native effort slider does not resend an already selected value", async () 
   );
   const row = menu.model.rows.find((item) => item.kind === "slider")!;
   expect(row.value).toBe("0");
+  expect(row.slider?.selectedValue).toBe("low");
+  expect(row.slider?.defaultValue).toBe("high");
   await act(async () => {
     for (const listener of menu.listeners)
       listener({ type: "change", popupId: menu.model.id, revision: menu.model.revision, id: row.id, value: "0" });
