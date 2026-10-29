@@ -3,7 +3,6 @@
 //! (transport.md 12a).
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 struct WgHubFlags {
     config: PathBuf,
