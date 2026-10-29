@@ -64,6 +64,8 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(result.wheelPixels).toBeLessThan(-8_000);
       expect(result.compared).toBe(result.frames);
       expect(result.blankFrames).toBe(0);
+      expect(result.blankBandFrames).toBe(0);
+      expect(result.maxRowBoxGap).toBeLessThanOrEqual(1 / 64);
       // DOM coordinates use fractional CSS pixels; allow only one 1/64 px layout quantum.
       expect(result.maxDrift).toBeLessThanOrEqual(1 / 64);
     } finally {

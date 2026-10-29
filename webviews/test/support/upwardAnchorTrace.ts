@@ -8,6 +8,8 @@ export type UpwardAnchorFrame = {
   scrollTop: number;
   anchorId: string | null;
   drift: number | null;
+  rowBoxGap: number;
+  rowBoxIds: string[];
 };
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
@@ -42,6 +44,12 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
         // frames share; a missing anchor is evidence too, never a zero-drift sample.
         const anchor = previous.visible.find((row) => current.mounted.has(row.id));
         const top = current.visible[0];
+        const rowBoxGaps = current.visible.flatMap((row, index, rows) => {
+          const previous = rows[index - 1];
+          if (!previous) return [];
+          const gap = row.y - previous.bottom;
+          return gap > 1 / 64 ? [{ gap, previous: previous.id, next: row.id }] : [];
+        });
         const drift = anchor ? current.mounted.get(anchor.id)!.y - anchor.y + command.applied : null;
         samples.push({
           frame: samples.length,
@@ -53,6 +61,8 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
           scrollTop: scroller.scrollTop,
           anchorId: anchor?.id ?? null,
           drift,
+          rowBoxGap: Math.max(0, ...rowBoxGaps.map((each) => each.gap)),
+          rowBoxIds: rowBoxGaps.flatMap((each) => [each.previous, each.next]),
         });
         previous = current;
         if (samples.length === commands.length) {
@@ -85,6 +95,8 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
     compared: compared.length,
     missingAnchors: samples.length - compared.length,
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
+    blankBandFrames: samples.filter((sample) => sample.rowBoxGap > 8).length,
+    maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
     maxDrift: Math.max(0, ...compared.map((sample) => Math.abs(sample.drift!))),
