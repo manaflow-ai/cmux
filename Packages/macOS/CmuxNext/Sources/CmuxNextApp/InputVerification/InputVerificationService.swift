@@ -112,9 +112,8 @@ final class InputVerificationService {
     /// asks the monitor to check once they settle.
     func observeFocus(of controller: WindowController) {
         let journal = InputJournal.shared
-        // `services` and `monitor` are read when an observer runs, never captured here: the launch window installs its
-        // observers before the `InputVerification.start` post (afterFirstFrame) sets them, and a nil captured then
-        // dropped that window's settles for the whole session.
+        let monitor = self.monitor
+        let services = self.services
         var sinceCheckpoint = Int.max - 1
         // The notification and location-trail observers act on the settled
         // keyboard target: each runs only when what it reads changed. The
@@ -123,8 +122,7 @@ final class InputVerificationService {
         // once the page hides).
         var notified: FocusState.SettleKey?
         var trailed: TrailSettleKey?
-        controller.focus.settledObserver = { [weak self, weak controller] state in
-            let services = self?.services
+        controller.focus.settledObserver = { [weak services, weak controller] state in
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
             guard let controller else { return }
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
@@ -144,10 +142,10 @@ final class InputVerificationService {
                 services?.locationTrail.focusDidSettle(state, in: controller)
             }
         }
-        controller.focus.observer = { [weak self, weak state = controller.state, weak focus = controller.focus] observation in
+        controller.focus.observer = { [weak state = controller.state, weak focus = controller.focus] observation in
             // A no-op reduction (a responder report of the focus the window
             // already has) changes nothing the monitor checks.
-            if case .reduced(_, _, _, false) = observation {} else { self?.monitor?.noteChange() }
+            if case .reduced(_, _, _, false) = observation {} else { monitor?.noteChange() }
             guard journal.isEnabled else { return }
             let window = state?.id
             switch observation {
