@@ -139,8 +139,7 @@ impl Snapshots {
         let name = event.get("event").and_then(Value::as_str).ok_or(())?;
         match name {
             "overflow" => return Err(()), // The daemon ended this subscription.
-            "tree-changed" | "empty" => self.invalidate(TREE),
-            "layout-changed" => self.invalidate(LAYOUT),
+            "tree-changed" | "layout-changed" | "empty" => self.invalidate(TREE),
             "personal-changed" | "sidebar-layout-changed" => {
                 self.invalidate(PERSONAL);
                 self.invalidate(LAYOUT);
@@ -304,10 +303,10 @@ fn apply_delta(tree: &mut Value, event: &Value) -> Result<(), ()> {
     let data = tree.get_mut("data").ok_or(())?;
     // A restarted daemon cannot amend an earlier registry's authorization view.
     for key in ["registry_id", "generation"] {
-        if let Some(incoming) = event.get(key) {
-            if data.get(key) != Some(incoming) {
-                return Err(());
-            }
+        if let Some(incoming) = event.get(key)
+            && data.get(key) != Some(incoming)
+        {
+            return Err(());
         }
     }
     if let (Some(current), Some(incoming)) = (
@@ -486,8 +485,10 @@ mod tests {
 
     #[test]
     fn malformed_delta_and_coarse_events_invalidate_snapshots() {
-        let mut state = Snapshots::default();
-        state.views = [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))];
+        let mut state = Snapshots {
+            views: [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))],
+            ..Default::default()
+        };
         state
             .event(&json!({"event":"tab-changed", "workspace":1,"screen":2,"pane":3,"surface":4,
             "entity":{"surface":99}}))
@@ -633,18 +634,21 @@ mod tests {
         assert!(published.views.lock().unwrap()[TREE].is_none());
         let recovered = tokio::time::timeout(QUERY_WAIT, session(&socket, &published)).await.unwrap();
         assert!(recovered.is_err()); // fake daemon closes after its last answer
-        let views = published.views.lock().unwrap();
-        assert!(views[TREE].is_some());
-        assert!(views[PERSONAL].is_some());
-        assert!(views[LAYOUT].is_none());
-        drop(views);
+        {
+            let views = published.views.lock().unwrap();
+            assert!(views[TREE].is_some());
+            assert!(views[PERSONAL].is_some());
+            assert!(views[LAYOUT].is_none());
+        }
         server.await.unwrap();
     }
 
     #[test]
     fn registry_replacement_refuses_old_authority() {
-        let mut state = Snapshots::default();
-        state.views = [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))];
+        let mut state = Snapshots {
+            views: [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))],
+            ..Default::default()
+        };
         state
             .event(&json!({"event":"workspace-closed", "workspace":1,"registry_id":"other", "generation":1}))
             .unwrap();
