@@ -16,7 +16,12 @@ jobs:
     # not discard a successful exact-head Dogfood build; the trusted gate below
     # requires that job and its matching GitHub artifact explicitly. A run the
     # event lists no pull request for has nothing to publish, so it never starts.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
+    # The event names the pull request's base, so a run the script would skip
+    # for its base (CI on a feat-cmux-next pull request, cmux-next on any
+    # other) never starts either and spends no API call. CI_QUOTA_HOLD=1
+    # pauses this publish while the installation's GITHUB_TOKEN budget is
+    # reserved for the nightly (tests/test_ci_quota_hold_gate.py).
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' && (github.event.workflow_run.name == 'CI' && github.event.workflow_run.pull_requests[0].base.ref != 'feat-cmux-next' || github.event.workflow_run.name == 'cmux-next' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:

@@ -184,6 +184,7 @@ extension TerminalController {
             "current.list",
             "surface.project",
             "surface.new_terminal",
+            "surface.new_display",
             "surface.ssh_session_attach.resolve",
             "aiAccounts.list",
             "aiAccounts.upload",

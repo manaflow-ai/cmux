@@ -22,7 +22,7 @@ free slot for the run (in flight + queued + reserved below its capacity) and
 its queue is moving (stalled(), the cmux-next cascade's rule). With no owned
 pool free and no free, moving Blacksmith slot, a same-repository run (not the
 bot's re-run; State.wait_on_owned) waits on the online owned pool with the
-shortest queue for its size instead of a Blacksmith queue (2026-10-20:
+shortest expected wait (expected_wait_minutes()) instead of a Blacksmith queue (2026-10-20:
 blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
 runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
 unread runner list) still takes the least-loaded Blacksmith label. An owned
@@ -51,16 +51,29 @@ XCODE_VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+)*"
 # the owned Mac minis.
 OWNED = re.compile(rf"^glaeda-(?:(?P<namespace>aws)-)?(?:std|light|xl)-xcode-{XCODE_VERSION_PATTERN}$")
 RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
-# next_macos_cascade.py's stall rule: a Blacksmith label whose oldest queued job has waited
-# STALL_MINUTES by now, or IDLE_STALL_MINUTES with nothing running, gets no new run.
-STALL_MINUTES = 25
+# blacksmith_stalled(), the one stall rule: a Blacksmith label whose oldest queued job has waited
+# this long by now has had no job start on it since (its queue is first in, first out), so it has
+# no free slot. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 queued (oldest 396 min), 0 running.
+BLACKSMITH_STALL_MINUTES = 10
+# The older names, kept for callers: every one is the same rule now.
+STALL_MINUTES = BLACKSMITH_STALL_MINUTES
+FRESH_STALL_MINUTES = BLACKSMITH_STALL_MINUTES
+# A label the snapshot saw wait this long with nothing running is stalled too.
 IDLE_STALL_MINUTES = 5
+# The measured runner minutes one job holds an owned runner, by class (expected_wait_minutes()): every
+# completed job with a duration on the pool's machines, 2026-10-20 to 2026-10-26, from the build-fleet job
+# log (cmuxterm-hq build-fleet/data, aggregated in tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json,
+# which test_ci_simple_pool_picker re-derives these from). std (M4 Pro, 48 GB): 20003 jobs, 150199.5 min.
+# light (M4, 16 GB): 1360 jobs, 15751.3 min; the same job runs up to 3.5x longer there (release-compile p50
+# 26.1 min against 7.7, fast-tier 19.3 against 6.6). A class with no figure takes the slowest measured one.
+TURNOVER_MINUTES = {"std": 7.51, "light": 11.58}
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
 XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
-# Ten pages of 100 is twice the organization's runners today.
-MAX_RUNNER_PAGES = 10
+# The org-wide fallback read (LiveState.runners(), only when the glaeda-minis group is unreadable):
+# 2,862 org runners on 2026-10-27 held the minis past page 10, so read up to 5,000.
+MAX_RUNNER_PAGES = 50
 OWNED_FAMILY = re.compile(
     rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
     rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
@@ -134,6 +147,8 @@ class Pool:
     xcode_app: str = ""
     # A Blacksmith label whose queue is not moving (stalled()): it has no free slot.
     stalled: bool = False
+    # Minutes its oldest queued job has waited by now (the snapshot's figure plus its age).
+    waited: float = 0.0
 
     @property
     def available(self) -> int:
@@ -215,12 +230,31 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
                               pool.xcode_app, True, retry_label=retry)
     if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
         # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
-        # pool with the shortest queue for its size (owned order on a tie).
-        pool = min(eligible, key=lambda pool: (pool.queued / pool.capacity, owned_order(pool.label)))
+        # pool where the run is expected to start soonest (owned order on a tie).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
         return Choice(pool.label, "no owned pool and no Blacksmith label has a free, moving slot now; "
                       "waits on the owned label rather than a Blacksmith queue",
                       pool.xcode_app, True, retry_label=_retry_label(state, pool))
     return _borrow_large_for_admission(state, blacksmith)
+
+
+def expected_wait_minutes(pool: Pool, jobs: int) -> float:
+    """Minutes until the last of a run's `jobs` starts on owned `pool`, from its measured turnover.
+
+    Its idle runners take the first of the queued jobs and then the run's own at once; the rest start
+    in waves of `capacity` (its online runners), one TURNOVER_MINUTES of its class apart. queued / capacity
+    alone read a busy 4-runner light pool with 12 queued (3 a runner) as shorter than a busy 30-runner std
+    pool with 108 (3.6 a runner), though light's run starts after four turnovers of 11.58 min (46.3) and
+    std's after four of 7.51 (30.0); and it ranked a pool with fewer runners than the run has jobs as if
+    every job started at once.
+    """
+    match = OWNED_FAMILY.fullmatch(pool.label or "")
+    turnover = TURNOVER_MINUTES.get(match.group("class") if match else "", max(TURNOVER_MINUTES.values()))
+    if pool.free:  # state_from(): idle runners left once the family's queue took its share
+        waiting = max(0, max(1, jobs) - pool.free)
+    else:
+        waiting = max(0, pool.queued + max(1, jobs) - max(0, pool.capacity - pool.running))
+    return -(-waiting // max(1, pool.capacity)) * turnover
 
 
 def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
@@ -271,10 +305,13 @@ def _retry_label(state: State, owned: Pool) -> str:
 
 
 def _free_blacksmith(state: State) -> Pool | None:
-    """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run."""
+    """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run.
+
+    A label blacksmith_stalled() names is not moving, so it does not count."""
     pools = {pool.label: pool for pool in state.blacksmith}
     return next((pools[label] for label in BLACKSMITH
-                 if label in pools and pools[label].unreserved_available >= state.jobs), None)
+                 if label in pools and pools[label].unreserved_available >= state.jobs
+                 and not blacksmith_stalled(pools[label].queued, pools[label].waited)), None)
 
 
 def _pick_blacksmith(state: State) -> Choice:
@@ -317,6 +354,16 @@ class LiveState:
             return json.load(response)
 
     def runners(self) -> list[Mapping[str, Any]]:
+        """The repository's runners and the org's glaeda-minis group, as pr_runner_pool reads them.
+
+        The org-wide listing below is only the fallback: with 2,862 org runners on 2026-10-27 its
+        MAX_RUNNER_PAGES pages held none of the minis, so every owned pool read as offline and an
+        owned-first pick (DEV publish 40454509260) went to a stalled Blacksmith queue.
+        """
+        try:
+            return self._group_runners()
+        except Exception as error:  # noqa: BLE001 - the org-wide pages below may still hold them
+            print(f"::warning title=live runner state::{error}; reading the org-wide runner list", file=sys.stderr)
         owner = self.repository.split("/", 1)[0]
         # The routing runners can sit behind several pages, so read all pages
         # that can contain the current fleet while keeping the API usage bounded.
@@ -327,6 +374,12 @@ class LiveState:
             if len(batch) < 100:
                 break
         return runners
+
+    def _group_runners(self) -> list[Mapping[str, Any]]:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import pr_runner_pool
+
+        return pr_runner_pool.GitHub(self.token, self.repository).runners()
 
     def snapshot(self) -> Mapping[str, Any] | None:
         """The queue janitor's newest trusted pool snapshot, or None when missing or stale (two API calls)."""
@@ -424,10 +477,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+    age = snapshot_age(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
                       "stalled": stalled(count(label, "queued"), count(label, "running"),
-                                         count(label, "oldest_queued_minutes"), snapshot_age(snapshot))}
+                                         count(label, "oldest_queued_minutes"), age),
+                      "waited": count(label, "oldest_queued_minutes") + age if count(label, "queued") else 0.0}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
@@ -450,12 +505,21 @@ def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
     return max(0.0, (dt.datetime.now(dt.timezone.utc) - generated).total_seconds() / 60)
 
 
+def blacksmith_stalled(queued: int, waited: float) -> bool:
+    """The one stall rule for a Blacksmith label: a queued job has waited BLACKSMITH_STALL_MINUTES by
+    now (`waited`: the snapshot's oldest_queued_minutes plus the snapshot's age).
+
+    The janitor snapshot carries no start times; on a first-in, first-out label queue a job that
+    started since would have been that oldest one, so the wait alone says nothing has started."""
+    return queued > 0 and waited >= BLACKSMITH_STALL_MINUTES
+
+
 def stalled(queued: int, running: int, oldest_queued_minutes: int, age: float = 0.0) -> bool:
-    """next_macos_cascade.stalled() on the snapshot alone: a queue whose oldest job has waited
-    STALL_MINUTES by now, or IDLE_STALL_MINUTES (as the snapshot saw it) with nothing running."""
+    """blacksmith_stalled() on the snapshot, or IDLE_STALL_MINUTES (as the snapshot saw it) with
+    nothing running."""
     if queued <= 0:
         return False
-    return (oldest_queued_minutes + age >= STALL_MINUTES
+    return (blacksmith_stalled(queued, oldest_queued_minutes + max(0.0, age))
             or running == 0 and oldest_queued_minutes >= IDLE_STALL_MINUTES)
 
 

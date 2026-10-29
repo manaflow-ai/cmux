@@ -1,7 +1,7 @@
 name: nightly-next canary
 
 # The post-publication canary of cmux NEXT (docs/ci/nightly-next-canary.md).
-# Every 15 minutes it reads the cmux NEXT feed and, for a build it has not
+# Every 5 minutes it reads the cmux NEXT feed and, for a build it has not
 # checked yet, downloads that exact DMG from the feed, checks Gatekeeper and
 # the notary tickets, and runs the canary on the app inside it on a CI Mac:
 # a visible window, a New Tab, an agent session that answers a prompt, and no
@@ -20,7 +20,11 @@ name: nightly-next canary
 # the newest feed build with the pull request's own harness and pulls nothing.
 on:
   schedule:
-    - cron: "3,18,33,48 * * * *"
+    # Every 5 minutes, off the hour: a build reaches Nightly only after a
+    # scheduled pass, so the tick adds to every Nightly's age
+    # (tests/test_nightly_next_canary_cadence.py). A tick with no new build
+    # stops in the Linux pick job.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
     inputs:
       build:
@@ -37,8 +41,11 @@ on:
 
 permissions: {}
 
+# A dispatch for one build has its own group, so the next scheduled tick never
+# replaces it; schedule ticks read the feed when they start, so one waiting
+# tick does the work of any it replaced.
 concurrency:
-  group: nightly-next-canary-${{ github.event.pull_request.number || 'feed' }}
+  group: nightly-next-canary-${{ github.event.pull_request.number || inputs.build != '' && format('build-{0}', inputs.build) || 'feed' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -49,7 +56,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -99,8 +106,11 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          if not url.startswith("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"):
-              sys.exit(f"{url} is not a nightly-next release asset")
+          # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
+          # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+                                 "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
+              sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"
@@ -120,8 +130,11 @@ jobs:
     name: canary ${{ needs.pick.outputs.build }}
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
-    # No secrets: this job runs the published app.
-    runs-on: macos-26
+    # No secrets: this job runs the published app. An owned Mac's side label on
+    # attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused
+    # job), Blacksmith macOS 26 from attempt 2 on. Never a GitHub-hosted Mac
+    # (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -235,21 +248,6 @@ jobs:
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi
 
-      - name: Record the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
-        env:
-          VERDICT: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
-        run: |
-          mkdir -p canary-verdict
-          echo "$VERDICT" > canary-verdict/verdict
-
-      - name: Save the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: canary-verdict
-          key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
-
   # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
   # next to the cmux NEXT appcast in R2). The train's base is the newest feed
   # build whose verdict is `pass`; the Actions cache above only marks a build
@@ -261,8 +259,10 @@ jobs:
     name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}
     needs: [pick, canary]
     if: always() && github.event_name == 'schedule' && needs.canary.outputs.verdict != ''
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    env:
+      BUILD: ${{ needs.pick.outputs.build }}
     permissions:
       actions: write # dispatch nightly-next-verdict.yml
     steps:
@@ -273,21 +273,61 @@ jobs:
           VERDICT: ${{ needs.canary.outputs.verdict }}
         run: |
           set -euo pipefail
-          # Until nightly-next carries nightly-next-verdict.yml (the next
-          # promotion after it lands), the dispatch fails: warn, keep the canary green.
-          if gh workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
-            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID"; then
-            echo "requested the $VERDICT verdict of build $BUILD"
-          else
-            echo "::warning title=nightly-next verdict::could not dispatch nightly-next-verdict.yml on nightly-next; build $BUILD has no durable verdict"
-          fi
+          # A canary's checked marker is durable only after this dispatch is
+          # accepted. GitHub occasionally answers 403/429 when the Actions
+          # installation quota is exhausted; retry those transient responses
+          # without turning a permission or workflow error into a retry storm.
+          request=(workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
+            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID")
+          for attempt in 1 2 3; do
+            error="$(mktemp)"
+            if gh "${request[@]}" >"$error" 2>&1; then
+              rm -f "$error"
+              echo "requested the $VERDICT verdict of build $BUILD (attempt $attempt)"
+              exit 0
+            else
+              rc=$?
+            fi
+            output="$(cat "$error")"
+            rm -f "$error"
+            printf '%s\n' "$output" >&2
+            if ! grep -Eiq 'HTTP (403|429)|API rate limit exceeded|secondary rate limit|rate limit' <<<"$output"; then
+              echo "::error title=nightly-next verdict::dispatch failed with a non-retryable error"
+              exit "$rc"
+            fi
+            if (( attempt < 3 )); then
+              delay=$((attempt * 15))
+              echo "::warning title=nightly-next verdict::dispatch was rate limited; retrying in ${delay}s (attempt $((attempt + 1))/3)"
+              sleep "$delay"
+            fi
+          done
+          echo "::error title=nightly-next verdict::could not dispatch nightly-next-verdict.yml after three rate-limit retries; build $BUILD remains unchecked"
+          exit 1
+
+      # Do not mark the build checked before the durable verdict dispatch. A
+      # 403/429 therefore remains eligible on the next scheduled tick.
+      - name: Record the checked verdict
+        if: success()
+        env:
+          VERDICT: ${{ needs.canary.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          mkdir -p canary-verdict
+          printf '%s\n' "$VERDICT" > canary-verdict/verdict
+
+      - name: Save the checked marker
+        if: success()
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: canary-verdict
+          key: ${{ env.CANARY_CACHE_PREFIX }}${{ needs.pick.outputs.build }}
 
   # A failed canary: report it, and in enforce mode pull the build. A pull
   # request's run only tests the harness and does neither.
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml

@@ -1,5 +1,5 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
-import { processRunQueue } from "../../../../services/runs/runner";
+import { processRunQueue } from "../../../../services/runs/legacy/runner";
 export const maxDuration = 960;
 export async function GET(request: Request): Promise<Response> {
   if (!authorizeCronRequest(request).ok) return Response.json({ error: "unauthorized" }, { status: 401 });

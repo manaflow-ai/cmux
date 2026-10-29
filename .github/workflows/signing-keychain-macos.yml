@@ -14,6 +14,8 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_derive_sparkle_public_key.sh
       - .github/workflows/signing-keychain-macos.yml
   pull_request:
     paths:
@@ -22,6 +24,8 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_derive_sparkle_public_key.sh
       - .github/workflows/signing-keychain-macos.yml
   workflow_dispatch:
 

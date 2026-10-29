@@ -179,6 +179,20 @@ export function agentLink(params: SearchParams): AgentLinkResult {
   };
 }
 
+/**
+ * A private reference (`?id=aid-<20 hex>`) that agent links in public places
+ * carry instead of harness, session and host. It names no machine or session,
+ * and this page never resolves it: no table and no lookup ship here.
+ */
+export const AGENT_REFERENCE_PATTERN = /^aid-[0-9a-f]{20}$/;
+
+/** The reference a link carries in place of a session, or null. */
+export function agentReference(params: SearchParams): string | null {
+  const id = params.id;
+  if (typeof id !== "string" || !AGENT_REFERENCE_PATTERN.test(id)) return null;
+  return params.session === undefined ? id : null;
+}
+
 // Invariant: this model holds only the URL's own harness/session/host/name/message plus the cmux:// href; no lookups, ever.
 export function agentLinkModel(params: SearchParams): AgentLinkModel | null {
   return agentLink(params).model;

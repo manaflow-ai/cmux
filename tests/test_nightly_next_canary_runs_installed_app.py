@@ -42,6 +42,24 @@ class CanaryRunsTheInstalledApp(unittest.TestCase):
         self.assertIn("APP: ${{ steps.app.outputs.app }}", run)
         self.assertNotIn("canary-mount", run)
 
+    def test_checked_marker_is_saved_only_after_durable_dispatch(self) -> None:
+        canary = self.text.split("  # The durable verdict", 1)[0]
+        verdict = self.text.split("  verdict:\n", 1)[1]
+        self.assertNotIn("actions/cache/save", canary)
+        dispatch = verdict.index("- name: Write the verdict to R2")
+        marker = verdict.index("- name: Record the checked verdict")
+        self.assertLess(dispatch, marker)
+        self.assertIn("HTTP (403|429)", verdict)
+        self.assertIn("API rate limit exceeded", verdict)
+        self.assertIn("after three rate-limit retries", verdict)
+        self.assertIn("exit 1", verdict[verdict.index("- name: Write the verdict to R2"):marker])
+
+    def test_rate_limited_dispatch_does_not_warn_and_continue(self) -> None:
+        verdict = self.text.split("  verdict:\n", 1)[1]
+        dispatch = verdict[verdict.index("- name: Write the verdict to R2"):]
+        self.assertNotIn("could not dispatch nightly-next-verdict.yml on nightly-next; build", dispatch)
+        self.assertIn("build $BUILD remains unchecked", dispatch)
+
 
 if __name__ == "__main__":
     unittest.main()

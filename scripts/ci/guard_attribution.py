@@ -523,8 +523,8 @@ class GitHub:
     a re-run must be started by github-actions[bot] (ci-macos.yml routes attempt 3 by its
     triggering actor) and the status comment is found by its author (pr_status.BOTS). A read the
     App may not make (checks, statuses) uses `token`; a read the App is refused (401, 403: no
-    permission or no budget left) is made again with `token`, and a 401 keeps `token` from then
-    on (the App token lasts an hour)."""
+    permission) is made again with `token`, and a 401 keeps `token` from then on (the App token
+    lasts an hour). A read refused for the App's rate limit is not: it raises."""
 
     def __init__(self, repo: str, token: str, api: str = "https://api.github.com", read_token: str = ""):
         self.repo, self.token, self.api = repo, token, api.rstrip("/")
@@ -538,6 +538,10 @@ class GitHub:
                 return self._request(method, path, body, text, self.read_token)
             except RuntimeError as error:
                 if not re.search(r": HTTP 40[13] ", str(error) + " "):
+                    raise
+                # An App out of budget stops here: its reads moved onto the shared
+                # GITHUB_TOKEN emptied that budget too (nightly publish, 2026-10-25).
+                if re.search(r"rate limit", str(error), re.IGNORECASE):
                     raise
                 print(f"read token refused {path.split('?')[0]}; using the workflow token: {str(error)[:160]}",
                       file=sys.stderr)

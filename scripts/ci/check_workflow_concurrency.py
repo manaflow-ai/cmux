@@ -45,7 +45,12 @@ def names_a_run(group: str) -> bool:
 MACOS = re.compile(r"mac|xcode", re.IGNORECASE)
 
 # Workflow file name -> why it may run once per dispatch without a shared group.
-ALLOWLIST: dict[str, str] = {}
+ALLOWLIST: dict[str, str] = {
+    # The DEV signer: its dispatcher sends one run per finished source run (at most one every
+    # five minutes), and a shared group replaced each newer pending handoff while the signer
+    # waited, so nothing newer ever signed (Nightly freshness, 2026-10-26).
+    "cmux-next-dev-daily.yml": "one dispatch per finished DEV source run; a group evicted newer handoffs",
+}
 
 
 def triggers(doc: dict) -> set[str]:

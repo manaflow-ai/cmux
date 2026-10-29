@@ -83,8 +83,9 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertIn("content-type", signed)
         self.assertEqual(signed, sorted(signed))
 
-    def start_endpoint(self, existing=False, *, tls=True, redirects=None):
+    def start_endpoint(self, existing=False, *, tls=True, redirects=None, put_status=None):
         requests = []
+        written = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def record(self):
@@ -97,7 +98,13 @@ class R2UploadRequestsTests(unittest.TestCase):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
-                status = 404 if self.command == "HEAD" and not existing else 200
+                if self.command == "PUT" and put_status:
+                    written.append(True)  # another writer's bytes are there now
+                    self.send_response(put_status)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = 404 if self.command == "HEAD" and not (existing or written) else 200
                 response = BODY if self.command == "GET" else b""
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(response)))
@@ -234,6 +241,13 @@ class R2UploadRequestsTests(unittest.TestCase):
             self.assertEqual(body, b"")
             self.assertNotIn("content-type", headers)
             self.assertNotIn("content-type", headers["authorization"])
+
+    def test_write_once_conflict_409_reads_the_object_like_a_412(self):
+        # R2 answers a concurrent write to the same key with 409; the bytes there decide.
+        endpoint, requests = self.start_endpoint(put_status=409)
+        result = self.upload("manifest.json", "--write-once", endpoint=endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
 
 
 if __name__ == "__main__":

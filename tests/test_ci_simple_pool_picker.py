@@ -8,6 +8,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,14 +149,47 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
                            owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
         self.assertEqual(picker.pick(state).retry_label, picker.BLACKSMITH[1])
 
+    def test_an_old_queued_macos_26_job_with_nothing_starting_waits_on_the_fleet(self):
+        """DEV publish 40454509260: the oldest macOS 26 job had waited past BLACKSMITH_STALL_MINUTES with
+        runners busy, so the label is no room; a wait_on_owned pick waits on the fleet."""
+        snapshot = {"generated_at": "2000-01-01T00:00:00Z", "pools": {
+            picker.BLACKSMITH[1]: {"queued": 4, "running": 3, "oldest_queued_minutes": 11}}}
+        with mock.patch.object(picker, "snapshot_age", return_value=0.0):
+            base = picker.state_from(jobs=2, env={}, fork=False, runners=None, snapshot=snapshot,
+                                     fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        mac26 = next(p for p in base.blacksmith if p.label == picker.BLACKSMITH[1])
+        self.assertTrue(mac26.stalled)
+        self.assertEqual(mac26.unreserved_available, 0)
+        state = self.state((mac26,))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(choice.owned)
+        # A young queue on a label with room still takes Blacksmith.
+        young = dataclasses.replace(mac26, stalled=False, waited=picker.BLACKSMITH_STALL_MINUTES - 1)
+        self.assertEqual(picker.pick(self.state((young,))).label, picker.BLACKSMITH[1])
+
+    def test_a_stalled_macos_26_label_beside_a_free_macos_15_slot_picks_macos_15(self):
+        """2026-10-27 06:13Z: macOS 26 queued 50 min with nothing starting and a macOS 15 slot free."""
+        pools = {picker.BLACKSMITH[0]: {"queued": 3, "running": 4, "oldest_queued_minutes": 50},
+                 picker.BLACKSMITH[1]: {"queued": 3, "running": 4, "oldest_queued_minutes": 50},
+                 picker.BLACKSMITH[2]: {"queued": 0, "running": 1}}
+        with mock.patch.object(picker, "snapshot_age", return_value=0.0):
+            state = picker.state_from(jobs=1, env={}, fork=False, runners=None, fallback=picker.BLACKSMITH[1],
+                                      snapshot={"generated_at": "2000-01-01T00:00:00Z", "pools": pools},
+                                      owned_enabled=False)
+        self.assertEqual(picker.pick(state).label, picker.BLACKSMITH[2])
+        self.assertEqual(picker.BLACKSMITH_STALL_MINUTES, 10)
+        self.assertFalse(picker.blacksmith_stalled(2, picker.BLACKSMITH_STALL_MINUTES - 1))
+        self.assertTrue(picker.blacksmith_stalled(2, picker.BLACKSMITH_STALL_MINUTES))
+
     def test_a_stalled_blacksmith_label_has_no_free_slot(self):
         stalled = dataclasses.replace(pool(picker.BLACKSMITH[1], 10, 0, 3), stalled=True)
         choice = picker.pick(self.state((self.FULL[0], stalled, self.FULL[2])))
         self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
         self.assertTrue(picker.stalled(queued=2, running=4, oldest_queued_minutes=picker.STALL_MINUTES))
         self.assertTrue(picker.stalled(queued=1, running=0, oldest_queued_minutes=picker.IDLE_STALL_MINUTES))
-        self.assertTrue(picker.stalled(queued=1, running=3, oldest_queued_minutes=20, age=5))
-        self.assertFalse(picker.stalled(queued=1, running=3, oldest_queued_minutes=10))
+        self.assertTrue(picker.stalled(queued=1, running=3, oldest_queued_minutes=6, age=4))
+        self.assertFalse(picker.stalled(queued=1, running=3, oldest_queued_minutes=9))
         self.assertFalse(picker.stalled(queued=0, running=0, oldest_queued_minutes=90))
 
     def test_the_snapshot_marks_a_stalled_label(self):
@@ -207,6 +241,42 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
         state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=4),
                                              pool("glaeda-light-xcode-26.6", 4, free=0, queued=2)))
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+    def test_the_wait_ranks_by_measured_turnover_not_queue_per_runner(self):
+        # A busy 4-runner light pool with 12 queued (3 a runner) against a busy 30-runner std pool with
+        # 108 (3.6 a runner): queued / capacity picked light, where the run starts 46.3 min out (four
+        # 11.58 min turnovers) against std's 30.0 (four of 7.51).
+        light = pool("glaeda-light-xcode-26.6", 4, running=4, free=0, queued=12)
+        std = pool("glaeda-std-xcode-26.6", 30, running=30, free=0, queued=108)
+        self.assertLess(light.queued / light.capacity, std.queued / std.capacity)
+        self.assertAlmostEqual(picker.expected_wait_minutes(light, 2), 4 * 11.58)
+        self.assertAlmostEqual(picker.expected_wait_minutes(std, 2), 4 * 7.51)
+        self.assertEqual(picker.pick(self.state(self.FULL, owned=(std, light))).label, "glaeda-std-xcode-26.6")
+
+    def test_a_pool_smaller_than_the_run_waits_a_turnover_per_extra_wave(self):
+        # One online runner, nothing queued: the second job starts one turnover after the first.
+        tiny = pool("glaeda-light-xcode-26.6", 1, free=1)
+        self.assertEqual(picker.expected_wait_minutes(tiny, 1), 0)
+        self.assertAlmostEqual(picker.expected_wait_minutes(tiny, 2), 11.58)
+        # Idle runners take the queue ahead first; a busy pool's job waits one turnover, the slowest
+        # measured one for a class with no figure.
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-std-xcode-26.6", 8, running=4, queued=2), 2), 0)
+        self.assertEqual(picker.expected_wait_minutes(pool("glaeda-xl-xcode-26.6", 1, running=1), 1),
+                         max(picker.TURNOVER_MINUTES.values()))
+
+    def test_turnover_is_the_measured_fixture(self):
+        # TURNOVER_MINUTES is derived, never typed: total runner minutes over jobs per pool class.
+        data = json.loads((ROOT / "tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json").read_text())
+        totals: dict[str, list[float]] = {}
+        for row in data["jobs"]:
+            total = totals.setdefault(row["pool"], [0, 0.0])
+            total[0] += row["n"]
+            total[1] += row["runner_minutes"]
+        self.assertEqual(set(totals), set(picker.TURNOVER_MINUTES))
+        for klass, (jobs, minutes) in totals.items():
+            with self.subTest(klass=klass):
+                self.assertEqual(round(minutes / jobs, 2), picker.TURNOVER_MINUTES[klass])
+        self.assertEqual({klass: jobs for klass, (jobs, _) in totals.items()}, {"std": 20003, "light": 1360})
 
     def test_without_an_owned_pool_to_wait_on_the_rule_is_unchanged(self):
         # A fork, owned pools off or an unread runner list has no fleet queue to wait on.
@@ -297,6 +367,9 @@ class LiveRunnerReadTests(unittest.TestCase):
         asked = []
 
         class Paged(picker.LiveState):
+            def _group_runners(self):
+                raise RuntimeError("group unread")
+
             def _get(self, path):
                 asked.append(path)
                 page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
@@ -449,11 +522,71 @@ class OwnedQueueTests(unittest.TestCase):
 
 
 class LiveReaderTests(unittest.TestCase):
+    def test_the_minis_come_from_their_runner_group_not_the_org_pages(self):
+        """2,862 org runners on 2026-10-27: the org pages held no mini, so every owned pool read offline."""
+        minis = [{"id": index, "status": "online", "busy": False,
+                  "labels": [{"name": "glaeda-std-xcode-26.6"}]} for index in range(3)]
+
+        class Grouped(picker.LiveState):
+            def _group_runners(self):
+                return minis
+
+            def _get(self, path):
+                raise AssertionError(f"read the org-wide pages: {path}")
+
+        self.assertEqual(Grouped("token", "manaflow-ai/cmux").runners(), minis)
+        self.assertIn("runner-groups", (ROOT / "scripts/ci/pr_runner_pool.py").read_text())
+
+    def test_a_mini_past_page_ten_of_the_org_list_is_still_read(self):
+        """More than MAX_RUNNER_PAGES * 100 org runners, the minis only in the glaeda-minis group:
+        the minis are still read, and an owned pick takes them (2026-10-27, 2,862 org runners)."""
+        org = [runner(f"blacksmith-{index}", ["blacksmith-6vcpu-macos-26"], busy=True)
+               for index in range(picker.MAX_RUNNER_PAGES * 100 + 400)]
+        minis = [std_runner(index, busy=False) for index in range(6)]
+        for index, item in enumerate(org + minis):
+            item["id"] = index
+        org_tail = org + minis  # the org-wide list holds the minis only past page MAX_RUNNER_PAGES
+
+        def page_of(items, path):
+            page = int(path.rsplit("page=", 1)[1]) if "page=" in path else 1
+            return {"runners": items[(page - 1) * 100: page * 100]}
+
+        def group_api(_self, path):
+            if "/runner-groups?" in path:
+                return {"runner_groups": [{"id": 7, "name": "glaeda-minis"}]}
+            if "/runner-groups/7/runners" in path:
+                return page_of(minis, path)
+            if path.startswith("/repos/"):
+                return {"runners": []}
+            raise AssertionError(path)
+
+        class Live(picker.LiveState):
+            def _get(self, path):
+                return page_of(org_tail, path)
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_runner_pool
+
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", group_api):
+            read = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual({item["name"] for item in read}, {item["name"] for item in minis})
+        # The old org-wide read stops at MAX_RUNNER_PAGES and never sees a mini.
+        with mock.patch.object(pr_runner_pool.GitHub, "get_api", side_effect=RuntimeError("no group")):
+            fallback = Live("token", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(fallback), picker.MAX_RUNNER_PAGES * 100)
+        self.assertFalse(any(item["name"].startswith("std-") for item in fallback))
+        # observe() over the group read: the owned pool is online and picked.
+        self.assertEqual(picker.pick(observed(read, {}, jobs=1)).label, STD)
+        self.assertFalse(picker.pick(observed(fallback, {}, jobs=1)).owned)
+
     def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
                 self.paths = []
+
+            def _group_runners(self):
+                raise RuntimeError("group unread")
 
             def _get(self, path):
                 self.paths.append(path)

@@ -40,15 +40,18 @@ on:
           - demo
 
 concurrency:
-  # Every run keys by run_id: scheduled runs must not cancel each other (the
-  # decide job already serializes uploads), and an operator may intentionally
-  # rebuild via dispatch.
+  # Every run keys by run_id: scheduled runs must not cancel each other, and an
+  # operator may intentionally rebuild via dispatch. A shared group would keep
+  # only one pending run and cancel the others, dropping queued uploads, so the
+  # decide job and scripts/ci/ios_testflight_queue.cjs order uploads instead.
   group: ios-testflight-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
   contents: read
-  # decide reads this workflow's prior run history to find the last uploaded SHA.
+  # decide reads this workflow's prior run history to find the last uploaded
+  # SHA. The two upload-queue jobs (decide, next-queued-upload) widen this to
+  # actions: write for their own jobs.
   actions: read
 
 # r2-cache.sh reads and writes through this URL. Without it every restore is
@@ -61,14 +64,31 @@ jobs:
   decide:
     name: Order main uploads and resolve prior build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 360
+    # One pass over the queue, then exit: a blocked run is queued, never held.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Reads earlier runs; deletes upload queue markers and re-runs the next
+      # queued run (scripts/ci/ios_testflight_queue.cjs).
+      actions: write
     outputs:
       # The batch step, when it runs, has the last word on scheduled INTERNAL
       # polls; every other run keeps the decide script's answer.
       should_build: ${{ steps.batch.outputs.should_build || steps.decide.outputs.should_build }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
       variant: ${{ steps.decide.outputs.variant }}
+      deferred: ${{ steps.decide.outputs.deferred }}
     steps:
+      - name: Check out the upload queue
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/ios_testflight_queue.cjs
+          sparse-checkout-cone-mode: false
+
       - name: Decide whether a TestFlight upload is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -102,17 +122,20 @@ jobs:
               ? 'ios-testflight-build-metadata-demo'
               : 'ios-testflight-build-metadata';
 
-            // Per-SHA workflow concurrency preserves every push, but it also lets
+            // Per-run workflow concurrency preserves every run, but it also lets
             // several runs reach App Store Connect at once. Build numbers must be
-            // uploaded monotonically, so wait on a cheap Linux runner until every
-            // earlier main-push run has finished its upload job. Assignment can
-            // continue independently after the upload completes.
+            // uploaded monotonically, so a run uploads only when every earlier
+            // main run has finished its upload job and no earlier run is queued.
+            // Assignment can continue independently after the upload completes.
             //
-            // The 20-minute internal poll never waits: each waiting run lists
-            // every run ahead of it once a minute, so waiting polls cost API
-            // calls quadratically. A poll is idempotent, so it leaves and the
-            // next one builds whatever main is by then. Manual dispatches and
-            // the DEMO schedule still wait, because dropping one loses a build.
+            // Nothing here waits. The 20-minute internal poll is idempotent, so
+            // a blocked poll leaves and the next one builds whatever main is by
+            // then. A blocked manual dispatch or DEMO run would lose a build if
+            // it left, so it joins the upload queue instead: the next step saves
+            // its marker and the run ends, and scripts/ci/ios_testflight_queue.cjs
+            // re-runs it (same commit, same inputs) when its turn comes. Before
+            // this, those runs slept 60 s up to 300 times on a Linux runner.
+            const queue = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/ios_testflight_queue.cjs`);
             const isInternalPoll =
               context.eventName === 'schedule' && variant === 'internal';
             const skipPoll = (reason) => {
@@ -121,102 +144,42 @@ jobs:
               core.setOutput('last_uploaded_sha', '');
               core.setOutput('variant', variant);
             };
+            const deferRun = (reason) => {
+              core.notice(`queued this upload: ${reason}; it re-runs when its turn comes`);
+              core.setOutput('should_build', 'false');
+              core.setOutput('last_uploaded_sha', '');
+              core.setOutput('variant', variant);
+              core.setOutput('deferred', 'true');
+            };
             // The last main run listing the ordering check read, reused below
             // to find a failed build of the same iOS inputs.
             let recentMainRuns = [];
+            let queueState = null;
             if (context.ref === 'refs/heads/main') {
-              const currentRunId = Number(context.runId);
-              const maxWaits = 300;
-              for (let wait = 0; wait < maxWaits; wait += 1) {
-                const blockingRuns = [];
-                try {
-                  const runs = await github.rest.actions.listWorkflowRuns({
-                    owner,
-                    repo,
-                    workflow_id: 'ios-testflight.yml',
-                    branch: 'main',
-                    per_page: 100,
-                  });
-                  recentMainRuns = runs.data.workflow_runs || [];
-                  const earlierActiveRuns = runs.data.workflow_runs.filter(
-                    (run) =>
-                      Number(run.id) < currentRunId &&
-                      run.status !== 'completed' &&
-                      ['push', 'schedule', 'workflow_dispatch'].includes(run.event)
-                  );
-                  for (const run of earlierActiveRuns) {
-                    const jobs = await github.rest.actions.listJobsForWorkflowRun({
-                      owner,
-                      repo,
-                      run_id: run.id,
-                      per_page: 100,
-                    });
-                    // A run can corrupt into queued limbo: no job ever starts
-                    // and GitHub rejects cancel, force-cancel, and rerun. Such
-                    // a run would block ordering for the full timeout, so skip
-                    // runs whose jobs never started after a generous pickup
-                    // window. Missing created_at parses to NaN and is treated
-                    // as fresh, never skipped.
-                    const anyJobStarted = jobs.data.jobs.some(
-                      (job) => job.status !== 'queued'
-                    );
-                    const createdAtMs = Date.parse(run.created_at ?? '');
-                    const stuckMinutes = Number.isFinite(createdAtMs)
-                      ? (Date.now() - createdAtMs) / 60_000
-                      : 0;
-                    if (!anyJobStarted && stuckMinutes >= 120) {
-                      core.warning(
-                        `ignoring defunct earlier TestFlight run ${run.id}: ` +
-                        `no job started after ${Math.round(stuckMinutes)} minutes`
-                      );
-                      continue;
-                    }
-                    const uploadJob = jobs.data.jobs.find(
-                      (job) => job.name === 'Upload to TestFlight'
-                    );
-                    if (!uploadJob || uploadJob.status !== 'completed') {
-                      blockingRuns.push(run.id);
-                    }
-                  }
-                } catch (error) {
-                  if (isInternalPoll) {
-                    // The run page is public, so the notice stays generic. The
-                    // API's own message is only shown with debug logging on.
-                    core.debug(`ordering check failed: ${error.message}`);
-                    skipPoll('could not inspect earlier runs');
-                    return;
-                  }
-                  if (wait === maxWaits - 1) {
-                    core.setFailed(
-                      `timed out ordering main TestFlight uploads after GitHub API errors: ${error.message}`
-                    );
-                    return;
-                  }
-                  if (wait % 5 === 0) {
-                    core.warning(
-                      `could not inspect earlier TestFlight runs; retrying: ${error.message}`
-                    );
-                  }
-                  await new Promise((resolve) => setTimeout(resolve, 60_000));
-                  continue;
-                }
-                if (blockingRuns.length === 0) break;
+              try {
+                queueState = await queue.inspect({ github, context, core });
+                recentMainRuns = queueState.runs;
+              } catch (error) {
+                // The run page is public, so the notice stays generic. The
+                // API's own message is only shown with debug logging on.
+                core.debug(`ordering check failed: ${error.message}`);
                 if (isInternalPoll) {
-                  skipPoll(`earlier run(s) ${blockingRuns.join(', ')} have not finished uploading`);
-                  return;
+                  skipPoll('could not inspect earlier runs');
+                } else {
+                  deferRun('could not inspect earlier runs');
                 }
-                if (wait === maxWaits - 1) {
-                  core.setFailed(
-                    `timed out waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
-                  );
-                  return;
+                return;
+              }
+              const blockingRuns = queueState.blockingRuns;
+              if (blockingRuns.length > 0) {
+                const reason = `earlier run(s) ${blockingRuns.join(', ')} have not finished uploading`;
+                if (isInternalPoll) {
+                  skipPoll(reason);
+                } else {
+                  deferRun(reason);
                 }
-                if (wait % 5 === 0) {
-                  core.info(
-                    `waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
-                  );
-                }
-                await new Promise((resolve) => setTimeout(resolve, 60_000));
+                await queue.reconcile({ github, context, core }, queueState);
+                return;
               }
             }
 
@@ -420,6 +383,21 @@ jobs:
                 }
               }
             }
+            // A queued run whose turn came has its answer: its marker goes.
+            // If it builds, this active run blocks later runs on its own until
+            // its upload job is done, and a failed upload is final, exactly as
+            // for a run that never queued. If it does not build (a queued DEMO
+            // re-run whose commit already shipped), it hands the queue on.
+            if (queueState) {
+              try {
+                await queue.release({ github, context, core }, queueState.markers);
+              } catch (error) {
+                core.debug(`could not release the queue marker: ${error.message}`);
+              }
+              if (!shouldBuild) {
+                await queue.reconcile({ github, context, core }, queueState);
+              }
+            }
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
             core.setOutput('variant', variant);
@@ -434,6 +412,32 @@ jobs:
                 [{ data: 'reason', header: true }, reason],
               ])
               .write();
+
+      # A blocked manual or DEMO run's place in the upload queue. The queue
+      # re-runs this run when every earlier upload has finished, and the
+      # re-run's decide deletes the marker.
+      - name: Join the upload queue
+        if: steps.decide.outputs.deferred == 'true'
+        env:
+          VARIANT: ${{ steps.decide.outputs.variant }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/upload-queue"
+          printf '{"run_id":%s,"attempt":%s,"sha":"%s","event":"%s","variant":"%s"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "$GITHUB_EVENT_NAME" "$VARIANT" \
+            > "$RUNNER_TEMP/upload-queue/deferred.json"
+          echo "Queued $VARIANT upload of $GITHUB_SHA behind an earlier upload; it re-runs when its turn comes." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the upload queue marker
+        if: steps.decide.outputs.deferred == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-testflight-deferred
+          path: ${{ runner.temp }}/upload-queue/deferred.json
+          overwrite: true
+          if-no-files-found: error
+          # Re-runs are allowed for 30 days; a marker never outlives that.
+          retention-days: 30
 
       # Batch scheduled INTERNAL polls: on a busy day nearly every 20-minute
       # poll finds an iOS-relevant merge, and each upload is a cold Release
@@ -1186,6 +1190,36 @@ jobs:
         if: always()
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
+  # Hands the upload queue on as soon as this run's upload job is done (or
+  # skipped): re-runs the oldest queued manual or DEMO run. The 20-minute
+  # INTERNAL poll does the same, so a failure here only delays the next upload.
+  next-queued-upload:
+    name: Start the next queued upload
+    needs: [decide, upload]
+    if: ${{ always() && needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Check out the upload queue
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci/ios_testflight_queue.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Start the next queued upload
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const queue = require(`${process.env.GITHUB_WORKSPACE}/scripts/ci/ios_testflight_queue.cjs`);
+            await queue.reconcile({ github, context, core });
 
   set-testflight-notes:
     # Production secrets: GitHub releases them only to protected refs (the
