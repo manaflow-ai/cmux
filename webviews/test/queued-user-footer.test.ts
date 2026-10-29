@@ -145,6 +145,11 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     await vite?.close();
     await daemon?.stop(true);
   });
+  const waitForFooter = (page: Page) =>
+    page.waitForFunction(() => {
+      const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
+      return actions && getComputedStyle(actions).opacity === "1";
+    });
   const open = async (text = TEXT, withAttachment = false) => {
     calls.length = 0;
     accept = true;
@@ -161,10 +166,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${address.port}/#endpoint=${endpoint}&token=t&session=${SESSION}`);
     await page.locator(".cv-user__bubble", { hasText: text }).waitFor();
     await page.locator(".cv-user__bubble", { hasText: text }).hover();
-    await page.waitForFunction(() => {
-      const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
-      return actions && getComputedStyle(actions).opacity === "1";
-    });
+    await waitForFooter(page);
     return page;
   };
   const footer = (page: Page) => page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: TEXT }) });
@@ -172,10 +174,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
     if (evidence) {
       await page.locator(".cv-user__bubble", { hasText: TEXT }).hover();
-      await page.waitForFunction(() => {
-        const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
-        return actions && getComputedStyle(actions).opacity === "1";
-      });
+      await waitForFooter(page);
       await page.screenshot({ path: path.join(evidence, `${name}.png`) });
     }
   };
@@ -203,6 +202,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             const stableRow = page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: text }) });
             const bubble = row.locator(".cv-user__bubble");
             await bubble.hover();
+            await waitForFooter(page);
             const measure = () =>
               stableRow.evaluate((element) => {
                 const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
@@ -225,6 +225,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             await row.locator(".cv-user__send-now").click();
             await stableRow.locator(".cv-user__pending").waitFor({ state: "detached" });
             await stableRow.locator(".cv-user__bubble").hover();
+            await waitForFooter(page);
             const after = await measure();
             if (evidence) await page.screenshot({ path: path.join(evidence, `${stem}-sent.png`) });
             console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
