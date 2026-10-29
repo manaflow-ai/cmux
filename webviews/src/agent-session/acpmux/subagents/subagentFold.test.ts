@@ -300,4 +300,46 @@ describe("lineage from a Codex chat's records", () => {
     expect(at(fold, chat, say("Still on it."), { subagent: chat })).toBe(false);
     expect(lineage(fold)).toEqual([["needs_you_prior_art", null]]);
   });
+
+  test("native subagent progress keeps optional model, effort and lastMessage fields", () => {
+    const fold = new SubagentFold();
+    const update = { sessionUpdate: "subagent_progress" };
+    const meta = {
+      subagents: [
+        {
+          id: "native-worker",
+          parent: null,
+          state: "running",
+          model: "gpt-6-astra",
+          effort: "high",
+          lastMessage: "Reviewing the changed files.",
+          tokens: 321,
+        },
+      ],
+    };
+    fold.reduce({ seq: 1, at: 1000, msg: { params: { update, _meta: { acpmux: meta } } } }, update);
+    expect(fold.all().find((agent) => agent.id === "native-worker")).toMatchObject({
+      model: "gpt-6-astra",
+      effort: "high",
+      lastMessage: "Reviewing the changed files.",
+      tokens: 321,
+    });
+    fold.reduce(
+      {
+        seq: 2,
+        at: 2000,
+        msg: {
+          params: {
+            update,
+            _meta: { acpmux: { subagents: [{ id: "native-worker", model: null, effort: null, lastMessage: null }] } },
+          },
+        },
+      },
+      update,
+    );
+    const cleared = fold.all().find((agent) => agent.id === "native-worker")!;
+    expect(cleared).not.toHaveProperty("model");
+    expect(cleared).not.toHaveProperty("effort");
+    expect(cleared).not.toHaveProperty("lastMessage");
+  });
 });

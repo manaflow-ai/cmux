@@ -299,6 +299,8 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let stuck =
+            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -306,6 +308,10 @@ impl Hub {
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
+            state: if stuck.is_some() { "stuck".to_owned() } else { m.status.to_string() },
+            stuck_reason: stuck.map(|s| s.0),
+            stuck_since: stuck.map(|s| s.1),
+            stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -398,6 +404,7 @@ impl Hub {
                 .cloned()
                 .unwrap_or(Value::Null),
             model: current_model(&m),
+            effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
@@ -477,15 +484,32 @@ impl Hub {
 
     pub async fn status(&self) -> Value {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
-        let host_pressure = self.host_pressure_status().await;
+        let loading = !self.store_loaded() || !self.startup_complete();
+        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
         let cfg = self.config.read().await;
         // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
         // (statvfs and a bounded, cached folder walk), so off the async workers.
         let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-            .await
-            .unwrap_or(Value::Null);
+        let disk = if loading {
+            Value::Null
+        } else {
+            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                .await
+                .unwrap_or(Value::Null)
+        };
         let sessions = self.sessions();
+        let stuck: Vec<Value> = sessions
+            .iter()
+            .filter_map(|s| {
+                let m = s.meta();
+                let (reason, since, error) = (m.status != SessionStatus::Closed)
+                    .then(|| m.harness_failures.stuck())
+                    .flatten()?;
+                Some(json!({"sessionId": m.id, "name": m.name, "harness": m.harness,
+                "lastSeq": m.last_seq, "state": "stuck", "stuckReason": reason,
+                "stuckSince": since, "stuckError": error}))
+            })
+            .collect();
         let mut live = 0;
         for s in &sessions {
             if s.child.lock().await.is_some() {
@@ -520,6 +544,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
             // (`daemon/login_session.rs`); absent elsewhere.
@@ -544,6 +569,7 @@ impl Hub {
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
+            "loading": self.loading_status(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
             // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
             // from this daemon's own environment; the app hands off a Chief-home

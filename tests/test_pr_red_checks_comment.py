@@ -28,8 +28,9 @@ def status(**sections):
 
 
 class FakeGitHub:
-    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None):
+    def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None, pr_head="a" * 40):
         self.check_runs, self.writes, self.gets, self.env = check_runs, [], [], env or {}
+        self.pr_head = pr_head  # the pull request's head now (HEAD_SHA is "a" * 40)
         self.base_runs, self.steps, self.annotations = base_runs, steps or {}, annotations or {}
         self.comments = {c["id"]: dict(c, user=c.get("user", BOT)) for c in comments}
         fake = self
@@ -59,6 +60,8 @@ class FakeGitHub:
                     return self.reply({"total_count": len(runs), "check_runs": runs})
                 if self.path.startswith("/repos/o/r/issues/7/comments"):
                     return self.reply(sorted(fake.comments.values(), key=lambda c: c["id"]))
+                if self.path == "/repos/o/r/pulls/7":
+                    return self.reply({"number": 7, "head": {"sha": fake.pr_head}})
                 self.send_error(404)
 
             def body(self):
@@ -256,6 +259,25 @@ def test_the_callers_pass_whether_their_own_checks_passed():
         assert job["with"]["own_checks_green"] == (
             "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
 
+def test_a_call_for_a_superseded_head_writes_nothing():
+    # A late call for an old head: its red is not the pull request's, and the current head's line stays.
+    fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}],
+                      pr_head="c" * 40)
+    assert fake.run() == []
+    assert "/repos/o/r/pulls/7" in fake.gets
+
+
+def test_a_call_for_the_current_head_still_writes_its_red():
+    fake = FakeGitHub([run("web / react-apps-check", "failure")], [])
+    writes = fake.run()
+    assert len(writes) == 1 and RED_LINE in writes[0][2]
+
+
+def test_nothing_to_change_reads_no_head():
+    fake = FakeGitHub([run("web / react-apps-check", "success")], [])
+    assert fake.run() == []
+    assert "/repos/o/r/pulls/7" not in fake.gets
+
 
 if __name__ == "__main__":
     import traceback
@@ -270,3 +292,4 @@ if __name__ == "__main__":
                 print("FAIL", _name)
                 traceback.print_exc(limit=1)
     sys.exit(1 if bad else 0)
+

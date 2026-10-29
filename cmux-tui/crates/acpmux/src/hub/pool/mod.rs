@@ -850,7 +850,7 @@ impl Hub {
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.agent_session_id = state.session_id;
+            m.set_agent_session_id(state.session_id, "claude");
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
@@ -862,7 +862,11 @@ impl Hub {
             );
         } else if let Some(res) = &p.new_result {
             let sid = res.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = sid;
+            session
+                .meta
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_agent_session_id(sid, "non-claude");
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
