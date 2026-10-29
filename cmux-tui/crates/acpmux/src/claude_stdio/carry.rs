@@ -23,8 +23,12 @@ use super::*;
 /// The carried turns of a Claude Code process.
 #[derive(Debug, Default)]
 pub(super) struct Carry {
-    /// Carries so far: each names its own (`_meta.claude.carried.seq`).
+    /// The last carry's number (`_meta.claude.carried.seq`). It starts at the process's start
+    /// time in microseconds, so a respawned process never reuses an earlier one's.
     seq: u64,
+    /// The carry whose turn Claude Code runs now, until a result carries nothing: a steer it
+    /// reads meanwhile is in that turn.
+    current: Option<u64>,
     /// Carried turns whose `_meta.carried` prompt has not come yet.
     owed: usize,
     /// Their answers, when their result came first, oldest first.
@@ -34,6 +38,17 @@ pub(super) struct Carry {
 }
 
 impl Carry {
+    /// A new process's: its carries number from now.
+    pub(super) fn new() -> Self {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        Self { seq: now.map_or(0, |d| d.as_micros() as u64), ..Self::default() }
+    }
+
+    /// A result that carries nothing: Claude Code runs no carried turn now.
+    pub(super) fn ended(&mut self) {
+        self.current = None;
+    }
+
     /// A result no prompt waits for: kept for the carried turn whose prompt is still to come.
     /// Under the carry lock, taken before `pending` is read, so a prompt that comes meanwhile
     /// either waits in `pending` or finds this answer.
@@ -83,6 +98,7 @@ impl Translator {
         let mut carry = self.carry.lock().await;
         carry.seq += 1;
         let seq = carry.seq;
+        carry.current = Some(seq);
         let mut prompt_ids = Vec::new();
         for (id, prompt) in parts {
             carry.steers.insert(id, seq);
@@ -91,9 +107,11 @@ impl Translator {
         json!({"seq": seq, "promptIds": prompt_ids})
     }
 
-    /// The carry a steer read now was left by, if any (its `steered` answer names it).
+    /// The carry whose turn a steer read now is in, if any (its `steered` answer names it): the
+    /// one that left it unread, or the one Claude Code runs now (it came after that carry).
     pub(super) async fn carried_steer(&self, id: &str) -> Option<u64> {
-        self.carry.lock().await.steers.remove(id)
+        let mut carry = self.carry.lock().await;
+        carry.steers.remove(id).or(carry.current)
     }
 
     /// The hub's prompt for a carried turn (`_meta.carried`): its answer when the turn's result
@@ -120,6 +138,7 @@ impl Translator {
     pub(super) async fn clear_carry(&self) {
         let mut carry = self.carry.lock().await;
         carry.owed = 0;
+        carry.current = None;
         carry.answers.clear();
         carry.steers.clear();
     }

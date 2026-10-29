@@ -832,6 +832,8 @@ impl Translator {
                 }
                 if carried.is_some() {
                     carry.owe();
+                } else {
+                    carry.ended();
                 }
                 for k in waiting {
                     self.pending.lock().await.remove(&k);

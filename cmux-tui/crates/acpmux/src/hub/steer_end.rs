@@ -197,11 +197,11 @@ impl Hub {
         let answer =
             agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), false, || {})
                 .await;
-        // Read after the turn it was steered into ended: it went into the next one, which that
-        // turn named as it ended (`carried_turn.rs`).
+        // Read in a turn its agent ran on after the one it was steered into ended: it went into
+        // that turn, which the turn before named as it ended (`carried_turn.rs`).
         let into = match super::carried_turn::steer_carry(&answer) {
             // Boxed: this future stays small (it runs inside a prompt's, `steer_queued`).
-            Some(seq) => Box::pin(Self::carried_into(session, &prompt_id, seq)).await,
+            Some(seq) => Box::pin(Self::carried_into(session, seq)).await,
             None => None,
         };
         {
@@ -209,7 +209,6 @@ impl Hub {
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             now.waiting.remove(&prompt_id);
             now.sent.remove(&prompt_id);
-            now.carried.remove(&prompt_id);
         }
         let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {

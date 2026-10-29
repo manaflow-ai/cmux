@@ -163,3 +163,28 @@ async fn a_failed_turn_runs_its_unread_steer_in_the_same_prompt() {
     let ended = answer(&t.inbound(&done("after")).await, 1).expect("the prompt ends");
     assert!(ended["_meta"]["claude"].get("carried").is_none(), "{ended}");
 }
+
+/// A steer written after Claude Code's turn ended, while it runs the carried turn, is read in
+/// that turn: its answer names that carry.
+#[tokio::test]
+async fn a_steer_written_during_a_carried_turn_names_it() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    let first = answer(&t.inbound(&done("first")).await, 1).unwrap();
+    let seq = first["_meta"]["claude"]["carried"]["seq"].clone();
+    let late = lines(&t, &steer(4, "p-4", "late")).await[0].clone();
+    assert!(lines(&t, &carried(3)).await.is_empty());
+    t.inbound(&echo(&line)).await;
+    let read = answer(&t.inbound(&echo(&late)).await, 4).expect("read");
+    assert_eq!(read["_meta"]["claude"]["carried"], seq, "{read}");
+    let ended = answer(&t.inbound(&done("second")).await, 3).expect("the carried turn ends");
+    assert!(ended["_meta"]["claude"].get("carried").is_none(), "{ended}");
+    // The next prompt's turn is not a carried one: a steer read in it names none.
+    let next = lines(&t, &prompt(5, "again", json!({}))).await;
+    t.inbound(&echo(&next[0])).await;
+    let steer6 = lines(&t, &steer(6, "p-6", "mid")).await[0].clone();
+    assert_eq!(
+        answer(&t.inbound(&echo(&steer6)).await, 6).unwrap(),
+        json!({"stopReason": "steered"})
+    );
+}

@@ -588,7 +588,7 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
-            carry: Mutex::new(Default::default()),
+            carry: Mutex::new(carry::Carry::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),

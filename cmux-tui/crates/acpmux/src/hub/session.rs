@@ -13,9 +13,9 @@ pub(super) struct SteerNow {
     /// What each steer of `waiting` is, by prompt id: the turn it starts when its agent reads
     /// it after the turn it was steered into ended (`carried_turn.rs`).
     pub(super) sent: std::collections::HashMap<String, super::carried_turn::SteerSent>,
-    /// Steers the agent reads after the turn they were steered into ended, by prompt id: the
-    /// turn they went into and the agent's carry that named them (`carried_turn.rs`).
-    pub(super) carried: std::collections::HashMap<String, (String, u64)>,
+    /// The turns the agent's latest carries started, newest last, by the carry's number: a
+    /// steer it reads in one names it (`carried_turn.rs`).
+    pub(super) carries: std::collections::VecDeque<(u64, String)>,
 }
 
 pub struct Session {

@@ -43,6 +43,10 @@ pub(super) struct NextTurn {
     pub(super) next: TurnInfo,
 }
 
+/// The carries' turns a session keeps for the steers read in them: only the newest can still be
+/// read in, but a steer's answer may be handled after a few more turns went by.
+const CARRIES_KEPT: usize = 64;
+
 /// How long a steer read after a carry waits for its turn to be named: the turn that carried
 /// it names the next one before it ends, so this is only a bound.
 const CARRIED_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -85,7 +89,7 @@ impl Hub {
 
     /// The turn after `from` (the session's turn still) for what `carried` names: a new turn id,
     /// the first carried steer as its prompt, and a Web turn if any of them, or `from`, was one.
-    /// Each carried steer is named as in it now, before `from` ends (`carried_into`).
+    /// The new turn is named for the carry before `from` ends (`carried_into`).
     pub(super) fn carried_turn(
         &self,
         session: &Session,
@@ -101,8 +105,9 @@ impl Hub {
                 .prompt_ids
                 .iter()
                 .any(|p| now.sent.get(p).is_some_and(|s| s.control == Control::Web));
-        for p in &carried.prompt_ids {
-            now.carried.insert(p.clone(), (turn_id.clone(), carried.seq));
+        now.carries.push_back((carried.seq, turn_id.clone()));
+        while now.carries.len() > CARRIES_KEPT {
+            now.carries.pop_front();
         }
         drop(now);
         let from_control = from.map_or(Control::Local, |t| t.control);
@@ -222,13 +227,9 @@ impl Hub {
         drop(guard);
     }
 
-    /// The turn a steer read after carry `seq` went into, once the turn that carried it named it
+    /// The turn a steer read in carry `seq`'s turn went into, once the turn before named it
     /// (`carried_turn`): `None` past [`CARRIED_WAIT`].
-    pub(super) async fn carried_into(
-        session: &Session,
-        prompt_id: &str,
-        seq: u64,
-    ) -> Option<String> {
+    pub(super) async fn carried_into(session: &Session, seq: u64) -> Option<String> {
         let deadline = tokio::time::Instant::now() + CARRIED_WAIT;
         loop {
             // Notified by `finish_turn` as it puts the next turn in place, after it was named.
@@ -238,7 +239,7 @@ impl Hub {
             let into = {
                 let now =
                     session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                now.carried.get(prompt_id).filter(|(_, s)| *s >= seq).map(|(t, _)| t.clone())
+                now.carries.iter().rev().find(|(s, _)| *s == seq).map(|(_, t)| t.clone())
             };
             if into.is_some() {
                 return into;
