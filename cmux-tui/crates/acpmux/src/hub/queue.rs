@@ -77,6 +77,9 @@ pub(super) struct PromptRun {
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
     pub(super) agent: Option<String>,
+    /// Its class when it is another agent's message (`prompt_class.rs`), `None` when it is the
+    /// person's; an edit makes it the person's.
+    pub(super) class: Option<crate::prompt_class::PromptClass>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
     pub(super) supersede: Option<String>,
     /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
@@ -102,6 +105,8 @@ pub(super) struct Slot<'a> {
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
+    /// Its class when it is another agent's message (`prompt_class.rs`).
+    pub(super) class: Option<crate::prompt_class::PromptClass>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
     /// `PromptOptions::full_access_device`.
@@ -248,6 +253,7 @@ impl Hub {
                             trust_gate: p.trust_gate,
                             provenance: p.provenance.cloned(),
                             agent: p.agent.map(str::to_owned),
+                            class: p.class,
                             supersede: p.supersede.map(str::to_owned),
                             full_access_device: p.full_access_device.map(str::to_owned),
                         };
@@ -335,6 +341,7 @@ impl Hub {
             interrupt: true,
             provenance,
             agent: run.agent.clone(),
+            class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
             ..Default::default()
@@ -409,6 +416,7 @@ impl Hub {
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
+                    class: p.class,
                     supersede: p.supersede.map(str::to_owned),
                     full_access_device: p.full_access_device.map(str::to_owned),
                 }),
@@ -434,6 +442,9 @@ impl Hub {
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
             queued.set("fromAgent", json!(agent));
+        }
+        if let Some(class) = p.class {
+            queued["class"] = json!(class);
         }
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
@@ -884,6 +895,7 @@ impl Hub {
                             // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {
                                 fields.remove("fromAgent");
+                                fields.remove("class");
                                 fields.remove("supersede");
                             }
                         }
@@ -959,6 +971,11 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
+            // A record from before classes: an agent's message is a result (`prompt_class.rs`).
+            let class = crate::prompt_class::of_message(
+                crate::prompt_class::recorded(&e.msg),
+                agent.is_some(),
+            );
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
@@ -975,6 +992,7 @@ impl Hub {
                     trust_gate,
                     provenance,
                     agent,
+                    class,
                     supersede,
                     // A restored prompt names no machine: it does not run a chat out of its
                     // policy's mode (`Hub::full_access_hold`).
@@ -1036,6 +1054,7 @@ impl Hub {
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),
                         agent: q.run.agent.clone(),
+                        class: q.run.class,
                         display_parts: q.run.display_parts.clone(),
                         ..PromptOptions::default()
                     };

@@ -421,6 +421,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mesh_control",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/step_now",
       "params": true,
       "result": true
@@ -3187,6 +3193,31 @@
       ],
       "type": "object"
     },
+    "PromptClass": {
+      "description": "What another agent's message asks of the session it goes to.",
+      "oneOf": [
+        {
+          "const": "block",
+          "description": "The sender cannot go on until the receiver acts.",
+          "type": "string"
+        },
+        {
+          "const": "question",
+          "description": "The sender asks something and waits for the answer.",
+          "type": "string"
+        },
+        {
+          "const": "result",
+          "description": "The sender reports work it finished. A message sent with no class is one.",
+          "type": "string"
+        },
+        {
+          "const": "fyi",
+          "description": "Information to read at leisure.",
+          "type": "string"
+        }
+      ]
+    },
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
@@ -3260,6 +3291,18 @@
           ],
           "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
         },
+        "class": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PromptClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):\n`result` when it named none; null for the person's own prompt and from a peer on an older\nacpmux."
+        },
         "client": {
           "type": "string"
         },
@@ -3299,6 +3342,7 @@
       },
       "required": [
         "author",
+        "class",
         "client",
         "fromAgent",
         "held",
