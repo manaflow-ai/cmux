@@ -62,7 +62,11 @@ extension AgentTabStore {
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: chosenModel ?? seed?.model)) } catch { result = .failure(error) }
+        let harness = chosenHarness ?? seed?.harness
+        // A default model pick is omitted by the page. After a harness switch it must remain
+        // that harness's default, rather than restoring the previous harness's seeded model.
+        let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
+        do { result = .success(try await client.start(cwd: cwd, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
