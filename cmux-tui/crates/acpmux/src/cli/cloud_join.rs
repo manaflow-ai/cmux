@@ -111,7 +111,7 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
     let identity = load().ok().flatten().map(|r| r.mesh_identity).unwrap_or_else(mesh_identity);
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
     let response = http_client().map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?.post(format!("{hub}/v1/machines/join-tokens/redeem"))
-        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "meshIdentity": identity}))
+        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "meshPeerId": identity}))
         .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
@@ -175,6 +175,12 @@ pub fn require_consent(surface: &str) -> Result<()> {
         let _ = record_consent_refusal(surface);
         Err(anyhow!(CONSENT_REQUIRED))
     }
+}
+
+/// Computer Use and other host-control surfaces call this before serving a
+/// joined machine. Unjoined local daemons retain their existing app behavior.
+pub fn require_joined_consent(surface: &str) -> Result<()> {
+    if load().ok().flatten().is_some() { require_consent(surface) } else { Ok(()) }
 }
 
 /// Record a local refusal for the app's one-time consent sheet. The file is

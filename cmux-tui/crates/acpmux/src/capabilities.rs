@@ -216,6 +216,11 @@ mod tests {
         let registry: BTreeSet<&str> =
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
+            // Machine onboarding is CLI-only and has no daemon wire method.
+            if capability.id == "machine.join.stdin.v1" {
+                assert!(capability.wire.is_empty());
+                continue;
+            }
             assert!(!capability.wire.is_empty(), "{} covers nothing", capability.id);
             for name in capability.wire {
                 assert!(
