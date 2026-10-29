@@ -44,7 +44,14 @@ fn proof(session: &str, upload: &str) -> Option<String> {
 
 /// A write/delete token is valid only for an upload begun from Web control.
 pub(crate) fn owns(session: &str, upload: &str, owner: &str) -> bool {
-    proof(session, upload).is_some() && owned_dir(session, upload, owner).is_some()
+    let Some(dir) = upload_dir(session, upload) else { return false };
+    let Ok(file) = crate::config::private_state_file(&dir.join(OWNER)) else { return false };
+    use std::io::Read;
+    let mut saved = String::new();
+    file.take(33).read_to_string(&mut saved).is_ok()
+        && saved.len() == 32
+        && cmux_local_auth::tokens_match(owner, &saved)
+        && proof(session, upload).is_some()
 }
 
 /// Called under IN_USE after the original is opened for resolution. This marker
@@ -70,7 +77,10 @@ pub(crate) fn verifies_resolved(session: &str, block: &Value) -> bool {
     let Some(expected) = proof(session, upload) else { return false };
     let Some(path) = finished_path(session, upload, name) else { return false };
     let uri = reqwest::Url::from_file_path(&path).ok().map(String::from);
-    reference.get("proof").and_then(Value::as_str) == Some(expected.as_str())
+    reference
+        .get("proof")
+        .and_then(Value::as_str)
+        .is_some_and(|provided| cmux_local_auth::tokens_match(provided, &expected))
         && block.get("type").and_then(Value::as_str) == Some("resource_link")
         && block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str) == path.to_str()
         && block.get("uri").and_then(Value::as_str) == uri.as_deref()
