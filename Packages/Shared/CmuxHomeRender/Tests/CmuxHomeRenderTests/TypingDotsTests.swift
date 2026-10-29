@@ -2,35 +2,42 @@ import QuartzCore
 import Testing
 @testable import CmuxHomeRender
 
-/// Home joins the sidebar and tab NoBreathingDotTests: working means a spinner,
-/// never a repeating opacity or scale animation, including in the typing bubble.
+/// Home's typing indicator is the Messages bubble with three staggered dots.
+/// The dots pulse on the render server only while motion is allowed and stop
+/// when typing ends or the row is recycled; Reduce Motion leaves them still.
 @MainActor
-@Suite struct NoBreathingDotTests {
-    @Test func typingSpinsAndStopsWhenTypingEnds() throws {
+@Suite struct TypingDotsTests {
+    @Test func typingShowsThreeStaggeredDotsAndStopsWhenTypingEnds() throws {
         let controller = Fixtures.controller()
         controller.update(items: [], summary: Fixtures.summary(), typing: [Fixtures.chief], hasOlder: false)
         let row = try #require(controller.scene.visible.values.first { $0.spec?.kind == .typing })
-        #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
-        let spinner = try #require(row.typingContainer.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-        #expect(spinner.path != nil && spinner.strokeColor != nil && spinner.fillColor == nil)
-        #expect(spinner.opacity == 1 && !spinner.isHidden)
+        let dots = (row.typingContainer.sublayers ?? []).filter { $0.cornerRadius == 3.25 }
+        #expect(dots.count == 3, "The typing bubble holds three dots")
+        #expect(dots.allSatisfy { $0.backgroundColor != nil && $0.cornerRadius > 0 && !$0.isHidden })
+        #expect(row.typingContainer.sublayers?.contains { $0 is CAShapeLayer } != true, "No spinner arc in the typing bubble")
+        #expect(loopPaths(in: row.layer) == ["opacity", "opacity", "opacity"])
+        let phases = dots.compactMap { dot -> NSNumber? in
+            (dot.sublayers?.first?.animation(forKey: "dots") as? CAKeyframeAnimation)?.values?.first as? NSNumber
+        }
+        #expect(Set(phases.map(\.doubleValue)).count == 3, "Each dot pulses at its own phase")
 
         controller.update(items: [], summary: Fixtures.summary(), typing: [], hasOlder: false)
-        #expect(loopPaths(in: row.layer).isEmpty, "Typing ending must stop the loop, even during the exit transition")
+        #expect(loopPaths(in: row.layer).isEmpty, "Typing ending must stop the dots, even during the exit transition")
     }
 
-    @Test func motionSettingsStopAndResumeOnlyRotation() throws {
+    @Test func motionSettingsHoldTheDotsStill() throws {
         let controller = Fixtures.controller()
         controller.update(items: [], summary: Fixtures.summary(), typing: [Fixtures.chief], hasOlder: false)
         let row = try #require(controller.scene.visible.values.first { $0.spec?.kind == .typing })
         controller.reduceMotion = true
         #expect(loopPaths(in: row.layer).isEmpty)
+        #expect(row.typingContainer.sublayers?.filter { $0.cornerRadius == 3.25 }.count == 3, "Reduce Motion keeps the dots, still")
         controller.reduceMotion = false
-        #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
+        #expect(loopPaths(in: row.layer) == ["opacity", "opacity", "opacity"])
         controller.animationSpeed = .off
         #expect(loopPaths(in: row.layer).isEmpty)
         controller.animationSpeed = .fast
-        #expect(loopPaths(in: row.layer) == ["transform.rotation.z"])
+        #expect(loopPaths(in: row.layer) == ["opacity", "opacity", "opacity"])
         row.prepareForReuse()
         #expect(loopPaths(in: row.layer).isEmpty, "A recycled row must retain no repeating animation")
     }
