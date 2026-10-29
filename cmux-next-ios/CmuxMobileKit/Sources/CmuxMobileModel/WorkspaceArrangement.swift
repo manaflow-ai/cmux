@@ -450,14 +450,15 @@ extension WorkspaceCreator {
             byGroup[key, default: []].append(row)
         }
         // The loose rows first, then the groups in the order their first rows show.
-        return order.sorted { ($0 == nil ? 0 : 1) < ($1 == nil ? 0 : 1) }.compactMap { byGroup[$0] }
+        return ([nil] + order.filter { $0 != nil }).compactMap { byGroup[$0] }
     }
 
     /// Move Workspace to Top / to Bottom of its container. The list shows the new place at
     /// once; the Mac's answer settles it.
     public func move(_ workspace: Workspace, to edge: WorkspaceEdge) {
         let order = container(of: workspace)
-        guard canArrange(workspace), let arranger, let (anchor, after) = edge.anchor(of: workspace, in: order) else { return }
+        guard canArrange(workspace), let arranger, let target = edge.anchor(of: workspace, in: order) else { return }
+        let (anchor, after) = (target.anchor, target.after)
         let old = reorderLocally(order, to: edge == .top ? [workspace] + order.filter { $0.id != workspace.id }
             : order.filter { $0.id != workspace.id } + [workspace])
         track(workspace.id) { [weak self] in

@@ -131,8 +131,8 @@ import Testing
 
     @Test func edgesOfTheContainer() {
         let order = workspaces(["a", "b", "c"])
-        #expect(WorkspaceEdge.top.anchor(of: order[2], in: order).map { ($0.anchor.id, $0.after) } == ("a", false))
-        #expect(WorkspaceEdge.bottom.anchor(of: order[0], in: order).map { ($0.anchor.id, $0.after) } == ("c", true))
+        #expect(WorkspaceEdge.top.anchor(of: order[2], in: order).map { "\($0.anchor.id) \($0.after)" } == "a false")
+        #expect(WorkspaceEdge.bottom.anchor(of: order[0], in: order).map { "\($0.anchor.id) \($0.after)" } == "c true")
         #expect(WorkspaceEdge.top.anchor(of: order[0], in: order) == nil)
         #expect(WorkspaceEdge.bottom.anchor(of: order[2], in: order) == nil)
         #expect(WorkspaceEdge.top.title(grouped: false) == "Move Workspace to Top")

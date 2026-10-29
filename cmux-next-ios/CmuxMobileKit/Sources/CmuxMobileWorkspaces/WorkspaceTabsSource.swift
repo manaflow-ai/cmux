@@ -1162,7 +1162,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
-        let closes = closes + sideCloseItems(tab)
+        let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
         case .agent:
