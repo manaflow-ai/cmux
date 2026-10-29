@@ -9,7 +9,6 @@
     {"do": "new_terminal", "via": "key", "as": "left"},
     {"do": "neutral_prompt"},
     {"do": "type", "text": "echo fb-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
-    {"do": "focus_press", "key": "escape", "make_key": true},
     {"do": "focus_probe", "expect": "terminal"},
     {"do": "focus_press", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser1"},
     {"do": "rpc", "method": "debug.focus"},

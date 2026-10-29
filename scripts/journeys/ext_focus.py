@@ -7,15 +7,17 @@ Lawrence 2026-10-29 (felt 1f): "at any point in time (with some very minor excep
 focused, so that keyboard only operation is possible. for example i do cmd shift l and it opens a browser tab, but
 then i start typing, and nothing is focused". The invariant and its exceptions: plans/cmux-next/focus-invariant.md.
 
-Keys go through the app's real event path: `debug.key {sequence}` posts CGEvents built from key codes into the
-app's own event queue (`nextEvent`, local monitors, `CmuxApplication.sendEvent`, the key window), as a keyboard
-does. The first press of a journey makes the shell window key (`key_window: shell`, without activating the app);
-after that no step picks the key window: keys go wherever the app put the keyboard, which is what is under test.
+Keys: a capture slot's app is never active, so AppKit has no key window there and a key posted to the event queue
+reaches no window (debug.key's `key_window: shell` is refused: "the shell window did not become key"). Keys
+therefore go through `debug.key`'s dispatch into the front window (debug.windows z_order), the way
+NSApplication.sendEvent hands a key to the key window: the key router, key equivalents, the menu, then the
+window's first responder; into the palette while it is open. `focus_press {sequence: true}` posts through the event
+queue instead, for a Mac where the app is active.
 
 Steps (`do`):
-  focus_press   {key, modifiers?, make_key?, mark?}
-                                        one key press through the event queue (modifier downs, the key down and
-                                        up, modifier ups, a few ms apart)
+  focus_press   {key, modifiers?, sequence?, make_key?, mark?}
+                                        one key press into the front window (or the palette); `sequence`: through
+                                        the event queue (an active app only)
   focus_probe   {expect?, settle?, fail?, as?}
                                         waits for focus to settle (no focus expectation pending, no key hold),
                                         then checks the invariant and types one probe key; `expect` is the target
@@ -80,28 +82,50 @@ def install(driver):
     D = driver
 
 
-def press(j, key, modifiers=(), make_key=False, window=None):
-    """One key press through the app's event queue; returns debug.key's reply once the events are posted."""
-    code = CODES.get(key)
-    if code is None:
-        raise D.StepError(f"focus_press: no key code for {key!r}")
-    seq = []
-    for m in modifiers:
-        seq.append({"key_code": MODS[m], "down": True, "after_ms": 3 if seq else 0})
-    seq.append({"key_code": code, "down": True, "after_ms": 5})
-    seq.append({"key_code": code, "down": False, "after_ms": 40})
-    for m in reversed(list(modifiers)):
-        seq.append({"key_code": MODS[m], "down": False, "after_ms": 3})
-    params = {"sequence": seq}
-    if make_key:
-        params["key_window"] = "shell"
-        if window:
-            params["window"] = window
+def front_window(j):
+    """The cmux window in front (debug.windows z_order, open and visible): the person's window. A capture slot's app
+    is never active, so AppKit has no key window there; its keys go to this window, as debug.key dispatches them."""
+    report = j.app.rpc("debug.windows") or {}
+    shown = {w.get("id") for w in report.get("windows") or [] if w.get("open") and w.get("visible")}
+    for wid in report.get("z_order") or []:
+        if wid in shown:
+            return wid
+    return None
+
+
+def press(j, key, modifiers=(), make_key=False, window=None, sequence=False):
+    """One key press. With the app active (a person's Mac), through the app's event queue to the key window
+    (debug.key sequence). In a capture slot (never active, no key window), debug.key's dispatch into the front
+    window (as NSApplication.sendEvent does for the key window), or into the palette while it is open."""
     j.last_key_at = D.now()
-    reply = j.app.rpc("debug.key", params) or {}
-    # The sequence plays on the main thread after the reply: wait for its last event, plus a turn.
-    time.sleep(float(reply.get("duration_ms") or 60) / 1000 + 0.05)
-    return reply
+    if sequence:
+        code = CODES.get(key)
+        if code is None:
+            raise D.StepError(f"focus_press: no key code for {key!r}")
+        seq = []
+        for m in modifiers:
+            seq.append({"key_code": MODS[m], "down": True, "after_ms": 3 if seq else 0})
+        seq.append({"key_code": code, "down": True, "after_ms": 5})
+        seq.append({"key_code": code, "down": False, "after_ms": 40})
+        for m in reversed(list(modifiers)):
+            seq.append({"key_code": MODS[m], "down": False, "after_ms": 3})
+        params = {"sequence": seq}
+        if make_key:
+            params["key_window"] = "shell"
+            if window:
+                params["window"] = window
+        reply = j.app.rpc("debug.key", params) or {}
+        time.sleep(float(reply.get("duration_ms") or 60) / 1000 + 0.05)
+        return reply
+    params = {"key": key, "modifiers": list(modifiers)}
+    focus = j.app.rpc("debug.focus") or {}
+    if (focus.get("context") or {}).get("palette_open"):
+        params["target"] = "palette"
+    else:
+        wid = window or front_window(j)
+        if wid:
+            params["window"] = wid
+    return j.app.rpc("debug.key", params) or {}
 
 
 def read(j):
@@ -113,12 +137,15 @@ def read(j):
     return focus, check
 
 
-def owner(focus):
-    """The cmux window the keyboard belongs to: the key one, else (a Chromium page, panel or sheet is key) the
-    window whose model has an overlay or a child page, else None."""
+def owner(focus, front=None):
+    """The cmux window the keyboard belongs to: the key one, else the front one (FRONT, a capture slot: no key
+    window), else the window whose model has an overlay or a child page, else None."""
     windows = focus.get("windows") or []
     for w in windows:
         if w.get("is_key"):
+            return w
+    for w in windows:
+        if front and w.get("id") == front:
             return w
     for w in windows:
         if (w.get("model") or {}).get("overlays") or (w.get("appkit") or {}).get("child_window_page"):
@@ -159,15 +186,18 @@ def kind_of(focus, w):
     return (w.get("model") or {}).get("resolved")
 
 
-def violations(focus, check, expect):
-    """The invariant (plans/cmux-next/focus-invariant.md) on one reading."""
+def violations(focus, check, expect, front=None):
+    """The invariant (plans/cmux-next/focus-invariant.md) on one reading. While the app is not active (a capture
+    slot) AppKit has no key window by design (the exception "cmux is not the active app"): the front window's
+    model and responder are checked instead."""
     out = []
-    w = owner(focus)
+    w = owner(focus, front)
+    active = bool(focus.get("app_active"))
     key = focus.get("key_window")
-    if key is None:
+    if key is None and active:
         out.append("I1 no key window: keys go nowhere")
     kind = kind_of(focus, w)
-    if kind in (None, "none", "emptyPane") and key is not None:
+    if kind in (None, "none", "emptyPane") and (key is not None or not active):
         out.append(f"I2 the key window has no key-taking target (resolved {kind})")
     if w is not None:
         classified = (w.get("appkit") or {}).get("classified")
@@ -233,7 +263,7 @@ def describe(focus, w):
 def check_now(j, expect=None, limit=SETTLE_LIMIT, type_probe=True):
     focus, waited, still = settle(j, limit)
     focus, check = read(j)
-    found, w, kind = violations(focus, check, expect)
+    found, w, kind = violations(focus, check, expect, front_window(j))
     if still:
         found.insert(0, f"I6 focus did not settle in {limit} s: {'; '.join(still)}")
     landed, detail = (None, "no probe")
@@ -248,7 +278,8 @@ def check_now(j, expect=None, limit=SETTLE_LIMIT, type_probe=True):
 def step_focus_press(j, step):
     if step.get("mark"):
         j.marks[step["mark"]] = D.now()
-    reply = press(j, step["key"], step.get("modifiers", []), make_key=bool(step.get("make_key")), window=step.get("window"))
+    reply = press(j, step["key"], step.get("modifiers", []), make_key=bool(step.get("make_key")), window=step.get("window"),
+                  sequence=bool(step.get("sequence")))
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": reply}
 
 
@@ -274,8 +305,6 @@ def step_focus_fuzz(j, step):
     names = step.get("actions") or sorted(ACTIONS)
     count = int(step.get("count", 30))
     played, log = [], []
-    # The person's first key: the window has the keyboard (as after a click into it).
-    press(j, "escape", [], make_key=True)
     for index in range(count):
         if D.now() > j.deadline - 20:
             break
@@ -299,7 +328,7 @@ STEPS = {"focus_press": step_focus_press, "focus_probe": step_focus_probe, "focu
 
 def cond_focus_ok(j, want, cache):
     focus, check = read(j)
-    found, w, kind = violations(focus, check, want.get("expect") if isinstance(want, dict) else None)
+    found, w, kind = violations(focus, check, want.get("expect") if isinstance(want, dict) else None, front_window(j))
     return not found, {"violations": found, "kind": kind, "state": describe(focus, w)}
 
 
