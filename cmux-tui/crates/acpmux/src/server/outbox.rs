@@ -49,7 +49,7 @@ pub(super) async fn handle(
     params: &Value,
 ) -> Result<Value, RpcError> {
     if m == method::MUX_SEND_STATUS {
-        return status(hub, params).await;
+        return status(hub, conn, params).await;
     }
     if conn.origin != Origin::Local {
         return Err(crate::hub::outbox::local_only());
@@ -64,6 +64,16 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
+    // Team-scoped addresses are always hub-routed and are never resolved as
+    // local session names. The mesh sender applies the Labs gate and address
+    // validation before posting them.
+    if target.starts_with('@') {
+        if let Some(mesh) = hub.mesh.get() {
+            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+        }
+        return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
+            .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
+    }
     // A peer-qualified session whose link is down fails over to the durable mesh relay even when
     // its stale cache row is still present. Without the relay, the local outbox keeps its retry path.
     if hub.peer_down_for(&target).is_some() {
@@ -160,13 +170,13 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
     }
 }
 
-async fn status(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
         && let Some(mesh) = hub.mesh.get()
     {
-        return super::mesh_send::status(mesh, id).await;
+        return super::mesh_send::status(hub, conn, mesh, id).await;
     }
     let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(MAX_STATUS_WAIT_MS);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);

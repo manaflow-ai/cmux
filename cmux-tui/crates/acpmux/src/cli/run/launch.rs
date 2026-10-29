@@ -8,7 +8,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
 use crate::cli::command::NewArgs;
@@ -325,31 +325,81 @@ fn workspace_key(id: &str) -> String {
 /// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
+pub(super) fn show_in_group(
+    id: &str,
+    session_name: &str,
+    title: Option<&str>,
+    group: &str,
+    daemon_cli_path: Option<&std::path::Path>,
+) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
     if let Some(title) = title {
         args.extend(["--name", title]);
     }
     args.extend(["--key", &key, "--group", group]);
-    let retry = std::iter::once("cmux")
+    // Prefer the app's bundled CLI when the daemon was started by the app.
+    // A plain shell can otherwise resolve an older standalone `cmux` first.
+    let cli =
+        select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
+    let path_cli = PathBuf::from("cmux");
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli);
+    let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
-        format!(
-            "the session was created, but --group could not run cmux; put the running Mac app's \
-             bundled CLI on PATH, then retry on that Mac: {retry}"
+    let out = result.map_err(|error| {
+        anyhow::anyhow!(
+            "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: {retry}: {}",
+            "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
+            out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
+}
+
+fn run_with_fallback(
+    primary: &Path,
+    args: &[&str],
+    fallback: &Path,
+) -> (PathBuf, std::io::Result<std::process::Output>) {
+    let result = std::process::Command::new(primary).args(args).output();
+    if primary != fallback && !result.as_ref().is_ok_and(|output| output.status.success()) {
+        let fallback_result = std::process::Command::new(fallback).args(args).output();
+        return (fallback.to_path_buf(), fallback_result);
+    }
+    (primary.to_path_buf(), result)
+}
+
+fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
+    for path in [daemon_cli_path.map(Path::to_path_buf), env_cli_path.map(PathBuf::from)]
+        .into_iter()
+        .flatten()
+    {
+        if is_executable_file(&path) {
+            return path;
+        }
+    }
+    PathBuf::from("cmux")
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[cfg(test)]
@@ -362,14 +412,45 @@ mod tests {
             #[command(flatten)]
             args: NewArgs,
         }
-        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let brief = dir.join("brief.md");
+        // A brief of its own per call: tests run in parallel, and a shared
+        // file one test rewrites (truncate, then write) reads empty in another.
+        let dir = tempfile::tempdir().unwrap();
+        let brief = dir.path().join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         let mut argv = vec!["new".to_owned()];
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
         let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
         Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn stale_bundled_cli_falls_back_to_path_name() {
+        let stale = std::env::temp_dir().join(format!("acpmux-stale-cli-{}", std::process::id()));
+        assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_bundled_cli_retries_the_path_cli() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-cli-fallback-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled");
+        let path_cli = root.join("path-cmux");
+        std::fs::write(&bundled, "#!/bin/sh\nexit 7\n").unwrap();
+        std::fs::write(&path_cli, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [&bundled, &path_cli] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        let args = ["agent", "open", "session-id"];
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli);
+        assert_eq!(chosen, path_cli);
+        assert!(output.unwrap().status.success());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -488,6 +569,22 @@ mod tests {
         assert_eq!(k, workspace_key("lane"));
         assert_ne!(k, workspace_key("lane2"));
         assert!(uuid::Uuid::parse_str(&k).is_ok());
+    }
+
+    #[test]
+    fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
+        let error = show_in_group(
+            "session-id",
+            "lane-name",
+            None,
+            "remote-audit",
+            Some(Path::new("/definitely/missing/cmux")),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("session lane-name was created"), "{error}");
+        assert!(error.contains("cmux agent open session-id"), "{error}");
+        assert!(error.contains("--group remote-audit"), "{error}");
     }
 
     #[test]
