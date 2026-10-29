@@ -2049,8 +2049,12 @@ jobs:
           # the gate's few blobs come on demand. The full fetch of 2000 commits took 2-7 min of the job's
           # 10 on a push (401 s measured from a fresh depth-2 clone; blobless: 27 s). Same history as before.
           git fetch --no-tags --quiet --filter=blob:none --deepen=2000 origin "$GITHUB_SHA" || true
+          # A pull request is judged on its own commits (HEAD^1..HEAD of the merge): a base commit without the
+          # owner's record is a warning naming it here, and stays an error on every push sweep of the branch.
+          own=()
+          [[ "$EVENT_NAME" != push ]] && own=(--own-range HEAD^1..HEAD)
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
-            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
+            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" "${own[@]}" \
               | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
           fi
           if [[ "$EVENT_NAME" != push ]]; then

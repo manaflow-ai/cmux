@@ -736,7 +736,12 @@ def window_freezes(repo: Path, base: str, head: str, window: Path | None = None)
 
 
 def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
-    """Each pushed commit that changes the sidebar's drawing code without the owner's record.
+    """Each pushed commit that changes the sidebar's drawing code without the owner's record (sidebar_owner_by_commit)."""
+    return [finding for _, finding in sidebar_owner_by_commit(repo, base, head, ack_rev)]
+
+
+def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[tuple[str, str]]:
+    """(sha, finding) for each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
     look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
@@ -747,7 +752,7 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
     `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
     run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
-    found: list[str] = []
+    found: list[tuple[str, str]] = []
     note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
     logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
     # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
@@ -764,11 +769,11 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
-            found.append(f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
-                         f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`.")
+            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
+                               f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`."))
         elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
-            found.append(f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
-                         f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log.")
+            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
+                               f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log."))
     return found
 
 
@@ -1186,6 +1191,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote", default="origin",
                         help="the pushed remote's name (the hook's first argument; a URL for a push to a URL)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
+    parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
+                                            "finding on a commit outside it (on the base) is a warning that names the "
+                                            "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
                                        "sidebar,crash-allow,freeze")
     parser.add_argument("--timings", action="store_true")
@@ -1204,12 +1212,24 @@ def main(argv: list[str] | None = None) -> int:
         # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
         tip = git(repo, "rev-parse", args.commits.split("..")[-1] or "HEAD").decode().strip()
         base = args.commits.split("..")[0]
-        fresh = sidebar_owner(repo, base, tip)
+        found = sidebar_owner_by_commit(repo, base, tip)
+        # A pull request is judged on its own commits: a base commit without the owner's record is the base's
+        # debt, named as a warning here and still an error on every push sweep of the branch (2026-10-29: two
+        # base commits put an error on every feat-cmux-next pull request's checks, #27454).
+        own = (set(git(repo, "rev-list", "--no-merges", args.own_range).decode().split())
+               if args.own_range else None)
+        fresh = [finding for sha, finding in found if own is None or sha in own]
+        inherited = [(sha, finding) for sha, finding in found if own is not None and sha not in own]
         if fresh:
             print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
                   "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
-        print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s) ({time.monotonic() - started:.1f}s)")
+        for sha, finding in inherited:
+            print(f"::warning title=Sidebar look owner (base commit)::{finding.splitlines()[0][:200]} This commit is "
+                  f"on the base, not in this pull request: the owner logs {sha[:11]} in {SIDEBAR_NOTE}.")
+        print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
+              + (f", {len(inherited)} on base commits (warnings)" if inherited else "")
+              + f" ({time.monotonic() - started:.1f}s)")
         return 1 if fresh else 0
 
     if args.commits:
