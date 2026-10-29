@@ -123,6 +123,21 @@ class Evidence(unittest.TestCase):
         for name, spec in runner_pools.load_pools().items():
             self.assertEqual(value[name], spec["members"][0])
 
+    def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
+        stalled = copy.deepcopy(RECORDED)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        stalled["dead_labels"] = [{"label": "blacksmith-16vcpu-ubuntu-2404", "live": []}]
+        dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26", "blacksmith-16vcpu-ubuntu-2404"})
+        for generated in (None, "yesterday", "2026-10-28T22:53:37",
+                          runner_pools.iso(NOW - runner_pools.SNAPSHOT_MAX_AGE - dt.timedelta(minutes=1)),
+                          runner_pools.iso(NOW + dt.timedelta(hours=1))):
+            with self.subTest(generated=generated):
+                snapshot = dict(stalled, generated_at=generated)
+                dead, started, notes = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual((dead, started), (set(), set()))
+                self.assertTrue(notes)
+
     def test_old_or_unreadable_health_decides_nothing(self) -> None:
         old = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW - dt.timedelta(hours=1))
         for value in (old, {"labels": []}, {"checked": "2026-10-28T22:00:00", "labels": {}}):

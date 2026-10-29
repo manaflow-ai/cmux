@@ -22,7 +22,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
     or "stalled"), read live through the API so it is this run's and not the job's start value;
     used while its `checked` is at most HEALTH_MAX_AGE old;
-  - the queue janitor's snapshot (macos-pool-load): a Blacksmith label in `pools` whose oldest
+  - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
+    SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
     queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled(): on
     a first-in, first-out queue nothing started there since), and the dead-label entries
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
@@ -77,6 +78,9 @@ UPDATED_KEY = "_updated"
 DEAD_TTL = dt.timedelta(minutes=30)
 # Probe health older than this is from a run that did not finish; it decides nothing.
 HEALTH_MAX_AGE = dt.timedelta(minutes=25)
+# A janitor snapshot older than this (or undated, or from the future) decides nothing: the age the
+# pool picker reads it at (pr_runner_pool.MAX_SNAPSHOT_MINUTES).
+SNAPSHOT_MAX_AGE = dt.timedelta(minutes=pr_runner_pool.MAX_SNAPSHOT_MINUTES)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
@@ -209,9 +213,14 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                     dead.add(str(label))
                 elif state == "started":
                     started.add(str(label))
-    if isinstance(snapshot, Mapping):
-        generated = parse_time(snapshot.get("generated_at"))
-        age = max(0.0, (now - generated).total_seconds() / 60) if generated else 0.0
+    generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
+    if isinstance(snapshot, Mapping) and generated is None:
+        notes.append("the janitor snapshot has no readable generated_at; no snapshot evidence")
+    elif generated is not None and not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE):
+        notes.append(f"the janitor snapshot is from {iso(generated)}, outside the last {SNAPSHOT_MAX_AGE}; "
+                     "no snapshot evidence")
+    elif generated is not None:
+        age = max(0.0, (now - generated).total_seconds() / 60)
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
                 continue
