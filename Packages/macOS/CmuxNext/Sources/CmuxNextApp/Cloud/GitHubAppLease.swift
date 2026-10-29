@@ -33,7 +33,7 @@ import os
     private let renewal = DemandTimer(owner: "GitHubAppLease.renewal")
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "github-app-lease")
     /// Moves on with each account change, so a lend for an earlier one never lands.
-    private var generation = 0
+    private(set) var generation = 0
     /// The current account change's `seq` (ms, and past every earlier one).
     private var seq: UInt64 = 0
     /// Failures in a row of the current account change (read by tests).
@@ -139,7 +139,7 @@ import os
         while let task = running.values.first { await task.value }
     }
 
-    private func clear(_ generation: Int) {
+    func clear(_ generation: Int) {
         enqueue(generation) { [weak self] in await self?.clearNow(generation) }
     }
 
@@ -174,8 +174,11 @@ import os
         return false
     }
 
-    /// Runs `operation` after every one queued before it.
+    /// Runs `operation` after every one queued before it. One for an earlier account change (a
+    /// renewal or retry timer that fired as the change came) is dropped here: queued, it would
+    /// cancel the current change's tail, such as a sign-out's clear.
     private func enqueue(_ generation: Int, _ operation: @escaping @MainActor () async -> Void) {
+        guard generation == self.generation else { return }
         let previous = generation == tailGeneration ? tail : nil
         // An earlier account change's calls are superseded: its token fetch is cancelled, so
         // changes in a row never pile up waiting fetches.
@@ -198,7 +201,7 @@ import os
         renewal.cancel()
     }
 
-    private func lend(_ generation: Int) {
+    func lend(_ generation: Int) {
         enqueue(generation) { [weak self] in await self?.lendNow(generation) }
     }
 
