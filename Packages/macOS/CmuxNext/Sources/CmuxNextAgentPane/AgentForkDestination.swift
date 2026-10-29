@@ -23,10 +23,9 @@ public enum AgentForkDestination: String, CaseIterable, Sendable {
     /// The destination a fork takes when none is named.
     public static let `default`: AgentForkDestination = .right
 
-    /// The destination a page's `placement` names; a missing or unknown one is a tab, as the
-    /// chat page's Fork opened before destinations existed.
+    /// Every entry point uses the same default when the page names no destination.
     public init(placement: String?) {
-        self = placement.flatMap(Self.init(rawValue:)) ?? .tab
+        self = placement.flatMap(Self.init(rawValue:)) ?? .default
     }
 
     /// The `direction` argument of `tab.moveToNewSplit` for a split destination, else nil.
