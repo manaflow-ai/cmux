@@ -53,9 +53,9 @@ export function useNeedsYou({
         : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
     [mode, pillOn, sessions, asks, sessionId, rows],
   );
-  /// Another chat's ask: the app shows that chat's tab or opens one (`chat.asks.open`,
-  /// AgentPaneAskOpen). Never `chat.select`, which replaced the chat on screen in its own tab
-  /// (Leo 2026-10-21). A host that opens none leaves this chat as it is.
+  /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
+  /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
+  /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
   const openElsewhere = (item: NeedsYouItem) =>
     callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
   const goTo = (item: NeedsYouItem) => {
@@ -75,7 +75,7 @@ export function useNeedsYou({
       const call = answerParams(item, choice);
       if (!call) throw new Error("unanswerable");
       // The pane may answer only a chat it shows (the relay's session scope and answers rule), so
-      // another chat's ask opens in that chat's tab, answered there; the row stays here.
+      // another chat's ask opens that chat on the side, answered there; the row stays here.
       if (item.sessionId !== sessionId && item.kind !== "held") {
         await openElsewhere(item);
         throw new Error();
@@ -84,8 +84,8 @@ export function useNeedsYou({
     },
     goTo,
     ask: async (item, question) => {
-      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
-      // tab, asked about there.
+      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens that chat on the
+      // side, asked about there.
       if (item.sessionId !== sessionId) {
         await openElsewhere(item);
         throw new Error();

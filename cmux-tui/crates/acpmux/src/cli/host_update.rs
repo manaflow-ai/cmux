@@ -8,9 +8,9 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
-    SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
-    ssh_host,
+    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
+    SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates, migrate, migrate_back,
+    push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -24,11 +24,12 @@ use std::sync::Arc;
 mod host_self_update;
 pub(crate) use host_self_update::self_update;
 
-/// Restart the launchd daemon of a macOS host ([`LAUNCHD_RELOAD`]: bootout,
-/// then bootstrap, never `kickstart -k`), then give it
+/// Restart the launchd daemon of a macOS host ([`launchd_reload`]: bootout,
+/// then bootstrap, never `kickstart -k`; nothing stopped when launchd refuses
+/// jobs; in place with no GUI login), then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.
 fn launchd_restart() -> String {
-    format!("{LAUNCHD_RELOAD} && sleep 2")
+    format!("{} && sleep 2", launchd_reload(true))
 }
 
 /// Starts every script [`update_peer`] runs. The daemon's home and socket
@@ -109,7 +110,7 @@ const PROBE_SPLIT: &str = "ACPMUX_PROBE";
 /// A cmux Cloud VM has this file. Its daemon runs in a keyed `systemd-run`
 /// scope that `cmux link machine update --to-bundled` owns, so `host update`
 /// never replaces its binary or restarts it.
-const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+pub(crate) const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
 
 /// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
 const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";
@@ -386,6 +387,9 @@ struct PeerUpdate {
     migrated_from: Option<String>,
     /// Why the host is left without its self-update timer, when it is.
     auto_update_off: Option<String>,
+    /// Why a macOS daemon was started in place, not as its launchd job
+    /// ([`IN_PLACE`]): `noGuiLogin` or `bootstrapFailed`.
+    in_place: Option<String>,
 }
 
 impl PeerUpdate {
@@ -400,6 +404,7 @@ impl PeerUpdate {
             error: None,
             migrated_from: None,
             auto_update_off: None,
+            in_place: None,
         }
     }
 
@@ -426,6 +431,7 @@ impl PeerUpdate {
             ("error", self.error.clone()),
             ("migratedFrom", self.migrated_from.clone()),
             ("autoUpdateOff", self.auto_update_off.clone()),
+            ("inPlace", self.in_place.clone()),
         ];
         for (key, value) in optional {
             if let Some(value) = value {
@@ -444,6 +450,10 @@ impl PeerUpdate {
                 let line = match &self.migrated_from {
                     Some(unit) => format!("{version} (moved from {unit} to acpmux.service)"),
                     None => version.to_owned(),
+                };
+                let line = match &self.in_place {
+                    Some(why) => format!("{line} (started in place: {why})"),
+                    None => line,
                 };
                 match &self.auto_update_off {
                     Some(why) => format!("{line}; auto-update off: {why}"),
@@ -672,6 +682,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let (reason, why) = match restarted.result {
         Ok(status) => {
             up.auto_update_off = restarted.auto_update_off;
+            up.in_place = restarted.in_place;
             up.build = answering_build(&status);
             up.status = Some(cut(status, 400));
             up.migrated_from = restarted.migrating;
@@ -711,10 +722,19 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             )
         }
     };
-    match restart_checked(remote, &rollback, None).result {
+    let back = restart_checked(remote, &rollback, None);
+    match back.result {
         Ok(status) => {
             up.build = answering_build(&status);
+            up.in_place = back.in_place;
             up.end(Outcome::RolledBack, &reason, why)
+        }
+        // Refused before it stopped anything: whatever runs keeps running.
+        Err((_, again)) if back.refused => {
+            let status = remote.exec(AWAIT_DAEMON, None).map(|o| o.stdout).unwrap_or_default();
+            up.build = answering_build(&status);
+            let why = format!("{why}; the rollback stopped nothing ({again})");
+            up.end(Outcome::Failed, &reason, why)
         }
         Err((_, again)) => {
             up.build = None;
@@ -738,6 +758,8 @@ struct Restarted {
     result: std::result::Result<String, (String, String)>,
     /// Why the script left the host without its self-update timer.
     auto_update_off: Option<String>,
+    /// Why the script started the daemon in place ([`IN_PLACE`]).
+    in_place: Option<String>,
 }
 
 /// Run a restart script, then wait for the daemon to answer
@@ -748,6 +770,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         refused,
         result: Err((reason.to_owned(), why)),
         auto_update_off: None,
+        in_place: None,
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
@@ -779,7 +802,8 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         return failed(migrating, false, "buildMismatch", why);
     }
     let auto_update_off = take_auto_update_off(&out.stdout).1;
-    Restarted { migrating, refused: false, result: Ok(status), auto_update_off }
+    let in_place = out.stdout.lines().find_map(|l| l.strip_prefix(IN_PLACE)).map(str::to_owned);
+    Restarted { migrating, refused: false, result: Ok(status), auto_update_off, in_place }
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
@@ -828,9 +852,12 @@ fn cut(mut text: String, max: usize) -> String {
 ///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
-///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.
+///   `unitSettings`, `unitElsewhere`, `noLinger`; on macOS `launchdRefused`:
+///   launchd starts no job now, so the daemon was left running) and a message.
 /// - `migratedFrom`: the hand-written unit the daemon was moved from to
 ///   `acpmux.service`.
+/// - `inPlace`: a macOS daemon started in place, not as its launchd job:
+///   `noGuiLogin` (no one is logged in at the screen) or `bootstrapFailed`.
 ///
 /// Exits 1 when any peer is `rolledBack` or `failed`.
 pub(crate) async fn update(

@@ -40,6 +40,12 @@ export function MessageTime({ at, className }: { at: number; className: string }
   );
 }
 
+/// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
+/// one centered 24px line with equal control slots, including the retry model chevron.
+export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
+}
+
 /// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
 export function MessageDot() {
   return (
@@ -65,6 +71,7 @@ export function forkWithFeedback(throughSeq: number, fallback: () => unknown): u
   return action({ throughSeq }).then((sessionId) => {
     // direct.fork reports refusal by returning no session id after it has written the localized
     // transcript notice; turn that sentinel into the button's terminal error state too.
+    // l10n-allow: the button's error state only; the transcript notice already says why.
     if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
     return sessionId;
   });
@@ -260,19 +267,24 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
   );
 }
 
-/// The row under a prompt the Chief sent (ChiefPromptBubble): its read receipt, its age, a dot,
-/// Copy and Retry, as under the person's own bubble.
-export function PromptActions({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
-  return (
-    <div className="cv-user__actions">
-      {pending}
-      <ReadReceipt row={row} />
+/// A Chief prompt uses the same exclusive queue controls and normal hover actions as a user prompt.
+export function PromptActions({
+  row,
+  text,
+  pending,
+}: {
+  row: AcpmuxRow;
+  text: string;
+  pending?: (actions: ReactNode) => ReactNode;
+}) {
+  const actions = (
+    <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
-      <MessageDot />
       <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-    </div>
+    </MessageFooterRow>
   );
+  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
@@ -280,7 +292,9 @@ export function PromptActions({ row, text, pending }: { row: AcpmuxRow; text: st
 export function SentActions({ text }: { text: string }) {
   return (
     <span className="cv-sent-actions">
-      <MessageCopy text={text} />
+      <MessageFooterRow>
+        <MessageCopy text={text} />
+      </MessageFooterRow>
     </span>
   );
 }
@@ -290,10 +304,31 @@ export function SentActions({ text }: { text: string }) {
 export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <span className="cv-received-actions">
-      <MessageTime at={row.at} className="cv-user__time" />
-      <MessageCopy text={text} />
-      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-      <PinButton rowId={row.id} />
+      <MessageFooterRow>
+        <MessageTime at={row.at} className="cv-user__time" />
+        <MessageCopy text={text} />
+        <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+        <PinButton rowId={row.id} />
+      </MessageFooterRow>
     </span>
+  );
+}
+
+/// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
+/// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
+/// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
+/// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
+export function ReplyActions({ row }: { row: AcpmuxRow }) {
+  const text = row.text ?? "";
+  return (
+    <div className="cv-turn-actions cv-reply-actions">
+      <span className="cv-turn-action-group">
+        <MessageCopy text={text} />
+        <PinButton rowId={row.id} />
+        <ReadAloudButton id={row.id} text={text} />
+        <MessageMore rowId={row.id} />
+      </span>
+      <MessageTime at={row.at} className="cv-turn-time" />
+    </div>
   );
 }

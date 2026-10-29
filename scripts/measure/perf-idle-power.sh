@@ -56,7 +56,7 @@ fi
 release=()
 [ "$config" = "Release" ] && release=(--release)
 [ "$config" = "bench" ] && release=(--config bench)
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower "${release[@]}" > "$work/reload.log" 2>&1 || { tail -n 80 "$work/reload.log"; exit 1; }
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower "${release[@]}" 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-idle-power: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
 extra=()

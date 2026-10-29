@@ -60,7 +60,7 @@ pub(super) fn admit(
             tracing::warn!("refused a pairing ticket from {from}: plain ws:// from another host");
             return Err(Refusal::WrongToken);
         }
-        if !hub.pairing.ticket_open(secret) {
+        if !hub.pairing.ticket_open(secret, hub.person.instance()) {
             return Err(Refusal::WrongToken);
         }
         return Ok(Admitted::Ticket((*secret).to_owned()));
@@ -116,14 +116,13 @@ const REDEEM_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// answer it, and close.
 pub(super) async fn serve_redeem<S>(
     hub: Arc<Hub>,
-    ws: tokio_tungstenite::WebSocketStream<S>,
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
     secret: String,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (mut sink, mut source) = ws.split();
     let first = tokio::time::timeout(REDEEM_WAIT, async {
-        while let Some(Ok(frame)) = source.next().await {
+        while let Some(Ok(frame)) = ws.next().await {
             if let Frame::Text(t) = frame {
                 return Some(t.to_string());
             }
@@ -135,7 +134,7 @@ pub(super) async fn serve_redeem<S>(
     .flatten();
     let Some(Ok(Message::Request { id, method: m, params })) = first.map(|f| Message::parse(&f))
     else {
-        let _ = sink.close().await;
+        super::ws_shutdown::close(ws, false).await;
         return;
     };
     let reply = if m == method::MUX_PAIR_REDEEM {
@@ -147,8 +146,8 @@ pub(super) async fn serve_redeem<S>(
         Ok(v) => Message::ok(id, v),
         Err(e) => Message::err(id, e),
     };
-    let _ = sink.send(Frame::Text(line.to_value().to_string().into())).await;
-    let _ = sink.close().await;
+    let _ = ws.send(Frame::Text(line.to_value().to_string().into())).await;
+    super::ws_shutdown::close(ws, false).await;
 }
 
 async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, RpcError> {
@@ -157,7 +156,7 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
     let advertise = (text("advertiseUrl"), text("advertiseToken"));
     let taken = hub.config.read().await.peers.contains_key(&name)
         || hub.peers().iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()));
-    let redeemed = hub.pairing.redeem(secret, &name, |role| {
+    let redeemed = hub.pairing.redeem(secret, &name, hub.person.instance(), |role| {
         if role != Role::Daemon {
             return Ok(());
         }
@@ -292,8 +291,14 @@ async fn mint(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             "a ticket is redeemed only over wss://, or ws:// to a loopback host; {url:?} is neither"
         )));
     }
-    let (ticket, record) =
-        hub.pairing.mint(role, ttl, label, url.clone(), crate::pairing::machine_name())?;
+    let (ticket, record) = hub.pairing.mint(
+        role,
+        ttl,
+        label,
+        url.clone(),
+        crate::pairing::machine_name(),
+        hub.person.instance().to_owned(),
+    )?;
     Ok(json!({
         "ticket": ticket.encode(),
         "id": record.id,

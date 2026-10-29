@@ -193,14 +193,19 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     });
     await page.goto(url());
     await page.getByText("Hi there.").waitFor();
-    // The full model picker's last row, Add harness…, opens the page in place. This chat has a
-    // message, so its picker offers no other harness unless Debug Settings' started-chat harness
-    // switch is on. The model button opens its compact menu (Leo 2026-10-20); Cmd-Ctrl-M opens the
-    // full picker, as More models does.
+    // Add harness& in the compact menu's More models submenu opens Harnesses in place. The
+    // started-chat harness switch is enabled so this chat offers the harness rail and its action.
+    // Cmd-Ctrl-M and the model button open this same compact picker.
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.keyboard.press("Meta+Control+m");
-    await page.locator(".acpmux-mp-add-harness").click();
+    const menu = page.locator(".acpmux-quick-menu").first();
+    await menu.waitFor();
+    await menu.getByRole("menuitem", { name: "More models" }).hover();
+    await page
+      .locator(".acpmux-quick-more")
+      .getByRole("menuitem", { name: /Add harness/ })
+      .click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });
     await claude.waitFor();
     expect(await claude.getAttribute("data-harness-status")).toBe("ready");

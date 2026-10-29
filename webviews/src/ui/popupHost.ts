@@ -306,6 +306,7 @@ export function useEscapingPopup(
       shell?.removeAttribute("data-escaped");
       shell?.style.removeProperty("opacity");
       shell?.style.removeProperty("pointer-events");
+      shell?.style.removeProperty("transition");
       host.hide(me);
     };
     // Measure every row against the room, after the page placed the surface (one frame) and
@@ -327,8 +328,10 @@ export function useEscapingPopup(
       if (!first) return;
       escaped = true;
       observer?.disconnect();
-      // Invisible, not hidden: the page's surface keeps focus and its rows for the keyboard.
+      // Invisible, not hidden: the page's surface keeps focus and its rows for the keyboard. At
+      // once: a popup's close fade (popupSurface.css .ui-popup) would draw it beside the host's panel.
       shell?.setAttribute("data-escaped", "");
+      shell?.style.setProperty("transition", "none");
       shell?.style.setProperty("opacity", "0");
       shell?.style.setProperty("pointer-events", "none");
       // The host could not show it (no screen, a hidden window): the surface stays in the page.

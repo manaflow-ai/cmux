@@ -1214,6 +1214,19 @@ export default agentPaneEntry({
       ]),
       play: hoverReference(843, ".cv-link-preview.acpmux-pr-card"),
     },
+    "github-references-quoted-numbers": {
+      note: 'Leo 2026-10-29: "these auto render to the pr instead of just #1 #2...". The reply quotes his "what is #1 / #2": in the quote and in prose they stay text (the chat named #27262, so a one-digit number is no cmux pull request); #27262 and manaflow-ai/cmux#27262 stay chips.',
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Is https://github.com/manaflow-ai/cmux/pull/27262 green? Also what is #1 / #2", 3),
+        assistant(
+          "> what is #1 / #2\n\nThose are the two options I listed: #1 keeps the dock, #2 drops it. #27262 (manaflow-ai/cmux#27262) is green.",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 9_000 }),
+      ]),
+    },
     tasks: {
       note: "Checked, unchecked, nested and wrapping task-list items.",
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
@@ -1390,6 +1403,8 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
+        if (Math.round(row()!.getBoundingClientRect().height) !== 22)
+          throw new Error("a finished thought uses the compact 22px tool-row rhythm");
         if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
           throw new Error("a folded thought shows none of its text");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
@@ -1688,7 +1703,7 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its generated output after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M out, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1704,9 +1719,47 @@ export default agentPaneEntry({
           ),
           assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
         ],
+        {
+          isWorking: true,
+          turnTokens: 12_400,
+          turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
+        },
+      ),
+      play: runningLineStill(/^Thinking/, true),
+    },
+    "working-tokens-total": {
+      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity([tool("Search for parseError", "search", "completed")], 5.85),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
       play: runningLineStill(/^Thinking/, true),
+    },
+    "worked-tokens": {
+      note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",
+      snapshot: chat([
+        user(prompt, 5.9),
+        activity(
+          [
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+            tool("Search for parseError", "search", "completed"),
+          ],
+          5.85,
+        ),
+        assistant("The parser now keeps the status code and retries only on 5xx.", 4.6),
+        summary(4.6, {
+          status: "completed",
+          toolCount: 2,
+          durationMs: 78_000,
+          tokens: { output: 9_800, input: 12_000, cacheRead: 1_360_000, cacheWrite: 31_000 },
+        }),
+      ]),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",

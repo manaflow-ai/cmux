@@ -2,8 +2,8 @@
 // After a model pick the keyboard is in the prompt (Lawrence 2026-10-22: "after selecting a model my
 // keyboard should be focused in text area"), whatever had focus before the menu opened and however
 // the pick was made: a press, a key or a search in the model button's menu, a press or Enter in
-// the full picker. Escape and a press outside still behave as menu-pointer-close-focus.test.ts says,
-// a full picker reopened before a pick's focus lands included.
+// the compact menu. Escape and a press outside still behave as menu-pointer-close-focus.test.ts says,
+// a compact menu reopened before a pick's focus lands included.
 // Real Chromium and WebKit (the app's engine) on the gallery stage, the chat's composer and the New
 // Tab's. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-pick-prompt-focus.test.ts
@@ -75,8 +75,6 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
   const MODEL = ".acpmux-model .acpmux-picker-button";
   const QUICK = ".acpmux-quick-menu";
   const QUICK_ROW = `${QUICK} [role=menuitemradio]:not([aria-checked=true]):not([data-disabled])`;
-  const FULL = ".acpmux-mp";
-  const FULL_ROW = `${FULL} .acpmux-mp-row[data-key^="model:"]:not([aria-checked=true]):not(:disabled)`;
 
   const open = async (engine: string, stage: Stage): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
@@ -126,14 +124,10 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
     const state = await focus(page, prompt);
     return state.inPrompt ? "prompt" : state.focused || "body";
   };
-  const openFull = async (page: Page) => {
-    await press(page, MODEL);
-    await page.locator(QUICK).first().waitFor();
-    await page.keyboard.press("Escape");
-    await page.locator(QUICK).first().waitFor({ state: "detached" });
-    // Cmd-Ctrl-M opens the full picker (ModelPicker), from any composer.
+
+  const openCompactShortcut = async (page: Page) => {
     await page.keyboard.press("Meta+Control+KeyM");
-    await page.locator(FULL).first().waitFor();
+    await page.locator(QUICK).first().waitFor();
     await settled(page);
   };
 
@@ -185,22 +179,22 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         await page.close();
       });
 
-      test(`${engine}: ${stage.name}: a pick with the mouse in the full picker puts the keyboard in the prompt`, async () => {
+      test(`${engine}: ${stage.name}: a shortcut-opened compact menu pick with the mouse puts the keyboard in the prompt`, async () => {
         const page = await open(engine, stage);
-        await openFull(page);
-        await press(page, FULL_ROW);
-        await page.locator(FULL).first().waitFor({ state: "detached" });
+        await openCompactShortcut(page);
+        await press(page, QUICK_ROW);
+        await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
         expect(await where(page, stage.prompt)).toBe("prompt");
         await page.close();
       });
 
-      test(`${engine}: ${stage.name}: Enter in the full picker puts the keyboard in the prompt`, async () => {
+      test(`${engine}: ${stage.name}: Enter in the shortcut-opened compact menu puts the keyboard in the prompt`, async () => {
         const page = await open(engine, stage);
-        await openFull(page);
+        await openCompactShortcut(page);
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("Enter");
-        await page.locator(FULL).first().waitFor({ state: "detached" });
+        await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
         expect(await where(page, stage.prompt)).toBe("prompt");
         await page.close();
@@ -219,15 +213,11 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         await page.close();
       });
 
-      test(`${engine}: ${stage.name}: a full picker reopened before a pick's focus lands still closes to the model button`, async () => {
+      test(`${engine}: ${stage.name}: a compact menu reopened before a pick's focus lands still closes to the model button`, async () => {
         const page = await open(engine, stage);
-        await openFull(page);
+        await openCompactShortcut(page);
         // Hold the page's animation frames, so the pick's deferred focus has not run when the
-        // picker opens again (Cmd-Ctrl-M) and Escape closes it. Both are window and document
-        // key listeners, so they need no frame; the held frames run once Escape has closed it.
-        // Every wait below is a DOM state the picker reaches without a frame: it mounts and
-        // unmounts with `open`, and its anchor shows it from a layout effect (ui/anchor.ts).
-        // Playwright retries a locator wait from its own side, not on the page's frames.
+        // compact menu opens again (Cmd-Ctrl-M) and Escape closes it.
         type Held = { releaseFrames: () => void; heldFrames: () => number };
         await page.evaluate(() => {
           const held = new Map<number, FrameRequestCallback>();
@@ -252,15 +242,13 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         });
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("Enter");
-        // The pick has closed the picker, and its deferred focus waits in a held frame.
-        await page.locator(FULL).first().waitFor({ state: "detached" });
+        // The pick has closed the menu, and its deferred focus waits in a held frame.
+        await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
         expect(await page.evaluate(() => (window as unknown as Held).heldFrames())).toBeGreaterThan(0);
         await page.keyboard.press("Meta+Control+KeyM");
-        // Open again, with its keys live: the search field takes focus in a layout effect once the
-        // picker shows, after the open's effects (its Escape listener) have run.
-        await page.locator(`${FULL} input:focus`).first().waitFor({ state: "attached" });
+        await page.locator(`${QUICK}:not([data-closed]) input:focus`).first().waitFor({ state: "attached" });
         await page.keyboard.press("Escape");
-        await page.locator(FULL).first().waitFor({ state: "detached" });
+        await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
         await page.evaluate(() => (window as unknown as Held).releaseFrames());
         await settled(page);
         expect(

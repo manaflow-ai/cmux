@@ -1083,10 +1083,17 @@ impl Brain {
             return;
         }
         let s = &outcome.stats;
+        // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
+        // it replied by send), the owner, or neither (a lost session).
+        let by_chief = self.tool_stopped || self.denial_stopped.is_some();
         let status = if superseded {
             "superseded"
         } else if outcome.refused && outcome.reply.is_none() {
             "refused"
+        } else if outcome.cancelled && by_chief {
+            "stopped"
+        } else if outcome.cancelled && self.owner_stopped {
+            "owner_stopped"
         } else if outcome.cancelled {
             "cancelled"
         } else if outcome.error.is_some() {
@@ -1103,7 +1110,12 @@ impl Brain {
                 "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
-                "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
+                // A turn the Chief or the owner stopped ended as asked: no error.
+                "error": outcome
+                    .error
+                    .as_deref()
+                    .filter(|_| !matches!(status, "stopped" | "owner_stopped"))
+                    .map(|e| self.trace.text(e)),
                 "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
                 "first_usage": s.first.as_ref().map(crate::trace::usage),
                 "usage": s.totals.as_ref().map(|(u, _)| crate::trace::usage(u)),
@@ -1383,6 +1395,7 @@ impl Brain {
         } else {
             super::reply_ledger::WHY_SILENT
         });
+        self.schedule_outcome_checks();
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);

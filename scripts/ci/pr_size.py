@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Advisory size check for feat-cmux-next pull requests.
+"""Size check for feat-cmux-next pull requests: over the limit warns unless the body says why.
 
 Counts added plus deleted lines over the files a pull request changes, leaving
 out the paths scripts/ci/pr_size_exclusions.json lists (generated exports,
 lockfiles, localization catalogs, fixture and vector data). Above the limit it
-writes a workflow warning and a step summary with a hint on how to split. A
-line in the pull request body starting `Size:` followed by a reason overrides
-the warning: the check prints the reason and passes clean.
+writes a workflow warning and a step summary with a hint on how to split, and
+exits OVER (3). A line in the pull request body starting `Size:` followed by a
+reason overrides it: the check prints the reason and passes clean.
 
-It never exits non-zero for a size: the check is advisory and is not a required
-check. Input is the pull request's files, one JSON object per line with
+The limit is a warning, never a gate. Leo, 2026-10-28: "don't some things warrant
+going a little bit higher? Like 1,200, 1,500, 2,000? I mean, just, like, as long
+as you're mindful about it, I feel like it's reasonable, but you don't need to
+make it, like, a hard gate". So the workflow passes on exit 3 (the warning is
+the answer), and any other non-zero exit is the script's own failure, which it
+also reports as a warning and passes. Input is the pull request's files, one JSON object per line with
 `filename`, `additions` and `deletions` (the workflow reads them from one
 paginated pulls/N/files call; JSON keeps a file name with a tab or newline in
 one record), and the pull_request event payload for the body.
@@ -24,18 +28,21 @@ import json
 import os
 import re
 import sys
+import dataclasses
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXCLUSIONS = Path(__file__).resolve().with_name("pr_size_exclusions.json")
+OVER = 3  # the exit code for a pull request over the limit with no `Size:` line
 OVERRIDE = re.compile(r"^[ \t]*Size:[ \t]*(\S.*?)[ \t\r]*$", re.MULTILINE)
 SPLIT_HINT = (
     "How to split: one pull request per surface or directory; keep each change's tests "
     "in the same pull request as its code; land mechanical moves, renames and "
     "reformatting first, on their own, so the behaviour change that follows is small. "
-    "If this size is right, add a line to the body starting `Size:` with the reason."
+    "A pull request over about 800 lines should say in its body why it isn't split: "
+    "if this size is right, add a line to the body starting `Size:` with the reason."
 )
 
 
@@ -155,18 +162,24 @@ def main(argv: list[str] | None = None) -> int:
     event = json.loads(args.event.read_text(encoding="utf-8"))
     pull = event.get("pull_request") or {}
     result = measure(parse_files(args.files.read_text(encoding="utf-8")), pull.get("body"), limit, globs)
+    # GitHub's files list stops at 3000 files. A list it cut can hide counted lines, so such a pull
+    # request is over the limit: one that big needs its `Size:` line anyway.
+    changed = pull.get("changed_files")
+    truncated = isinstance(changed, int) and changed > len(result.files)
+    if truncated and not result.over:
+        result = dataclasses.replace(result, counted=max(result.counted, result.limit + 1))
     command, summary = report(result)
     print(command)
-    if pull.get("changed_files", 0) > len(result.files):
+    if truncated:
         print(f"::notice title=PR size::the files list stops at {len(result.files)} of "
-              f"{pull['changed_files']} files; the count covers those")
+              f"{changed} files; the pull request counts as over the limit")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as handle:
             handle.write(summary + "\n")
     else:
         print(summary)
-    return 0
+    return OVER if result.over and not result.override else 0
 
 
 if __name__ == "__main__":

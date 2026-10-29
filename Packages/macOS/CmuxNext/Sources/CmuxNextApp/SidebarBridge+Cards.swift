@@ -61,7 +61,7 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The titlebar's quiet Update Available button (``UpdaterService/availableButton``) on `view`
+    /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``) on `view`
     /// until the task is cancelled (the window's sidebar bridge owns it).
     static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService) -> Task<Void, Never> {
         // task-owner: the sidebar bridge (cancelled with the cards); event-driven (Observation).
@@ -80,6 +80,7 @@ enum SidebarCardFeed {
     static func handle(_ intent: SidebarIntent, services: AppServices) {
         switch intent {
         case .installUpdate: services.updater.installClicked()
+        case .downloadUpdate: services.updater.downloadClicked()
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()

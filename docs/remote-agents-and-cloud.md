@@ -125,7 +125,8 @@ the Linux installation and `host add` steps above instead. `host update`
 refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
-it there.
+it there. Same-target peers can use the plain
+`acpmux host update NAME`.
 
 ## Work with a remote session
 
@@ -142,10 +143,23 @@ NEXT on your Mac. Whether the host accepts an Allow from that card depends on
 how the chat reaches the host:
 
 - A session reached through your Mac's peer daemon (`acpmux new --host`,
-  `cmux agent open-tab --host`, or `--group` with `--host`) cannot be approved
-  from the card yet: the host refuses the Allow, and the card says "Remote
-  approvals are off". Peer-route approvals are in progress; until they ship, use it for prompts that need no tool approval: a prompt
-  that needs no tools, a read-only Codex review (below), or a `vmHost` VM.
+  `cmux agent open-tab --host`, or `--group` with `--host`) takes a one-time
+  Allow from the card once the host has enrolled this Mac: `acpmux host enroll
+  NAME` (or `acpmux host approvals enroll NAME`) adds the app's public key to
+  the host's `~/.acpmux/mac-approvers.json` over your ssh. The app signs each
+  Allow on the Mac with a key that never leaves it (the Secure Enclave in a
+  signed build; a signed build on a Mac without one cannot allow from the card)
+  and only the signed answer crosses the peer link. The host
+  counts it once, for that prompt, tool call and option, within two minutes,
+  and only as Allow once: never an always-allow, Allow for this chat, a plan
+  or a mode change. A tool batch's card offers only Allow once and Deny; a
+  single prompt's card may still offer an always-allow, which this Mac does
+  not sign, and the card says only a one-time Allow works. Until
+  the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
+  and its Enroll this Mac button runs the same command. `acpmux host approvals
+  unenroll NAME` from the Mac, or `acpmux host approvals rm ID` on the host,
+  stops this Mac's Allows there at once. A DEV build without a Team ID makes a
+  new key each launch, so enroll again after a relaunch.
 - For tool approvals, connect the host in cmux NEXT with **File › Connect to
   Machine…** and start the chat there, on that machine. Before such a chat's
   first prompt, the app restarts the host's agent daemon with an approval key
@@ -204,11 +218,15 @@ the file does not need to exist on the remote host.
 Replace `codex` with an installed harness, such as `claude`. A remote-started
 Claude session needs the host's sandbox, which acpmux has only on macOS so far:
 on a Linux host, `acpmux new --host` refuses `-m claude`. The exception is a
-dedicated agent VM whose `~/.acpmux/config.json` sets `"vmHost": true`: the VM
-is the sandbox, so Claude runs there, and sessions your peer daemon starts with
-no policy run approve-all. A Mac ignores `vmHost`, and Web clients and sessions
-started with an explicit `--policy` keep their approvals. Set it only on a
-machine that holds nothing but agent work. Ctrl-Q detaches
+dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
+sessions your peer daemon starts with no policy run approve-all. A Cloud VM
+cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
+a team VM, a personal machine and an SSH-added machine never are. Turn it off
+or back on per machine with `acpmux host vm-host [NAME] off|on` (no restart;
+`on` is refused on a machine cmux did not create), or set `"vmHost": true` or
+`false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
+Web clients and sessions started with an explicit `--policy` keep their
+approvals. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
@@ -296,8 +314,8 @@ you would not hand to that person.
 
 Codex's own rules on the host still apply in every mode. A command that a rule
 in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
-with "always allow", runs outside the sandbox without asking, in `read-only`
-as in `ask`.
+with "always allow", runs without asking. In `ask` it runs outside the sandbox;
+in `read-only` it stays inside the read-only sandbox.
 
 ## Use cmux Cloud
 

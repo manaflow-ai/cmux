@@ -36,6 +36,16 @@ pub fn brand_for(agent: &str) -> Option<&'static str> {
     })?
 }
 
+/// The brand of exactly `id` (ignoring case and surrounding space), with no
+/// part-of-the-id fallback: what a profile's `icon = "goose"` names.
+pub fn exact(id: &str) -> Option<&'static str> {
+    let id = id.trim().to_lowercase();
+    table::LOOKUP
+        .binary_search_by(|(known, _)| (*known).cmp(id.as_str()))
+        .ok()
+        .and_then(|index| table::LOOKUP[index].1)
+}
+
 fn candidates(raw: &str) -> Vec<String> {
     let id = raw.trim().to_lowercase();
     if id.is_empty() {
