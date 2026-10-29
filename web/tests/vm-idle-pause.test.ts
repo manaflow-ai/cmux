@@ -44,6 +44,8 @@ import { runChild } from "./helpers/run-child";
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-21T12:00:00Z");
 const VM = "fs-1";
+/** A busy-CPU counter that does not move: an idle machine's CPU sample. */
+const CPU0 = 4_000_000;
 
 function idleProbe(overrides: Partial<VmIdleProbe> = {}): VmIdleProbe {
   return {
@@ -52,6 +54,7 @@ function idleProbe(overrides: Partial<VmIdleProbe> = {}): VmIdleProbe {
     busyTerminals: 0,
     sshSessions: 0,
     inboundConnections: 0,
+    cpuBusyMs: CPU0,
     ...overrides,
   };
 }
@@ -145,12 +148,12 @@ describe("idle decision", () => {
     }
     // A time from a clock ahead of ours is never later than now.
     const ahead = at("input", T0 + 10 * 60 * MIN);
-    const previous = { providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN };
+    const previous = { providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: ahead, previous, now: T0 }).pause).toBe(false);
   });
 
   test("an unknown probe never pauses and does not carry the stretch", () => {
-    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN };
+    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     for (const [probe, reason] of [
       [null, "unknown:probe"],
       [idleProbe({ daemon: null }), "unknown:daemon"],
@@ -163,19 +166,19 @@ describe("idle decision", () => {
   });
 
   test("a gap in the observations (a pause, missed runs) starts the stretch over", () => {
-    const stale = { providerVmId: VM, idleSince: T0 - 120 * MIN, observedAt: T0 - VM_IDLE_OBSERVATION_MAX_GAP_MS - 1 };
+    const stale = { providerVmId: VM, idleSince: T0 - 120 * MIN, observedAt: T0 - VM_IDLE_OBSERVATION_MAX_GAP_MS - 1, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: stale, now: T0 })).toEqual({
-      pause: false, reason: "idle", observation: { providerVmId: VM, idleSince: T0, observedAt: T0 },
+      pause: false, reason: "idle", observation: { providerVmId: VM, idleSince: T0, observedAt: T0, cpuBusyMs: CPU0 },
     });
-    const otherVm = { providerVmId: "fs-other", idleSince: T0 - 120 * MIN, observedAt: T0 - 5 * MIN };
+    const otherVm = { providerVmId: "fs-other", idleSince: T0 - 120 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: otherVm, now: T0 }).pause).toBe(false);
-    const fresh = { providerVmId: VM, idleSince: T0 - 30 * MIN, observedAt: T0 - 5 * MIN };
+    const fresh = { providerVmId: VM, idleSince: T0 - 30 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: fresh, now: T0 }).pause).toBe(true);
   });
 
   test("Off never pauses, even idle for days", () => {
     expect(runCron(() => idleProbe(), 3 * 24 * 60, 0).pausedAfterMinutes).toBeNull();
-    const previous = { providerVmId: VM, idleSince: T0 - 3 * 24 * 60 * MIN, observedAt: T0 - 5 * MIN };
+    const previous = { providerVmId: VM, idleSince: T0 - 3 * 24 * 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 0, probe: idleProbe(), previous, now: T0 })).toEqual({ pause: false, reason: "off", observation: null });
   });
 });
@@ -534,13 +537,14 @@ const probeLine = (overrides: Record<string, unknown> = {}) => JSON.stringify({
   busy_terminals: 0,
   ssh_sessions: 0,
   inbound_connections: 0,
+  cpu_busy_ms: CPU0,
   ...overrides,
 });
 
 describe("idle pause cron", () => {
   test("pauses an idle machine past its timeout through the pause path, with reason idle", async () => {
     const idle = machineRow({
-      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN } },
+      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([idle], () => ({ exitCode: 0, stdout: probeLine() }));
     const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
@@ -555,7 +559,7 @@ describe("idle pause cron", () => {
 
   test("a machine running an agent turn is not paused and its stretch is cleared", async () => {
     const busy = machineRow({
-      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN } },
+      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([busy], () => ({ exitCode: 0, stdout: probeLine({ acpmux: { busy_sessions: 1, last_updated_at_ms: null } }) }));
     const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
@@ -565,7 +569,7 @@ describe("idle pause cron", () => {
   });
 
   test("a failed or garbled probe is unknown and never pauses", async () => {
-    const previous = { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN };
+    const previous = { providerVmId: VM, idleSince: T0 - 90 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     for (const out of ["fails", { exitCode: 1, stdout: probeLine() }, { exitCode: 0, stdout: "python3: not found" }] as const) {
       const { recorded, layer } = cronFakes([machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: previous } })], () => out);
       const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
@@ -582,7 +586,7 @@ describe("idle pause cron", () => {
     expect(summary).toMatchObject({ checked: 2, paused: 0, off: 1, idle: 1 });
     expect(recorded.execs.map((e) => e.vmId)).toEqual(["fs-new"]);
     expect(byId(recorded.observations)).toEqual([
-      { id: "row-new", observation: { providerVmId: "fs-new", idleSince: T0, observedAt: T0 } },
+      { id: "row-new", observation: { providerVmId: "fs-new", idleSince: T0, observedAt: T0, cpuBusyMs: CPU0 } },
       { id: "row-off", observation: null },
     ]);
   });
@@ -601,7 +605,7 @@ describe("pause reason and the per-machine setting", () => {
     expect(vmPauseReasonFromRow({ status: "paused", providerMetadata: { cmuxPauseReason: "user" } })).toBe("user");
     expect(vmPauseReasonFromRow({ status: "running", providerMetadata: { cmuxPauseReason: "idle" } })).toBeNull();
     expect(vmPauseReasonFromRow({ status: "paused", providerMetadata: {} })).toBeNull();
-    const observation = { providerVmId: VM, idleSince: T0, observedAt: T0 + MIN };
+    const observation = { providerVmId: VM, idleSince: T0, observedAt: T0 + MIN, cpuBusyMs: CPU0 };
     expect(vmIdleObservationFromRow({ providerVmId: VM, providerMetadata: { cmuxIdleObservation: observation } })).toEqual(observation);
     expect(vmIdleObservationFromRow({ providerVmId: "fs-2", providerMetadata: { cmuxIdleObservation: observation } })).toBeNull();
   });
@@ -682,12 +686,29 @@ describe("CPU work with no terminal", () => {
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe({ cpuBusyMs: 9_000_100 }), previous, now: T0 }).pause).toBe(true);
   });
 
-  test("a missing CPU sample on either side gives no CPU verdict", () => {
-    const withCpu = { providerVmId: VM, idleSince: T0 - 30 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: 1_000 };
+  test("a probe without a CPU sample is unknown; a stored observation without one does not carry the stretch", () => {
+    const withCpu = { providerVmId: VM, idleSince: T0 - 30 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const withoutCpu = { providerVmId: VM, idleSince: T0 - 30 * MIN, observedAt: T0 - 5 * MIN };
-    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: withCpu, now: T0 }).pause).toBe(true);
-    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe({ cpuBusyMs: 9e9 }), previous: withoutCpu, now: T0 }).pause).toBe(true);
-    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe({ cpuBusyMs: null }), previous: withCpu, now: T0 }).pause).toBe(true);
+    // Background work could be running and nothing measured it: never pause on that.
+    for (const cpuBusyMs of [undefined, null]) {
+      expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe({ cpuBusyMs }), previous: withCpu, now: T0 }))
+        .toEqual({ pause: false, reason: "unknown:cpu", observation: null });
+    }
+    // Nothing measured the CPU between the stored observation and now: the stretch starts here.
+    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: withoutCpu, now: T0 })).toEqual({
+      pause: false, reason: "idle", observation: { providerVmId: VM, idleSince: T0, observedAt: T0, cpuBusyMs: CPU0 },
+    });
+  });
+
+  test("the cron never pauses a machine whose probe could not read the CPU", async () => {
+    const row = machineRow({
+      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
+    });
+    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine({ cpu_busy_ms: null }) }));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, unknown: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
   });
 
   test("the probe line's CPU field is optional; the stored sample is validated on its own", () => {
@@ -721,7 +742,7 @@ describe("CPU work with no terminal", () => {
 
 describe("API activity", () => {
   test("an exec, files or attach call within the timeout keeps the machine awake", () => {
-    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN };
+    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const decide = (lastApiActivityAt: number | null) =>
       decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous, now: T0, lastApiActivityAt });
     expect(decide(T0 - 10 * MIN)).toMatchObject({ pause: false, reason: "idle" });
@@ -733,7 +754,7 @@ describe("API activity", () => {
   });
 
   test("the cron counts the stored API activity time", async () => {
-    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation, cmuxLastApiActivityAt: T0 - 3 * MIN } });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
     const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
@@ -765,7 +786,7 @@ describe("API activity", () => {
 
 describe("no private address", () => {
   test("a row without a private address is unknown: not probed, never paused, observation cleared", async () => {
-    const fresh = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN };
+    const fresh = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: fresh, now: T0, privateAddressKnown: false }))
       .toEqual({ pause: false, reason: "unknown:address", observation: null });
     // Off stays Off.
@@ -782,16 +803,16 @@ describe("no private address", () => {
 
 describe("pause, resume and the idle stretch", () => {
   test("an observation from before a pause would carry; cleared, the stretch restarts", () => {
-    const beforePause = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const beforePause = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     // What clearing prevents: resumed and probed within the gap, the old stretch would pause at once.
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: beforePause, now: T0 + 5 * MIN }).pause).toBe(true);
     expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: idleProbe(), previous: null, now: T0 + 5 * MIN })).toEqual({
-      pause: false, reason: "idle", observation: { providerVmId: VM, idleSince: T0 + 5 * MIN, observedAt: T0 + 5 * MIN },
+      pause: false, reason: "idle", observation: { providerVmId: VM, idleSince: T0 + 5 * MIN, observedAt: T0 + 5 * MIN, cpuBusyMs: CPU0 },
     });
   });
 
   test("pause, resume, then an idle probe: not paused again until a full timeout after the resume", async () => {
-    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } })];
     const { recorded, layer, resume } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
@@ -801,7 +822,7 @@ describe("pause, resume and the idle stretch", () => {
     // Opened a minute later; the next runs see an idle machine.
     resume("row-1", T0 + MIN);
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, idle: 1 });
-    expect(rows[0].providerMetadata.cmuxIdleObservation).toEqual({ providerVmId: VM, idleSince: T0 + 5 * MIN, observedAt: T0 + 5 * MIN });
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toEqual({ providerVmId: VM, idleSince: T0 + 5 * MIN, observedAt: T0 + 5 * MIN, cpuBusyMs: CPU0 });
     for (let t = 10; t < 35; t += 5) expect(await runAt(T0 + t * MIN)).toMatchObject({ paused: 0, idle: 1 });
     expect(await runAt(T0 + 35 * MIN)).toMatchObject({ paused: 1 });
     expect(recorded.paused).toEqual([VM, VM]);
@@ -823,7 +844,7 @@ describe("pause, resume and the idle stretch", () => {
   });
 
   test("a pause is skipped when the row moved since the candidate read", async () => {
-    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const rereads: Array<(row: CloudVmRow) => CloudVmRow | null> = [
       // An attach or a resume moved updatedAt.
       (row) => ({ ...row, updatedAt: new Date(row.updatedAt.getTime() + 1) }),
@@ -949,6 +970,26 @@ describe("idle pause SQL", () => {
 // only those, put the probe in legacy mode: it decides from terminals, ssh,
 // inbound connections, CPU and API calls, and says so in its reason. Anything
 // else the daemon or acpmux answers stays unknown and never pauses.
+describe("unreadable activity sources", () => {
+  test("a network table the probe cannot read is unknown, not zero connections", async () => {
+    // No /proc/net/tcp at all.
+    expect((await runProbeScript({ "net/tcp6": TCP_HEADER }, "NONE")).inbound_connections).toBeNull();
+    // tcp read fine, tcp6 is there but cannot be read (here a directory).
+    const unreadable6 = await runProbeScript({ "net/tcp": TCP_HEADER, "net/tcp6/x": "" }, "NONE");
+    expect(unreadable6.inbound_connections).toBeNull();
+    // tcp read fine and tcp6 does not exist (IPv6 disabled): no IPv6 connections.
+    expect((await runProbeScript({ "net/tcp": TCP_HEADER }, "NONE")).inbound_connections).toBe(0);
+  });
+
+  test("a probe line without a connection count is unknown and never pauses", () => {
+    const line = JSON.stringify({ v: 1, daemon: { attached_clients: 0, live_agents: 0, last_user_input_at_ms: null, last_agent_action_at_ms: null }, acpmux: { busy_sessions: 0, last_updated_at_ms: null }, busy_terminals: 0, ssh_sessions: 0, inbound_connections: null, cpu_busy_ms: CPU0 });
+    const probe = parseVmIdleProbe(line);
+    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous, now: T0 }))
+      .toEqual({ pause: false, reason: "unknown:probe", observation: null });
+  });
+});
+
 describe("legacy daemon fallback", () => {
   const LEGACY_DAEMON_ERROR = "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `list-workspaces`, `attach`";
 
@@ -1061,20 +1102,20 @@ describe("legacy daemon fallback", () => {
 
   test("on a legacy machine a busy terminal, ssh, an inbound connection, CPU or an API call keeps it awake", () => {
     const legacy = (overrides: Partial<VmIdleProbe> = {}) => idleProbe({ daemon: "legacy", ...overrides });
-    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: 1_000 };
+    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const decide = (probe: VmIdleProbe, lastApiActivityAt: number | null = null) =>
       decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous, now: T0, lastApiActivityAt });
     expect(decide(legacy({ busyTerminals: 1 }))).toMatchObject({ pause: false, reason: "active:busy_terminals;legacy_daemon" });
     expect(decide(legacy({ sshSessions: 1 })).pause).toBe(false);
     expect(decide(legacy({ inboundConnections: 1 })).pause).toBe(false);
-    expect(decide(legacy({ cpuBusyMs: 1_000 + 5 * MIN })).pause).toBe(false);
+    expect(decide(legacy({ cpuBusyMs: CPU0 + 5 * MIN })).pause).toBe(false);
     expect(decide(legacy(), T0 - 10 * MIN)).toMatchObject({ pause: false, reason: "idle;legacy_daemon" });
-    expect(decide(legacy({ cpuBusyMs: 1_000 }))).toMatchObject({ pause: true, reason: "idle_timeout;legacy_daemon" });
+    expect(decide(legacy())).toMatchObject({ pause: true, reason: "idle_timeout;legacy_daemon" });
   });
 
   test("the cron pauses an idle legacy machine through the pause path", async () => {
     const row = machineRow({
-      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN } },
+      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
     });
     const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine({ daemon: { legacy: true } }) }));
     const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
