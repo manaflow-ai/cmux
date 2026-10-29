@@ -40,7 +40,11 @@ const USER = /^[a-z_][a-z0-9_-]{0,31}$/
 /** An id from the platform or acpmux (machine, join token, team, label): plain, short, and never token-shaped,
  * since it goes into URLs, log lines and the evidence before or without a mask. Anything else is null. */
 export const safeId = (v: unknown): string | null =>
-  typeof v === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(v) && !/cm[jm]_|^eyJ|bearer/i.test(v) ? v : null
+  typeof v === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(v) && !/cm[jm]_|^eyJ|bearer/i.test(v) ? v : null
+
+/** A log line that can start no workflow command: no `::` (v2 commands), no `##[` (v1), one line only. */
+export const plainLine = (text: string) =>
+  text.replace(/[\r\n]+/g, " ").replace(/:(?=:)/g, ": ").replace(/##\[/g, "## [")
 
 export interface Options {
   origin: string
@@ -67,14 +71,15 @@ export interface Daemon {
 export interface Deps {
   fetch: (url: string, init: RequestInit) => Promise<Response>
   /** Runs argv with exactly `env`, writing `stdin` (then closing it) when given. */
-  run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number }): Promise<ChildResult>
+  run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal }): Promise<ChildResult>
   /** Starts a long-running argv with exactly `env`; stdin is closed. */
   start(argv: string[], options: { env: Record<string, string> }): Daemon
   /** One line of this step's output (the job log). */
   write(line: string): void
   writeFile(path: string, text: string): void
   now(): number
-  sleep(ms: number): Promise<void>
+  /** Resolves after `ms`; an aborted `signal` drops the timer (the promise then never settles). */
+  sleep(ms: number, signal?: AbortSignal): Promise<void>
   /** A signal that aborts `ms` from now, on the same clock as `now` and `sleep`. */
   timeout(ms: number): AbortSignal
 }
@@ -161,9 +166,16 @@ export async function runE2E(
   const secrets: string[] = []
   const transcript: string[] = []
   const childText: string[] = []
+  // Every line but this script's own commands is made plain first: an id, a server code or acpmux's
+  // output can then never start a workflow command (::stop-commands:: would turn later masks into text).
   const say = (line: string) => {
-    transcript.push(line)
-    deps.write(line)
+    const plain = plainLine(line)
+    transcript.push(plain)
+    deps.write(plain)
+  }
+  const warn = (text: string) => {
+    transcript.push(`::warning::${plainLine(text)}`)
+    deps.write(`::warning::${plainLine(text)}`)
   }
   const hold = (value: string) => {
     if (!value) return
@@ -211,10 +223,10 @@ export async function runE2E(
     const [kind, owner, mode] = r.stdout.trim().split("|")
     return { own: r.code === 0 && kind === "regular file" && owner === opts.user, mode: /^[0-7]{3,4}$/.test(mode ?? "") ? mode! : null }
   }
-  const acpmux = async (args: string[], stdin?: string) => {
+  const acpmux = async (args: string[], stdin?: string, signal?: AbortSignal) => {
     // No new process of the disposable user once cleanup has begun (it has stopped them all).
     live()
-    const r = await deps.run(asUser(args), { env: childEnv, timeoutMs: 60_000, ...(stdin === undefined ? {} : { stdin }) })
+    const r = await deps.run(asUser(args), { env: childEnv, timeoutMs: 60_000, ...(stdin === undefined ? {} : { stdin }), ...(signal ? { signal } : {}) })
     childText.push(r.stdout, r.stderr)
     return r
   }
@@ -236,11 +248,29 @@ export async function runE2E(
   let cancelBy = Infinity
   let reserve = 0
   let inFlight = new AbortController()
-  // Resolves on the cancel: every local wait in cleanup races it, so a cancel never waits out a bound.
+  // Resolves on the cancel.
   let wake: () => void = () => undefined
   const woken = new Promise<void>((resolve) => (wake = resolve))
-  const waitAtMost = <T>(work: Promise<T>, ms: number) =>
-    Promise.race([work.then(() => undefined, () => undefined), woken, ...(cancelled ? [] : [deps.sleep(ms)])])
+  /** True when `work` settles within `ms` (or before a cancel, when `interruptible`); the timer is dropped either way. */
+  const within = async (work: Promise<unknown>, ms: number, interruptible: boolean) => {
+    const timer = new AbortController()
+    try {
+      return await Promise.race([
+        work.then(() => true, () => true),
+        deps.sleep(ms, timer.signal).then(() => false),
+        ...(interruptible ? [woken.then(() => false)] : [])
+      ])
+    } finally {
+      timer.abort()
+    }
+  }
+  /** Waits for `work` up to `long`; after a cancel (one landing meanwhile ends the long wait), up to `short`
+   * more. A cancel shortens a wait for a process to stop; it never skips confirming that it stopped. */
+  const settle = async (work: Promise<unknown>, short: number, long: number) => {
+    if (!cancelled && (await within(work, long, true))) return true
+    if (!cancelled) return false
+    return within(work, short, false)
+  }
   const left = () => cancelBy - reserve - deps.now()
   const budget = () => (cancelled ? Math.max(250, Math.min(3_000, left())) : 20_000)
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
@@ -274,6 +304,10 @@ export async function runE2E(
   // The join child while it runs; cleanup waits for it, since it may redeem the token at any moment.
   let joining: Promise<ChildResult> | undefined
   let joinStarted = false
+  // Settles when the join's process has ended (never, if it never started); stops it on abort.
+  let joinSettled: Promise<unknown> = new Promise(() => undefined)
+  let joinEnded = false
+  const joinStop = new AbortController()
 
   const op = async (name: string, params: unknown) => {
     const r = await call(`${DEV_API}/v1/ops`, {
@@ -309,7 +343,7 @@ export async function runE2E(
       const s = lastJson(r.stdout)
       if (r.code === 0 && s) return s
       if (attempt >= 1) throw new Failed(`status: exit ${r.code}`)
-      await deps.sleep(1_000)
+      await within(new Promise(() => undefined), 1_000, false)
     }
   }
 
@@ -331,7 +365,7 @@ export async function runE2E(
       }
       if (swept > 0) say(`revoked ${swept} machine(s) an earlier interrupted run left joined`)
     } catch {
-      say("::warning::could not sweep earlier runs' machines")
+      warn("could not sweep earlier runs' machines")
     }
   }
 
@@ -347,7 +381,7 @@ export async function runE2E(
       for (let attempt = 0; !machineId; attempt++) {
         if (cancelled ? left() < 500 : attempt >= 6) break
         // The 2 s pause between reads ends early on a cancel; after one, pauses are 0.5 s at most.
-        if (attempt > 0) await (cancelled ? deps.sleep(Math.min(500, Math.max(0, left() - 500))) : Promise.race([deps.sleep(2_000), woken]))
+        if (attempt > 0) await within(new Promise(() => undefined), cancelled ? Math.min(500, Math.max(0, left() - 500)) : 2_000, !cancelled)
         try {
           const found = safeId((await listEntry())?.machineId)
           if (found) machineId = found
@@ -381,14 +415,18 @@ export async function runE2E(
       const stopping = daemon?.stop()
       daemon = undefined
       if (joinStarted) {
-        await waitAtMost(killUser("TERM"), 1_000)
-        // Up to 10 s for a clean exit, cut to 1 s (or at once, if the cancel lands meanwhile) after a cancel.
-        await waitAtMost(Promise.all([joining, stopping]), cancelled ? 1_000 : 10_000)
-        await waitAtMost(killUser("KILL"), 1_000)
+        // The join's launcher itself (sudo relays the TERM, or ends before it starts acpmux), then every
+        // process of the user. Each step is confirmed before the next, on short bounds after a cancel
+        // (at most 3 s in all), so no join can still redeem once the search for its machine begins.
+        joinStop.abort()
+        await settle(killUser("TERM"), 750, 5_000)
+        await settle(Promise.all([joinSettled, stopping]), 1_500, 10_000)
+        await settle(killUser("KILL"), 750, 5_000)
+        if (!joinEnded) problems.push("the join process had not stopped before the search for its machine")
       }
       if (stopping) {
         let output: ChildResult | undefined
-        await waitAtMost(stopping.then((r) => (output = r)), cancelled ? 250 : 1_000)
+        await settle(stopping.then((r) => (output = r)), 250, 1_000)
         if (output) childText.push(output.stdout, output.stderr)
       }
       // A cancel that lands during this pass aborts the request in flight: try again, on the cancel's budget.
@@ -409,7 +447,7 @@ export async function runE2E(
       if (install && stack) {
         await op("install.revoke", { install }).then(
           () => say("revoked the run's cmux install"),
-          () => say("::warning::could not revoke the run's cmux install")
+          () => warn("could not revoke the run's cmux install")
         )
       }
       if (stack) {
@@ -485,7 +523,11 @@ export async function runE2E(
     // 3. Join: the token goes to stdin only, then this process drops it.
     live()
     joinStarted = true
-    joining = acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`)
+    joining = acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`, joinStop.signal)
+    joinSettled = joining.then(
+      () => (joinEnded = true),
+      () => (joinEnded = true)
+    )
     token = undefined
     const joined = await joining
     joining = undefined
@@ -531,7 +573,7 @@ export async function runE2E(
         if (evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S) break
       }
       if (deps.now() >= deadline) break
-      await deps.sleep(3_000)
+      await within(new Promise(() => undefined), 3_000, false)
     }
     evidence.status.credentialPresent = s.credentialPresent === true
     evidence.status.joinIncomplete = s.joinIncomplete === true
@@ -663,13 +705,23 @@ export function realDeps(): Deps {
   }
   return {
     fetch: (url, init) => fetch(url, init),
-    run: async (argv, { env, stdin, timeoutMs }) => {
+    run: async (argv, { env, stdin, timeoutMs, signal }) => {
       const { child, done } = collect(argv, env, stdin)
       const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
+      // An abort: SIGTERM (sudo relays it to its command), then SIGKILL a second later.
+      let hard: ReturnType<typeof setTimeout> | undefined
+      const stop = () => {
+        child.kill("SIGTERM")
+        hard = setTimeout(() => child.kill("SIGKILL"), 1_000)
+      }
+      if (signal?.aborted) stop()
+      else signal?.addEventListener("abort", stop, { once: true })
       try {
         return await done
       } finally {
         clearTimeout(timer)
+        if (hard) clearTimeout(hard)
+        signal?.removeEventListener("abort", stop)
       }
     },
     start: (argv, { env }) => {
@@ -693,7 +745,11 @@ export function realDeps(): Deps {
       writeFileSync(path, text, { mode: 0o600 })
     },
     now: () => Date.now(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms, signal) =>
+      new Promise((resolve) => {
+        const t = setTimeout(resolve, ms)
+        signal?.addEventListener("abort", () => clearTimeout(t), { once: true })
+      }),
     timeout: (ms) => AbortSignal.timeout(ms)
   }
 }

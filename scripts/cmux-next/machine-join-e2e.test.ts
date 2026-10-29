@@ -80,6 +80,12 @@ interface Knobs {
   statusCredentialPath?: string
   /** What `stat -c %F|%U|%a` says of the credential file. */
   credentialStat?: string
+  /** Each kill command takes this long to return. */
+  killDelayMs?: number
+  /** A held join ends this long after it is told to stop (a kill, or its launcher's signal). */
+  joinLingersMs?: number
+  /** A held join ignores the user's kills (a launcher not yet that user); only its own signal stops it. */
+  launcherOnly?: boolean
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -102,11 +108,51 @@ function world(k: Knobs = {}) {
   const listAt: number[] = []
   const revokeAt: number[] = []
   let aborted = 0
-  // One clock for now(), sleep() and the request timeouts: advancing it fires every timeout it passes.
-  const timers: Array<{ at: number; controller: AbortController }> = []
-  const advance = (ms: number) => {
-    clock += ms
-    for (const t of timers) if (!t.controller.signal.aborted && t.at <= clock) t.controller.abort(new DOMException("timed out", "TimeoutError"))
+  let releasedAt: number | null = null
+  // Virtual time. Every fake answers in microtasks, so the clock moves only when nothing else can run:
+  // to the next timer due (sleeps, slow answers). Request timeouts are deadlines that abort as the clock
+  // passes them; they never move it. A dropped sleep (its signal aborted) never moves it either.
+  const timers: Array<{ at: number; fire: () => void; active: boolean }> = []
+  const deadlines: Array<{ at: number; controller: AbortController }> = []
+  let ticking = false
+  const tick = () => {
+    ticking = false
+    const due = timers.filter((t) => t.active)
+    if (due.length === 0) return
+    clock = Math.max(clock, Math.min(...due.map((t) => t.at)))
+    for (const d of deadlines) if (!d.controller.signal.aborted && d.at <= clock) d.controller.abort(new DOMException("timed out", "TimeoutError"))
+    for (const t of due)
+      if (t.at <= clock) {
+        t.active = false
+        t.fire()
+      }
+    kick()
+  }
+  const kick = () => {
+    if (!ticking) {
+      ticking = true
+      setImmediate(tick)
+    }
+  }
+  const after = (ms: number, signal?: AbortSignal) =>
+    new Promise<void>((resolve) => {
+      if (signal?.aborted) return
+      const t = { at: clock + ms, fire: resolve, active: true }
+      signal?.addEventListener("abort", () => (t.active = false), { once: true })
+      timers.push(t)
+      kick()
+    })
+  // A held join told to stop: it ends (and its redeem has landed) after joinLingersMs.
+  const stopJoin = () => {
+    if (!releaseJoin) return
+    const release = releaseJoin
+    releaseJoin = undefined
+    const end = () => {
+      releasedAt = clock
+      release()
+    }
+    if (k.joinLingersMs) void after(k.joinLingersMs).then(end)
+    else end()
   }
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -135,9 +181,14 @@ function world(k: Knobs = {}) {
     if (path === "/v1/machines/credentials") {
       listAt.push(clock)
       if (k.listDelayMs) {
-        // The read ends at its delay or at its own timeout (the newest timer, made for this request).
-        const own = timers[timers.length - 1]!
-        advance(Math.max(0, Math.min(clock + k.listDelayMs, own.at) - clock))
+        // The read ends at its delay, at its own timeout or on its abort, whichever comes first.
+        const own = deadlines[deadlines.length - 1]!
+        const drop = new AbortController()
+        await Promise.race([
+          after(Math.max(0, Math.min(clock + k.listDelayMs, own.at) - clock), drop.signal),
+          new Promise((resolve) => init.signal?.addEventListener("abort", resolve, { once: true }))
+        ])
+        drop.abort()
         if (init.signal?.aborted) {
           aborted += 1
           throw new DOMException("aborted", "AbortError")
@@ -171,7 +222,7 @@ function world(k: Knobs = {}) {
     return json(404, { code: "machine.not_found" })
   }
 
-  const acpmux = async (args: string[], stdin: string | undefined): Promise<ChildResult> => {
+  const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal): Promise<ChildResult> => {
     if (args.join(" ") === "host join --status --json") {
       if (k.statusFailsWithDaemon && daemonUp) return { code: 1, stdout: "", stderr: "status failed\n" }
       const status = {
@@ -193,8 +244,10 @@ function world(k: Knobs = {}) {
       if (stdin !== `${TOKEN}\n`) return { code: 2, stdout: "", stderr: "join token is malformed\n" }
       k.duringJoin?.()
       if (k.holdJoin) {
-        // In flight until killed; the redeem reached the platform before the kill.
-        await new Promise<void>((resolve) => (releaseJoin = resolve))
+        // In flight until stopped; the redeem reached the platform before it ended.
+        const held = new Promise<void>((resolve) => (releaseJoin = resolve))
+        signal?.addEventListener("abort", stopJoin, { once: true })
+        await held
         redeemed = true
         listReads = 0
         return { code: null, stdout: "", stderr: "" }
@@ -218,13 +271,14 @@ function world(k: Knobs = {}) {
       runs.push({ argv, env: o.env, ...(o.stdin === undefined ? {} : { stdin: o.stdin }) })
       if (argv.includes("/bin/kill")) {
         kills.push(argv.join(" "))
-        releaseJoin?.()
+        if (k.killDelayMs) await after(k.killDelayMs)
+        if (!k.launcherOnly) stopJoin()
         return { code: 0, stdout: "", stderr: "" }
       }
       // Every child runs as the disposable user: sudo -n -u USER -- /usr/bin/env -i -C HOME (5 assignments) PROGRAM ...
       if (argv[0] !== "sudo" || argv[2] !== "-u" || argv[5] !== "/usr/bin/env") return { code: 1, stdout: "", stderr: "not as the user" }
       const cmd = argv.slice(14)
-      if (cmd[0] === opts.acpmux) return acpmux(cmd.slice(1), o.stdin)
+      if (cmd[0] === opts.acpmux) return acpmux(cmd.slice(1), o.stdin, o.signal)
       if (cmd[0] === "cat") {
         if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
@@ -251,15 +305,15 @@ function world(k: Knobs = {}) {
     now: () => clock,
     timeout: (ms) => {
       const controller = new AbortController()
-      timers.push({ at: clock + ms, controller })
+      deadlines.push({ at: clock + ms, controller })
       return controller.signal
     },
-    sleep: async (ms) => {
+    sleep: async (ms, signal) => {
       if (k.hangSleepMs === ms) {
         k.onHang?.()
         return new Promise<void>(() => undefined)
       }
-      advance(ms)
+      await after(ms, signal)
       if (daemonUp && joined && k.heartbeat !== false && !revoked) lastHeartbeat = clock - 2_000
     }
   }
@@ -277,9 +331,29 @@ function world(k: Knobs = {}) {
     listAt,
     revokeAt,
     aborted: () => aborted,
+    releasedAt: () => releasedAt,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
+}
+
+/** The runner's view of the log: only this script's own commands are commands, and none is ever switched off. */
+function assertCommandsIntact(w: ReturnType<typeof world>) {
+  let stopped: string | null = null
+  for (const line of w.lines) {
+    // The runner reads a v2 command at the start of a (trimmed) line and a v1 command (##[) anywhere.
+    expect(line).not.toContain("##[")
+    expect(line).not.toMatch(/[\r\n]/)
+    const own = /^::(add-mask|warning|error)::/.test(line)
+    if (!own) expect(line).not.toContain("::")
+    if (stopped !== null) {
+      if (line.trim() === `::${stopped}::`) stopped = null
+      continue
+    }
+    const stop = /^::stop-commands::(.*)$/.exec(line.trim())
+    if (stop) stopped = stop[1]!
+  }
+  expect(stopped).toBeNull()
 }
 
 /** What every run must hold, pass or fail. */
@@ -299,6 +373,7 @@ function assertNoSecretEscaped(w: ReturnType<typeof world>) {
   }
   // Only the add-mask commands (swallowed by the runner) carry a value; they come before any other mention.
   for (const line of w.lines.filter((l) => !l.startsWith("::add-mask::"))) for (const s of SECRETS) expect(line).not.toContain(s)
+  assertCommandsIntact(w)
   for (const c of w.calls) {
     expect(c.url).not.toContain("cmj_")
     expect(c.url).not.toContain("cmm_")
@@ -479,6 +554,16 @@ describe("failure paths", () => {
     assertNoSecretEscaped(w)
   })
 
+  test("an id or acpmux output shaped like a workflow command is printed as plain text", async () => {
+    const w = world({ joinMachineId: "::stop-commands::pause", joinStderr: "::stop-commands::x\n##[add-mask]y\n::error::z\n" })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("join: no valid machineId")
+    // The acpmux tail was printed, made plain.
+    expect(w.lines.some((l) => l.includes("stop-commands"))).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
   test("a credential path other than the home's credential file is never read", async () => {
     const w = world({ statusCredentialPath: `${HOME}/.acpmux/../../../etc/shadow` })
     const e = await runE2E(opts, env, w.deps)
@@ -623,6 +708,67 @@ describe("cancellation, the sweep, masking and the scan", () => {
     assertNoSecretEscaped(w)
   })
 
+  test("a cancel waits for a join that ends only after slow kills, then finds and revokes its machine", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    let cancelAt = 0
+    const w = world({
+      holdJoin: true,
+      killDelayMs: 300,
+      joinLingersMs: 1_200,
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+    })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    expect(w.releasedAt()).not.toBeNull()
+    // No search for the machine before its join had ended.
+    const searches = w.listAt.filter((t) => t >= cancelAt)
+    expect(searches.length).toBeGreaterThan(0)
+    for (const t of searches) expect(t).toBeGreaterThanOrEqual(w.releasedAt()!)
+    expect(w.revokeCalls()).toBe(1)
+    expect(w.revokeAt[0]! - cancelAt).toBeLessThan(CANCEL_BUDGET_MS)
+    expect(e.reason).not.toContain("had not stopped")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a join launcher the user's kills cannot reach is stopped by its own signal before the search", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    let cancelAt = 0
+    const w = world({
+      holdJoin: true,
+      launcherOnly: true,
+      joinLingersMs: 500,
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+    })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    expect(w.releasedAt()).toBe(cancelAt + 500)
+    for (const t of w.listAt.filter((t) => t >= cancelAt)) expect(t).toBeGreaterThanOrEqual(w.releasedAt()!)
+    expect(w.revokeCalls()).toBe(1)
+    expect(e.reason).not.toContain("had not stopped")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a join that does not stop is reported, and the search still leaves the revoke its reserve", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    let cancelAt = 0
+    const w = world({
+      holdJoin: true,
+      launcherOnly: true,
+      joinLingersMs: 60_000,
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+    })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    const end = w.now()
+    await cancelled
+    expect(e.reason).toContain("the join process had not stopped before the search for its machine")
+    for (const t of w.listAt.filter((t) => t >= cancelAt)) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
+    expect(end - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS)
+    assertNoSecretEscaped(w)
+  })
+
   test("a cancel during cleanup's revoke aborts it and revokes again", async () => {
     let cancel: (() => Promise<void>) | undefined
     // The run fails before its own revoke (a bad credential file), so the first revoke is cleanup's.
@@ -684,8 +830,8 @@ describe("cancellation, the sweep, masking and the scan", () => {
 
 describe("redaction helpers", () => {
   test("safeId keeps plain ids and refuses token shapes, paths and control characters", () => {
-    for (const ok of ["m_1", "jt_1", "team_1", "ci-join-123", "01J9ZK:abc.def"]) expect(safeId(ok)).toBe(ok)
-    for (const bad of [`cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
+    for (const ok of ["m_1", "jt_1", "team_1", "ci-join-123", "01J9ZK-abc.def"]) expect(safeId(ok)).toBe(ok)
+    for (const bad of ["::stop-commands::pause", "a:b", `cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
       expect(safeId(bad)).toBeNull()
   })
 
