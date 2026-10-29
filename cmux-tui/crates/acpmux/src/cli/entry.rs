@@ -258,7 +258,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
-        Some(Command::Hand(cmd)) => crate::hand::run(cmd).await,
+        Some(Command::Hand(cmd)) => match crate::hand::run(cmd, cli.json).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Hand commands historically use exit 1 for every failure; keep that
+                // contract while still emitting the shared --json envelope.
+                let app = errors::classify(&e).with_exit(1);
+                errors::exit_with(&anyhow::Error::new(app), cli.json)
+            }
+        },
         Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,

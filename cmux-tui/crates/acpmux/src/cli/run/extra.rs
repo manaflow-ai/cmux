@@ -191,9 +191,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Allow { session, option } => answer_permission(&session, option, true).await,
-        Command::Deny { session } => answer_permission(&session, None, false).await,
-        Command::Answer { session, answer } => answer_question(&session, &answer).await,
+        Command::Allow { session, option } => {
+            answer_permission(&session, option, true, json_out).await
+        }
+        Command::Deny { session } => answer_permission(&session, None, false, json_out).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -416,6 +418,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Shutdown { end_agents, .. } => {
             crate::cli::shutdown::run(end_agents, json_out).await
         }
+        Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::Config { show_token } => {
             let path = Config::path();
             if json_out {
