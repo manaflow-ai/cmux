@@ -21,8 +21,10 @@ public struct ScreenshotMask {
         /// Whether a capture covers `view` whole and does not look inside it.
         public let covers: @MainActor (NSView) -> Bool
         /// An area `view` contributes without covering `view` itself: a browser chrome's page
-        /// area, a pane's chat launch image. Nil for none. The rule decides whether a hidden
-        /// area still counts; a page area always does, because the screen lags the view tree.
+        /// area, a pane's chat launch image. Nil for none. A hidden view, or one inside a hidden
+        /// view, contributes nothing to a reading: a ``Sampler``'s first reading comes
+        /// ``settle`` before the capture, longer than the screen lags the view tree, so a view
+        /// hidden before it is off the screen by then, and one hidden after it was in a reading.
         public let area: @MainActor (NSView) -> NSView?
         /// Whether `view` is one of the app's own pages. A web view inside one is the page's own
         /// content, so it is not covered for being a web view; any other web view is.
@@ -84,7 +86,9 @@ public struct ScreenshotMask {
             }
         }
         func visit(_ view: NSView, inAppPage: Bool) {
-            // Hidden takes effect at once; a transparent view may still be fading out.
+            // Hidden takes effect at once; a transparent view may still be fading out. A view
+            // hidden during a capture was seen by an earlier reading (``Sampler``), and one hidden
+            // before the first reading is off the screen by the capture, ``settle`` later.
             if view.isHidden || (view.alphaValue == 0 && !isMoving(view)) { return }
             if rules.covers(view) || (view is WKWebView && !inAppPage) {
                 add(view)

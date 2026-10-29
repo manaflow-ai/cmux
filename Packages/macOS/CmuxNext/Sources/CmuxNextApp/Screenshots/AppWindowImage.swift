@@ -96,8 +96,9 @@ extension ScreenshotMask.Rules {
             // URL, which can carry a token or a one-time link, and the title and the badges come
             // from the page. #23983 masked the whole chrome and this keeps that. It is an `area`
             // rather than a `covers`, so `read` still descends and sees a page whose pixels have
-            // moved out from under the mask. Masked even when hidden: the screen lags the view
-            // tree, so a page hidden this turn can still be in the window server's image.
+            // moved out from under the mask. A pane hidden while the capture runs stays masked:
+            // the mask is every reading's, and the screen lags the view tree by less than
+            // ``ScreenshotMask/settle``, the wait between the first reading and the capture.
             if let chrome = view as? BrowserChromeView { return chrome }
             // A chat's last frame, drawn under the pane's content until its page paints. Hidden
             // it has already been replaced by the content above it, which `visit` reaches itself.
