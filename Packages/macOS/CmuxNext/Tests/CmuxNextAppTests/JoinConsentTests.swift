@@ -329,6 +329,25 @@ import Testing
         #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen) && shown.values == ["true"])
     }
 
+    /// Round 15: the sheet asks for Screen sharing and the person turns Screen sharing on in Settings: the
+    /// sheet closes. A grant of the other surface, or one that did not go through, leaves it up.
+    @Test func aSettingsGrantOfTheSheetsSurfaceClosesTheSheet() async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        let shown = Recorder()
+        model.present = { shown.values.append("\($0)") }
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        #expect(await model.set(.control, on: true) == nil)
+        #expect(model.ask != nil, "another surface's grant leaves it up")
+        fake.confirm = .cancelled
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(model.ask != nil, "a grant that did not go through leaves it up")
+        fake.confirm = .confirmed
+        #expect(await model.set(.screen, on: true) == nil)
+        #expect(model.ask == nil && model.askError == nil && shown.values == ["true", "false"])
+    }
+
     /// A Deny pressed while an Allow is still writing does nothing: the Allow ends as it ends, and the
     /// sheet never closes over a grant still landing.
     @Test func aDenyWhileAnAllowWritesChangesNothing() async {

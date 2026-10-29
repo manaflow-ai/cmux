@@ -368,6 +368,9 @@ public final class JoinConsentModel {
             consent = written
             changed()
         }
+        // The surface the open sheet asks for was granted (from Settings, or by its own Allow): nothing is
+        // left to ask.
+        if on, lastError == nil, ask?.surface == surface { dismissAsk() }
         return lastError
     }
 
@@ -482,7 +485,8 @@ public final class JoinConsentModel {
             present(true)
             return error
         }
-        dismissAsk()
+        // The grant closed it already (``set(_:on:)``).
+        if ask != nil { dismissAsk() }
         return nil
     }
 
