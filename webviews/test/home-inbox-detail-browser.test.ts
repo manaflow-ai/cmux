@@ -39,11 +39,25 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
           await page.goto(`http://127.0.0.1:${port}${frame}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const details = page.locator(".acpmux-home-inbox-detail");
-          await details.first().hover();
+          const tooltipTexts: (string | null)[] = [];
+          for (let index = 0; index < (await details.count()); index++) {
+            await details.nth(index).hover();
+            await page.waitForFunction(
+              (index) => {
+                const detail = document.querySelectorAll(".acpmux-home-inbox-detail")[index]!;
+                const target = detail.closest("[title], [data-tooltip]");
+                const expected = target?.getAttribute("data-tooltip") ?? target?.getAttribute("title");
+                const tip = document.querySelector<HTMLElement>(".ui-title-tooltip");
+                return tip && !tip.hidden && tip.textContent === expected;
+              },
+              index,
+            );
+            tooltipTexts.push(await page.locator(".ui-title-tooltip").textContent());
+          }
           const commands = await details.evaluateAll((elements) =>
             elements.map((element) => ({
               text: element.textContent,
-              title: element.getAttribute("title"),
+              hoverText: element.getAttribute("data-tooltip") ?? element.getAttribute("title"),
               clientWidth: element.clientWidth,
               scrollWidth: element.scrollWidth,
               whiteSpace: getComputedStyle(element).whiteSpace,
@@ -51,24 +65,34 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
               ellipsis: getComputedStyle(element).textOverflow,
             })),
           );
-          // Native title tooltips are outside headless page screenshots. Keep the rendered row
-          // capture and full-title evidence together; never draw a stand-in tooltip in the page.
+          // Capture the real shared title tooltip, including where it extends beyond the inbox.
           if (process.env.HOME_INBOX_CAPTURE && width === 280) {
             const output = path.resolve(process.env.HOME_INBOX_CAPTURE);
             await mkdir(output, { recursive: true });
-            await page.locator(".acpmux-home-inbox").screenshot({ path: path.join(output, `${colorScheme}.png`) });
-            const evidence = { width, colorScheme, commands };
+            const clip = await page.evaluate(() => {
+              const inbox = document.querySelector(".acpmux-home-inbox")!.getBoundingClientRect();
+              const tip = document.querySelector(".ui-title-tooltip")!.getBoundingClientRect();
+              const y = Math.max(0, Math.min(inbox.top, tip.top) - 8);
+              return {
+                x: 0,
+                y,
+                width: innerWidth,
+                height: Math.min(innerHeight, Math.max(inbox.bottom, tip.bottom) + 8) - y,
+              };
+            });
+            await page.screenshot({ path: path.join(output, `${colorScheme}.png`), clip });
+            const evidence = { width, colorScheme, commands, tooltipTexts };
             await writeFile(path.join(output, `${colorScheme}.json`), JSON.stringify(evidence, null, 2));
             console.log("HOME_INBOX_EVIDENCE=" + JSON.stringify(evidence));
           }
           expect(commands).toHaveLength(2);
           expect(commands[0]!.text).not.toBe(commands[1]!.text);
-          for (const command of commands) {
+          for (const [index, command] of commands.entries()) {
             expect(command.scrollWidth).toBeGreaterThan(command.clientWidth);
             expect(command.whiteSpace).toBe("nowrap");
             expect(command.overflow).toBe("hidden");
             expect(command.ellipsis).toBe("ellipsis");
-            expect(command.title).toBe(command.text);
+            expect(tooltipTexts[index]).toBe(command.text);
           }
         } finally {
           await page.close();
