@@ -27,6 +27,31 @@ import Foundation
     return done()
 }
 
+/// Runs the main run loop and lets the main actor's queued tasks run until `done` holds, for at most 5 s;
+/// returns `done()`. For an async test whose work reaches main as a main-actor task (a `Task {}` made on main, an
+/// `await` that resumes there) as well as a run-loop turn: ``runMainLoop(until:)`` never sees the first kind,
+/// because the test body is itself a main-actor job, and a run loop nested in a main-queue job runs no other
+/// main-queue job (CFRunLoop services the main dispatch queue only outside one). Each pass runs the run loop once,
+/// then suspends the test so the main actor runs what is queued on it.
+@MainActor func runMainLoopAndTasks(until done: () -> Bool) async -> Bool {
+    let end = Date(timeIntervalSinceNow: 5)
+    while !done(), Date() < end {
+        runMainLoopPass(for: 0.01)
+        await Task.yield()
+    }
+    return done()
+}
+
+/// Runs the main run loop and the main actor's queued tasks for `seconds` (an async test's wait for something
+/// that must not happen, which a main-actor task could otherwise do only after the check).
+@MainActor func runMainLoopAndTasks(for seconds: TimeInterval) async {
+    let end = Date(timeIntervalSinceNow: seconds)
+    repeat {
+        runMainLoopPass(for: 0.01)
+        await Task.yield()
+    } while Date() < end
+}
+
 /// One main run loop pass of at most `seconds` (tests). It is a sync call, so an async test can make it:
 /// `RunLoop.run(mode:before:)` itself is unavailable from async contexts.
 @MainActor func runMainLoopPass(for seconds: TimeInterval) {

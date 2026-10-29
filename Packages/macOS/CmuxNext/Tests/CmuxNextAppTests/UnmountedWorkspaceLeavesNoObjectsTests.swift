@@ -214,7 +214,7 @@ import Testing
         content.applyCurrent()
         content.didShow()
         // The create runs from a task off main (recipe R-hop), so its first step comes some turns later.
-        try #require(runMainLoop { asked.value }, "the empty workspace asked for a new terminal")
+        try #require(await runMainLoopAndTasks { asked.value }, "the empty workspace asked for a new terminal")
         // The window's check asked (`createTab` with its `created`), not a close decision's refill without one.
         #expect(repair.decisions.isEmpty, "the repair decided \(repair.decisions.map { $0.cause }) instead of the window's check asking")
         #expect(content.panes.isEmpty)
@@ -222,9 +222,9 @@ import Testing
         content.teardown()
         let mounts = world.services.paneMounts.generation
         open.yield(())
-        try #require(runMainLoop { answered.value }, "the repair answered")
+        try #require(await runMainLoopAndTasks { answered.value }, "the repair answered")
         // The create's answer reaches main as a posted task, which runs the window's `created` after the teardown.
-        try #require(runMainLoop { repair.answeredCreates == 1 }, "the window's created never ran after the teardown")
+        try #require(await runMainLoopAndTasks { repair.answeredCreates == 1 }, "the window's created never ran after the teardown")
         #expect(content.panes.isEmpty, "a repair after teardown mounted \(content.panes.count) panes")
         #expect(world.services.paneMounts.generation == mounts, "a pane mounted after teardown")
         #expect(world.state.focus.state.expectation == nil, "a torn-down workspace left a focus expectation")

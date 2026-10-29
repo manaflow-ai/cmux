@@ -14,7 +14,7 @@ import Testing
 
     /// A take's refill report during an open input response: the idle task builds nothing until the
     /// response closes, then the next long period builds the spare.
-    @Test func theRefillNeverRunsInsideAnInputResponse() {
+    @Test func theRefillNeverRunsInsideAnInputResponse() async {
         let engine = FakeWarmupEngine()
         let warmup = rig.warmup(engine)
         rig.timer.run(ms: 51)
@@ -32,14 +32,14 @@ import Testing
         // The next long period, or (while the response's requested tick keeps the link up) the
         // refill's maxDelay, builds it.
         rig.timer.run(ms: 600)
-        spinMainRunLoop { !engine.prepared.isEmpty }
+        await spinMainRunLoop { !engine.prepared.isEmpty }
         #expect(engine.prepared == [false], "the spare is built once the response closed")
         warmup.stop()
     }
 
     /// A frame client keeps the link running, so no long period comes: past 500 ms the refill moves
     /// to background work and builds the spare there.
-    @Test func pastItsMaxDelayTheRefillRunsAsBackgroundWorkWithNoIdlePeriod() {
+    @Test func pastItsMaxDelayTheRefillRunsAsBackgroundWorkWithNoIdlePeriod() async {
         let engine = FakeWarmupEngine()
         let warmup = rig.warmup(engine)
         rig.timer.run(ms: 51)
@@ -50,7 +50,7 @@ import Testing
         rig.timer.run(ms: 400)
         #expect(engine.prepared.isEmpty, "no idle period while frames run, and the delay has not passed")
         rig.timer.run(ms: 150)
-        spinMainRunLoop { !engine.prepared.isEmpty }
+        await spinMainRunLoop { !engine.prepared.isEmpty }
         #expect(engine.prepared == [false], "past maxDelay the refill ran as background work")
         keeper.deactivate()
         warmup.stop()
@@ -137,11 +137,21 @@ final class WarmupFakeLink: FrameLink {
     func requestFrameRate(_ range: CAFrameRateRange) {}
 }
 
-/// Runs main run loop passes (the promoted background turn) until `done` or 5 s.
+/// Runs main run loop passes and the main actor's queued jobs (the promoted background turn) until `done` or 5 s.
+/// The frame that runs the promoted task is the display clock's stall tick (the fake link never fires), which its
+/// `DemandTimer` delivers as a main-actor job. The test body is itself a main-queue job, and a run loop nested in one
+/// never drains the main queue, so each pass also suspends the test to let that job run.
 @MainActor
-private func spinMainRunLoop(until done: () -> Bool) {
+private func spinMainRunLoop(until done: () -> Bool) async {
     let end = Date(timeIntervalSinceNow: 5)
     while !done(), Date() < end {
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        runLoopPass()
+        await Task.yield()
     }
+}
+
+/// One main run loop pass of at most 10 ms; a sync call, as `RunLoop.run(mode:before:)` is unavailable from async code.
+@MainActor
+private func runLoopPass() {
+    _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
 }

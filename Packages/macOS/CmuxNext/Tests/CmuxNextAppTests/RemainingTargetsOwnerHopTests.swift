@@ -16,21 +16,21 @@ import Testing
 /// - A watched folder change lands on the Files model through its scheduler.
 /// - A grid tile's rendered thumbnail waits in the visible class.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemainingTargetsOwnerHopTests {
-    @Test func aHoverCardsReportWaitsInTheVisibleClassAndItsNextSampleOnItsDeadline() {
+    @Test func aHoverCardsReportWaitsInTheVisibleClassAndItsNextSampleOnItsDeadline() async {
         let rig = MainDeadlineRig()
         let source = MockResourceSource(tabs: [TabResourceSources(tabID: "a", title: "a", kind: .terminal, processes: [ProcessKey(pid: 1)])])
         let sampler = ResourceCardSampler()
         sampler.setSource(source, deadlines: rig.deadlines)
         let reports = OwnerHopCounter()
         sampler.open(.tab("a")) { _ in reports.count += 1 }
-        #expect(runMainLoop { rig.work.postedCount(.visible) == 1 }, "the sample's report is posted in the visible class")
+        #expect(await runMainLoopAndTasks { rig.work.postedCount(.visible) == 1 }, "the sample's report is posted in the visible class")
         #expect(reports.count == 0, "the report waits for the frame")
         rig.frame()
         #expect(reports.count == 1)
         #expect(sampler.isScheduled, "the next sample waits on its deadline")
 
         rig.fireAndRun()
-        #expect(runMainLoop { rig.work.postedCount(.visible) == 1 }, "the deadline's sample posts its report")
+        #expect(await runMainLoopAndTasks { rig.work.postedCount(.visible) == 1 }, "the deadline's sample posts its report")
         rig.frame()
         #expect(reports.count == 2)
 

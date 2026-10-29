@@ -31,6 +31,15 @@ import Testing
         return store
     }
 
+    /// Keeps `frames`' fake display link up, as a running display link does: a posted flush then waits for
+    /// ``NotificationFrames/frame()``. With no link a post runs on the next main run loop turn
+    /// (``MainWorkScheduler``'s posting API: an idle scheduler's first post), which a synchronous test never runs.
+    private static func keepLink(_ frames: NotificationFrames) -> FrameClient {
+        let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: frames.work.frames) { _ in true }
+        keeper.activate()
+        return keeper
+    }
+
     private static func setStatus(_ index: Int, text: String, in store: DaemonStore) throws {
         let entry = #"{"key":"build","text":"\#(text)","state":"busy","updated_at_ms":"1"}"#
         let line = #"{"type":"stream_item","item":{"kind":"delta","changes":[{"kind":"state_upsert","resource":"workspace_status","id":"ws_\#(index)","value":{"workspace_id":"ws_\#(index)","entries":["#
@@ -42,6 +51,8 @@ import Testing
     func oneStatusChangeVisitsOneWorkspace(sessionSize: Int) throws {
         let store = try Self.store(sessionSize)
         let frames = NotificationFrames()
+        let keeper = Self.keepLink(frames)
+        defer { keeper.deactivate() }
         let service = frames.service()
         let follower = service.followStatusRuns(store)
         // The first pass reads every workspace's status once, before it returns (it learns the
@@ -64,6 +75,8 @@ import Testing
         let store = try Self.store(3)
         let input = StatusFollowInput()
         let frames = NotificationFrames(input: input)
+        let keeper = Self.keepLink(frames)
+        defer { keeper.deactivate() }
         let service = frames.service()
         let follower = service.followStatusRuns(store)
         frames.frame()
@@ -84,6 +97,8 @@ import Testing
     func aStoppedFollowerReadsNoWorkspaceStatus(release: Bool) throws {
         let store = try Self.store(3)
         let frames = NotificationFrames()
+        let keeper = Self.keepLink(frames)
+        defer { keeper.deactivate() }
         let service = frames.service()
         var follower: StatusRunFollower? = service.followStatusRuns(store)
         #expect(follower?.watchedCount == 3)
@@ -103,6 +118,8 @@ import Testing
         let first = try Self.store(3)
         let second = try Self.store(2)
         let frames = NotificationFrames()
+        let keeper = Self.keepLink(frames)
+        defer { keeper.deactivate() }
         let service = frames.service()
         let firstFollower = service.followStatusRuns(first)
         let secondFollower = service.followStatusRuns(second)

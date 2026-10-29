@@ -83,7 +83,9 @@ import Testing
         defer { defaults.removePersistentDomain(forName: suite) }
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: ledger) }
-        let events = AppEvents(center: NotificationCenter())
+        // AppEvents holds its center weakly: the test keeps it, or the subscription finds no center.
+        let notices = NotificationCenter()
+        let events = AppEvents(center: notices)
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
         center.scanThisMac = { _ in [] }
         let host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] }, openSettings: { _ in },
@@ -94,6 +96,7 @@ import Testing
         center.start(host: host, registry: registry)
         #expect(events.subscriberCount(NSApplication.didBecomeActiveNotification) == 1)
         #expect(events.isObserving(NSApplication.didBecomeActiveNotification))
+        withExtendedLifetime(notices) {}
     }
 
     @Test func aStaleScanRunsAgainWhenCmuxComesForward() async throws {
@@ -114,15 +117,15 @@ import Testing
                                    importClassic: { _ in nil }, work: BackgroundWork(label: "test.import-cards"),
                                    mainWork: MainWorkScheduler(budget: MainFrameBudget()), appEvents: AppEvents(center: center))
         cards.start(host: host, registry: ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases))
-        #expect(runMainLoop { scans.count == 1 && !cards.isScanning }, "the first scan at start")
+        #expect(await runMainLoopAndTasks { scans.count == 1 && !cards.isScanning }, "the first scan at start")
 
         center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         #expect(scans.count == 1, "a fresh scan does not run again")
 
         clock.now += ImportSuggestionsCenter.rescanInterval
         center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
-        #expect(runMainLoop { scans.count == 2 }, "a stale scan runs again when cmux comes forward")
+        #expect(await runMainLoopAndTasks { scans.count == 2 }, "a stale scan runs again when cmux comes forward")
     }
 
     @Test func theComputerUseHelperFollowsFromTheFirstLoadOneApplyAtATimeNewestOnly() async throws {
@@ -146,24 +149,24 @@ import Testing
         defer { daemon.applicationWillTerminate() }
         // Real lanes: a legacy apply resolves its candidates on them, so `legacyStarts` counts each one.
         daemon.follow(settings, mainWork: linklessMainWork(), lanes: BackgroundWork(label: "test.cua-follow"), disabledByPolicy: { false })
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         #expect(spawner.spawns == 0, "nothing applies before the settings file's first load")
 
         await settings.reload()
-        #expect(runMainLoop { spawner.spawns == 1 }, "the first load applies the file's value")
+        #expect(await runMainLoopAndTasks { spawner.spawns == 1 }, "the first load applies the file's value")
 
         // Two values while that apply waits in its spawn: legacy, then upstream again.
         try write("legacy")
         await settings.reload()
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         try write("upstream")
         await settings.reload()
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         #expect(spawner.spawns == 1, "one apply at a time")
 
         spawner.release.yield()
-        #expect(runMainLoop { spawner.spawns == 2 }, "the newest value applies after the running apply")
-        runMainLoopPass(for: 0.05)
+        #expect(await runMainLoopAndTasks { spawner.spawns == 2 }, "the newest value applies after the running apply")
+        await runMainLoopAndTasks(for: 0.05)
         #expect(legacyStarts.count == 0, "a value a newer one replaced while it waited never applies")
         spawner.release.yield()
     }
@@ -173,17 +176,17 @@ import Testing
         let source = SweepTaskManagerSource()
         let model = TaskManagerModel(source: source, deadlines: rig.deadlines, interval: .seconds(1), kill: { _ in })
         model.start()
-        #expect(runMainLoop { model.sampleCount == 1 }, "start takes the first sample")
+        #expect(await runMainLoopAndTasks { model.sampleCount == 1 }, "start takes the first sample")
         #expect(rig.hasArmedWake, "the next sample waits on its deadline")
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         #expect(model.sampleCount == 1, "no second sample before its deadline")
 
         rig.fireAndRun()
-        #expect(runMainLoop { model.sampleCount == 2 }, "the deadline takes the next sample")
+        #expect(await runMainLoopAndTasks { model.sampleCount == 2 }, "the deadline takes the next sample")
 
         model.stop()
         rig.fireAndRun()
-        runMainLoopPass(for: 0.05)
+        await runMainLoopAndTasks(for: 0.05)
         #expect(model.sampleCount == 2, "no sample after stop()")
         #expect(source.samples == 2)
     }

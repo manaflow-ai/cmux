@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -78,8 +79,15 @@ struct ControlSnapshotLazyPublishTests {
         }
     }
 
+    /// The default rig's notices: a center nothing posts on. On the default center the windows other suites open,
+    /// key and close in the full parallel run would each queue a publish, counted as a build here (4 and 11 extra
+    /// builds, jobs 122238887723 and 122242789085). AppEvents holds its center weakly, so the suite keeps it.
+    private static let quietCenter = NotificationCenter()
+
     /// One workspace with one tab and a started publisher; its first (background) publish done unless `launching`,
-    /// which holds background work as the app's launch does until reveal.
+    /// which holds background work as the app's launch does until reveal. Only the test's ``Rig/frame()`` ticks:
+    /// the display clock's stall deadline runs on a clock nobody advances, so a slow machine's 100 ms between two
+    /// test frames is no stall frame that runs the queued publish early.
     private static func rig(launching: Bool = false, appEvents: AppEvents? = nil) async -> Rig {
         _ = NSApplication.shared
         let clock = LazyPublishClock()
@@ -87,7 +95,8 @@ struct ControlSnapshotLazyPublishTests {
         let startup = launching ? StartupPhase(ledger: WakeupLedger(), timing: .init(revealDeadline: .seconds(3_600),
                                                                                        settleFailsafe: .seconds(7_200)))
             : StartupPhase.settled()
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), startup: startup) { _ in LazyPublishFakeLink() }
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), clock: ManualClock(),
+                                             startup: startup) { _ in LazyPublishFakeLink() }
         // Keeps the fake link up, so a post waits for a frame the test fires instead of a run loop turn.
         let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
         keeper.activate()
@@ -101,7 +110,8 @@ struct ControlSnapshotLazyPublishTests {
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)),
                                    frameSource: BudgetedSoonFrames(budget: work.budget))
-        let publisher = ControlSnapshotPublisher(router: router, services: services, appEvents: appEvents)
+        let publisher = ControlSnapshotPublisher(router: router, services: services,
+                                                 appEvents: appEvents ?? AppEvents(center: quietCenter))
         publisher.start()
         let rig = Rig(clock: clock, work: work, keeper: keeper, services: services, router: router, publisher: publisher)
         #expect(publisher.builds == 0, "start built the snapshot in its own turn")
