@@ -1701,6 +1701,16 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             Ok(super::session_files::describe(hub, &s))
         }
+        method::MUX_WAIT if params.get("until") == Some(&json!(["promptOutcome"])) => {
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            let prompt_id = str_param(&params, "promptId")
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            tokio::select! {
+                result = hub.prompt_outcome(&s, prompt_id) => result,
+                () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+            }
+        }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await

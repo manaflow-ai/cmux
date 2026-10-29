@@ -234,6 +234,13 @@ async fn forward_inner(
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
             name_sender(hub, conn, &mut p);
+            if p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).is_none_or(str::is_empty)
+            {
+                crate::hub::merge_mux_meta(
+                    &mut p,
+                    json!({"promptId": uuid::Uuid::now_v7().to_string()}),
+                );
+            }
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
@@ -262,8 +269,18 @@ async fn forward_inner(
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        let link = peer.link_epoch();
+                        if let Ok(page) = peer
+                            .request_on(
+                                method::MUX_ATTACH,
+                                crate::peer::hidden_attach(&id),
+                                Some(link),
+                            )
+                            .await
+                            && peer.link_epoch() == link
+                        {
+                            peer.note_attached_page(&id, &page);
+                        }
                     }
                 });
                 tokio::select! {
@@ -344,6 +361,16 @@ async fn forward_inner(
                     })?;
         let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
         let before = held(&result);
+        if m == method::MUX_ATTACH
+            && peer.link_epoch() == link
+            && params.get("beforeSeq").is_none_or(Value::is_null)
+            && params.get("kinds").is_none_or(Value::is_null)
+        {
+            // The mirror cursor is the greatest record actually returned in
+            // this page. `lastSeq` may include filtered records, so Peer derives
+            // it from `events` rather than advancing past an unseen chunk.
+            peer.note_attached_page(&id, &result);
+        }
         strip_asks(hub, &peer.name, &id, m, &mut result);
         // What the client reads of a peer's chat is kept here too, so the chat
         // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
