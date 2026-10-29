@@ -335,8 +335,13 @@ final class NotificationCenterService {
         guard let services else { return nil }
         let content = content(of: window)
         let daemon = content?.daemon ?? services.daemon
-        guard let tab = daemon.store.tab(idOrResource: tabID),
-              content.map({ $0.workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0 === tab } }) ?? true else { return nil }
+        guard let tab = daemon.store.tab(idOrResource: tabID) else { return nil }
+        // Typing reaches this on every keystroke; use the store's identity indexes to check
+        // ownership without allocating and walking the workspace's entire tab tree.
+        if let content {
+            guard let pane = daemon.store.pane(holding: tab),
+                  daemon.store.workspace(containing: pane.handle) === content.workspace else { return nil }
+        }
         return TabInteractionTarget(tab: tab, store: daemon.store, local: daemon.isLocal)
     }
 
