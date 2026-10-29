@@ -85,6 +85,20 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
                 .unwrap();
                 continue;
             }
+            if request["method"] == "tools/list" {
+                let inventory = std::fs::read(consent_home.join("inventory.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .unwrap_or(json!([
+                        {"name":"stand_in_tool", "inputSchema":{"type":"object"}},
+                        {"name":"screenshot", "annotations":{"readOnlyHint":true}},
+                        {"name":"driver_observation", "annotations":{"readOnlyHint":true}},
+                        {"name":"click", "annotations":{"readOnlyHint":false}}
+                    ]));
+                writeln!(writer, "{}", json!({"id":request["id"],"ok":true,"result":inventory}))
+                    .unwrap();
+                continue;
+            }
             let _ = tx.send(line);
             let reply = json!({"id": request["id"], "ok": true,
                 "result": [{"name": "stand_in_tool", "inputSchema": {"type": "object"}}]});
@@ -186,7 +200,16 @@ fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
     }
     machine_state(&dir.0, "granted", "none");
     assert_ne!(call("screenshot")["result"]["isError"], true);
+    assert_ne!(call("driver_observation")["result"]["isError"], true);
     assert_eq!(call("click")["result"]["isError"], true);
+    // Inventory, not a familiar tool name, determines whether this is read-only.
+    std::fs::write(
+        dir.0.join("inventory.json"),
+        json!({"tools":[{"name":"screenshot","annotations":{"readOnlyHint":false}}]}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(call("screenshot")["result"]["isError"], true);
+    assert_eq!(call("unlisted_tool")["result"]["isError"], true);
     machine_state(&dir.0, "granted", "granted");
     assert_ne!(call("click")["result"]["isError"], true);
     machine_state(&dir.0, "none", "granted");
