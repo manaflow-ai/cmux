@@ -483,6 +483,7 @@ export function useChatInspector({
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
+        onReveal={reveal}
         onStopProcess={onStopProcess}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
@@ -532,6 +533,7 @@ function InspectorPresence({
   workflows,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   onOpenOutput,
   onOpenUrl,
@@ -578,6 +580,9 @@ function InspectorPresence({
   };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
+  /// Opens a section, scrolls it into view and lights it (the header's reveal), so a click that
+  /// points at a section always answers, even when that section is already open.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
@@ -750,6 +755,7 @@ function InspectorPresence({
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
+        onReveal={onReveal}
         onStopProcess={onStopProcess}
         sections={sections}
         onSection={setInspectorSection}
@@ -935,6 +941,7 @@ export function ChatInspector({
   onSetRunningLimit,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   sections,
   onSection,
@@ -1001,6 +1008,8 @@ export function ChatInspector({
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
   onRevealed?: () => void;
+  /// Opens, scrolls to and lights a section, so a click that points at one always answers.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
@@ -1232,9 +1241,18 @@ export function ChatInspector({
         sessions={children}
         subsessions={subsessions}
         workflows={workflows}
-        onOpen={() =>
-          fold(listedAgents.length + children.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
-        }
+        onOpen={() => {
+          const section = listedAgents.length + children.length + subsessions.length > 0 ? "subagents" : "tasks";
+          if (onReveal) return onReveal(section);
+          // No host reveal: open it here and light it in place, so the click always answers.
+          fold(section)(true);
+          const element = body.current?.querySelector<HTMLElement>(`[data-section="${section}"]`);
+          element?.scrollIntoView?.({ block: "nearest" });
+          if (!element) return;
+          unlight();
+          element.dataset.revealed = "";
+          lit.current = { section: element, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+        }}
       />
     ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section
