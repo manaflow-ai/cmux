@@ -104,21 +104,22 @@ impl Hub {
         // `turn_result` is durable before the asynchronous scheduler runs. If restart cuts
         // that small window, synthesize its first retry now instead of losing the transient
         // failure forever.
-        if retry.is_none() && !has_retry_marker && last.msg["status"] == "failed" {
-            if let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
+        if retry.is_none()
+            && !has_retry_marker
+            && last.msg["status"] == "failed"
+            && let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
                 .and_then(RetryReason::from_cause)
-            {
-                let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
-                if done < MAX_ATTEMPTS {
-                    retry = Some(RetrySummary {
-                        attempt: (done + 1) as u64,
-                        of: MAX_ATTEMPTS as u64,
-                        reason,
-                        next_at: crate::hub::now_ms(),
-                        prompt_id: root.to_owned(),
-                        turn_id: turn_id.to_owned(),
-                    });
-                }
+        {
+            let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
+            if done < MAX_ATTEMPTS {
+                retry = Some(RetrySummary {
+                    attempt: (done + 1) as u64,
+                    of: MAX_ATTEMPTS as u64,
+                    reason,
+                    next_at: crate::hub::now_ms(),
+                    prompt_id: root.to_owned(),
+                    turn_id: turn_id.to_owned(),
+                });
             }
         }
         let Some(retry) = retry.filter(|r| {
