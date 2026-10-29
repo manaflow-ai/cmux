@@ -117,7 +117,7 @@ struct SidebarWorkspaceTabHierarchyTests {
                 let workspaceX = Self.listX(list, workspace, workspace.titleFrame.minX)
                 let tabX = Self.listX(list, tab, tabTitle.frame.minX)
                 let expectedInset = text == "browser"
-                    ? Metrics.space6 + SidebarStyle.labelCellPadding + Metrics.space2
+                    ? Metrics.space6 + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
                     : Metrics.space6
                 #expect(abs((tabX - workspaceX) - expectedInset) < 0.5,
                         "\(c.testDescription): tab \(tab.key) anchor is \(tabX - workspaceX)pt, expected \(expectedInset)pt")
@@ -154,22 +154,41 @@ struct SidebarWorkspaceTabHierarchyTests {
         let groupedTitle = try Self.tabTitle(groupedTab, "browser")
         list.layoutSubtreeIfNeeded()
         let beforeIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
-        var iconWorkspace = try #require(grouped.lastConfiguration?.0)
-        iconWorkspace.icon = .emoji("🧭")
-        grouped.configure(iconWorkspace, row: groupedRow)
+
+        var iconlessContent = groupedRow.content ?? WorkspaceRowContent()
+        iconlessContent.icon = nil
+        var iconlessRow = groupedRow
+        iconlessRow.content = iconlessContent
+        var iconlessWorkspace = try #require(grouped.lastConfiguration?.0)
+        iconlessWorkspace.icon = nil
+        grouped.configure(iconlessWorkspace, row: iconlessRow)
+        list.layoutSubtreeIfNeeded()
+        let iconless = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        #expect(iconless < beforeIcon, "tab anchor did not follow a parent icon removal")
+
+        var restoredContent = iconlessContent
+        restoredContent.icon = .emoji("🧭")
+        var restoredRow = groupedRow
+        restoredRow.content = restoredContent
+        var restoredWorkspace = iconlessWorkspace
+        restoredWorkspace.icon = .emoji("🧭")
+        grouped.configure(restoredWorkspace, row: restoredRow)
         list.layoutSubtreeIfNeeded()
         let afterIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
-        #expect(afterIcon > beforeIcon, "tab anchor did not follow a parent icon change")
+        #expect(afterIcon > iconless, "tab anchor did not follow a parent icon change")
 
         let parentKey: SidebarRowKey = .workspace(Self.grouped)
-        let parent = try #require(list.rowViews.removeValue(forKey: parentKey) as? WorkspaceRowView)
+        let parent = list.rowViews.removeValue(forKey: parentKey)
+        groupedTab.needsLayout = true
         groupedTab.layoutSubtreeIfNeeded()
-        let fallback = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        let lateParent = Self.listX(list, groupedTab, groupedTitle.frame.minX)
         list.rowViews[parentKey] = parent
-        parent.needsLayout = true
+        parent?.needsLayout = true
         list.layoutSubtreeIfNeeded()
         let afterLateParent = Self.listX(list, groupedTab, groupedTitle.frame.minX)
-        #expect(afterLateParent > fallback, "tab anchor did not re-anchor after late parent realization")
+        #expect(abs(afterLateParent - lateParent) < 0.5,
+                "tab anchor changed after parent realization: late=\(lateParent), after=\(afterLateParent)")
+        #expect(lateParent > iconless, "late parent realization fell back to the leading column")
     }
 
     @Test
