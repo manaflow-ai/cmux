@@ -7,7 +7,8 @@ import os
 /// state and serves it as `_acpmux/machine_consent_get`.
 ///
 /// The helper never reads that state itself: it asks the cmux app over the
-/// control pipe, and the app asks its own acpmux daemon. Nothing the
+/// host consent socket (a connection whose peer passed the cmux app check),
+/// and the app asks its own acpmux daemon. Nothing the
 /// helper's environment, endpoint.json or a socket request names can
 /// redirect the question. Every answer is fetched fresh, and any failure
 /// is "joined, nothing granted".
@@ -120,19 +121,21 @@ public struct UnavailableConsent: MachineConsentAuthority {
     public func recordRefusal(surface: ConsentSurface, tool: String) async {}
 }
 
-/// Asks the cmux app over the control pipe:
+/// Asks the cmux app over its verified host connection (`HostConsentServer`):
 ///   helper -> host: {"type":"machine_consent","id":N}
 ///   host -> helper: {"type":"machine_consent","id":N,"ok":true,"result":{...}}
 ///   helper -> host: {"type":"consent_refused","surface":S,"tool":T}
-/// The host answers from its own acpmux daemon connection. No reply within
-/// `timeout` (below the bridge's 2 s), an error or a malformed result is
-/// `.unavailable`. Nothing is cached.
+/// The host answers from its own acpmux daemon connection. With no verified
+/// connection every answer is `.unavailable` and refusals say
+/// `host_unverified`. A reply counts only on the connection that was asked;
+/// no reply within `timeout` (below the bridge's 2 s), an error or a
+/// malformed result is `.unavailable`. Nothing is cached.
 public final class HostConsentChannel: MachineConsentAuthority {
     private struct State {
-        var send: (@Sendable (Data) -> Void)?
-        var hostUnverified = false
+        var link: (id: UInt64, send: @Sendable (Data) -> Void)?
+        var nextLink: UInt64 = 1
         var nextID = 1
-        var pending: [Int: CheckedContinuation<Data?, Never>] = [:]
+        var pending: [Int: (link: UInt64, waiter: CheckedContinuation<Data?, Never>)] = [:]
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -142,44 +145,50 @@ public final class HostConsentChannel: MachineConsentAuthority {
         self.timeout = timeout
     }
 
-    /// Connects the channel to the control pipe's writer (only once the
-    /// host is verified; ignored after `refuseUnverifiedHost`).
-    public func bind(_ send: @escaping @Sendable (Data) -> Void) {
-        state.withLockUnchecked { if !$0.hostUnverified { $0.send = send } }
+    /// A verified host connection becomes the host; an earlier one's open
+    /// questions fail closed. Returns the link to pass to `receive`/`detach`.
+    func attach(_ send: @escaping @Sendable (Data) -> Void) -> UInt64 {
+        let (link, dropped) = state.withLockUnchecked { state -> (UInt64, [CheckedContinuation<Data?, Never>]) in
+            let link = state.nextLink
+            state.nextLink += 1
+            state.link = (link, send)
+            return (link, Self.takePending(&state) { $0 != link })
+        }
+        for waiter in dropped { waiter.resume(returning: nil) }
+        return link
     }
 
-    /// The control pipe's host was not verified: never ask it, never accept
-    /// an answer, and report `host_unverified` on every refusal.
-    public func refuseUnverifiedHost() {
-        let waiters = state.withLockUnchecked { state -> [CheckedContinuation<Data?, Never>] in
-            state.hostUnverified = true
-            state.send = nil
-            let waiters = Array(state.pending.values)
-            state.pending = [:]
-            return waiters
+    /// The connection closed: it stops being the host, and its open
+    /// questions fail closed.
+    func detach(_ link: UInt64) {
+        let dropped = state.withLockUnchecked { state -> [CheckedContinuation<Data?, Never>] in
+            if state.link?.id == link { state.link = nil }
+            return Self.takePending(&state) { $0 == link }
         }
-        for waiter in waiters { waiter.resume(returning: nil) }
+        for waiter in dropped { waiter.resume(returning: nil) }
     }
 
     public var refusalReason: ConsentRefusal.Reason? {
-        state.withLockUnchecked { $0.hostUnverified } ? .hostUnverified : nil
+        state.withLockUnchecked { $0.link == nil } ? .hostUnverified : nil
     }
 
-    /// A host reply. Unknown or late ids, and every reply from an
-    /// unverified host, are ignored.
-    public func receive(id: Int, result: Data?) {
-        let waiter = state.withLockUnchecked { $0.pending.removeValue(forKey: id) }
+    /// A reply on `link`. Unknown or late ids, and ids asked on another
+    /// connection, are ignored.
+    func receive(id: Int, result: Data?, link: UInt64) {
+        let waiter = state.withLockUnchecked { state -> CheckedContinuation<Data?, Never>? in
+            guard state.pending[id]?.link == link else { return nil }
+            return state.pending.removeValue(forKey: id)?.waiter
+        }
         waiter?.resume(returning: result)
     }
 
     public func current() async -> MachineConsentStatus {
-        guard refusalReason == nil, let data = await ask(),
-              let status = MachineConsentStatus(daemonResult: data) else { return .unavailable }
+        guard let data = await ask(), let status = MachineConsentStatus(daemonResult: data) else { return .unavailable }
         return status
     }
 
     public func recordRefusal(surface: ConsentSurface, tool: String) async {
-        let send = state.withLockUnchecked { $0.send }
+        let send = state.withLockUnchecked { $0.link?.send }
         send?(HelperWire.line(["type": "consent_refused", "surface": surface.rawValue, "tool": tool]))
     }
 
@@ -187,20 +196,31 @@ public final class HostConsentChannel: MachineConsentAuthority {
         let timeout = self.timeout
         return await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
             let request: (id: Int, send: @Sendable (Data) -> Void)? = state.withLockUnchecked { state in
-                guard let send = state.send else { return nil }
+                guard let link = state.link else { return nil }
                 let id = state.nextID
                 state.nextID += 1
-                state.pending[id] = continuation
-                return (id, send)
+                state.pending[id] = (link.id, continuation)
+                return (id, link.send)
             }
             guard let request else { return continuation.resume(returning: nil) }
             // task-owner: one bounded deadline per question; it resumes the waiter only if no reply came first.
             Task { [weak self] in
                 try? await Task.sleep(for: timeout)
-                self?.receive(id: request.id, result: nil)
+                self?.expire(request.id)
             }
             request.send(HelperWire.line(["type": "machine_consent", "id": request.id]))
         }
+    }
+
+    private func expire(_ id: Int) {
+        let waiter = state.withLockUnchecked { $0.pending.removeValue(forKey: id)?.waiter }
+        waiter?.resume(returning: nil)
+    }
+
+    private static func takePending(_ state: inout State, where matches: (UInt64) -> Bool)
+        -> [CheckedContinuation<Data?, Never>] {
+        let ids = state.pending.filter { matches($0.value.link) }.map(\.key)
+        return ids.compactMap { state.pending.removeValue(forKey: $0)?.waiter }
     }
 }
 

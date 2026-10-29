@@ -75,19 +75,14 @@ import Testing
 
     @Test(.timeLimit(.minutes(1))) func aHostThatNeverAnswersIsUnavailable() async {
         let channel = HostConsentChannel(timeout: .milliseconds(50))
-        channel.bind { _ in }
+        _ = channel.attach { _ in }
         #expect(await channel.current() == .unavailable)
     }
 
-    @Test(.timeLimit(.minutes(1))) func theControlPipeCarriesTheHostsAnswerAndAnErrorFailsClosed() async throws {
-        let input = Pipe(), output = Pipe()
+    @Test(.timeLimit(.minutes(1))) func theHostSocketCarriesTheHostsAnswerAndAnErrorFailsClosed() async throws {
         let channel = HostConsentChannel(timeout: .seconds(10))
-        let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
-                                          output: output.fileHandleForWriting.fileDescriptor,
-                                          tools: UnavailableTools(reason: "test"), consent: channel,
-                                          hostVerifier: StubHost(result: .verified), onExit: { _ in })
-        controller.start()
-        let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
+        let link = try HostLink(channel: channel, check: RecordingCheck(.verified))
+        #expect(try await link.host.nextLine()["ok"] as? Bool == true)
         // Each question is answered by the host; the helper never reads a home.
         setenv("ACPMUX_HOME", FileManager.default.temporaryDirectory.path, 1)
         defer { unsetenv("ACPMUX_HOME") }
@@ -101,17 +96,36 @@ import Testing
         ]
         for (ok, result, expected) in script {
             async let answer = channel.current()
-            let question = try await host.nextLine()
+            let question = try await link.host.nextLine()
             #expect(question["type"] as? String == "machine_consent")
             #expect(Set(question.keys) == ["type", "id"], "the question carries nothing the answer depends on")
-            try host.reply(id: try #require(question["id"] as? Int), ok: ok, result: result)
+            try link.host.reply(id: try #require(question["id"] as? Int), ok: ok, result: result)
             #expect(await answer == expected)
         }
         // A refusal is forwarded to the host for its record.
         await channel.recordRefusal(surface: .control, tool: "click")
-        let refused = try await host.nextLine()
+        let refused = try await link.host.nextLine()
         #expect(refused["type"] as? String == "consent_refused")
         #expect(refused["surface"] as? String == "control")
+        // The connection closes: it is no longer the host.
+        #expect(channel.refusalReason == nil)
+        await link.close()
+        #expect(channel.refusalReason == .hostUnverified)
+        #expect(await channel.current() == .unavailable)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aReplyCountsOnlyOnTheConnectionThatWasAsked() async {
+        let channel = HostConsentChannel(timeout: .milliseconds(200))
+        let (asked, question) = AsyncStream<Int>.makeStream()
+        let first = channel.attach { line in
+            if let id = HelperWire.object(line)?["id"] as? Int { question.yield(id) }
+        }
+        let grant = Data(#"{"consentRequired":false,"consent":{"screen":"granted","control":"granted"}}"#.utf8)
+        async let answer = channel.current()
+        var questions = asked.makeAsyncIterator()
+        let id = await questions.next() ?? 0
+        channel.receive(id: id, result: grant, link: first + 1)
+        #expect(await answer == .unavailable, "an answer on another connection is ignored")
     }
 
     // MARK: The socket, on one admitted connection
@@ -177,64 +191,71 @@ import Testing
 
     // MARK: The controlling host
 
-    /// The reviewer's case: a same-user launcher that is not the verified
-    /// cmux app sends a `call` and answers its own consent question. The
-    /// helper never asks it, ignores its answers, and the tool never runs.
-    @Test(.timeLimit(.minutes(1))) func anUnverifiedLauncherNeverRunsACallOrGrantsItself() async throws {
+    /// sr2's A/B exec chain: launcher A forks B, execs the signed helper and
+    /// keeps the pipe; B execs the helper too, so B's parent is a signed
+    /// helper (or, for any child of the app, the app itself). Simulated: the
+    /// stdin holder is the attacker, and the host check would verify any
+    /// peer. Nothing on stdin reaches it, no consent is trusted, no call runs.
+    @Test(.timeLimit(.minutes(1))) func aLauncherHoldingTheControlPipeNeverGrantsOrRuns() async throws {
         let input = Pipe(), output = Pipe()
         let channel = HostConsentChannel(timeout: .seconds(10))
         let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let check = RecordingCheck(.verified)
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,
-                                          tools: tools, consent: channel,
-                                          hostVerifier: StubHost(result: .unverified("test launcher")),
-                                          onExit: { _ in })
+                                          tools: tools, consent: channel, hostCheck: check, onExit: { _ in })
         controller.start()
-        let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
+        let attacker = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
         let grant = #"{"consentRequired":false,"consent":{"screen":"granted","control":"granted"}}"#
-        for id in 1...3 { try host.reply(id: id, ok: true, result: grant) }
-        try host.send(["type": "call", "id": 7, "name": "click", "arguments": [String: Any]()])
-        for id in 1...3 { try host.reply(id: id, ok: true, result: grant) }
-        let reply = try await host.nextLine()
-        #expect(reply["type"] as? String == "result", "the helper answers the call without asking the host")
-        #expect(reply["id"] as? Int == 7)
-        #expect(reply["ok"] as? Bool == false)
-        #expect(reply["code"] as? String == "consent_required")
-        #expect(reply["reason"] as? String == "host_unverified")
-        #expect(reply["error"] as? String
+        for id in 1...3 { try attacker.reply(id: id, ok: true, result: grant) }
+        try attacker.send(["type": "call", "id": 7, "name": "click", "arguments": [String: Any]()])
+        let reply = try await attacker.nextLine()
+        #expect(reply["type"] as? String == "error", "stdin runs no tool: \(reply)")
+        #expect((reply["error"] as? String)?.contains("unknown control message call") == true)
+        let client = try Client(tools: tools, consent: channel)
+        let refused = try client.call("click")
+        #expect(refused["code"] as? String == "consent_required")
+        #expect(refused["reason"] as? String == "host_unverified")
+        #expect(refused["error"] as? String
             == ConsentRefusal(surface: .screen, tool: "click", reason: .hostUnverified).description)
-        #expect(await channel.current() == .unavailable)
-        #expect(channel.refusalReason == .hostUnverified)
+        #expect(check.tokens.withLock { $0 }.isEmpty, "the pipe is never a host")
         #expect(tools.executed.withLock { $0 }.isEmpty, "nothing executed")
     }
 
-    @Test(.timeLimit(.minutes(1))) func aVerifiedHostsDenialIsPlainConsentRequired() async throws {
+    /// A child of the app (its parent would pass any parent check) holds the
+    /// pipe while the real app answers on the host socket. The child answers
+    /// the very question asked, with a grant, first; only the app's denial
+    /// counts, and it is a person's refusal: plain consent_required.
+    @Test(.timeLimit(.minutes(1))) func stdinAnswersAreIgnoredWhileTheHostDenies() async throws {
         let input = Pipe(), output = Pipe()
         let channel = HostConsentChannel(timeout: .seconds(10))
         let tools = GatedTools(gate: ConsentGate(authority: channel))
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,
-                                          tools: tools, consent: channel,
-                                          hostVerifier: StubHost(result: .verified), onExit: { _ in })
+                                          tools: tools, consent: channel, hostCheck: RecordingCheck(.verified),
+                                          onExit: { _ in })
         controller.start()
-        let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
-        try host.send(["type": "call", "id": 8, "name": "click", "arguments": [String: Any]()])
-        let question = try await host.nextLine()
-        #expect(question["type"] as? String == "machine_consent")
-        try host.reply(id: try #require(question["id"] as? Int), ok: true,
-                       result: #"{"consentRequired":true,"consent":{"screen":"none","control":"none"}}"#)
-        var reply = try await host.nextLine()
-        while reply["type"] as? String != "result" { reply = try await host.nextLine() }
-        #expect(reply["id"] as? Int == 8)
+        let child = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
+        let link = try HostLink(channel: channel, check: RecordingCheck(.verified))
+        #expect(try await link.host.nextLine()["ok"] as? Bool == true)
+        let client = try Client(tools: tools, consent: channel)
+        // The bridge's call blocks on its reply; it is read back as JSON.
+        let call = Task { try JSONSerialization.data(withJSONObject: client.call("click")) }
+        let question = try await link.host.nextLine()
+        let id = try #require(question["id"] as? Int)
+        try child.reply(id: id, ok: true, result: #"{"consentRequired":false,"consent":{"screen":"granted","control":"granted"}}"#)
+        try child.send(["type": "register_acpmux"])
+        #expect(try await child.nextLine()["of"] as? String == "register_acpmux", "the grant line was read first")
+        try link.host.reply(id: id, ok: true, result: #"{"consentRequired":true,"consent":{"screen":"none","control":"none"}}"#)
+        let reply = try #require(HelperWire.object(try await call.value))
         #expect(reply["code"] as? String == "consent_required")
         #expect(reply["reason"] == nil, "a person's refusal carries no reason")
         #expect((reply["error"] as? String)?.hasPrefix("consent_required: this machine") == true)
         #expect(tools.executed.withLock { $0 }.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func overTheSocketAnUnverifiedHostsRefusalSaysWhy() async throws {
+    @Test(.timeLimit(.minutes(1))) func overTheSocketWithNoVerifiedHostTheRefusalSaysWhy() async throws {
         let channel = HostConsentChannel()
-        channel.refuseUnverifiedHost()
         let tools = GatedTools(gate: ConsentGate(authority: channel))
         let client = try Client(tools: tools, consent: channel)
         let reply = try client.call("get_window_state")
@@ -247,15 +268,63 @@ import Testing
         #expect(tools.executed.withLock { $0 }.isEmpty)
     }
 
-    @Test func onlyATeamSignedCmuxAppIdentifierIsAHost() {
-        for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"] {
-            #expect(ParentProcessVerifier.isCmuxAppIdentifier(identifier), "\(identifier)")
+    /// The peer check runs on the connection's own audit token; a refused
+    /// peer never becomes the host, an accepted one does until it closes.
+    @Test(.timeLimit(.minutes(1))) func theHostSocketChecksEachPeerByItsAuditToken() async throws {
+        let channel = HostConsentChannel(timeout: .milliseconds(200))
+        let refusing = RecordingCheck(.unverified("not the cmux app"))
+        let refused = try HostLink(channel: channel, check: refusing)
+        let line = try await refused.host.nextLine()
+        #expect(line["error"] as? String == "refused")
+        #expect(line["reason"] as? String == "host_unverified")
+        await refused.close()
+        #expect(channel.refusalReason == .hostUnverified)
+        #expect(refusing.tokens.withLock { $0 } == [getpid()], "the token names this connection's peer")
+
+        let accepting = RecordingCheck(.verified)
+        let accepted = try HostLink(channel: channel, check: accepting)
+        #expect(try await accepted.host.nextLine()["ok"] as? Bool == true)
+        #expect(channel.refusalReason == nil)
+        await accepted.close()
+        #expect(channel.refusalReason == .hostUnverified)
+    }
+
+    /// Real, no seam: this test process is not a team-signed cmux app, so
+    /// its own audit token (a socketpair peer) fails the real SecCode check,
+    /// and the real server refuses it.
+    @Test(.timeLimit(.minutes(1))) func theRealCheckRefusesThisTestProcess() async throws {
+        var descriptors: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
+        defer { close(descriptors[0]); close(descriptors[1]) }
+        let token = try #require(HostConsentServer.auditToken(descriptors[1]))
+        #expect(pid_t(bitPattern: token.val.5) == getpid())
+        let verdict = CmuxAppCodeCheck().check(token)
+        #expect(verdict != .verified, "\(verdict)")
+
+        let channel = HostConsentChannel()
+        let link = try HostLink(channel: channel, check: CmuxAppCodeCheck())
+        #expect(try await link.host.nextLine()["reason"] as? String == "host_unverified")
+        await link.close()
+        #expect(channel.refusalReason == .hostUnverified)
+    }
+
+    @Test func onlyAMainCmuxAppIdentifierIsAHost() {
+        for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
+                           "com.cmuxterm.app.rc", "com.cmuxterm.app.debug", "com.cmuxterm.app.staging",
+                           "com.cmuxterm.app.debug.next", "com.cmuxterm.app.debug.my.tag2", "com.cmuxterm.app.staging.x1"] {
+            #expect(CmuxAppIdentity.isMainApp(identifier), "\(identifier)")
         }
-        for identifier in ["com.cmuxterm.apple", "com.cmuxterm.app.", "com.cmuxterm.cua", "", "xcom.cmuxterm.app"] {
-            #expect(!ParentProcessVerifier.isCmuxAppIdentifier(identifier), "\(identifier)")
+        let helpers = ["com.cmuxterm.cua", "com.cmuxterm.cua.dev", "com.cmuxterm.app.computer-use",
+                       "com.cmuxterm.app.debug.cua", "com.cmuxterm.app.debug.computer-use",
+                       "com.cmuxterm.app.nightly.server-helper", "com.cmuxterm.app.debug.next.cua", "cmux-server-helper"]
+        let nearMisses = ["com.cmuxterm.apple", "com.cmuxterm.app.", "com.cmuxterm.app.debug.", "com.cmuxterm.app.debug..x",
+                          "com.cmuxterm.app.debug.Tag", "com.cmuxterm.app.debug.my-tag", "com.cmuxterm.app.dev",
+                          "com.cmuxterm.app.nightly.other", "com.cmuxterm.app.rc.x", "com.cmuxterm.app.next",
+                          "com.cmuxterm.app.debugx", "xcom.cmuxterm.app", "com.cmuxterm.app ", "", "acpmux"]
+        for identifier in helpers + nearMisses {
+            #expect(!CmuxAppIdentity.isMainApp(identifier), "\(identifier)")
         }
-        // The test runner's parent is not a team-signed cmux app.
-        #expect(ParentProcessVerifier().verify() != .verified)
+        #expect(CmuxAppIdentity.requirement == #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#)
     }
 
     @Test(.timeLimit(.minutes(1))) func theAdmissionReplyAdvertisesTheConsentGate() throws {
@@ -298,9 +367,46 @@ import Testing
 
     // MARK: Fixtures
 
-    struct StubHost: HostVerifying {
-        let result: HostVerification
-        func verify() -> HostVerification { result }
+    /// The SecCode step, faked: a fixed verdict, recording the pid of each
+    /// audit token it was given.
+    final class RecordingCheck: HostCodeChecking {
+        let verdict: HostVerification
+        let tokens = OSAllocatedUnfairLock<[pid_t]>(initialState: [])
+        init(_ verdict: HostVerification) { self.verdict = verdict }
+        func check(_ token: audit_token_t) -> HostVerification {
+            tokens.withLock { $0.append(pid_t(bitPattern: token.val.5)) }
+            return verdict
+        }
+    }
+
+    /// The app's end of a host consent connection, served by a real
+    /// `HostConsentServer.serve` on a socketpair.
+    final class HostLink: @unchecked Sendable {
+        let host: Host
+        private let descriptor: Int32
+        private let served: AsyncStream<Void>
+
+        init(channel: HostConsentChannel, check: any HostCodeChecking) throws {
+            var descriptors: [Int32] = [-1, -1]
+            try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
+            descriptor = descriptors[0]
+            host = Host(toHelper: FileHandle(fileDescriptor: descriptors[0]), fromHelper: descriptors[0])
+            let server = HostConsentServer(path: "unused", channel: channel, check: check)
+            let serverEnd = descriptors[1]
+            let (served, finished) = AsyncStream<Void>.makeStream()
+            self.served = served
+            Thread {
+                server.serve(serverEnd)
+                finished.finish()
+            }.start()
+        }
+
+        /// Closes the app's end and waits until the helper has dropped it.
+        func close() async {
+            shutdown(descriptor, SHUT_RDWR)
+            for await _ in served {}
+            Darwin.close(descriptor)
+        }
     }
 
     struct InventoryTools: ToolInvoking {
@@ -337,7 +443,7 @@ import Testing
     }
 
     /// An admitted bridge connection to `HelperSocketServer.serve`.
-    final class Client {
+    final class Client: @unchecked Sendable {
         private let descriptor: Int32
         private var buffer = HelperWire.LineBuffer()
         private var nextID = 1

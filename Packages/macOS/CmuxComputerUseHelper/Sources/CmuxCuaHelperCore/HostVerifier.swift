@@ -3,69 +3,93 @@ import Darwin
 import Foundation
 import Security
 
-/// Whether the process on the other end of the control pipe is the cmux app.
+/// Whether a host consent connection's peer is the cmux app.
 public enum HostVerification: Sendable, Equatable {
     case verified
     case unverified(String)
 }
 
-/// Checks the controlling host once, at startup. Until a host is verified,
-/// the helper trusts nothing it says about consent and runs no `call`.
-public protocol HostVerifying: Sendable {
-    func verify() -> HostVerification
+/// Checks the peer of one host consent connection, by the audit token the
+/// kernel recorded for that connection. The token carries the pid version,
+/// so a process that exec'd after connecting does not match it.
+public protocol HostCodeChecking: Sendable {
+    func check(_ token: audit_token_t) -> HostVerification
 }
 
-/// The parent process (the launcher, which holds the control pipe) must be
-/// a cmux app signed by cmux's team. An ad hoc or unsigned launcher, another
-/// team's code, or a team-signed non-app binary is unverified. There is no
-/// environment or argument override.
-public struct ParentProcessVerifier: HostVerifying {
-    public static let teamRequirement = #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#
+/// The cmux main apps a consent answer may come from. Helper bundles are
+/// never on it. The same list is used by legacy serve and the app.
+public enum CmuxAppIdentity {
+    public static let teamIdentifier = "7WLXT3NR37"
+    public static let requirement = #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#
 
+    /// Exact main-app bundle ids.
+    public static let identifiers: Set<String> = [
+        "com.cmuxterm.app", // stable (cmux.xcodeproj Release; verify-app-bundle-channel-metadata.sh stable)
+        "com.cmuxterm.app.nightly", // NIGHTLY (verify-app-bundle-channel-metadata.sh nightly)
+        "com.cmuxterm.app.nightly.cmux-next", // cmux NEXT nightly (verify-app-bundle-channel-metadata.sh next)
+        "com.cmuxterm.app.rc", // RC (verify-app-bundle-channel-metadata.sh rc)
+        "com.cmuxterm.app.debug", // DEV, untagged (cmux.xcodeproj Debug; scripts/reload.sh)
+        "com.cmuxterm.app.staging", // staging, untagged (scripts/reloads.sh)
+    ]
+
+    /// Tagged builds: the prefix, then a tag of `[a-z0-9]+` segments joined
+    /// by "." (scripts/reload.sh and scripts/reloads.sh, `sanitize_bundle`;
+    /// the dev daily `com.cmuxterm.app.debug.next` is one).
+    public static let taggedPrefixes = ["com.cmuxterm.app.debug.", "com.cmuxterm.app.staging."]
+
+    /// Never a main app, whatever else matches: the Computer Use helpers
+    /// (com.cmuxterm.cua, com.cmuxterm.cua.dev, com.cmuxterm.app.computer-use)
+    /// and any other helper.
+    static let helperMarkers = ["cua", "computer-use", "helper"]
+
+    public static func isMainApp(_ identifier: String) -> Bool {
+        guard !helperMarkers.contains(where: { identifier.contains($0) }) else { return false }
+        if identifiers.contains(identifier) { return true }
+        return taggedPrefixes.contains { prefix in
+            guard identifier.hasPrefix(prefix) else { return false }
+            let segments = identifier.dropFirst(prefix.count).split(separator: ".", omittingEmptySubsequences: false)
+            return segments.allSatisfy { segment in
+                !segment.isEmpty && segment.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
+            }
+        }
+    }
+}
+
+/// The real check, in steps that say why a peer fails: the peer's code by
+/// audit token, a valid signature, Apple-anchored, cmux's team, then a
+/// main-app identifier bound to that same code.
+public struct CmuxAppCodeCheck: HostCodeChecking {
     public init() {}
 
-    public func verify() -> HostVerification {
-        let parent = getppid()
-        guard parent > 1 else { return .unverified("no parent process (launched by launchd, not the cmux app)") }
-        let result = Self.check(pid: parent)
-        // A pid cannot be reused while it is still our parent; if the parent
-        // exited during the check we were reparented and the answer is void.
-        guard getppid() == parent else { return .unverified("the parent process exited during the check") }
-        return result
-    }
-
-    static func check(pid: pid_t) -> HostVerification {
+    public func check(_ token: audit_token_t) -> HostVerification {
+        var token = token
+        let tokenData = Data(bytes: &token, count: MemoryLayout<audit_token_t>.size)
         var guest: SecCode?
-        let attributes = [kSecGuestAttributePid: NSNumber(value: pid)] as CFDictionary
-        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &guest) == errSecSuccess, let guest else {
-            return .unverified("cannot read the parent process's code (pid \(pid))")
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: tokenData] as CFDictionary, [],
+                                             &guest) == errSecSuccess, let guest else {
+            return .unverified("cannot read the peer's code (it may have exited or exec'd)")
         }
         guard SecCodeCheckValidity(guest, [], nil) == errSecSuccess else {
-            return .unverified("the parent's code signature is not valid")
+            return .unverified("the peer's code signature is not valid")
         }
-        guard satisfies(guest, "anchor apple generic") else {
+        guard Self.satisfies(guest, "anchor apple generic") else {
             return .unverified("not Apple-signed (ad hoc or unsigned)")
         }
-        guard satisfies(guest, teamRequirement) else { return .unverified("not signed by cmux's team") }
+        guard Self.satisfies(guest, CmuxAppIdentity.requirement) else { return .unverified("not signed by cmux's team") }
         var info: CFDictionary?
         guard SecCodeCopySigningInformation(unsafeBitCast(guest, to: SecStaticCode.self),
                                             SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
               let identifier = (info as? [String: Any])?[kSecCodeInfoIdentifier as String] as? String else {
-            return .unverified("cannot read the parent's signing identifier")
+            return .unverified("cannot read the peer's signing identifier")
         }
-        guard isCmuxAppIdentifier(identifier) else {
+        guard CmuxAppIdentity.isMainApp(identifier) else {
             return .unverified("signing identifier \(identifier) is not a cmux app")
         }
+        // isMainApp admits only [a-z0-9.-]; the identifier is safe to quote.
+        guard Self.satisfies(guest, "identifier \"\(identifier)\" and \(CmuxAppIdentity.requirement)") else {
+            return .unverified("signing identifier \(identifier) does not match the running code")
+        }
         return .verified
-    }
-
-    /// `com.cmuxterm.app`, or `com.cmuxterm.app.` followed by at least one
-    /// character (nightly, debug.<tag>, ...).
-    static func isCmuxAppIdentifier(_ identifier: String) -> Bool {
-        let base = "com.cmuxterm.app"
-        guard identifier.hasPrefix(base) else { return false }
-        let rest = identifier.dropFirst(base.count)
-        return rest.isEmpty || (rest.hasPrefix(".") && rest.count > 1)
     }
 
     private static func satisfies(_ code: SecCode, _ requirement: String) -> Bool {

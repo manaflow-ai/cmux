@@ -48,6 +48,13 @@ public final class HelperSocketServer: Sendable {
     }
 
     public func start() throws {
+        let descriptor = try Self.listening(at: path)
+        listener.withLockUnchecked { $0 = descriptor }
+        Self.acceptLoop(descriptor, name: "cua-helper-accept") { [self] client in serve(client) }
+    }
+
+    /// A listening socket at `path`, 0600, in a private directory.
+    static func listening(at path: String) throws -> Int32 {
         let directory = (path as NSString).deletingLastPathComponent
         guard PrivateDirectory.prepare(directory) else { throw StartError.directoryNotPrivate(directory) }
         var address = sockaddr_un()
@@ -69,18 +76,18 @@ public final class HelperSocketServer: Sendable {
             }
         }
         umask(previous)
-        guard bound == 0, chmod(path, 0o600) == 0, listen(descriptor, 16) == 0 else {
+        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(descriptor, 16) == 0 else {
             let failure = errno
             close(descriptor)
             throw StartError.socket(failure)
         }
-        listener.withLockUnchecked { $0 = descriptor }
-        let thread = Thread { [self] in acceptLoop(descriptor) }
-        thread.name = "cua-helper-accept"
-        thread.start()
+        return descriptor
     }
 
-    public func stop() {
+    public func stop() { Self.stop(listener, path: path) }
+
+    /// Closes a listener once and removes its socket file.
+    static func stop(_ listener: OSAllocatedUnfairLock<Int32>, path: String) {
         let descriptor = listener.withLockUnchecked { value -> Int32 in
             let old = value
             value = -1
@@ -92,7 +99,15 @@ public final class HelperSocketServer: Sendable {
         unlink(path)
     }
 
-    private func acceptLoop(_ descriptor: Int32) {
+    /// Accepts on its own thread until the listener closes; each client is
+    /// served on its own thread.
+    static func acceptLoop(_ descriptor: Int32, name: String, serve: @escaping @Sendable (Int32) -> Void) {
+        let thread = Thread { acceptClients(descriptor, serve: serve) }
+        thread.name = name
+        thread.start()
+    }
+
+    private static func acceptClients(_ descriptor: Int32, serve: @escaping @Sendable (Int32) -> Void) {
         while true {
             let client = accept(descriptor, nil, nil)
             if client < 0 {
@@ -102,7 +117,7 @@ public final class HelperSocketServer: Sendable {
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var noSigPipe: Int32 = 1
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-            let thread = Thread { [self] in serve(client) }
+            let thread = Thread { serve(client) }
             thread.name = "cua-helper-connection"
             thread.start()
         }

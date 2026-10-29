@@ -11,26 +11,19 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 /// stopped the helper: the helper removes its socket and exits. The pipe is
 /// not reachable by any other process, so the secret travels here.
 ///
-/// The host is checked once at startup (`HostVerifying`: the parent must be
-/// a team-signed cmux app). An unverified host can still configure, register
-/// acpmux and request permissions, but its `machine_consent` answers are
-/// ignored, the helper never asks it, every consent check refuses with
-/// reason `host_unverified`, and a `call` is refused without running.
-/// Nothing in cmux sends `call` today (the app and acpmux use the socket);
-/// it stays only for a verified host, behind the same consent gate.
+/// Whoever holds this pipe is not authenticated: a launcher's code
+/// signature (or its parent's) says nothing about who writes it. So the pipe
+/// carries no consent and runs no tool. Machine consent comes only over the
+/// host socket (`HostConsentServer`), whose peer is checked per connection
+/// by audit token; a `machine_consent` line here is ignored.
 ///
 /// host -> helper:
-///   {"type":"configure","socket":PATH,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
+///   {"type":"configure","socket":PATH,"host_socket":PATH,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
-///   {"type":"call","id":N,"name":TOOL,"arguments":{...}}
 ///   {"type":"request_permission","permission":"accessibility"|"screen_recording"}
-///   {"type":"machine_consent","id":N,"ok":BOOL,"result":{...}}  (the answer to the helper's question)
 /// helper -> host:
-///   {"type":"machine_consent","id":N}  (asks the host's acpmux daemon for machine consent)
-///   {"type":"consent_refused","surface":"screen"|"control","tool":TOOL}
-///   {"type":"ready","protocol":1,"pid":N,"socket":PATH}
+///   {"type":"ready","protocol":1,"pid":N,"socket":PATH,"host_socket":PATH}
 ///   {"type":"ack","of":"register_acpmux","ok":BOOL}
-///   {"type":"result","id":N,"ok":BOOL,"result":...|"error":STRING[,"code":"consent_required"[,"reason":R]]}
 ///   {"type":"error","error":STRING}
 public final class HelperController: Sendable {
     private let input: Int32
@@ -39,20 +32,19 @@ public final class HelperController: Sendable {
     private let inspector: any PeerInspecting
     private let onExit: @Sendable (Int32) -> Void
     private let requestPermission: @Sendable (HelperPermission) async -> Bool
-    /// Machine consent, asked of the host; nil means no host answers and
-    /// every call that needs consent is refused.
+    /// Machine consent, asked of the host over the host socket; nil means no
+    /// host answers and every call that needs consent is refused.
     private let consent: HostConsentChannel?
-    /// Fixed at startup; nothing on the pipe changes it.
-    private let hostVerified: Bool
+    private let hostCheck: any HostCodeChecking
     public let admission = AdmissionState()
-    private let server = OSAllocatedUnfairLock<HelperSocketServer?>(initialState: nil)
+    private let servers = OSAllocatedUnfairLock<(HelperSocketServer, HostConsentServer?)?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
 
     public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
                 inspector: any PeerInspecting = KernelPeerInspector(),
                 requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
                 consent: HostConsentChannel? = nil,
-                hostVerifier: any HostVerifying = ParentProcessVerifier(),
+                hostCheck: any HostCodeChecking = CmuxAppCodeCheck(),
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
         self.input = input
         self.output = output
@@ -61,15 +53,7 @@ public final class HelperController: Sendable {
         self.onExit = onExit
         self.requestPermission = requestPermission
         self.consent = consent
-        switch hostVerifier.verify() {
-        case .verified:
-            hostVerified = true
-            consent?.bind { [self] line in write(line) }
-        case .unverified(let reason):
-            hostVerified = false
-            consent?.refuseUnverifiedHost()
-            controlLogger.error("host not verified; Computer Use stays off: \(reason, privacy: .public)")
-        }
+        self.hostCheck = hostCheck
     }
 
     /// Reads the control pipe on its own thread until EOF.
@@ -96,12 +80,13 @@ public final class HelperController: Sendable {
     }
 
     public func shutdown() {
-        let current = server.withLockUnchecked { value -> HelperSocketServer? in
+        let current = servers.withLockUnchecked { value -> (HelperSocketServer, HostConsentServer?)? in
             let old = value
             value = nil
             return old
         }
-        current?.stop()
+        current?.0.stop()
+        current?.1?.stop()
     }
 
     private func handle(_ line: Data) {
@@ -129,35 +114,8 @@ public final class HelperController: Sendable {
             }
             send(["type": "ack", "of": "register_acpmux", "ok": ok])
         case "machine_consent":
-            // The helper never asks an unverified host; its answers are ignored.
-            guard hostVerified, let id = message["id"] as? Int else { return }
-            let result = message["ok"] as? Bool == true ? message["result"].map { HelperWire.json($0) } : nil
-            consent?.receive(id: id, result: result)
-        case "call":
-            let id = HelperWire.json(message["id"] ?? NSNull())
-            let name = message["name"] as? String ?? ""
-            let arguments = HelperWire.json(message["arguments"] ?? [String: Any]())
-            guard hostVerified else {
-                let refusal = ConsentRefusal(surface: .screen, tool: name, reason: .hostUnverified)
-                return write(HelperWire.line(["type": "result", "ok": false, "error": refusal.description,
-                                              "code": ConsentRefusal.code, "reason": ConsentRefusal.Reason.hostUnverified.rawValue],
-                                             raw: ["id": id]))
-            }
-            let tools = self.tools
-            Task.detached { [self] in
-                do {
-                    let result = try await tools.invoke(name: name, arguments: arguments)
-                    write(HelperWire.line(["type": "result", "ok": true], raw: ["id": id, "result": result]))
-                } catch let refusal as ConsentRefusal {
-                    var fields: [String: Any] = ["type": "result", "ok": false, "error": refusal.description,
-                                                 "code": ConsentRefusal.code]
-                    if let reason = refusal.reason { fields["reason"] = reason.rawValue }
-                    write(HelperWire.line(fields, raw: ["id": id]))
-                } catch {
-                    write(HelperWire.line(["type": "result", "ok": false, "error": String(describing: error)],
-                                          raw: ["id": id]))
-                }
-            }
+            // Never trusted from the pipe: answers come only over the host socket.
+            return
         default: send(["type": "error", "error": "unknown control message \(type)"])
         }
     }
@@ -174,13 +132,24 @@ public final class HelperController: Sendable {
                                             acpmuxDaemons: [], secret: secret))
         let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector, tools: tools,
                                               consent: consent ?? UnavailableConsent())
+        let hostPath = (message["host_socket"] as? String).flatMap { $0.hasPrefix("/") && $0 != path ? $0 : nil }
+        let hostServer: HostConsentServer? = if let hostPath, let consent {
+            HostConsentServer(path: hostPath, channel: consent, check: hostCheck)
+        } else {
+            nil
+        }
         do {
+            try hostServer?.start()
             try socketServer.start()
         } catch {
+            hostServer?.stop()
             return send(["type": "error", "error": "socket did not start: \(error)"])
         }
-        server.withLockUnchecked { $0 = socketServer }
-        send(["type": "ready", "protocol": HelperWire.protocolVersion, "pid": Int(getpid()), "socket": path])
+        servers.withLockUnchecked { $0 = (socketServer, hostServer) }
+        var ready: [String: Any] = ["type": "ready", "protocol": HelperWire.protocolVersion, "pid": Int(getpid()),
+                                    "socket": path]
+        if let hostServer { ready["host_socket"] = hostServer.path }
+        send(ready)
     }
 
     private func send(_ fields: [String: Any]) { write(HelperWire.line(fields)) }

@@ -15,7 +15,9 @@ private let helperV2Logger = Logger(subsystem: "com.cmuxterm.app.next", category
 /// macOS checks Accessibility and Screen Recording against the helper and
 /// never against cmux. Its stdin is our control pipe: we send the socket
 /// path, the per-launch secret and the trusted acpmux cdhash there, and
-/// EOF (stop, quit or crash of this app) stops the helper.
+/// EOF (stop, quit or crash of this app) stops the helper. Machine consent
+/// travels only on the host consent socket (``ComputerUseHelperV2HostLink``),
+/// where the helper checks this app by audit token.
 ///
 /// The helper socket admits only `acpmux cua-mcp` bridges that descend from
 /// an acpmux daemon this app registered (`registerAcpmuxDaemon`). acpmux
@@ -40,6 +42,7 @@ public final class ComputerUseHelperV2 {
     nonisolated static let endpointDirectoryKey = "CMUX_NEXT_CUA_V2_DIR"
     nonisolated static let endpointFileName = "endpoint.json"
     nonisolated static let socketFileName = "h.sock"
+    nonisolated static let hostSocketFileName = "c.sock"
 
     private(set) var state: State = .off
     public let directory: String
@@ -63,6 +66,8 @@ public final class ComputerUseHelperV2 {
     private var child: ComputerUseHelperV2Child?
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
+    /// The helper's host consent connection, while it runs.
+    private var hostLink: ComputerUseHelperV2HostLink?
     private var generation = 0
     private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
@@ -131,6 +136,7 @@ public final class ComputerUseHelperV2 {
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
+    var hostSocketPath: String { directory + "/" + Self.hostSocketFileName }
     var endpointPath: String { directory + "/" + Self.endpointFileName }
 
     /// What every acpmux daemon this app spawns gets: the endpoint directory
@@ -224,7 +230,8 @@ public final class ComputerUseHelperV2 {
         let admission: (hashes: [String], requirement: String?) = acpmux.map {
             Self.acpmuxAdmission(executable: $0.executable)
         } ?? (hashes: [], requirement: nil)
-        await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
+        await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
+                                "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
                                 "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
@@ -238,6 +245,18 @@ public final class ComputerUseHelperV2 {
             spawner.terminate(spawned.pid)
             return unavailable("the helper did not report ready")
         }
+        let link = await ComputerUseHelperV2HostLink.connect(path: hostSocketPath, helperPID: spawned.pid,
+                                                             executable: executable)
+        guard current == generation else {
+            link?.close()
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
+        }
+        if link == nil {
+            helperV2Logger.error("cmux Computer Use helper v2 consent link failed; the helper refuses every call that needs consent")
+        }
+        hostLink = link
         child = spawned
         state = .running(spawned.pid)
         restarts.watch(spawner.watchExit(of: spawned.pid) { [weak self, pid = spawned.pid] in self?.helperExited(pid) })
@@ -254,12 +273,11 @@ public final class ComputerUseHelperV2 {
             guard let record = await MainActor.run(body: { self?.consentRefused }) else { return }
             await record(surface)
         }
-        let send: @Sendable (Data) async -> Void = { line in await spawned.send(line) }
         // task-owner: stored in controlLog, cancelled by stop() and terminateForQuit(); it ends at the helper's EOF.
         controlLog = Task.detached {
-            await Self.logControlLines(lines, pid: pid) { object in
-                ComputerUseHelperV2Consent.handle(object, send: send, consent: consent, refused: refused)
-            }
+            async let control: Void = Self.logControlLines(lines, pid: pid)
+            if let link { await ComputerUseHelperV2Consent.serve(link, pid: pid, consent: consent, refused: refused) }
+            await control
         }
         guard await Self.writeEndpoint(path: endpointPath, socket: socketPath, secret: secret, owner: spawned.pid) else {
             await stop()
@@ -316,6 +334,8 @@ public final class ComputerUseHelperV2 {
         state = .off
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         child.closeInput()
         let spawner = self.spawner
         // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
@@ -332,6 +352,8 @@ public final class ComputerUseHelperV2 {
         unlink(endpointPath)
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         child?.closeInput()
         child = nil
         state = .off
@@ -345,6 +367,8 @@ public final class ComputerUseHelperV2 {
         self.child = nil
         controlLog?.cancel()
         controlLog = nil
+        hostLink?.close()
+        hostLink = nil
         unlink(endpointPath)
         child.closeInput()
         // The exited child stays a zombie until reaped; a SIGTERM to it does nothing.

@@ -15,7 +15,8 @@ HelperEnvironment(helperBundleID: bundleID).apply()
 // Starting (including after an update) never asks for a grant. The app's
 // Computer Use setup buttons request each permission over the control pipe.
 
-// Machine-join consent comes only from the cmux app over the control pipe.
+// Machine-join consent comes only from the cmux app over the host consent
+// socket, whose peer is checked by audit token (HostConsentServer).
 let consent = HostConsentChannel()
 let tools: any ToolInvoking
 let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"

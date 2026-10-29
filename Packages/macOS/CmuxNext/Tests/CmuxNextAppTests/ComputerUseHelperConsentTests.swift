@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CmuxNextCompat
 import Testing
@@ -53,5 +54,36 @@ struct ComputerUseHelperConsentTests {
                                                   consent: daemon, refused: refused))
         #expect(!ComputerUseHelperV2Consent.handle(["type": "ack", "of": "register_acpmux"], send: send,
                                                    consent: daemon, refused: refused))
+    }
+
+    /// The host link checks the server on its own connection: the helper
+    /// pid this app started (here: this process listens), else no link.
+    @Test(.timeLimit(.minutes(1))) func theHostLinkConnectsOnlyToTheHelperItStarted() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cul-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: "c.sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(listener >= 0)
+        defer { close(listener) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.utf8)
+            buffer[path.utf8.count] = 0
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(bound == 0 && listen(listener, 4) == 0)
+        let executable = URL(fileURLWithPath: "/usr/bin/true")
+        let other = await ComputerUseHelperV2HostLink.connect(path: path, helperPID: getppid(), executable: executable, team: nil)
+        #expect(other == nil, "a socket another process serves is not the helper")
+        let link = try #require(await ComputerUseHelperV2HostLink.connect(path: path, helperPID: getpid(),
+                                                                          executable: executable, team: nil))
+        link.close()
+        #expect(await link.send(Data("x\n".utf8)) == false, "closed")
+        #expect(await ComputerUseHelperV2HostLink.connect(path: path + ".missing", helperPID: getpid(),
+                                                          executable: executable, team: nil) == nil)
     }
 }
