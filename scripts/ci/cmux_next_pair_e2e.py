@@ -299,8 +299,14 @@ def main():
         if url:
             t1 = time.monotonic()
             opened_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1))
+            # The phone dialed this Mac at launch, before it had the code, and its auth is waiting on
+            # the Mac's Allow: the code's token goes out only in a new auth's reply (LinkPairing), so a
+            # link opened into that app is never presented (step d7afa734, 2026-10-29). The app is ended
+            # and the link opens it, as the Camera opens a scanned code (RootView .onOpenURL holds the
+            # code until live data starts); the Mac then answers the earlier ask with the code.
+            subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True, timeout=60)
             # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
-            opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True)
+            opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True, timeout=60)
             if opened.returncode != 0:  # the error names the link: redacted, never raised with it
                 raise SystemExit(f"simctl openurl failed ({opened.returncode}): {redact(opened.stderr.strip())[-400:]}")
             paired = mac_log.wait(PAIRED, 180)
@@ -310,8 +316,10 @@ def main():
                                                        "compact", "--predicate", pairing_logs],
                                                       capture_output=True, text=True).stdout)
             connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
+            took_code = phone_log.wait(re.compile(r"pairing code for"), 0)
             note(f"- pairing: {'PAIRED, phone ' + paired.group(1) if paired else 'NOT paired'} "
-                 f"({took:.0f} s after the link opened, no Allow prompt, no seed); Mac lists "
+                 f"({took:.0f} s after the link opened, no Allow prompt, no seed; the phone "
+                 f"{'took' if took_code else 'never logged taking'} the code); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
