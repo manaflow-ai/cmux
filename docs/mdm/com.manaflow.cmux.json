@@ -2523,7 +2523,7 @@
       "type" : "string"
     },
     "layout.defaultColumnWidth" : {
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
       "minimum" : 0.1,
@@ -2607,7 +2607,7 @@
       "type" : "number"
     },
     "layout.newColumnWidth" : {
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "description" : "layout.newColumnWidth",
       "enum" : [
         "matchCurrent",

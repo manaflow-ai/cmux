@@ -95,6 +95,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
+import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -370,6 +371,9 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
+  /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
+  /// the chat (App.tsx, the computer use live preview).
+  shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
   // The native command palette shares the header's visibility and uncover behavior.
@@ -464,6 +468,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    shown,
     toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
@@ -648,6 +653,8 @@ function InspectorPresence({
       shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
+  // A card under the panel (the computer use live preview) reads where it goes from the shell.
+  useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
