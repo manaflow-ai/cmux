@@ -167,6 +167,8 @@ import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
   vmIdlePauseMinutesFromRow,
+  vmIdlePauseDiagnosticsFromRow,
+  type VmIdlePauseDiagnostics,
   vmIdleEpochFromRow,
   vmLastApiActivityFromRow,
   vmPauseIntentEpochFromRow,
@@ -252,6 +254,7 @@ export type VmEntry = {
   readonly agentUpdates: VmAgentUpdatesSetting;
   /** Minutes without activity before the machine pauses by itself; 0 is Off (services/vms/idlePause.ts). */
   readonly idlePauseMinutes: VmIdlePauseMinutes;
+  readonly idlePause: VmIdlePauseDiagnostics;
   /** Why a paused machine is paused: "idle" (auto-pause) or "user"; null when running or unknown. */
   readonly pauseReason: VmPauseReason | null;
   /**
@@ -5266,6 +5269,11 @@ export function resizeVm(input: {
     if (!providers.resize || !providers.getStats) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
     }
+    // A user resize is activity before any preflight/provider I/O. Do not
+    // proceed on a failed write: an overdue idle candidate could pause it.
+    if (repo.recordVmApiActivity) {
+      yield* repo.recordVmApiActivity({ id: vm.id, providerVmId: input.providerVmId, at: yield* Clock.currentTimeMillis });
+    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
       maxActiveVms: input.maxActiveVms, callerPlanId: input.billingPlanId,
@@ -6720,6 +6728,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
     agentUpdates: vmAgentUpdatesFromRow(row),
     idlePauseMinutes: vmIdlePauseMinutesFromRow(row),
+    idlePause: vmIdlePauseDiagnosticsFromRow(row),
     pauseReason: vmPauseReasonFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))
