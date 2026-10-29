@@ -9527,12 +9527,14 @@ function AcpmuxPane() {
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             plusExtensions={plusExtensions}
             onPlusOpen={refreshPlusActions}
-            onPlusCommand={(id) =>
-              callNative("action.run", { id }).catch((error: unknown) => {
+            onPlusCommand={async (id) => {
+              try {
+                await callNative("action.run", { id });
+              } catch (error: unknown) {
                 directClient.current?.notice(errorMessage(error) || String(error));
                 throw error;
-              })
-            }
+              }
+            }}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
