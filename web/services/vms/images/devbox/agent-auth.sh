@@ -218,12 +218,29 @@ cmux_claude_apply_auth_mode() {
 # -c model_provider="openai", the built-in provider that uses `codex login`.
 # Only a config cmux generated is overridden; a user's own provider choice is
 # left alone.
+cmux_codex_uses_generated_provider() {
+  cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
+  [ -f "$cmux_codex_config" ] || return 1
+  # Match the top-level key in any valid TOML spelling (whitespace, either
+  # quote style, a trailing comment, CRLF), not only the generator's exact
+  # line; keys after the first [table] header belong to that table. awk, not
+  # python3: the python3 first on PATH can be a project's venv or toolchain
+  # pin without tomllib, and a failed check here silently keeps a signed-in
+  # user on CodeRouter.
+  awk '
+    { sub(/\r$/, "") }
+    /^[ \t]*\[/ { exit }
+    /^[ \t]*(model_provider|"model_provider"|\047model_provider\047)[ \t]*=[ \t]*["\047]cmux["\047][ \t]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$cmux_codex_config" 2>/dev/null
+}
+
 cmux_codex_apply_auth_mode() {
   cmux_codex_own_provider=0
   cmux_agent_auth_resolve codex
   [ "$cmux_agent_auth_mode" = own ] || return 0
   cmux_agent_drop_model_plane_env
-  if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
+  if cmux_codex_uses_generated_provider; then
     cmux_codex_own_provider=1
   fi
 }
