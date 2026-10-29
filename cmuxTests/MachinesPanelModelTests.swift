@@ -1427,6 +1427,27 @@ final class MachinesPanelVMStreamTests: XCTestCase {
         )
     }
 
+    func testPlusPausedSlotFreesImmediatelyOnStreamDelete() {
+        let model = makeStreamingModel()
+        model.applyRefreshResult(.success(VMListPage(
+            vms: [streamSummary("saved", status: "paused", createdAt: 1000)],
+            limits: VMPlanLimits(maxActiveVms: 1, planId: "go", freeAccessWindowDays: 0, activeVmCount: 1)
+        )), generation: model.refreshGeneration, scope: nil)
+        XCTAssertEqual(model.plan?.usage.compactCount, "1/1")
+        model.applyVMChanges(upserts: [], deletions: ["saved"], authoritative: false)
+        XCTAssertEqual(model.plan?.usage.compactCount, "0/1")
+    }
+
+    func testStreamRetainsAccountWideSlotOutsideVisibleScope() {
+        let model = makeStreamingModel()
+        model.applyRefreshResult(.success(VMListPage(
+            vms: [],
+            limits: VMPlanLimits(maxActiveVms: 1, planId: "go", freeAccessWindowDays: 0, activeVmCount: 1)
+        )), generation: model.refreshGeneration, scope: nil)
+        model.applyVMChanges(upserts: [], deletions: [], authoritative: true)
+        XCTAssertEqual(model.plan?.usage.compactCount, "1/1")
+    }
+
     func testStreamUpsertReplacesTheRowInPlace() {
         let model = makeStreamingModel()
         model.applyVMChanges(
