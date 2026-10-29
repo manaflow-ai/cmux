@@ -131,7 +131,6 @@ test("a reply with its row keeps the height the browser measured when it resizes
     await act(async () => {
       for (const observer of observers)
         if (observer.targets.has(rowOf("a1"))) observer.notify([{ target: rowOf("a1") }]);
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     // The steer is placed under the reply's measured 900px, not under its estimate. Reported
     // without the reply's row flag, the height was taken for a stale one and dropped.
