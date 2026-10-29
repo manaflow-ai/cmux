@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -25,6 +26,18 @@ struct CaptureNeutralNamesTests {
         #expect(captured.terminalEnvironment["ZDOTDIR"] == home.path)
         #expect(captured.terminalEnvironment["SHELL"] == "/bin/zsh")
         #expect(captured.namesShowcaseMac)
+    }
+
+    @Test func theTerminalEnvironmentAndTheMacsNameAgreeOnACapture() {
+        let folder = { (path: String) in path == "/lease/home" }
+        for path in ["/lease/home", "/missing", "lease/home"] {
+            let environment = ["CMUX_CAPTURE_SHELL_HOME": path]
+            #expect(AppEnvironment.captureShellHome(environment, isFolder: folder) == MacName.captureShellHome(environment, isFolder: folder))
+        }
+    }
+
+    @Test func aRunUnderCaptureIsNeverThePlacedServer() {
+        #expect(ServerReachService.thisMac(captureOverride: MacName.captureName) == nil)
     }
 
     @Test func aPersonsRunKeepsTheirShellAndThisMacsName() {
