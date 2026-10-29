@@ -17,18 +17,21 @@
 //! harness up. For a harness another daemon started none are known: it ends only when nothing
 //! runs under it.
 //!
-//! Only a child of the harness can be a server, and only when its command line is exactly the
-//! server's: its program (as configured, or what `PATH` runs for a name), or an interpreter
-//! running that program as a script, then exactly its args (`runs`). What runs under a server is
-//! the server's. The configs and `ps` each get [`CENSUS_BUDGET`]; past it the harness stays up,
-//! so the leases the pass holds are never held longer.
+//! Only a child of the harness can be a server, and only when its argv is exactly the server's:
+//! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
+//! program as a script, then exactly its args (`runs`). The argv is read word by word
+//! (`tree::argv`), never split from the line `ps` prints, so a server whose path has a space in it
+//! (acpmux's own, from `/Applications/cmux NIGHTLY.app`) matches, and one process's words can
+//! never pass for another's. A child whose argv cannot be read is not a server. What runs under a
+//! server is the server's. The configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`];
+//! past it the harness stays up, so the leases the pass holds are never held longer.
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
 use super::*;
 use std::path::{Path, PathBuf};
 
-/// One configured MCP server: its command and args, each arg split on whitespace as `ps` prints.
+/// One configured MCP server: its command and args, word by word.
 /// `resolved`: for a command given by name, the program the harness's `PATH` runs for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sidecar {
@@ -67,9 +70,13 @@ impl Hub {
     ) -> Census {
         #[cfg(unix)]
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
-            let found = tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid));
-            return match tokio::time::timeout(CENSUS_BUDGET, found).await {
-                Ok(Ok(Some(found))) => classify(&found, pid, &sidecars),
+            // The listing, each candidate's argv and the match all run in the bounded task.
+            let census = tokio::task::spawn_blocking(move || {
+                let found = crate::agent_host::tree::under(pid)?;
+                Some(classify(&found, pid, &sidecars, crate::agent_host::tree::argv))
+            });
+            return match tokio::time::timeout(CENSUS_BUDGET, census).await {
+                Ok(Ok(Some(census))) => census,
                 _ => Census::Unknown,
             };
         }
@@ -232,12 +239,10 @@ fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-/// A server by its command and args, or None when `ps`'s space-joined command line could not
-/// tell it apart (an empty word or one with whitespace in it): such a server never matches, so a
-/// harness that runs it stays up.
+/// A server by its command and args, or None for an empty command. Args are kept word for word,
+/// spaces and empty words included: the census compares exact argv (`runs`).
 fn sidecar(command: &str, args: &[String]) -> Option<Sidecar> {
-    let plain = |w: &str| !w.is_empty() && !w.contains(char::is_whitespace);
-    (plain(command) && args.iter().all(|a| plain(a))).then(|| Sidecar {
+    (!command.is_empty()).then(|| Sidecar {
         command: command.to_owned(),
         args: args.to_vec(),
         resolved: None,
@@ -296,18 +301,17 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
         .collect()
 }
 
-/// Whether command line `args` (as `ps` prints it) is exactly `s`: its program is the server's
-/// command (as configured, or the program `PATH` runs for a command given by name), or one of
+/// Whether `argv`, a process's exact argv, is `s`: its program is the server's command (as
+/// configured, or the program `PATH` runs for a command given by name), or one of
 /// [`INTERPRETERS`] runs that program as a script (a `#!` line: `node /usr/local/bin/npx`), and
 /// then exactly the server's args. A server that is a bare interpreter with no args says nothing
 /// about what it runs, so it never matches.
-fn runs(args: &str, s: &Sidecar) -> bool {
-    let words: Vec<&str> = args.split_whitespace().collect();
-    let base = |w: &str| Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
+fn runs(argv: &[String], s: &Sidecar) -> bool {
     let interpreter = |w: &str| {
-        let name = base(w).unwrap_or_default();
+        let name = Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
         INTERPRETERS.iter().any(|i| {
-            name.strip_prefix(i)
+            name.as_deref()
+                .and_then(|n| n.strip_prefix(i))
                 .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
         })
     };
@@ -315,29 +319,36 @@ fn runs(args: &str, s: &Sidecar) -> bool {
         return false;
     }
     let program = |w: &str| w == s.command || s.resolved.as_deref() == Some(w);
-    let at = if words.first().is_some_and(|w| program(w)) {
-        1
-    } else if words.first().is_some_and(|w| interpreter(w))
-        && words.get(1).is_some_and(|w| w.contains('/') && program(w))
-    {
-        2
-    } else {
-        return false;
+    let at = match argv {
+        [first, ..] if program(first) => 1,
+        [first, second, ..] if interpreter(first) && second.contains('/') && program(second) => 2,
+        _ => return false,
     };
-    words.len() == at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
+    argv[at..] == s.args[..]
 }
 
-/// `Busy` with the first process that is neither a server (a child of `leader`) nor under one.
+/// `Busy` with the first process that is neither a server (a child of `leader` whose exact argv,
+/// from `argv_of`, is one) nor under one.
 #[cfg(unix)]
-fn classify(found: &[crate::agent_host::tree::Under], leader: u32, sidecars: &[Sidecar]) -> Census {
-    let mut allowed: Vec<u32> = Vec::new();
+fn classify(
+    found: &[crate::agent_host::tree::Under],
+    leader: u32,
+    sidecars: &[Sidecar],
+    argv_of: impl Fn(u32) -> Option<Vec<String>>,
+) -> Census {
+    // The harness starts its servers itself: only its own children can be one.
+    let servers: Vec<u32> = found
+        .iter()
+        .filter(|p| p.ppid == leader)
+        .filter(|p| argv_of(p.pid).is_some_and(|argv| sidecars.iter().any(|s| runs(&argv, s))))
+        .map(|p| p.pid)
+        .collect();
+    let mut allowed = servers;
     let mut grew = true;
     while grew {
         grew = false;
         for p in found {
-            // The harness starts its servers itself: only its own children can be one.
-            let server = p.ppid == leader && sidecars.iter().any(|s| runs(&p.args, s));
-            if !allowed.contains(&p.pid) && (allowed.contains(&p.ppid) || server) {
+            if !allowed.contains(&p.pid) && allowed.contains(&p.ppid) {
                 allowed.push(p.pid);
                 grew = true;
             }
@@ -362,6 +373,15 @@ mod tests {
         Under { pid, ppid, args: args.into() }
     }
 
+    /// [`classify`] with harness 10, each process's argv its `ps` line split on spaces.
+    fn census(found: &[Under], servers: &[Sidecar]) -> Census {
+        let split = |pid| {
+            let p = found.iter().find(|p| p.pid == pid)?;
+            Some(p.args.split(' ').map(str::to_owned).collect())
+        };
+        classify(found, 10, servers, split)
+    }
+
     #[test]
     fn mcp_servers_and_what_runs_under_them_let_a_harness_end() {
         let mut servers = from_json(Some(&json!({
@@ -381,19 +401,19 @@ mod tests {
             under(12, 10, "node /usr/local/bin/npx -y @example/fetch"),
             under(13, 12, "node /tmp/_npx/fetch/index.js"),
         ];
-        assert!(matches!(classify(&found, 10, &servers), Census::Clear));
+        assert!(matches!(census(&found, &servers), Census::Clear));
         for same in [
             "npx -y @example/fetch",
             "/usr/local/bin/npx -y @example/fetch",
             "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch",
         ] {
             let found = [under(12, 10, same)];
-            assert!(matches!(classify(&found, 10, &servers), Census::Clear), "{same}");
+            assert!(matches!(census(&found, &servers), Census::Clear), "{same}");
         }
         let mut busy = found.to_vec();
         busy.push(under(14, 10, "/usr/bin/python3 -m http.server 8000"));
         assert!(
-            matches!(classify(&busy, 10, &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
+            matches!(census(&busy, &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
         );
         for other in [
             "node /usr/local/bin/npx -y @example/other",
@@ -409,11 +429,11 @@ mod tests {
             "python3 -c print(1)",
         ] {
             let found = [under(12, 10, other)];
-            assert!(matches!(classify(&found, 10, &servers), Census::Busy { .. }), "{other}");
+            assert!(matches!(census(&found, &servers), Census::Busy { .. }), "{other}");
         }
         // A server's command line under something other than the harness is not its server.
         let nested = [under(15, 10, "bash"), under(16, 15, "npx -y @example/fetch")];
-        assert!(matches!(classify(&nested, 10, &servers), Census::Busy { pid: 15, .. }));
+        assert!(matches!(census(&nested, &servers), Census::Busy { pid: 15, .. }));
     }
 
     #[test]
@@ -454,12 +474,11 @@ mod tests {
         let codex = from_toml("[mcp_servers.docs]\ncommand = \"docs-mcp\"\nargs = [\"--stdio\"]\n");
         assert_eq!(codex, vec![sidecar("docs-mcp", &["--stdio".into()]).unwrap()]);
         assert!(from_toml("[mcp_servers").is_empty());
-        // A server ps cannot tell apart from other argv, or with an arg that is not a string.
+        // A server with an arg that is not a string, or no command.
         let unclear = json!({
-            "a": {"command": "srv", "args": ["foo bar"]},
-            "b": {"command": "srv", "args": ["", "x"]},
             "c": {"command": "srv", "args": ["x", 1]},
             "d": {"command": "srv", "args": "x"},
+            "e": {"command": "", "args": ["x"]},
         });
         assert!(from_json(Some(&unclear)).is_empty());
         let project = json!({"projects": {"/w/a": {"mcpServers": {"x": {"command": "x-mcp"}}}}});
@@ -471,5 +490,44 @@ mod tests {
             from_json(Some(&acp)),
             vec![sidecar("/bin/cmux", &["mcp".into(), "serve".into()]).unwrap()]
         );
+    }
+
+    /// acpmux's own servers run from `/Applications/cmux NIGHTLY.app`: matched on exact argv, a
+    /// word with a space in it is that server, and the same words split differently are not.
+    #[test]
+    fn a_server_whose_path_has_a_space_is_matched_word_for_word() {
+        let acpmux = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+        let socket = "/Users/me/Library/Application Support/cmux/cua.sock";
+        let servers = from_json(Some(&json!([
+            {"name": "forum", "command": acpmux, "args": ["forum-mcp"]},
+            {"name": "cua", "command": "/opt/cua", "args": ["mcp", "--socket", socket]},
+            {"name": "two", "command": "srv", "args": ["foo bar"]},
+        ])));
+        assert_eq!(servers.len(), 3);
+        let argv: &[(u32, &[&str])] = &[
+            (11, &[acpmux, "forum-mcp"]),
+            (12, &["/opt/cua", "mcp", "--socket", socket]),
+            (13, &["srv", "foo bar"]),
+            // The same words as 13, split differently: not that server.
+            (14, &["srv", "foo", "bar"]),
+            (15, &["/Applications/cmux", "NIGHTLY.app/Contents/Resources/bin/acpmux", "forum-mcp"]),
+            (16, &[acpmux, "offer-mcp"]),
+        ];
+        let lookup = |pid: u32| {
+            argv.iter()
+                .find(|(p, _)| *p == pid)
+                .map(|(_, a)| a.iter().map(|w| w.to_string()).collect())
+        };
+        let line = |pid: u32| lookup(pid).map(|a: Vec<String>| a.join(" ")).unwrap_or_default();
+        let found: Vec<Under> = [11, 12, 13].into_iter().map(|p| under(p, 10, &line(p))).collect();
+        assert!(matches!(classify(&found, 10, &servers, lookup), Census::Clear));
+        for pid in [14, 15, 16] {
+            let found = [under(pid, 10, &line(pid))];
+            let census = classify(&found, 10, &servers, lookup);
+            assert!(matches!(census, Census::Busy { pid: p, .. } if p == pid), "{pid}");
+        }
+        // A child whose argv cannot be read is never a server.
+        let found = [under(11, 10, &line(11))];
+        assert!(matches!(classify(&found, 10, &servers, |_| None), Census::Busy { pid: 11, .. }));
     }
 }

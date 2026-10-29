@@ -86,6 +86,87 @@ pub struct Under {
     pub args: String,
 }
 
+/// The exact argv of `pid`, word by word (`ps` joins it with spaces, so a word with a space in it,
+/// such as a path into `/Applications/cmux NIGHTLY.app`, cannot be told apart there). `None` when
+/// it cannot be read: the process ended, belongs to another user, or rewrote its argument area.
+#[cfg(target_os = "macos")]
+pub fn argv(pid: u32) -> Option<Vec<String>> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut argmax: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    // SAFETY: the out buffer is a c_int and `size` is its size.
+    let read = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            2,
+            (&raw mut argmax).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read != 0 || argmax <= 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; argmax as usize];
+    let mut filled = buffer.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    // SAFETY: the buffer is writable for `filled` bytes, which is passed.
+    let read = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buffer.as_mut_ptr().cast(),
+            &mut filled,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read != 0 {
+        return None;
+    }
+    procargs2_argv(&buffer[..filled])
+}
+
+/// The exact argv of `pid` from `/proc/<pid>/cmdline`; `None` when it cannot be read.
+#[cfg(target_os = "linux")]
+pub fn argv(pid: u32) -> Option<Vec<String>> {
+    cmdline_argv(&std::fs::read(format!("/proc/{pid}/cmdline")).ok()?)
+}
+
+/// Other unix systems: argv is not read, so no process passes for a server.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+pub fn argv(_pid: u32) -> Option<Vec<String>> {
+    None
+}
+
+/// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
+/// NUL-terminated words. `None` when it is cut short or a word is not UTF-8.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn procargs2_argv(data: &[u8]) -> Option<Vec<String>> {
+    let argc = usize::try_from(i32::from_ne_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
+    let rest = &data[4..];
+    let path_end = rest.iter().position(|b| *b == 0)?;
+    let start = path_end + rest[path_end..].iter().position(|b| *b != 0)?;
+    let mut words = Vec::with_capacity(argc);
+    let mut at = &rest[start..];
+    for _ in 0..argc {
+        let end = at.iter().position(|b| *b == 0)?;
+        words.push(String::from_utf8(at[..end].to_vec()).ok()?);
+        at = &at[end + 1..];
+    }
+    Some(words)
+}
+
+/// The argv in a `/proc/<pid>/cmdline`: NUL-terminated words. `None` when it is empty (a kernel
+/// thread, or an exited process), not NUL-terminated (a process that rewrote it), or not UTF-8.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn cmdline_argv(data: &[u8]) -> Option<Vec<String>> {
+    let body = data.strip_suffix(&[0])?;
+    body.split(|b| *b == 0).map(|w| String::from_utf8(w.to_vec()).ok()).collect()
+}
+
 /// Every live process other than `leader` that runs under it: by parent chain, or in its process
 /// group even after its parent exited (a group member reparented to init). Zombies are skipped:
 /// they run nothing. `None` when `ps` fails, prints a line it cannot read or bytes that are not
@@ -158,6 +239,35 @@ mod census_tests {
         assert!(under_in(TABLE, 300, 1).is_none(), "a missing leader");
         assert!(under_in("100 1 100 S claude\nbad line\n", 100, 1).is_none(), "an unreadable line");
         assert!(under_in("104 1 104 Z claude\n", 104, 1).is_none(), "a zombie leader");
+    }
+
+    #[test]
+    fn argv_keeps_each_word_whole() {
+        use super::{cmdline_argv, procargs2_argv};
+        let app = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+        let mut data = 2i32.to_ne_bytes().to_vec();
+        data.extend_from_slice(format!("{app}\0\0\0{app}\0forum-mcp\0HOME=/x\0").as_bytes());
+        assert_eq!(procargs2_argv(&data).unwrap(), [app, "forum-mcp"]);
+        let mut short = 3i32.to_ne_bytes().to_vec();
+        short.extend_from_slice(b"/bin/a\0/bin/a\0b");
+        assert!(procargs2_argv(&short).is_none(), "cut short");
+        assert_eq!(
+            cmdline_argv(format!("{app}\0forum-mcp\0").as_bytes()).unwrap(),
+            [app, "forum-mcp"]
+        );
+        assert_eq!(cmdline_argv(b"srv\0\0x\0").unwrap(), ["srv", "", "x"]);
+        assert!(cmdline_argv(b"").is_none());
+        assert!(cmdline_argv(b"node server.js --title").is_none(), "rewritten, no NUL");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn argv_reads_a_live_process() {
+        let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let got = super::argv(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(got.unwrap(), ["/bin/sleep", "30"]);
     }
 
     #[test]
