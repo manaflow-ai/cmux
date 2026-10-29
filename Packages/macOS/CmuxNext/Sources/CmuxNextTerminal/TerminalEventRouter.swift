@@ -232,6 +232,11 @@ nonisolated final class TerminalOutputLaneNamer: Sendable {
         }
     }
 
+    /// Whether the lane named to the IO now is `lane` (diagnostics).
+    func names(_ lane: TerminalOutputLane?) -> Bool {
+        state.withLock { state in state.named?.names(lane) ?? (lane == nil) }
+    }
+
     /// Names no lane, once, and ignores every later ``name(_:)``.
     func close() {
         state.withLock { state in

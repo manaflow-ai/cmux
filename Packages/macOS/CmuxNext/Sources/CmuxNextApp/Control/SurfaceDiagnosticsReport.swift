@@ -61,6 +61,7 @@ enum SurfaceDiagnosticsReport {
                     object["skipped_images"] = JSONValue(diagnostics.skippedImages)
                     object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
                     object["frame_held"] = .bool(diagnostics.holdingFrame)
+                    object["stream"] = entry.io.streamReport(diagnostics).json
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG || CMUX_BENCH_HOOKS
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }

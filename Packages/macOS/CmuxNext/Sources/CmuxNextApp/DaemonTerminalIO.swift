@@ -359,6 +359,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// Attachment state for diagnostics and tests.
     var attachPhase: TerminalAttachDriver<TerminalAttachment>.Machine.Phase { driver.machine.phase }
 
+    /// This view's live output per stage, daemon to surface (`debug.surfaces`): the live link's and the lane's.
+    func streamReport(_ surface: TerminalSurfaceDiagnostics) -> TerminalStreamReport {
+        TerminalStreamReport(ledger: driver.machine.liveLink?.link.streamLedger,
+                             lane: surface.laneOutput.map { ($0.queued, $0.parsed, $0.skipped) },
+                             readerFeedsViewLane: surface.readerFeedsViewLane)
+    }
+
     // MARK: Steps
 
     /// The GHOSTSNP version the surface restores (`terminal-snapshot-v1`);

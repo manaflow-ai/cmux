@@ -33,6 +33,8 @@ final class TerminalEchoRouter: Sendable {
     private struct State {
         var sequencer = TerminalSnapshotSequencer()
         var route: TerminalEchoRoute
+        /// Per-stage byte counts (``ledger``), kept under this lock where each line is routed.
+        var ledger = TerminalStreamLedger()
     }
 
     private let state: Mutex<State>
@@ -62,28 +64,39 @@ final class TerminalEchoRouter: Sendable {
     /// hold limit, the queue's high water) the reader waits for after the line.
     func admit(_ decoded: DecodedAttachLine, sizeState: (TerminalSizeState, String?) -> Void) {
         let next = state.withLock { state -> Next in
-            guard let event = state.sequencer.admit(decoded) else { return .drop }
+            state.ledger.decoded(decoded)
+            let admitted = state.sequencer.admit(decoded)
+            state.ledger.admitted(decoded, event: admitted)
+            guard let event = admitted else { return .drop }
             switch event {
             case .sizeState(let size, let participant):
                 return .sizeState(size, participant: participant)
             case .closed:
-                queueHeld(state.route.close())
+                queueHeld(state.route.close(), ledger: &state.ledger)
                 queue.finish(event)
                 return .queued
             case .output(let data, let colors):
                 probe.outputDecoded(flow: decoded.flow)
                 switch state.route.route(data, colors: colors, flow: decoded.flow) {
-                case .lane(let sink): return .lane(sink, data, flow: decoded.flow)
+                case .lane(let sink):
+                    state.ledger.laneBytes &+= data.count
+                    return .lane(sink, data, flow: decoded.flow)
                 case .held(let full):
+                    state.ledger.heldBytes &+= data.count
                     if full { queue.holdForMarker() }
                     return .queued
-                case .stream: queueOutput(TerminalEchoRoute.Held(data: data, colors: colors, flow: decoded.flow))
+                case .stream:
+                    state.ledger.streamBytes &+= data.count
+                    queueOutput(TerminalEchoRoute.Held(data: data, colors: colors, flow: decoded.flow))
                 }
             default:
-                queueHeld(state.route.takeHeld())
+                queueHeld(state.route.takeHeld(), ledger: &state.ledger)
                 queue.pushWithoutWaiting(event)
             }
-            if let marker = state.route.recordQueued() { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
+            if let marker = state.route.recordQueued() {
+                state.ledger.markersSent &+= 1
+                queue.pushWithoutWaiting(.outputResume(self.marker(marker)))
+            }
             return .queued
         }
         switch next {
@@ -98,27 +111,40 @@ final class TerminalEchoRouter: Sendable {
     func setSink(_ sink: TerminalEchoSink?) {
         state.withLock { state in
             let (held, marker) = state.route.install(sink)
-            queueHeld(held)
-            if let marker { queue.pushWithoutWaiting(.outputResume(self.marker(marker))) }
+            queueHeld(held, ledger: &state.ledger)
+            if let marker {
+                state.ledger.markersSent &+= 1
+                queue.pushWithoutWaiting(.outputResume(self.marker(marker)))
+            }
         }
     }
 
     /// The link detached: output stays on the stream, and a reader waiting for the lane goes on.
     func close() {
-        state.withLock { queueHeld($0.route.close()) }
+        state.withLock { state in queueHeld(state.route.close(), ledger: &state.ledger) }
         queue.releaseLane(closing: true)
     }
 
     /// The connection's decode lane: the connection closed. Ends the stream after any output still held.
     func finish(_ last: TerminalChannelEvent) {
         state.withLock { state in
-            queueHeld(state.route.close())
+            queueHeld(state.route.close(), ledger: &state.ledger)
             queue.finish(last)
         }
     }
 
     /// Whether the next output chunk goes straight to the lane (tests, diagnostics).
     var routesToLane: Bool { state.withLock { $0.route.isOpen } }
+
+    /// The link's per-stage byte counts and the route's state now (`debug.surfaces`).
+    var ledger: TerminalStreamLedger {
+        state.withLock { state in
+            var ledger = state.ledger
+            ledger.hasSink = state.route.sink != nil
+            ledger.routeOpen = state.route.isOpen
+            return ledger
+        }
+    }
 
     private func marker(_ sequence: UInt64) -> TerminalOutputMarker {
         TerminalOutputMarker(sequence: sequence) { [weak self] sequence in self?.acknowledge(sequence) }
@@ -130,10 +156,17 @@ final class TerminalEchoRouter: Sendable {
         state.withLock { state in
             switch state.route.acknowledge(sequence) {
             case .nothing: break
-            case .marker(let next): queue.pushWithoutWaiting(.outputResume(self.marker(next)))
+            case .marker(let next):
+                state.ledger.markersAcknowledged &+= 1
+                state.ledger.markersSent &+= 1
+                queue.pushWithoutWaiting(.outputResume(self.marker(next)))
             case .open(let sink, let held):
+                state.ledger.markersAcknowledged &+= 1
                 // The reader's next chunk goes by the open route and waits on the lane if it is still full.
-                for chunk in held { _ = sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: {}) }
+                for chunk in held {
+                    state.ledger.heldToLaneBytes &+= chunk.data.count
+                    _ = sink.enqueueEcho(chunk.data, flow: chunk.flow, wake: {})
+                }
                 queue.releaseMarkerHold()
             }
         }
@@ -141,8 +174,9 @@ final class TerminalEchoRouter: Sendable {
 
     /// Under the lock: output held behind a marker goes onto the stream, in order, ahead of the record queued
     /// next; nothing is held any more, so the hold limit no longer holds the reader.
-    private func queueHeld(_ held: [TerminalEchoRoute.Held]) {
+    private func queueHeld(_ held: [TerminalEchoRoute.Held], ledger: inout TerminalStreamLedger) {
         guard !held.isEmpty else { return }
+        for chunk in held { ledger.heldToStreamBytes &+= chunk.data.count }
         held.forEach(queueOutput)
         queue.releaseMarkerHold()
     }

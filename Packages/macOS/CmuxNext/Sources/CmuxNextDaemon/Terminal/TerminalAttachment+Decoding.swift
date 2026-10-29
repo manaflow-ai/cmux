@@ -23,9 +23,11 @@ extension TerminalAttachment {
         /// That press's daemon stages; absent from a daemon before them, or one whose clock is
         /// not this Mac's.
         var keyStages: KeyStages?
+        /// The daemon's PTY offset after this chunk (a snapshot attach); counted only (``TerminalStreamLedger``).
+        var offset: UInt64?
 
         enum CodingKeys: String, CodingKey {
-            case surface, data, colors, generation, flow
+            case surface, data, colors, generation, flow, offset
             case keyStages = "key_stages"
         }
     }
@@ -113,7 +115,7 @@ extension TerminalAttachment {
                 decoder.recorder?.outputCopied(output.data.count)  // decoded out of the line, even if dropped below
                 guard scoped(output.surface) else { return nil }
                 return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation,
-                                         flow: output.flow, keyStamps: output.keyStages?.stamps)
+                                         flow: output.flow, keyStamps: output.keyStages?.stamps, offset: output.offset)
             case "resized":
                 let state = try decoder.decode(TerminalVTStateWire.self, from: line)
                 guard scoped(state.surface) else { return nil }

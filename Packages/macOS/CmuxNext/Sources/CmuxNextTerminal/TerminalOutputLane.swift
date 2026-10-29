@@ -47,6 +47,8 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     private struct Backlog {
         var bytes = 0
+        /// Output bytes queued for parsing (``processOutput(_:)``), in all; counted only (``outputCounts``).
+        var outputQueued = 0
         var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// Attach readers waiting for room (``enqueueEcho(_:flow:wake:)``); each is called once.
         var wakes: [@Sendable () -> Void] = []
@@ -64,6 +66,10 @@ nonisolated final class TerminalOutputLane: Sendable {
     }
 
     private let backlog = Mutex(Backlog(), rank: .terminalOutputLaneBacklog)
+    /// Output bytes parsed into the live surface, and those skipped because the surface was closing. Written
+    /// only on the lane's serial queue; counted only (``outputCounts``).
+    private let outputParsed = Atomic<Int>(0)
+    private let outputSkipped = Atomic<Int>(0)
     /// The surface's key-to-echo stage: each parsed output chunk may be a waiting key's echo. Nil
     /// while the app tracks no input latency.
     let echoStage: TerminalEchoStage?
@@ -192,6 +198,12 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
+    /// Output bytes this lane queued, parsed into its surface, and skipped because the surface was closing
+    /// (`debug.surfaces`, beside the attach link's ``TerminalStreamLedger``). Counted only.
+    var outputCounts: (queued: Int, parsed: Int, skipped: Int) {
+        (backlog.withLock { $0.outputQueued }, outputParsed.load(ordering: .relaxed), outputSkipped.load(ordering: .relaxed))
+    }
+
     /// The surface hid or shows again: while ``lowersHidden``, work queued from now on runs at utility while
     /// it is hidden, at user-interactive once it shows (``enqueue(_:)``). Work queued before keeps its QoS.
     func setHidden(_ isHidden: Bool) {
@@ -213,12 +225,19 @@ nonisolated final class TerminalOutputLane: Sendable {
         guard !data.isEmpty else { return }
         // A key armed after these bytes reached the lane cannot be their echo.
         let armedBefore = echoStage?.armedCount ?? 0
-        backlog.withLock { $0.bytes += data.count }
+        backlog.withLock { backlog in
+            backlog.bytes += data.count
+            backlog.outputQueued &+= data.count
+        }
         enqueue { [self] in
             defer { parsed(data.count) }
-            guard let surface = liveSurface else { return }
+            guard let surface = liveSurface else {
+                outputSkipped.add(data.count, ordering: .relaxed)
+                return
+            }
             // SAFETY: ``liveSurface`` on the lane: alive until close() fences the lane.
             unsafe feed(surface, data)
+            outputParsed.add(data.count, ordering: .relaxed)
             echoStage?.outputParsed(armedBefore: armedBefore)
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS
