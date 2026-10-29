@@ -207,7 +207,7 @@ actor TokenStorageAvailabilityProbe {
         let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
         let client = LockedStorageAuthClient(
             access: "access", refresh: "refresh", locked: false,
-            currentUserError: UserNotSignedInError()
+            currentUserError: StackAuthError(code: "USER_NOT_SIGNED_IN", message: "User is not signed in.")
         )
         await client.pauseRefreshRead(after: 2)
         let availability = TokenStorageAvailabilityProbe(available: true)
