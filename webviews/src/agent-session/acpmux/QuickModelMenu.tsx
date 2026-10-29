@@ -1,27 +1,12 @@
-import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { AgentMark, hasAgentMark } from "../shared/AgentMark";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
-import { SearchIcon, type Choice } from "./ComposerPickers";
+import type { Choice } from "./ComposerPickers";
+import type { HarnessPlacement, ReasoningSliderStyle } from "./composerSettings";
 import { isDefaultChoice } from "./defaultChoice";
-import { EffortTrack } from "./EffortTrack";
-import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
-import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
-import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
+import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
 import { OnNewTab } from "./newTabComposer";
-import {
-  Menu,
-  MenuButton,
-  MenuCheckboxItem,
-  MenuGroup,
-  MenuItem,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  Submenu,
-} from "../../ui/Menu";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -141,32 +126,15 @@ export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "s
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
 export function QuickModelMenu({
-  open,
-  onOpenChange,
-  trigger,
-  chip,
-  menu,
-  onMore,
-  children,
+  open, onOpenChange, trigger, chip, menu, onMore, children,
 }: {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-  /// Holds the chip (the menu's button), where the full picker anchors.
+  open: boolean; onOpenChange(open: boolean): void;
   trigger: React.RefObject<HTMLButtonElement | null>;
   chip: { "data-menu": string; label: string; title: string };
-  menu: QuickMenu;
-  /// Opens the full picker, searching for `query` when one was typed.
-  onMore(query?: string): void;
-  /// The chip's face.
-  children: React.ReactNode;
+  menu: QuickMenu; onMore(query?: string): void; children: React.ReactNode;
 }) {
   const t = useT();
-  const settings = useComposerSettings();
-  const placement = menu.harnessPlacement ?? settings.harnessPlacement;
-  // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
-  // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge
-  // of the chip. This is only a side decision: the surface still fits its visible content.
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, fast } = menu;
@@ -174,693 +142,91 @@ export function QuickModelMenu({
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
   const families = menu.families;
-  // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
-  // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
-  // model menu does, not a submenu: the rail tab it was opened on.
   const [moreFor, setMoreFor] = useState<string | undefined>();
-  const moreListId = useId();
-  // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
-  // reply), and an effect on the families would throw away the tab and the typed filter.
-  const [scrolled, setScrolled] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
-      setQuery("");
-      setMoreFor(undefined);
-      setScrolled(false);
+      setQuery(""); setMoreFor(undefined);
     }
   }
-  // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
-  // goes to the first row left, so the next key, Enter and Escape still reach the menu. A
-  // re-render with the same filter (a streaming reply hands over new families) keeps the row the
-  // keyboard moved to, so Enter picks it.
-  // With a search field the keyboard sits in it from the moment the menu opens, and a key typed
-  // on a row goes back to it.
-  const popup = useRef<HTMLDivElement | null>(null);
-  // A changed tab or filter starts with its first model in view.
-  const body = useRef<HTMLDivElement | null>(null);
-  const rail = useRef<HTMLFieldSetElement | null>(null);
-  useLayoutEffect(() => {
-    const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
-    selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [open, tab]);
-  const toTop = () => {
-    if (body.current) body.current.scrollTop = 0;
-    setScrolled(false);
-  };
-  const focusedFor = useRef<string | undefined>(undefined);
   const search = menu.search;
-  const field = useRef<HTMLInputElement | null>(null);
   const shown = families?.list.find((family) => family.id === tab);
-  const look = menu.searchField ?? "always";
-  // How many models the list holds, More models included (an empty query finds every one).
-  const listed =
-    look !== "long"
-      ? 0
-      : families
-        ? shown
-          ? shown.models.length + shown.more.length
-          : 0
-        : (search?.find("").length ?? 0);
-  const showField = !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
-  useLayoutEffect(() => {
-    const input = field.current;
-    const node = input?.closest<HTMLElement>(".ui-popup") ?? popup.current;
-    if (!open || !node || !(families || search)) {
-      focusedFor.current = undefined;
-      return;
-    }
-    const active = node.ownerDocument.activeElement;
-    const typed = query !== focusedFor.current;
-    focusedFor.current = query;
-    if (input) {
-      if ((query && typed && active !== input) || !node.contains(active)) {
-        input.focus({ preventScroll: true });
-        input.setSelectionRange(input.value.length, input.value.length);
-      }
-    } else if ((query && typed) || !node.contains(active)) {
-      const first = node.querySelector<HTMLElement>('[role^="menuitem"]:not([data-disabled])');
-      (first ?? node).focus({ preventScroll: true });
-    }
-  }, [query, open, families, search, showField, tab, moreFor]);
   const onChatTab = !families || tab === families.current;
   const forkTab = !query && shown?.fork ? shown : undefined;
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
-  // What the list draws: the search's matches, else the tab's top models.
-  const rows: QuickModel[] =
-    query && search
-      ? search.find(query)
-      : !families
-        ? models.map((model) => ({ ...model, family: "" }))
-        : (shown?.models ?? []);
+  const look = menu.searchField ?? "always";
+  const listed = look !== "long" ? 0 : families ? (shown ? shown.models.length + shown.more.length : 0) : (search?.find("").length ?? 0);
+  const showField = !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
+  const rows: QuickModel[] = query && search ? search.find(query) : !families ? models.map((model) => ({ ...model, family: "" })) : shown?.models ?? [];
   const providerLook = menu.providers ?? "row";
-  // The running model's row when several providers serve it: the Provider row switches among them.
-  const runningRow = onChatTab
-    ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current))
-    : undefined;
-  const runningProvider = runningRow?.offers?.find((offer) => offer.id === current)?.provider;
+  const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
-  const providerRow = (offer: QuickModel & { provider: string }, className = "acpmux-quick-item") => (
-    <MenuRadioItem
-      key={valueOf(offer)}
-      value={valueOf(offer)}
-      closeOnClick
-      disabled={offer.disabled}
-      className={className}
-    >
-      <span className="acpmux-menu-label">{offer.provider}</span>
-    </MenuRadioItem>
-  );
+  const runningRow = onChatTab ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current)) : undefined;
+  const runningProvider = runningRow?.offers?.find((offer) => offer.id === current)?.provider;
+  const modelRow = (choice: QuickModel, index?: number): NativePopupRow => {
+    const value = valueOf(choice);
+    return {
+      id: `model:${value}`, kind: choice.offers && providerLook === "submenu" ? "submenu" : choice.offers && providerLook === "expanded" ? "section" : "choice", label: choice.name,
+      ...(choice.tag ? { description: choice.tag } : {}), ...(choice.hint || choice.provider ? { value: choice.hint ?? choice.provider } : {}),
+      ...(choice.disabled ? { disabled: true } : {}), checked: value === currentValue,
+      ...(!newTab && !query && index !== undefined && index < FILTER_ROWS && value !== currentValue ? { shortcut: String(index + 1) } : {}),
+      ...(choice.offers && (providerLook === "submenu" || providerLook === "expanded") ? { children: choice.offers.map((offer) => modelRow(offer)) } : {}),
+    };
+  };
+  const visibleRows: NativePopupRow[] = rows.map((choice, index) => modelRow(choice, index));
+  if (!visibleRows.length) visibleRows.push({ kind: "text", id: "empty", label: query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches")), disabled: true });
+  if (!query && shown?.note && shown.logIn) visibleRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
+  if (forkTab) visibleRows.splice(0, visibleRows.length, { kind: "action", id: `fork:${forkTab.id}`, label: t("picker.forkTo", { harness: forkTab.name }), disabled: families?.forkReady === false });
+  if (!query && inlineMore && shown && shown.more.length > 0) {
+    const moreRows = moreShown ? shown.more.map((choice) => modelRow(choice)) : [];
+    visibleRows.push({ kind: moreShown ? "section" : "action", id: "more-models", label: t("picker.moreModels"), keepOpen: true, ...(moreRows.length ? { children: moreRows } : {}) });
+  }
+  if (!query && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length)) visibleRows.push({ kind: "action", id: "add-harness", label: t("modelPicker.addHarness") });
+  if (!query && onChatTab && effort && levels.length > 1) visibleRows.push({ kind: "submenu", id: "effort", label: t("effort.title"), value: level?.name, children: effort.slider ? [{ kind: "slider", id: "effort-slider", label: t("effort.title"), value: effort.current, minimum: 0, maximum: Math.max(0, levels.length - 1), step: 1 }] : levels.map((choice) => ({ kind: "choice" as const, id: `effort:${choice.id}`, label: choice.name, checked: choice.id === effort.current })) });
+  if (!query && runningRow?.offers && providerLook === "row") visibleRows.push({ kind: "submenu", id: "provider", label: t("picker.provider"), value: runningProvider, children: runningRow.offers.map((offer) => modelRow(offer)) });
+  if (!query && !forkTab && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness)) visibleRows.push({ kind: "submenu", id: "more-models", label: t("picker.moreModels"), children: [...(shown?.more.map((choice) => modelRow(choice)) ?? []), ...(families.onAddHarness ? [{ kind: "action" as const, id: "add-harness", label: t("modelPicker.addHarness") }] : [])] });
+  if (!query && !families) visibleRows.push({ kind: "action", id: "more-models", label: t("picker.moreModels") });
+  if (!query && onChatTab && account) {
+    const accountValue = accounts.switchFailed ? t("picker.accountSwitchFailed") : accounts.list ? (accounts.list.accounts.find((choice) => choice.id === accounts.list?.active)?.name ?? t("picker.harnessLogin")) : undefined;
+    const accountRows: NativePopupRow[] = accounts.list ? [{ kind: "choice", id: "account:", label: t("picker.harnessLogin"), checked: !accounts.list.active, disabled: accounts.list.scope !== "chat" && !!accounts.list.active }, ...accounts.list.accounts.filter((choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || choice.id === accounts.list?.active).map((choice) => ({ kind: "choice" as const, id: `account:${choice.id}`, label: choice.name, checked: choice.id === accounts.list?.active }))] : [{ kind: "text", id: "account-status", label: accounts.failed ? t("picker.accountFailed") : "…", disabled: true }];
+    visibleRows.push({ kind: "submenu", id: "account", label: t("picker.account"), value: accountValue, children: accountRows });
+  }
+  if (!query && onChatTab && fast) visibleRows.push({ kind: "toggle", id: "fast", label: t("picker.fastMode"), checked: fast.checked });
+  const rail = families?.list.map((family) => ({ kind: "action" as const, id: `family:${family.id}`, label: family.name, ...(family.mark ? { icon: family.mark } : {}), checked: family.id === tab, disabled: family.launch && families.forkReady === false }));
+  const model: NativePopupDescription = { side, align: "start", width: families ? 310 : 280, title: t("picker.model"), rows: visibleRows, ...(rail ? { rail, railWidth: 44 } : {}), ...(showField ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}), ...(menu.update ? { footer: [{ kind: "action", id: "update", label: t("harness.update"), description: menu.update.text }] } : {}) };
+  const findModel = (id: string): QuickModel | undefined => [...rows, ...(shown?.more ?? []), ...(runningRow?.offers ?? []), ...rows.flatMap((choice) => choice.offers ?? [])].find((choice) => `model:${valueOf(choice)}` === id);
   const pickRow = (row: QuickModel) => {
     if (row.disabled) return;
     onOpenChange(false);
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
-    if (query && search) search.pick(row);
-    else if (!families) menu.onModel(row.id);
-    else families.onPick(row);
+    if (query && search) search.pick(row); else if (!families) menu.onModel(row.id); else families.onPick(row);
   };
-  /// The field's editing keys stay in it: Base UI's typeahead and the menu's own keys never see
-  /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
-  const fieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.nativeEvent.isComposing || event.keyCode === 229) {
-      event.stopPropagation();
-      return;
-    }
-    const { key } = event;
-    if (!query && (/^[1-9]$/.test(key) || key === "ArrowLeft" || key === "ArrowRight")) return;
-    if (key.length === 1 || ["Backspace", "Delete", "Home", "End", "ArrowLeft", "ArrowRight"].includes(key))
-      event.stopPropagation();
+  const onEvent = (event: NativePopupEvent) => {
+    const id = event.id ?? "";
+    if (event.type === "search" && id === "query") { setQuery(event.value ?? ""); return; }
+    if (event.type !== "pick" && event.type !== "change") return;
+    if (id.startsWith("model:")) { const row = findModel(id); if (row) pickRow(row); }
+    else if (id.startsWith("family:") && families) { const family = families.list.find((candidate) => `family:${candidate.id}` === id); if (!family) return; if (family.launch && !family.note) { onOpenChange(false); families.onLaunch?.(family.id); } else { setTab(family.id); setQuery(""); setMoreFor(undefined); } }
+    else if (id === "more-models") { if (inlineMore) setMoreFor((value) => (value === tab ? undefined : tab)); else { onOpenChange(false); onMore(query || undefined); } }
+    else if (id === "add-harness") { onOpenChange(false); families?.onAddHarness?.(); }
+    else if (id === "login") { onOpenChange(false); shown?.logIn?.(); }
+    else if (id.startsWith("fork:") && families) { onOpenChange(false); families.onFork?.(id.slice("fork:".length)); }
+    else if (id.startsWith("effort:")) effort?.onPick(id.slice("effort:".length));
+    else if (id.startsWith("account:")) { onOpenChange(false); accounts.pick(id.slice("account:".length) || null); }
+    else if (id === "fast") fast?.onChange(event.value === undefined ? !fast.checked : event.value === "true");
+    else if (id === "update") { onOpenChange(false); menu.update?.run(); }
   };
-  const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
-  const accountValue = accounts.switchFailed
-    ? t("picker.accountSwitchFailed")
-    : accounts.list
-      ? (activeAccount?.name ?? t("picker.harnessLogin"))
-      : undefined;
-  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
-      return;
-    // Only the menu's own keys, not a submenu's (React carries those up through the portal).
-    if (!event.currentTarget.contains(event.target as Node)) return;
-    popup.current = event.currentTarget;
-    // Left and Right move along the rail (its tabs are not rows, so Up and Down stay in the list).
-    // In the search field they move along the rail only while it is empty (fieldKeyDown).
-    if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-      const tabs = families.list.filter((family) => !family.launch || families.forkReady !== false);
-      const at = tabs.findIndex((family) => family.id === tab);
-      const next = tabs[(at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
-      if (next) {
-        event.preventDefault();
-        setTab(next.id);
-        toTop();
-      }
-      return;
-    }
-    // While filtering, a digit is part of the name ("gpt 5"); Enter picks the highlighted match.
-    const filters = !!(families || search);
-    if (/^[1-9]$/.test(event.key) && !(filters && query)) {
-      const choice = rows[Number(event.key) - 1];
-      if (!choice) return;
-      event.preventDefault();
-      pickRow(choice);
-    } else if (event.target === field.current) {
-      // The field edits its own text (fieldKeyDown). Enter there picks the highlighted row (the
-      // pointer's or the arrows'), else the first match.
-      if (event.key !== "Enter") return;
-      if (!query && shown?.launch && !shown.note && families?.forkReady !== false) {
-        event.preventDefault();
-        onOpenChange(false);
-        families?.onLaunch?.(shown.id);
-        return;
-      }
-      const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
-      if (highlighted) {
-        event.preventDefault();
-        highlighted.click();
-      } else if (query && rows[0]) {
-        event.preventDefault();
-        pickRow(rows[0]);
-      }
-    } else if (filters && event.key === "Backspace" && query) {
-      event.preventDefault();
-      setQuery(query.slice(0, -1));
-      toTop();
-    } else if (event.key.length === 1 && (/\S/.test(event.key) || (filters && query))) {
-      event.preventDefault();
-      // Typing filters the list in place, Claude Code style; without a rail it searches the full picker.
-      if (filters) {
-        setQuery(query + event.key);
-        toTop();
-      } else {
-        onOpenChange(false);
-        onMore(event.key);
-      }
-    }
-  };
-  const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
-  // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
-  // filtered context is visible, while the static "Model · this session" caption adds no
-  // information beyond the trigger and is intentionally omitted.
-  const modelRows = (
-    <>
-      <MenuRadioGroup
-        value={currentValue}
-        onValueChange={(value) => {
-          const row = rows
-            .flatMap((choice) => [choice, ...(choice.offers ?? [])])
-            .find((choice) => valueOf(choice) === value);
-          if (row) pickRow(row);
-        }}
-      >
-        {rows.map((choice, index) => {
-          const value = valueOf(choice);
-          // The provider the row lands, at its trailing edge, where a searched row names its harness.
-          const detail = choice.hint ?? choice.provider;
-          const label = (
-            <>
-              <span className="acpmux-menu-label">{choice.name}</span>
-              {choice.tag && <span className="acpmux-quick-tag">{choice.tag}</span>}
-            </>
-          );
-          if (choice.offers && providerLook === "submenu")
-            return (
-              <Submenu
-                key={value}
-                className="acpmux-quick-item acpmux-quick-sub"
-                popupClassName="acpmux-quick-menu"
-                label={
-                  <>
-                    {label}
-                    {detail && <span className="acpmux-quick-value">{detail}</span>}
-                  </>
-                }
-              >
-                <MenuRadioGroup
-                  value={currentValue}
-                  onValueChange={(next) => {
-                    const offer = choice.offers?.find((candidate) => valueOf(candidate) === next);
-                    if (offer) pickRow(offer);
-                  }}
-                >
-                  {choice.offers.map((offer) => providerRow(offer))}
-                </MenuRadioGroup>
-              </Submenu>
-            );
-          if (choice.offers && providerLook === "expanded")
-            return (
-              <Fragment key={value}>
-                <MenuItem disabled className="acpmux-quick-item acpmux-quick-model-head">
-                  <span className="acpmux-quick-label">{label}</span>
-                </MenuItem>
-                {choice.offers.map((offer) => providerRow(offer, "acpmux-quick-item acpmux-quick-offer"))}
-              </Fragment>
-            );
-          return (
-            <MenuRadioItem
-              key={value}
-              value={value}
-              closeOnClick
-              disabled={choice.disabled}
-              className="acpmux-quick-item"
-              // tooltip-allow: New Tab's menu keeps its width, so a long model name ends in "…"; the tooltip names it whole.
-              {...(newTab ? { title: detail ? `${choice.name} · ${detail}` : choice.name } : {})}
-              shortcut={
-                !newTab && !query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined
-              }
-            >
-              <span className="acpmux-quick-label">
-                {label}
-                {detail && <span className="acpmux-quick-value">{detail}</span>}
-              </span>
-            </MenuRadioItem>
-          );
-        })}
-      </MenuRadioGroup>
-      {rows.length === 0 && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
-        </MenuItem>
-      )}
-      {!query && shown?.note && shown.logIn && (
-        <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-        </MenuItem>
-      )}
-    </>
-  );
-  const list = (
-    <>
-      {forkTab ? (
-        <MenuGroup label={forkTab.name}>
-          <MenuItem
-            className="acpmux-quick-item acpmux-quick-fork"
-            disabled={!families?.forkReady}
-            onSelect={() => families?.onFork?.(forkTab.id)}
-          >
-            <span className="acpmux-menu-label">{t("picker.forkTo", { harness: forkTab.name })}</span>
-          </MenuItem>
-        </MenuGroup>
-      ) : query ? (
-        <MenuGroup label={`“${query}”`}>{modelRows}</MenuGroup>
-      ) : (
-        <>
-          {modelRows}
-          {inlineMore && shown && shown.more.length > 0 && (
-            <MenuItem
-              className="acpmux-quick-item acpmux-quick-sub acpmux-quick-disclosure"
-              closeOnClick={false}
-              expanded={moreShown}
-              {...(moreShown ? { controls: moreListId } : {})}
-              onSelect={() => setMoreFor(moreShown ? undefined : tab)}
-            >
-              <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
-              <span className="ui-submenu-chevron" aria-hidden="true" />
-            </MenuItem>
-          )}
-          {/* Its own short scroll area, so Effort, Account and Fast mode stay in view under it. */}
-          {moreShown && shown && (
-            <fieldset
-              id={moreListId}
-              className="acpmux-quick-more-list"
-              aria-label={t("picker.moreModels")}
-              data-single={shown.more.length === 1 ? "" : undefined}
-            >
-              <MenuRadioGroup
-                value={currentValue}
-                onValueChange={(value) => {
-                  const row = shown.more.find((choice) => rowValue(choice) === value);
-                  if (row) pickRow(row);
-                }}
-              >
-                {shown.more.map((choice) => (
-                  <MenuRadioItem
-                    key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
-                    // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
-                    title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
-                  >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </fieldset>
-          )}
-          {inlineMore && families.onAddHarness && (moreShown || !shown?.more.length) && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
-              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
-            </MenuItem>
-          )}
-        </>
-      )}
-      {!query && onChatTab && effort && levels.length > 1 && (
-        <>
-          <MenuSeparator />
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
-            label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
-          >
-            {effort.slider ? (
-              <div className="acpmux-quick-effort-slider">
-                <EffortTrack
-                  efforts={levels}
-                  current={effort.current}
-                  fallback={levels.find((choice) => choice.recommended)?.id}
-                  sliderStyle={effort.sliderStyle}
-                  onPick={effort.onPick}
-                  onRangeKey={(event) => {
-                    if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
-                  }}
-                  focusOnMount
-                />
-              </div>
-            ) : (
-              <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
-                {levels.map((choice) => (
-                  <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-                    <span className="acpmux-menu-label">{choice.name}</span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            )}
-          </Submenu>
-        </>
-      )}
-      {!query && runningRow?.offers && providerLook === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
-      {!query && runningRow?.offers && providerLook === "row" && (
-        <Submenu
-          className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu"
-          label={<QuickRowLabel label={t("picker.provider")} value={runningProvider} />}
-        >
-          <MenuRadioGroup
-            value={currentValue}
-            onValueChange={(next) => {
-              const offer = runningRow.offers?.find((candidate) => valueOf(candidate) === next);
-              if (offer) pickRow(offer);
-            }}
-          >
-            {runningRow.offers.map((offer) => providerRow(offer))}
-          </MenuRadioGroup>
-        </Submenu>
-      )}
-      {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
-      {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
-        <Submenu
-          align="start"
-          className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu acpmux-quick-more"
-          label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
-        >
-          {shown && shown.more.length > 0 && (
-            <>
-              <MenuRadioGroup
-                value={currentValue}
-                onValueChange={(value) => {
-                  const row = shown.more.find((choice) => rowValue(choice) === value);
-                  if (row) pickRow(row);
-                }}
-              >
-                {shown.more.map((choice) => (
-                  <MenuRadioItem
-                    key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
-                  >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-              {families.onAddHarness && <MenuSeparator />}
-            </>
-          )}
-          {families.onAddHarness && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
-              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
-            </MenuItem>
-          )}
-        </Submenu>
-      )}
-      {!query && !families && (
-        <MenuItem className="acpmux-quick-item acpmux-quick-sub" onSelect={() => onMore()}>
-          <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
-          <span className="ui-submenu-chevron" aria-hidden="true" />
-        </MenuItem>
-      )}
-      {!query && onChatTab && account && (
-        <Submenu
-          className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu"
-          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
-        >
-          <AccountRows
-            list={accounts.list}
-            failed={accounts.failed}
-            switchFailed={accounts.switchFailed}
-            onPick={(routeId) => {
-              onOpenChange(false);
-              accounts.pick(routeId);
-            }}
-          />
-        </Submenu>
-      )}
-      {!query && onChatTab && fast && (
-        <>
-          <MenuSeparator />
-          <MenuCheckboxItem
-            className="acpmux-quick-item acpmux-quick-fast"
-            checked={fast.checked}
-            onCheckedChange={(on) => fast.onChange(on)}
-          >
-            <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
-            <span className="acpmux-quick-fast-toggle" aria-hidden="true">
-              <span />
-            </span>
-          </MenuCheckboxItem>
-        </>
-      )}
-    </>
-  );
-  return (
-    <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
-        {children}
-      </MenuButton>
-      <MenuPopup
-        side={side}
-        flip={false}
-        align="start"
-        label={t("picker.model")}
-        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
-        boundary={CHAT_COLUMN}
-        // A native menu panel cannot draw the harness strip or the More models scroll area.
-        // Keep this combined surface inside the window in both directions.
-        escapes={!families}
-        // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
-        onKeyDown={keyDown}
-      >
-        {showField && (
-          <div className="acpmux-quick-search">
-            <SearchIcon size={14} />
-            <input
-              ref={field}
-              type="search"
-              aria-label={t("picker.search")}
-              placeholder={t("picker.search")}
-              autoComplete="off"
-              spellCheck={false}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                toTop();
-              }}
-              onKeyDown={fieldKeyDown}
-            />
-          </div>
-        )}
-        {families ? (
-          <div className="acpmux-quick-layout">
-            {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
-              {families.list.map((family) => (
-                <button
-                  key={family.id}
-                  type="button"
-                  aria-label={family.name}
-                  aria-pressed={family.id === tab}
-                  disabled={family.launch && families.forkReady === false}
-                  // tooltip-allow: the rail tab draws only a meaningful harness mark, never a
-                  // machine/session initial; its accessible name and title identify the harness.
-                  title={family.note ? `${family.name} · ${family.note}` : family.name}
-                  className="acpmux-quick-rail-tab"
-                  // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
-                  tabIndex={-1}
-                  onClick={() => {
-                    if (family.launch && !family.note) {
-                      onOpenChange(false);
-                      families.onLaunch?.(family.id);
-                      return;
-                    }
-                    setTab(family.id);
-                    setQuery("");
-                    toTop();
-                  }}
-                >
-                  {family.starred ? (
-                    <StarIcon />
-                  ) : family.mark && hasAgentMark(family.mark) && harnessIcon(family.mark)?.kind !== "monogram" ? (
-                    <AgentMark agent={family.mark} size={16} />
-                  ) : null}
-                  <span className="acpmux-quick-harness-name">{family.name}</span>
-                </button>
-              ))}
-            </fieldset>
-            <div
-              className="acpmux-quick-body"
-              ref={body}
-              data-scrolled={scrolled ? "" : undefined}
-              onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
-            >
-              <div className="acpmux-quick-list">{list}</div>
-            </div>
-          </div>
-        ) : (
-          list
-        )}
-        {menu.update && (
-          <div className="acpmux-quick-update">
-            <span>{menu.update.text}</span>
-            <MenuItem
-              className="acpmux-quick-update-action"
-              onSelect={() => {
-                menu.update?.run();
-                onOpenChange(false);
-              }}
-            >
-              {t("harness.update")}
-            </MenuItem>
-          </div>
-        )}
-      </MenuPopup>
-    </Menu>
-  );
+  const { available } = useNativePopup({ open, model, anchor: () => trigger.current, onEvent, onDismiss: () => onOpenChange(false) });
+  useEffect(() => { if (open && !available) onOpenChange(false); }, [available, onOpenChange, open]);
+  return <button type="button" ref={trigger} className="acpmux-picker-button" data-menu={chip["data-menu"]} aria-label={chip.label} title={chip.title} aria-haspopup="menu" aria-expanded={open} onClick={() => onOpenChange(!open)}>{children}</button>;
 }
 
-/// The rail's Starred tab: an outline star.
-function StarIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/// A submenu row: its name, then the current value in secondary text before the chevron.
-/// A More models row: the model's name, its tag, and the provider it lands at the trailing edge.
-function QuickModelLabel({ model }: { model: Pick<QuickModel, "name" | "tag" | "provider"> }) {
-  return (
-    <span className="acpmux-quick-label">
-      <span className="acpmux-menu-label">{model.name}</span>
-      {model.tag && <span className="acpmux-quick-tag">{model.tag}</span>}
-      {model.provider && <span className="acpmux-quick-value">{model.provider}</span>}
-    </span>
-  );
-}
-
-function QuickRowLabel({ label, value }: { label: string; value?: string }) {
-  return (
-    <>
-      <span className="acpmux-menu-label">{label}</span>
-      {value && <span className="acpmux-quick-value">{value}</span>}
-    </>
-  );
-}
-
-/// The Account submenu: the harness's own login (the chat's default binding), then each route
-/// for a direct account serving this chat, plus its current binding when that is a transport or
-/// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
-/// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
-/// one; a switch acpmux refused says so first.
-function AccountRows({
-  list,
-  failed,
-  switchFailed,
-  onPick,
-}: {
-  list?: ChatAccountList;
-  failed: boolean;
-  switchFailed: boolean;
-  onPick(routeId: string | null): void;
-}) {
-  const t = useT();
-  const refused = switchFailed && (
-    <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-      {t("picker.accountSwitchFailed")}
-    </MenuItem>
-  );
-  if (!list)
-    return (
-      <>
-        {refused}
-        <MenuItem disabled>{failed ? t("picker.accountFailed") : "…"}</MenuItem>
-      </>
-    );
-  // "" is the harness login: the chat follows its default binding, or none.
-  const value = list.active ?? "";
-  // The session-scoped list has already removed other harness families. Proxies and routers are
-  // transports, not more logins; keep the current binding so the checked row remains truthful.
-  const choices = list.accounts.filter(
-    (choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || choice.id === list.active,
-  );
-  return (
-    <>
-      {refused}
-      <MenuRadioGroup value={value} onValueChange={(next) => next !== value && onPick(next || null)}>
-        {/* Back to the default only unbinds the chat; a workspace or family route still applies. */}
-        <MenuRadioItem
-          value=""
-          closeOnClick
-          className="acpmux-quick-item"
-          disabled={list.scope !== "chat" && !!list.active}
-        >
-          <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
-        </MenuRadioItem>
-        {choices.map((choice) => (
-          <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-            <span className="acpmux-menu-label">{choice.name}</span>
-          </MenuRadioItem>
-        ))}
-      </MenuRadioGroup>
-      {choices.length === 0 && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-          {t("picker.accountHint")}
-        </MenuItem>
-      )}
-    </>
-  );
-}
-
-/// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
-/// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
-/// family) stays named on the Account row until a switch succeeds or the chat changes.
 function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);

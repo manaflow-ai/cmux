@@ -29,6 +29,7 @@ import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
+import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
@@ -1116,6 +1117,64 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </>
   );
+  const nativeRows: NativePopupRow[] = [];
+  const nativeModelId = (model: ModelChoice) => `model:${encodeURIComponent(model.id)}`;
+  if (selectedOther && loginFor(selected) !== undefined) {
+    nativeRows.push({ kind: "text", id: "signed-out", label: t("harnesses.signedOut"), disabled: true });
+    if (onLogIn) nativeRows.push({ kind: "action", id: "login", label: t("harness.logIn") });
+  } else if (selectedOther && blockedProfile(selected)) {
+    nativeRows.push({ kind: "text", id: "blocked", label: selected.folder?.diagnostic ?? unavailableText, disabled: true });
+  } else if (selectedOther && selected.folder?.state === "needs-enable") {
+    nativeRows.push({ kind: "action", id: "enable", label: t("harness.enable") });
+  } else if (selectedOther && selected.folder && visible.length === 0 && !query) {
+    nativeRows.push({ kind: "action", id: "new-chat", label: t("picker.newChat") });
+  } else if (visible.length === 0) {
+    nativeRows.push({ kind: "text", id: "empty", label: starredView && !query ? t("picker.starredEmpty") : !query && selected && selected.models.length === 0 ? t("picker.noModels") : noMatchesText, disabled: true });
+  } else {
+    for (const [index, model] of visible.entries()) {
+      const owner = owners.get(model);
+      nativeRows.push({
+        kind: "choice",
+        id: nativeModelId(model),
+        label: model.name,
+        ...(searching && (parsed.effort || parsed.fast) ? { value: [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined].filter(Boolean).join(" · ") } : {}),
+        ...(model.unavailable ? { disabled: true, disabledReason: unavailableText } : {}),
+        checked: model.id === props.model && owner?.ids.includes(harness ?? ""),
+        shortcut: !searching && index < 9 ? String(index + 1) : undefined,
+        actions: [{ id: `favorite:${encodeURIComponent(model.id)}`, label: favorites.has(model.id) ? t("picker.unstar") : t("picker.star"), keepOpen: true }],
+      });
+    }
+  }
+  if (olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0)) nativeRows.push({ kind: "action", id: "more-models", label: t("picker.moreModels"), value: String(olderCount), keepOpen: true });
+  if (onAddAgent) nativeRows.push({ kind: "action", id: "add-harness", label: addHarnessText });
+  const nativeRail: NativePopupRow[] | undefined = harnessFixed ? undefined : [
+    { kind: "action", id: `harness:${STARRED}`, label: starredText, checked: starredView },
+    ...railHarnesses.map((entry) => ({ kind: "action" as const, id: `harness:${entry.id}`, label: entry.name, ...(entry.mark ? { icon: entry.mark } : {}), checked: entry.id === selectedHarness, disabled: !entry.pickable || blockedProfile(entry) })),
+  ];
+  const nativeModel: NativePopupDescription = {
+    side: newTab ? "bottom" : "top", align: "start", width: 310, title: modelText, rows: nativeRows,
+    ...(nativeRail ? { rail: nativeRail, railWidth: 44 } : {}),
+    search: { id: "query", value: query, placeholder: searchText },
+    ...(update ? { footer: [{ kind: "action", id: "update", label: t("harness.update"), description: updateText }] } : {}),
+    ...(fastMode ? { footer: [...(update ? [{ kind: "action" as const, id: "update", label: t("harness.update"), description: updateText }] : []), { kind: "toggle" as const, id: "fast", label: fastMode.name, checked: fastModeIsOn(fastMode) }] } : {}),
+  };
+  const onNativeEvent = (event: NativePopupEvent) => {
+    const id = event.id ?? "";
+    if (event.type === "search" && id === "query") { setQuery(event.value ?? ""); setActive(0); setAddChosen(false); return; }
+    if (event.type !== "pick" && event.type !== "change") return;
+    if (id.startsWith("model:")) { const model = visible.find((candidate) => nativeModelId(candidate) === id); if (model) selectModel(model); }
+    else if (id.startsWith("favorite:")) toggleFavorite(decodeURIComponent(id.slice("favorite:".length)));
+    else if (id.startsWith("harness:")) { const next = id.slice("harness:".length); if (next === STARRED) showTab(STARRED, -1); else { const index = railHarnesses.findIndex((entry) => entry.id === next); showTab(next, index); } }
+    else if (id === "more-models") { setOlderOpen((value) => !value); }
+    else if (id === "add-harness") addHarness();
+    else if (id === "login" && selected) { onLogIn?.(selected.acpmuxHarness ?? selected.id, loginFor(selected)!); close(); }
+    else if (id === "enable" && selected) enableProfile(selected);
+    else if (id === "new-chat" && selected) { onHarness?.(selected.id); close(); }
+    else if (id === "update") { update?.update(); close(); }
+    else if (id === "fast") fastMode?.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values));
+  };
+  const { available: nativeAvailable } = useNativePopup({ open: !quick && open, model: nativeModel, anchor: () => trigger.current, onEvent: onNativeEvent, onDismiss: () => close(false) });
+  useEffect(() => { if (!quick && open && !nativeAvailable) close(false); }, [close, nativeAvailable, open, quick]);
   return (
     <span
       ref={root}
@@ -1230,7 +1289,7 @@ export function ModelPicker(props: ModelPickerProps) {
           </PickerButton>
         </>
       )}
-      {open && (
+      {open && !nativeAvailable && (
         <PickerDialog
           ref={menu}
           id={menuId}
