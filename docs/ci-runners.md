@@ -1032,12 +1032,15 @@ evicted with nothing decided.
 - **Every probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. The probes ask for the same sizes whatever the record
-  says. A Linux variable now on a size whose probe started is never moved back
-  onto a label nobody probed (an older record's `blacksmith-4vcpu-ubuntu-2404`,
-  say): it stays on the size seen serving.
-- **Some start and some do not.** Nothing changes: one stalled size never
-  flips the fleet, and a record is not cleared while a size jobs fall back
-  to (`fast-checks.yml` takes 32 vCPU without the record) is still stalled.
+  says. A Linux variable goes back only onto a size whose probe started; one
+  whose value before is a label nobody probed (an older record's
+  `blacksmith-4vcpu-ubuntu-2404`, or unset) stays where it is. A GitHub-hosted
+  value before is never put back.
+- **Some start and some do not.** Overflow does not flip and a record is not
+  cleared. Only a Linux variable that names a stalled probed size moves, onto
+  a size that started, recorded like any failover so it goes back once every
+  size starts. Workflows that name a size literally (`fast-checks.yml`) move
+  with the `RUNNER_POOLS` reconciler, which reads the health below.
 
 Every deciding run that holds the switch token writes `CI_CLOUD_LABEL_HEALTH`:
 `{"checked", "run", "minutes", "labels": {label: "started" | "stalled"}}`. The

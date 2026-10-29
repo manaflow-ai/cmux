@@ -304,10 +304,11 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
     """What turning overflow back on writes: each recorded variable's value before, unless it moved since.
 
     With `started` (the labels whose probes started in this run), a Linux
-    variable now on one of them is never moved back onto a label nobody
-    probed: an older record's before (blacksmith-4vcpu-ubuntu-2404, from when
-    that one label was the probe) may still be stalled, and once the record is
-    deleted nothing would see it. Such a variable stays where it serves.
+    variable goes back only onto a label whose probe started: an older
+    record's before (blacksmith-4vcpu-ubuntu-2404 from when that one label was
+    the probe, or unset, whose readers fall back to an unprobed literal) may
+    still be stalled, and once the record is deleted nothing would see it.
+    Such a variable stays where it is. A GitHub-hosted label is never put back.
     """
     healthy = None if started is None else set(started)
     restores: list[Restore] = []
@@ -320,13 +321,45 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
             restores.append(Restore(name, before, f"now {now or 'unset'}, not the failover {after}; "
                                                   "someone changed it, so it is left alone"))
             continue
-        if (healthy is not None and name in LINUX_VARIABLES and now in healthy
-                and (before or "") not in healthy):
-            restores.append(Restore(name, before, f"stays on {now}, whose probe started; its value before, "
-                                                  f"{before or 'unset'}, is not a probed size"))
+        if before and (HOSTED_LINUX_LABEL.match(before.lower()) or HOSTED_MACOS_LABEL.search(before.lower())):
+            restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before}, is "
+                                                  "GitHub-hosted, which no job runs on"))
+            continue
+        if healthy is not None and name in LINUX_VARIABLES and (before or "") not in healthy:
+            restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before or 'unset'}, "
+                                                  "is not a size whose probe started"))
             continue
         restores.append(Restore(name, before))
     return restores
+
+
+def plan_partial(record: Mapping[str, Any] | None, current: Mapping[str, str | None],
+                 stalled: Iterable[str], started: Iterable[str]) -> tuple[dict[str, Any] | None, list[Resume]]:
+    """Some probed sizes started and some stalled: move each Linux variable on a stalled one to a started one.
+
+    Only variables that name a probed label move, and only onto a probed label
+    that started, recorded like any failover (the before kept, so turning
+    overflow back on puts it back once every size starts). The macOS variables
+    and everything else stay as they are. Workflows that name a size literally
+    are for the RUNNER_POOLS reconciler (scripts/ci/runner_pools.py), which
+    reads CI_CLOUD_LABEL_HEALTH.
+    """
+    stalled_set, live = set(stalled), [label for label in PROBE_LABELS if label in set(started)]
+    if not live:
+        return None, []
+    changed = dict((record or {}).get("changed") or {})
+    moves: list[Resume] = []
+    for name in LINUX_VARIABLES:
+        now = (current.get(name) or "").strip() or None
+        if now not in stalled_set:
+            continue
+        entry = changed.get(name)
+        before = entry.get("before") if isinstance(entry, Mapping) else now
+        changed[name] = {"before": before, "after": live[0]}
+        moves.append(Resume(name, live[0]))
+    if not moves:
+        return None, []
+    return {**(record or {}), "changed": dict(sorted(changed.items()))}, moves
 
 
 def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
@@ -768,7 +801,26 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         log("::warning title=Cloud overflow switch::never saw every probe job decide; nothing decided")
     elif outcome == "partial":
         log(f"{stamp}: {', '.join(stalled)} waited {minutes} min with no runner while the other sizes started; "
-            f"overflow stays {'off' if record else 'on'} (it changes only when every size agrees)")
+            f"overflow stays {'off' if record else 'on'}, and only Linux variables on a stalled size move")
+        partial_record, moves = plan_partial(record, current, stalled, started)
+        if partial_record is not None:
+            if not record:
+                partial_record = {"since": stamp, "probe": label, "reason": f"{', '.join(stalled)} queued "
+                                  f"{minutes} min with no runner; the other sizes started",
+                                  "run": f"https://github.com/{repo}/actions/runs/{run_id}", **partial_record}
+            if args.dry_run:
+                for item in moves:
+                    log(f"- {item.name}: would move to {item.value} (dry run)")
+            elif switch is None:
+                log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); move by hand: "
+                    + "; ".join(f"{item.name} -> {item.value}" for item in moves))
+                code = 1
+            else:
+                # The record first, as for a full switch: a failure halfway still knows the way back.
+                switch.set_variable(RECORD_VARIABLE, json.dumps(partial_record, sort_keys=True))
+                for item in moves:
+                    switch.set_variable(item.name, item.value)
+                    log(f"- {item.name}: moved off the stalled size to {item.value}")
     elif outcome == "started":
         log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
         if record:

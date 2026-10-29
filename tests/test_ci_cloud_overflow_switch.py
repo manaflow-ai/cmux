@@ -406,7 +406,7 @@ class MainTests(unittest.TestCase):
         # Review of this change: 4 vCPU is not probed and may still be stalled, so LINUX_RUNNER stays on
         # the 16 vCPU size whose probe started rather than going back to a label nobody watches.
         self.assertEqual(writer.writes, [("CI_PAID_MACOS_OVERFLOW", None), ("CI_CLOUD_OVERFLOW_SAVED", None)])
-        self.assertIn("stays on blacksmith-16vcpu-ubuntu-2404", summary)
+        self.assertIn("stays blacksmith-16vcpu-ubuntu-2404; its value before, blacksmith-4vcpu-ubuntu-2404", summary)
         self.assertIn("left alone", summary)
         # A before that is a probed size goes back as before.
         restores = switch.plan_on({"changed": {"LINUX_RUNNER": {
@@ -549,6 +549,78 @@ class MainTests(unittest.TestCase):
         self.assertIn("outcome=started", out)
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
                                          ("CI_CLOUD_OVERFLOW_SAVED", None)])
+
+    def test_a_partial_result_moves_linux_off_the_stalled_size(self) -> None:
+        # Review at 437df955: 32 vCPU stalls, 16 vCPU starts, LINUX_RUNNER names 32 vCPU.
+        stalled = probe_job(6)
+        started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
+                   "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
+        env = {"VAR_LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26",
+               "VAR_CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=partial", out)
+        self.assertEqual(writer.writes[0][0], "CI_CLOUD_OVERFLOW_SAVED")
+        saved = json.loads(writer.writes[0][1])
+        # Only the Linux variable on the stalled size; the macOS ones and the trusted runner stay.
+        self.assertEqual(saved["changed"], {"LINUX_RUNNER": {"before": "blacksmith-32vcpu-ubuntu-2404",
+                                                             "after": "blacksmith-16vcpu-ubuntu-2404"}})
+        self.assertEqual(writer.writes[1:], [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+        # Once every size starts, it goes back to 32 vCPU and the record is deleted.
+        up = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+        env2 = {**env, "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                "VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(saved)}
+        writer = FakeSwitch()
+        run_main(env2, FakeActions(up), writer)
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404"),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        # A variable not on a stalled size never moves.
+        self.assertEqual(switch.plan_partial(None, {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
+                                             [switch.PROBE_LABELS[0]], [switch.PROBE_LABELS[1]]), (None, []))
+
+    def test_a_restore_goes_back_only_onto_a_size_that_started(self) -> None:
+        # Review at 437df955: a legacy CI_TRUSTED_RUNNER record (before 4 vCPU, never probed).
+        record = {"changed": {
+            "CI_TRUSTED_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-2vcpu-ubuntu-2404"},
+            "LINUX_RUNNER": {"before": None, "after": "blacksmith-16vcpu-ubuntu-2404"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
+            "MACOS_RUNNER_15": {"before": "macos-15", "after": "glaeda-std-xcode-26.6"}}}
+        current = {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                   "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "MACOS_RUNNER_15": "glaeda-std-xcode-26.6"}
+        restores = {r.name: r for r in switch.plan_on(record, current, switch.PROBE_LABELS)}
+        self.assertTrue(restores["CI_TRUSTED_RUNNER"].skipped)
+        self.assertTrue(restores["LINUX_RUNNER"].skipped)  # unset falls back to an unprobed literal
+        self.assertFalse(restores["MACOS_RUNNER_PR"].skipped)
+        self.assertTrue(restores["MACOS_RUNNER_15"].skipped)  # GitHub-hosted is never put back
+
+    def test_no_code_path_writes_a_hosted_label(self) -> None:
+        # Leo, 2026-10-28: "most of what GitHub has is hilariously slow. We can't be using them."
+        self.assertFalse(hasattr(switch, "HOSTED_LINUX"))
+        hosted = re.compile(r"^(ubuntu-|macos-|windows-)")
+        stalled = probe_job(6)
+        started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
+                   "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
+        up = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+        legacy = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "ubuntu-24.04", "after": "ubuntu-24.04"},
+            "CI_TRUSTED_RUNNER": {"before": "ubuntu-24.04", "after": "blacksmith-2vcpu-ubuntu-2404"},
+            "MACOS_RUNNER_15": {"before": "macos-15", "after": "glaeda-std-xcode-26.6"}}}
+        envs = [BLACKSMITH_STEADY, {"VAR_CMUX_CI_XCODE_APP_PR": PIN},
+                {**BLACKSMITH_STEADY, "VAR_CI_CLOUD_FAILOVER": json.dumps({"LINUX_RUNNER": "ubuntu-24.04",
+                                                                          "MACOS_RUNNER_15": "macos-15"})},
+                {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(legacy), "VAR_LINUX_RUNNER": "ubuntu-24.04",
+                 "VAR_CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
+                 "VAR_MACOS_RUNNER_15": "glaeda-std-xcode-26.6", "VAR_CMUX_CI_XCODE_APP_PR": PIN},
+                {"VAR_LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}]
+        for env in envs:
+            for probes in (probe_job(0), [stalled, started], up):
+                writer = FakeSwitch()
+                run_main(env, FakeActions(probes), writer)
+                for name, value in writer.writes:
+                    if name == switch.RECORD_VARIABLE or value is None:
+                        continue
+                    self.assertFalse(hosted.match(value.lower()), (env, name, value))
 
     def test_a_drill_or_dry_run_writes_no_health(self) -> None:
         writer = FakeSwitch()
