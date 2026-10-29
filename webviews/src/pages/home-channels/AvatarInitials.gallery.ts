@@ -6,7 +6,10 @@ export default componentEntry({
   title: "Home name initials",
   area: "Home and Chief",
   height: 320,
-  covers: ["pages/home-channels/Avatar.tsx#Avatar"],
+  covers: [
+    "pages/home-channels/Avatar.tsx#Avatar",
+    "pages/home-channels/AvatarInitialsDemo.tsx#AvatarInitialsDemo",
+  ],
   load: async () => (await import("./AvatarInitialsDemo")).AvatarInitialsDemo,
   styles: async () => {
     await import("../shared/pageBase.css");
