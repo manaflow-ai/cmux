@@ -86,5 +86,5 @@ func inlineBtwPreservesTrustRefusal(reason: String) async throws {
     #expect(details["reason"] as? String == reason)
     #expect(details["cwd"] as? String == "/tmp/btw-untrusted")
     #expect(!model.transport.gestures.isAvailable)
-    #expect(relay.requests.contains { $0.contains("_acpmux/btw") }, "the request reached the daemon relay")
+    #expect(await relay.waitForRequest(containing: "_acpmux/btw"), "the request reached the daemon relay")
 }

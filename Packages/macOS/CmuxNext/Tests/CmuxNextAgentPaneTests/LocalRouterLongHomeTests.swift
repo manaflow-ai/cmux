@@ -44,6 +44,17 @@ nonisolated final class OneShotRelay: @unchecked Sendable {
 
     var requests: [String] { lock.withLock { received } }
 
+    /// Wait until a request containing `needle` has been recorded. Network.framework may
+    /// deliver the reply before the relay thread gets scheduled to publish its observation.
+    func waitForRequest(containing needle: String, timeout: Duration = .seconds(2)) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if requests.contains(where: { $0.contains(needle) }) { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return requests.contains(where: { $0.contains(needle) })
+    }
+
     convenience init(path: String, reply: String) throws {
         try self.init(path: path, replies: [reply])
     }
