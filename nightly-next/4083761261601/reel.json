@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4083761261601",
+  "notes": "notes/4083761261601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27206,
+      "title": "fix(next): keep trailing control highlights local",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25861,
+      "title": "test(cmux-next): a test that stops the main run loop no longer ends the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26068,
+      "title": "cmux next: see what the agent does: a live view of the app in its chat, and every screenshot in Agent Activity",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26066,
+      "title": "cmux next: agents pick cmux computer use for app tasks",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    }
+  ]
+}
