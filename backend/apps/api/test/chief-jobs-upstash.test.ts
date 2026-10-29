@@ -405,8 +405,8 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
 
   it("CI failed: GitHub's workflow_run webhook starts the Chief's event job once, with the run's details; nothing polls", async () => {
     const seen: Record<string, any> = {}
-    fakeCloud(
-      (prompt) => (prompt.includes("[job ") ? "CI failed on main: CI. Looking." : "ok"),
+    const cloud = fakeCloud(
+      () => "ok",
       async (s, n) => {
         if (n !== 1) return
         seen.made = await call(s, { action: "auto_create", name: "CI red", when: "github workflow_run.completed workflow_run.conclusion=failure repository.full_name=acme/web", prompt: "CI failed: find why and tell me." })
@@ -422,6 +422,8 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     const id = seen.made.body.job.id as string
     expect(seen.made.body.job.triggers).toEqual([{ type: "event", provider: "github", event: "workflow_run.completed", filter: { "workflow_run.conclusion": "failure", "repository.full_name": "acme/web" } }])
     expect(seen.made.body.job.next_run_at).toBeNull()
+    // Event input cannot use the VM route. Give the restricted in-Worker turn its deterministic model.
+    expect((await http("PUT", `/v1/chiefs/${a.chief.id}/brain`, a.token, { model: "fake" })).status).toBe(200)
 
     const run = (conclusion: string, repo = "acme/web") => ({
       action: "completed",
@@ -449,7 +451,10 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     expect(row!.effect_authorized).toBe(0)
     expect(note).toContain("CI failed: find why and tell me.")
     expect(note).toContain("https://github.com/acme/web/actions/runs/777")
-    expect(JSON.stringify(await replyAfterRun(a, 2))).toContain("CI failed on main")
+    const reply = JSON.stringify(await replyAfterRun(a, 2))
+    expect(reply).toContain("[fake-echo] reply to:")
+    expect(reply).toContain("CI failed: find why and tell me.")
+    expect(cloud.started).toHaveLength(1)
     // Paused: the next red starts nothing.
     await storeOf(a.team).cjStore(a.team, { op: "pause", id, paused: true })
     expect((await ghHook("workflow_run", { ...red, workflow_run: { ...red.workflow_run, id: 778 } })).json.runs).toBe(0)
