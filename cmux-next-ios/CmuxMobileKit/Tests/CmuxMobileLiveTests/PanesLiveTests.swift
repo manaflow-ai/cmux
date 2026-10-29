@@ -267,6 +267,40 @@ import Testing
         #expect(line["dir"] as? String == "right")
     }
 
+    @Test func viewportColumnsReadFromTheScreen() {
+        let screen: [String: Any] = [
+            "columns": [
+                ["id": 1, "width": 0.9, "layout": ["type": "leaf", "pane": 4], "dock": ["edge": "left", "mode": "docked"]],
+                ["id": 2, "width": 0.6667, "layout": ["type": "leaf", "pane": 1]],
+                ["id": 3, "width": 0.5, "layout": ["type": "leaf", "pane": 9]],
+            ],
+        ]
+        let columns = DaemonTree.columns(screen, without: [9])
+        #expect(columns.map(\.isDocked) == [true, false])
+        #expect(columns.map(\.width) == [0.9, 0.6667])
+        #expect(columns.last?.root == .pane(1))
+    }
+
+    @Test func autoLayoutMeasuresRowsAtTheirHeights() {
+        // One column a viewport wide with two rows: a short one (pane 1, 20%) and a tall one
+        // (pane 2, 80%) holding a side by side split (panes 2 and 3, 8 by 8 each). Beside it a
+        // narrow column (pane 4, 4 by 10). The left half of the tall row is largest and square:
+        // it splits right.
+        let rows = WorkspaceLayout.Column(width: 1, root: nil, rows: [
+            .init(height: 200, root: .pane(1)),
+            .init(height: 800, root: .split(id: 5, axis: .horizontal, ratio: 0.5, first: .pane(2), second: .pane(3))),
+        ])
+        let narrow = WorkspaceLayout.Column(width: 0.25, root: .pane(4))
+        let screen = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 3, 4].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) },
+                                            root: nil, columns: [rows, narrow])
+        #expect(screen.autoLayoutSplit?.pane == 2)
+        #expect(screen.autoLayoutSplit?.direction == .right)
+        // Only docked columns' panes have no frame to compare: nothing scrolling is split.
+        let docked = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [WorkspaceLayout.Pane(id: 4, tabIDs: [])], root: .pane(4),
+                                            columns: [WorkspaceLayout.Column(width: 1, isDocked: true, root: .pane(4))])
+        #expect(docked.autoLayoutSplit == nil)
+    }
+
     @Test func autoLayoutPicksTheLargestPaneAndItsLongerSide() {
         // A tall right half (two stacked quarters beside a half): the half splits; a wide half splits down.
         let tall = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 3].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) },

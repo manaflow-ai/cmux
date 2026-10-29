@@ -229,6 +229,7 @@ public struct DaemonTree: Sendable {
                     layoutScreens.append(WorkspaceLayout.Screen(
                         id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
                         panes: layoutPanes, root: Self.node(screen["layout"])?.removing(deadPanes),
+                        columns: Self.columns(screen, without: deadPanes),
                         equalizable: Self.equalizable(screen).compactMap { $0.removing(deadPanes) }))
                 }
                 if let screenID = screen["id"] as? Int {
@@ -319,6 +320,21 @@ public struct DaemonTree: Sendable {
         return columns.flatMap { column -> [WorkspaceLayout.Node] in
             if let rows = column["rows"] as? [[String: Any]], !rows.isEmpty { return rows.compactMap { node($0["layout"]) } }
             return node(column["layout"]).map { [$0] } ?? []
+        }
+    }
+
+    /// A screen's viewport columns (`columns`), in order, with their widths, docks and rows;
+    /// empty when the screen is one split tree. A column whose panes are all dead is left out.
+    static func columns(_ screen: [String: Any], without dead: Set<Int> = []) -> [WorkspaceLayout.Column] {
+        (screen["columns"] as? [[String: Any]] ?? []).compactMap { column in
+            let rows = (column["rows"] as? [[String: Any]] ?? []).compactMap { row -> WorkspaceLayout.Column.Row? in
+                guard let root = node(row["layout"])?.removing(dead) else { return nil }
+                return WorkspaceLayout.Column.Row(height: (row["height"] as? NSNumber)?.doubleValue ?? 1000, root: root)
+            }
+            let root = node(column["layout"])?.removing(dead)
+            guard root != nil || !rows.isEmpty else { return nil }
+            return WorkspaceLayout.Column(width: (column["width"] as? NSNumber)?.doubleValue ?? 1,
+                                          isDocked: column["dock"] is [String: Any], root: root, rows: rows)
         }
     }
 

@@ -143,6 +143,53 @@ public struct WorkspaceLayout: Hashable, Sendable {
         public var isEqual: Bool { abs(ratio - equalized) < 0.001 }
     }
 
+    /// A horizontal viewport column of a screen (`columns`): as wide as the Mac draws it (a share
+    /// of its viewport; the columns together may be wider than the window, which scrolls), docked
+    /// to an edge or scrolling, holding a split tree or rows of them.
+    public struct Column: Hashable, Sendable {
+        /// One row of a column with rows (`rows-v1`), top to bottom.
+        public struct Row: Hashable, Sendable {
+            /// Permille of the column's viewport height (the rows may scroll past 1000).
+            public var height: Double
+            public var root: Node
+
+            public init(height: Double, root: Node) {
+                self.height = height
+                self.root = root
+            }
+        }
+
+        /// Its width as a share of the Mac's viewport (`width`).
+        public var width: Double
+        /// Pinned to a viewport edge (`dock`): New Pane (Auto Layout) never splits it.
+        public var isDocked: Bool
+        /// Its split tree; for a column with rows, the rows' compatibility chain.
+        public var root: Node?
+        /// Its rows, when it has two or more.
+        public var rows: [Row]
+
+        public init(width: Double, isDocked: Bool = false, root: Node?, rows: [Row] = []) {
+            self.width = width
+            self.isDocked = isDocked
+            self.root = root
+            self.rows = rows
+        }
+
+        /// Each shown pane's frame in the column's `rect` (`rect.height` is the viewport's): its
+        /// rows at their heights, else its tree at its ratios.
+        func frames(in rect: CGRect) -> [Int: CGRect] {
+            guard !rows.isEmpty else { return root?.frames(in: rect) ?? [:] }
+            var frames: [Int: CGRect] = [:]
+            var y = rect.minY
+            for row in rows {
+                let height = rect.height * max(row.height, 0) / 1000
+                frames.merge(row.root.frames(in: CGRect(x: rect.minX, y: y, width: rect.width, height: height))) { lhs, _ in lhs }
+                y += height
+            }
+            return frames
+        }
+    }
+
     public struct Screen: Identifiable, Hashable, Sendable {
         public var id: Int
         public var name: String
@@ -150,33 +197,62 @@ public struct WorkspaceLayout: Hashable, Sendable {
         public var isActive: Bool
         /// Its panes in the order the Mac lists them (tree order).
         public var panes: [Pane]
-        /// The whole screen's split tree, nil when the Mac sent none.
+        /// The whole screen's split tree, nil when the Mac sent none. With viewport columns this
+        /// is their compatibility chain, which squeezes every column into one width.
         public var root: Node?
+        /// Its viewport columns, in order (empty when the screen is one split tree).
+        public var columns: [Column]
         /// The trees Equalize Splits evens out, as the Mac's does: each viewport column's
         /// (each of its rows' when it has rows), else the screen's own tree.
         public var equalizable: [Node]
 
-        public init(id: Int, name: String = "", isActive: Bool, panes: [Pane], root: Node?, equalizable: [Node]? = nil) {
+        public init(id: Int, name: String = "", isActive: Bool, panes: [Pane], root: Node?,
+                    columns: [Column] = [], equalizable: [Node]? = nil) {
             self.id = id
             self.name = name
             self.isActive = isActive
             self.panes = panes
             self.root = root
+            self.columns = columns
             self.equalizable = equalizable ?? root.map { [$0] } ?? []
         }
 
-        /// New Pane (Auto Layout), as the Mac's (Zellij's new pane): the largest shown pane splits
-        /// along its longer side (right on a tie). The phone has no window, so sizes are read in a
-        /// 16:10 Mac window at the Mac's ratios.
+        /// The Mac window New Pane (Auto Layout) measures panes in: the phone has none, so a
+        /// 16:10 one.
+        static let window = CGSize(width: 16, height: 10)
+
+        /// The frames New Pane (Auto Layout) compares, as the Mac lays the screen out: with
+        /// viewport columns, each scrolling column at its own width of the window (a docked
+        /// column is never split, so it is left out); else the screen's tree in the window.
+        var autoLayoutFrames: [Int: CGRect] {
+            guard !columns.isEmpty else { return root?.frames(in: CGRect(origin: .zero, size: Self.window)) ?? [:] }
+            var frames: [Int: CGRect] = [:]
+            var x = 0.0
+            for column in columns {
+                let width = Self.window.width * max(column.width, 0)
+                defer { x += width }
+                guard !column.isDocked else { continue }
+                frames.merge(column.frames(in: CGRect(x: x, y: 0, width: width, height: Self.window.height))) { lhs, _ in lhs }
+            }
+            return frames
+        }
+
+        /// New Pane (Auto Layout), as the Mac's (Zellij's new pane, `PanePlacement.autoSplit`):
+        /// the largest shown scrolling pane splits along its longer side (right on a tie), never
+        /// a docked column. Sizes are read in a 16:10 Mac window, viewport columns at their own
+        /// widths.
         public var autoLayoutSplit: (pane: Int, direction: PaneSplit)? {
-            guard let root else { return panes.first.map { ($0.id, .right) } }
-            let frames = root.frames(in: CGRect(x: 0, y: 0, width: 16, height: 10))
             let order = panes.map(\.id)
+            let frames = autoLayoutFrames.filter { order.contains($0.key) && $0.value.width > 0 && $0.value.height > 0 }
             guard let (pane, frame) = frames.max(by: { lhs, rhs in
                 let (a, b) = (lhs.value.width * lhs.value.height, rhs.value.width * rhs.value.height)
                 // A tie goes to the pane listed first.
                 return abs(a - b) < 0.0001 ? (order.firstIndex(of: lhs.key) ?? 0) > (order.firstIndex(of: rhs.key) ?? 0) : a < b
-            }) else { return nil }
+            }) else {
+                // No frame to compare (no tree from the Mac): the first scrolling pane, split right.
+                let docked = Set(columns.filter(\.isDocked).flatMap { $0.root?.paneIDs ?? [] })
+                return order.first { !docked.contains($0) }.map { ($0, .right) }
+            }
             return (pane, frame.width >= frame.height ? .right : .down)
         }
 
