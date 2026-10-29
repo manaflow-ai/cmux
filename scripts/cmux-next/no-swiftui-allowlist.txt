@@ -51,7 +51,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryLineRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HostingBodyCounter+SwiftUI.swift  # counts the root bodies of the 8 content-init gated pages for debug.observations and the benches; goes when the last gated page is AppKit (DECISION NEEDED, Lawrence)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
