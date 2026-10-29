@@ -1,3 +1,4 @@
+import CmuxNextControl
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -25,6 +26,21 @@ struct CaptureNeutralNamesTests {
         #expect(captured.terminalEnvironment["ZDOTDIR"] == home.path)
         #expect(captured.terminalEnvironment["SHELL"] == "/bin/zsh")
         #expect(captured.namesShowcaseMac)
+        #expect(captured.terminalEnvironment[AppEnvironment.fixtureMachineNameKey] == "Studio Mac")
+    }
+
+    /// A media tour (scripts/cmux-next/media/tour.py) launches a DEBUG build with the shell home in its environment,
+    /// not in the bundle's `LSEnvironment`. Before: the launch strip dropped it as an inherited `CMUX*` variable, so
+    /// the tour's shots showed the CI Mac's prompt and name and pr-media's privacy check published none of them.
+    @Test func aDebugLaunchKeepsATourShellHomeButNotOneFromAnotherCmux() {
+        let tour = ["CMUX_CAPTURE_SHELL_HOME": "/tmp/tour/shell-home"]
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: tour, bundledEnvironment: [:], isDebugBuild: true).isEmpty)
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: tour, bundledEnvironment: [:], isDebugBuild: false)
+            == ["CMUX_CAPTURE_SHELL_HOME"])
+        // A terminal of a capture app carries it with that app's socket: a cmux started there is not under capture.
+        let nested = tour.merging(["CMUX_SOCKET_PATH": "/tmp/other.sock"]) { $1 }
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: nested, bundledEnvironment: [:], isDebugBuild: true)
+            .contains("CMUX_CAPTURE_SHELL_HOME"))
     }
 
     @Test func aPersonsRunKeepsTheirShellAndThisMacsName() {
@@ -33,5 +49,6 @@ struct CaptureNeutralNamesTests {
         #expect(plain.terminalEnvironment["ZDOTDIR"] == nil)
         #expect(plain.terminalEnvironment["SHELL"] == nil)
         #expect(!plain.namesShowcaseMac)
+        #expect(plain.terminalEnvironment[AppEnvironment.fixtureMachineNameKey] == nil)
     }
 }

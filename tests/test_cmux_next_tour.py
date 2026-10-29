@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import stat
@@ -34,6 +35,10 @@ server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
     out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
+    zshrc = os.path.join(home, ".zshrc")
+    out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
+        "zshrc": open(zshrc).read() if home and os.path.isfile(zshrc) else None}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -188,6 +193,31 @@ class AppWindowCaptureTests(unittest.TestCase):
         launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
         self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
+
+    def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
+        # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the
+        # composer's machine picker and in the zsh prompt (`cmux@<host> ~ %`). Under capture
+        # (CMUX_CAPTURE_SHELL_HOME) the app names the showcase Mac and its zsh reads this home.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        try:
+            import pr_media_privacy
+        finally:
+            sys.path.pop(0)
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [fixture] = [entry["params"] for entry in entries if entry["method"] == "_fixture"]
+        self.assertTrue(Path(fixture["shell_home"]).is_absolute())
+        self.assertFalse(Path(fixture["shell_home"]).is_relative_to(self.root / "out"), "never published as media")
+        # What a shot shows: the machine label, and the prompt zsh draws in the tour's home (`%1~` is `~`).
+        match = re.search(r"(?m)^PROMPT='([^']*)'$", fixture["zshrc"])
+        self.assertIsNotNone(match, fixture["zshrc"])
+        prompt = match.group(1).replace("%1~", "~").replace("%#", "%")
+        self.assertNotRegex(prompt, r"%[^ ]", "no other prompt escape (%m, %n) names the host or account")
+        prompt += " echo hello from the cmux-next tour"
+        # "Studio Mac": AgentTabStore.showcaseMachineName, the name the app shows under capture.
+        found = pr_media_privacy.findings(["Studio Mac", prompt], list(pr_media_privacy.GENERIC_PATTERNS))
+        self.assertEqual(found, [])
 
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission

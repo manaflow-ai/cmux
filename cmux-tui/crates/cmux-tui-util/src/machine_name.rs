@@ -4,10 +4,23 @@
 /// Longest reported machine name, in bytes.
 pub const MAX_MACHINE_NAME_BYTES: usize = 255;
 
+/// The launch variable that names a fixture machine: the cmux-next app passes
+/// it to its daemon under PR capture and in the media tours
+/// (`AppEnvironment.fixtureMachineNameKey`), so screenshots never show the CI
+/// host's name.
+pub const FIXTURE_MACHINE_NAME_ENV: &str = "CMUX_NEXT_FIXTURE_MACHINE_NAME";
+
 /// This machine's host name, bounded and free of control characters, for
-/// `identify.machine_name` and the home session row.
+/// `identify.machine_name` and the home session row; the fixture name
+/// (`FIXTURE_MACHINE_NAME_ENV`) when the environment gives one.
 pub fn machine_name() -> String {
-    let raw = host_name().unwrap_or_default();
+    pick(std::env::var(FIXTURE_MACHINE_NAME_ENV).ok(), host_name)
+}
+
+/// The fixture name when it is not blank, else `host`'s, bounded and free of
+/// control characters, or `localhost`.
+fn pick(fixture: Option<String>, host: impl FnOnce() -> Option<String>) -> String {
+    let raw = fixture.filter(|name| !name.trim().is_empty()).or_else(host).unwrap_or_default();
     let mut name: String = raw.chars().filter(|ch| !ch.is_control()).collect();
     while name.len() > MAX_MACHINE_NAME_BYTES {
         name.pop();
@@ -32,4 +45,24 @@ fn host_name() -> Option<String> {
 #[cfg(not(unix))]
 fn host_name() -> Option<String> {
     std::env::var("COMPUTERNAME").ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fixture_name_replaces_the_host_name() {
+        let host = || Some("build-host.local".to_string());
+        assert_eq!(pick(Some("Studio Mac".into()), host), "Studio Mac");
+        assert_eq!(pick(Some("  ".into()), host), "build-host.local");
+        assert_eq!(pick(None, host), "build-host.local");
+        assert_eq!(pick(None, || None), "localhost");
+    }
+
+    #[test]
+    fn a_fixture_name_is_cleaned_like_a_host_name() {
+        assert_eq!(pick(Some(" Studio\u{7}Mac ".into()), || None), "StudioMac");
+        assert_eq!(pick(Some("x".repeat(300)), || None).len(), MAX_MACHINE_NAME_BYTES);
+    }
 }

@@ -165,15 +165,21 @@ struct AppEnvironment: Sendable {
         // (`%n@%m`: the capture host's name, which the capture's privacy check refuses). Ghostty's and the
         // bundled CLI's ZDOTDIR layers wrap it and hand it back before `.zshrc` runs. The terminals run zsh
         // there: bash and fish read the account's `HOME`, which LaunchServices keeps, so they would not see them.
+        // The daemon names the showcase Mac too (`identify.machine_name`, the local daemon's name on tab badges).
         if let shellHome = captureShellHome(environment) {
             terminal["ZDOTDIR"] = shellHome
             terminal["SHELL"] = "/bin/zsh"
+            terminal[fixtureMachineNameKey] = AgentTabStore.showcaseMachineName
         }
         return terminal
     }
 
+    /// The daemon's fixture machine name (cmux-tui-util `machine_name`, `FIXTURE_MACHINE_NAME_ENV`).
+    nonisolated static let fixtureMachineNameKey = "CMUX_NEXT_FIXTURE_MACHINE_NAME"
+
     /// `CMUX_CAPTURE_SHELL_HOME`: the folder a PR capture slot (cmuxterm-hq capture-host) writes neutral shell
-    /// startup files into and names in the clone's `LSEnvironment`. Nil unless it is an absolute path to a folder.
+    /// startup files into and names in the clone's `LSEnvironment`, or that a DEBUG launch passes in its environment
+    /// (the media tours; `LaunchIdentity.inheritedKeys` keeps it). Nil unless it is an absolute path to a folder.
     nonisolated static func captureShellHome(_ environment: [String: String],
                                              isFolder: (String) -> Bool = { path in
                                                  var folder: ObjCBool = false
