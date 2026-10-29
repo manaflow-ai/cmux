@@ -9,7 +9,9 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
-  setDefaultTimeout(120_000);
+  // Cold gallery dependency optimization can take a few minutes on a busy worker; keep the
+  // hook's timeout above the warm-up budget so Playwright is not closed underneath it.
+  setDefaultTimeout(300_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
@@ -23,7 +25,11 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "queued-long-open" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", {
+      browser,
+      params: { variant: "queued-long-open" },
+      timeoutMs: 180_000,
+    });
   });
 
   afterAll(async () => {
@@ -44,13 +50,29 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
                 port +
                 galleryFrame("agent-pane.composer", { variant: "queued-long-open", colorScheme: scheme }),
             );
-            await page.waitForSelector(".acpmux-composer-queue[data-unfolded]");
+            await page.waitForSelector(".acpmux-composer-queue");
+            await page.locator(".acpmux-queue-fold").waitFor();
             await page.waitForFunction(
               (value) =>
                 (document.querySelector(".acpmux-composer")?.getAttribute("data-composer-look") ?? "claude") === value,
               look,
             );
             await page.evaluate(() => document.fonts.ready);
+            // Each fresh gallery page starts folded. Open it explicitly so the same page supplies
+            // both the expanded and collapsed captures instead of making expanded depend on a
+            // process-global queue state left by the warm-up page.
+            await page.locator(".acpmux-queue-fold").click();
+            await page.waitForSelector(".acpmux-composer-queue[data-unfolded]");
+            const measurements: Array<{
+              state: string;
+              measured: {
+                container: { left: number; right: number; top: number; bottom: number; width: number };
+                box: { left: number; right: number; top: number; bottom: number; width: number };
+                queue: { left: number; right: number; top: number; bottom: number; width: number };
+                fold: { left: number; right: number; top: number; bottom: number; width: number };
+                play: unknown;
+              };
+            }> = [];
             for (const state of ["expanded", "collapsed"]) {
               if (state === "collapsed") {
                 await page.locator(".acpmux-queue-fold").click();
@@ -72,6 +94,7 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
                   play: (window as Window & { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport,
                 };
               });
+              measurements.push({ state, measured });
               // Optional private evidence is captured before assertions, including the red baseline.
               const output = process.env.CMUX_ALIGNMENT_CAPTURE_DIR;
               if (output) {
@@ -84,6 +107,10 @@ await requireBrowserLane("queue-composer-alignment.test.ts", async () => {
                 );
               }
               console.log(JSON.stringify({ look, width, scheme, state, ...measured }));
+            }
+            // Keep both state captures even when the baseline fails one edge, so the report shows
+            // the complete expanded/collapsed matrix for the failing revision.
+            for (const { measured } of measurements) {
               expect(measured.container.width <= 260).toBe(width === 260);
               for (const piece of [measured.queue, measured.fold]) {
                 expect(Math.abs(piece.left - measured.box.left)).toBeLessThanOrEqual(1);
