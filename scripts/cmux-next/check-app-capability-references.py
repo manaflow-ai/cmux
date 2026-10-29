@@ -335,14 +335,78 @@ def rust_capabilities(repo: Path) -> dict[str, str]:
     return found
 
 
+RUST_CHAR = re.compile(r"'(\\.[^']*|[^\\'])'")
+
+
+def rust_without_comments(text: str) -> str:
+    """`text` with every Rust comment (line, block, nested block) blanked to spaces, newlines kept so line
+    numbers hold; string and char literals stay as they are, and a comment marker inside one is not one."""
+    out = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif c == "'" and (char := RUST_CHAR.match(text, i)):
+            i = char.end()
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out[i:j] = [ch if ch == "\n" else " " for ch in text[i:j]]
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def rust_initializer(text: str, name: str) -> tuple[int, int] | None:
+    """The span of `name`'s `&[ ... ]` initializer in comment-free `text` (brackets in strings skipped)."""
+    head = re.search(rf"\bconst\s+{name}\s*:[^=]*=\s*&\s*\[", text)
+    if not head:
+        return None
+    depth, i = 1, head.end()
+    while i < len(text) and depth:
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+        i += 1
+    return (head.end(), i) if depth == 0 else None
+
+
 def acpmux_capabilities(repo: Path) -> dict[str, str]:
-    """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file)."""
+    """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file):
+    the `id`s of its `CAPABILITIES` initializer alone, comments masked, so an id in a comment, a doc or
+    another constant never counts."""
     path = repo / ACPMUX_LIST
     if not path.is_file():
         return {}
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = rust_without_comments(path.read_text(encoding="utf-8", errors="replace"))
+    span = rust_initializer(text, "CAPABILITIES")
+    if span is None:
+        sys.exit(f"check-app-capability-references: found no `CAPABILITIES` initializer in {ACPMUX_LIST}")
+    pattern = re.compile(r'\bid:\s*"([a-z][a-z0-9.-]*)"')
     return {m.group(1): f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
-            for m in re.finditer(r'\bid:\s*"([a-z][a-z0-9.-]*)"', text)}
+            for m in pattern.finditer(text, span[0], span[1])}
 
 
 def main() -> int:

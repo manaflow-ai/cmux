@@ -110,6 +110,25 @@ out="$(run)" || fail "a gate on a capability acpmux advertises failed: $out"
 write_app '        struct AcpmuxFeature { static let capability = "planted-acpmux-typo-v1" }'
 if out="$(run)"; then fail "a gate on a name acpmux does not define passed: $out"; fi
 [[ "$out" == *"planted-acpmux-typo-v1"* ]] || fail "the failure does not name the misspelled capability: $out"
+# Red: an id acpmux names only in a comment, a nested block comment, a doc or another constant, never in
+# its CAPABILITIES list. Green: an id in the list after a string holding a bracket and a comment marker.
+cat > "$tmp/cmux-tui/crates/acpmux/src/capabilities.rs" <<'EOF'
+//! Retired: Capability { id: "planted-doc-v1" }.
+pub const CAPABILITIES: &[Capability] = &[
+    Capability { id: "acpmux-v1", wire: &["_acpmux/[x", "// not a comment"] },
+    // Capability { id: "planted-commented-v1", wire: &[] },
+    /* Capability { id: "planted-block-v1", /* nested */ wire: &[] }, */
+    Capability { id: "planted-kept-v1", wire: &[] },
+];
+pub const RETIRED: &[Capability] = &[Capability { id: "planted-retired-v1", wire: &[] }];
+EOF
+for ghost in planted-commented-v1 planted-block-v1 planted-doc-v1 planted-retired-v1; do
+  write_app "        struct AcpmuxFeature { static let capability = \"$ghost\" }"
+  if out="$(run)"; then fail "a gate on $ghost, outside acpmux's CAPABILITIES, passed: $out"; fi
+  [[ "$out" == *"$ghost"* ]] || fail "the failure does not name $ghost: $out"
+done
+write_app '        struct AcpmuxFeature { static let capability = "planted-kept-v1" }'
+out="$(run)" || fail "an id in CAPABILITIES after a string holding a bracket and a comment marker failed: $out"
 
 # Red: the app gates a feature on a capability no daemon crate defines.
 write_app '        if daemon.supports("planted-unserved-v1") {}'
