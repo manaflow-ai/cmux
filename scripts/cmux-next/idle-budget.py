@@ -93,9 +93,8 @@ Sessions (--sessions):
                 and `<kind>/serviced` that must sum to within 10% of the app's coalition total; WindowServer's own
                 energy (with `sudo -n`); unnamed threads summed per kind (`<kind>/unnamed threads`), and while that
                 is >= 2 mW a stack sample of the process with the most of it names its threads; the FrameClients
-                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames) and the infinite Core
-                Animation loops and playing video layers at both ends (debug.layers `frame_sources`). Reported, not
-                judged: no budget row.
+                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames). Reported, not judged:
+                no budget row.
   chrome-power-visible  the same 1 tab in the chrome-static browser, attributed the same way. With both sessions
                 measured, POWER-OVER lines list each owner group >= 2 mW (Chrome's kinds: the app and cef-host are
                 `browser`) that spends more than Chrome's same group, or that Chrome does not have: reported, not
@@ -482,7 +481,6 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
     hangs0 = rpc("debug.hangs", {"limit": 0})
     ledger0 = rpc("debug.wakeups")
-    sources0 = frame_sources(app) if attribute and app is not None else None
     counters0 = app_counters(app) if app is not None else {}
     server0 = d15.windowserver()
     first = snapshot(pids)
@@ -506,7 +504,6 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     power = window.finish() if window else None
     hangs1 = rpc("debug.hangs", {"limit": 0})
     ledger1 = rpc("debug.wakeups", {"run_loop": True})
-    sources1 = frame_sources(app) if attribute and app is not None else None
     counters1 = app_counters(app) if app is not None else {}
     # debug.webui runs on the app's main actor: read after every counter, with the window's other end reads.
     census = rpc("debug.webui")
@@ -540,8 +537,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if owners is not None:
         result["ledger"] = owners
     if owners is not None or attribute:
-        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
-                                                                  (sources0, sources1) if attribute else None)
+        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed)
     if power is not None:
         result["power"] = power_attribution.attribute({**power, "classify": classify})
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
@@ -573,13 +569,6 @@ def coalition_without(coalition, first, last, elapsed):
     less = {field: round(coalition[field] - member[field], 3)
             for field in ("energy_mw_cpu", "energy_mw_billed", "cpu_pct", "wakeups_per_s", "pkg_idle_wakeups_per_s")}
     return {**coalition, **less}
-
-
-def frame_sources(app):
-    """The app's frame sources no FrameScheduler sees (debug.layers `frame_sources`: infinite Core Animation loops
-    and playing video layers per owner view), or None when the build does not report them."""
-    got = read_rpc(app, "debug.layers", {"frame_sources": True}).get("frame_sources")
-    return got if isinstance(got, dict) else None
 
 
 def snapshot(commands):

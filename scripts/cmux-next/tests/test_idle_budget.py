@@ -938,7 +938,7 @@ class MeasureOrderTests(unittest.TestCase):
             for target, name, value in (
                     (ib, "process_set", lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
                                                                         [(1, 0, f"{APP}/Contents/MacOS/cmux DEV")])),
-                    (ib, "threads", lambda _pid: {}), (ib, "frame_sources", lambda _app: None),
+                    (ib, "threads", lambda _pid: {}),
                     (ib.power_attribution, "PowerWindow", FakeWindow), (procs, "usage", usage),
                     (procs, "overhead", lambda _pid: (0, 30, 0, 0, 0)), (procs, "gpu_ns_by_pid", lambda: {}),
                     (procs, "coalition_of", coalition), (procs, "coalition_id", lambda _pid: 7),
