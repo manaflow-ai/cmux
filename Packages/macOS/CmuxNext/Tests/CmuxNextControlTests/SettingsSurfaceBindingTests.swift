@@ -15,7 +15,7 @@ import Testing
         #expect(expected.isSubset(of: methods))
         for descriptor in SettingsSchema.all {
             let appMethods = Set(descriptor.surfacePlan.socket.appOperations + descriptor.surfacePlan.socket.appAliases)
-            #expect(appMethods == expected, descriptor.id)
+            #expect(appMethods == expected, Comment(rawValue: descriptor.id))
         }
     }
 }
