@@ -53,7 +53,7 @@ const BULK_MIN_FLIGHT: u32 = 128 * 1200;
 /// per wake, and the pace would be the timer's, not the network's.
 const MAX_CREDIT: Duration = Duration::from_millis(2);
 /// A connection with at most this many packets queued and less than
-/// `MIN_FLIGHT` in flight is interactive: it leaves before media and bulk.
+/// `INTERACTIVE_MIN_FLIGHT` in flight is interactive: it leaves before media and bulk.
 /// Every connection stays paced; the flight floor makes an interactive
 /// connection's pace generous.
 const INTERACTIVE_QUEUE: usize = 4;
