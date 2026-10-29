@@ -1879,7 +1879,7 @@ describe("idle pause SQL", () => {
         cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
         cmuxIdleObservation: { providerVmId: vmId, idleSince: now - 31 * MIN, observedAt: now - 5 * MIN, cpuBusyMs: CPU0 } };
       await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
-        values (${id}, ${scope}, ${scope}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(metadata)}::jsonb)`;
+        values (${id}, ${scope}, ${scope}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(metadata)}::text::jsonb)`;
       try {
         const lookup = { userId: scope, billingTeamId: scope, providerVmId: vmId, provider: "freestyle" as const };
         const candidate = await run(repo.findUserVm(lookup));
@@ -1911,52 +1911,55 @@ describe("idle pause SQL", () => {
 
   dbTest("diagnostics preserve populated lifecycle state and newer decisions, including tied timestamps", async () => {
     const original = await read();
-    const observation = { providerVmId, idleSince: T0 - MIN, observedAt: T0, cpuBusyMs: CPU0 };
-    const preserved = { ...original.metadata, cmuxIdleEpoch: 7, cmuxIdlePauseClaim: 7,
-      cmuxIdleObservation: observation, cmuxLastApiActivityAt: T0 - 2 * MIN };
-    await sql`update cloud_vms set provider_metadata = ${JSON.stringify(preserved)}::jsonb where id = ${rowId}`;
-    const before = await read();
-    const decision = { at: T0, outcome: "idle" as const, reason: "idle", run: { checked: 2, elapsedMs: 100 } };
-    const write = (checkId: string, value = decision) => run(repo.recordIdleDecision!({
-      id: rowId, providerVmId, decision: value, checkId,
-    }));
-    await write("check-a");
-    let row = await read();
-    expect(row.updatedAt).toEqual(before.updatedAt);
-    expect(row.metadata).toMatchObject(preserved);
-    expect(row.metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
-    expect(row.metadata.cmuxIdleProbedAt).toBe(T0);
-    await write("older", { ...decision, at: T0 - 1 });
-    await write("check-a", { ...decision, at: T0 - 1 });
-    expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
-    await run(repo.recordIdleDecision!({ id: rowId, providerVmId: "replaced", decision, checkId: "replacement" }));
-    expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
-    // A and B have indistinguishable check times: the first stored check (A) wins.
-    const competing = { ...decision, reason: "other", run: { checked: 1, elapsedMs: 20 } };
-    await write("check-b", competing);
-    await write("check-a", { ...decision, run: { checked: 99, elapsedMs: 500 } });
-    await write("check-b", { ...competing, run: { checked: 3, elapsedMs: 50 } });
-    expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a", run: { checked: 99, elapsedMs: 500 } });
-    // A later check wins, then finalizes. A delayed initial write tied with it cannot replace it either.
-    const later = { ...decision, at: T0 + 1 };
-    await write("check-later", later);
-    await write("check-later", { ...later, run: { checked: 3, elapsedMs: 50 } });
-    await write("check-delayed", { ...later, reason: "delayed_initial" });
-    expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...later, checkId: "check-later", run: { checked: 3, elapsedMs: 50 } });
-    // Run totals can also retry an initial write that failed while its timestamp is still newer.
-    await write("check-retry", { ...decision, at: T0 + 2 });
-    expect((await read()).metadata.cmuxIdleLastDecision).toMatchObject({ at: T0 + 2, checkId: "check-retry" });
-    // A paused row still records diagnostics without restoring its idle observation.
-    await sql`update cloud_vms set status = 'paused', provider_metadata = provider_metadata - 'cmuxIdleObservation' where id = ${rowId}`;
-    await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision: { ...decision, at: T0 + 3, outcome: "paused" }, checkId: "paused" }));
-    row = await read();
-    expect(row.status).toBe("paused");
-    expect(row.metadata.cmuxIdleObservation).toBeUndefined();
-    expect(row.metadata.cmuxIdleEpoch).toBe(7);
-    expect(row.metadata.cmuxIdlePauseClaim).toBe(7);
-    expect(row.updatedAt).toEqual(before.updatedAt);
-    expect(row.metadata.cmuxIdleLastDecision).toMatchObject({ outcome: "paused" });
-    await sql`update cloud_vms set status = 'running', provider_metadata = ${JSON.stringify(original.metadata)}::jsonb where id = ${rowId}`;
+    try {
+      const observation = { providerVmId, idleSince: T0 - MIN, observedAt: T0, cpuBusyMs: CPU0 };
+      const preserved = { ...original.metadata, cmuxIdleEpoch: 7, cmuxIdlePauseClaim: 7,
+        cmuxIdleObservation: observation, cmuxLastApiActivityAt: T0 - 2 * MIN };
+      await sql`update cloud_vms set provider_metadata = ${JSON.stringify(preserved)}::text::jsonb where id = ${rowId}`;
+      const before = await read();
+      const decision = { at: T0, outcome: "idle" as const, reason: "idle", run: { checked: 2, elapsedMs: 100 } };
+      const write = (checkId: string, value = decision) => run(repo.recordIdleDecision!({
+        id: rowId, providerVmId, decision: value, checkId,
+      }));
+      await write("check-a");
+      let row = await read();
+      expect(row.updatedAt).toEqual(before.updatedAt);
+      expect(row.metadata).toMatchObject(preserved);
+      expect(row.metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      expect(row.metadata.cmuxIdleProbedAt).toBe(T0);
+      await write("older", { ...decision, at: T0 - 1 });
+      await write("check-a", { ...decision, at: T0 - 1 });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      await run(repo.recordIdleDecision!({ id: rowId, providerVmId: "replaced", decision, checkId: "replacement" }));
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a" });
+      // A and B have indistinguishable check times: the first stored check (A) wins.
+      const competing = { ...decision, reason: "other", run: { checked: 1, elapsedMs: 20 } };
+      await write("check-b", competing);
+      await write("check-a", { ...decision, run: { checked: 99, elapsedMs: 500 } });
+      await write("check-b", { ...competing, run: { checked: 3, elapsedMs: 50 } });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...decision, checkId: "check-a", run: { checked: 99, elapsedMs: 500 } });
+      // A later check wins, then finalizes. A delayed initial write tied with it cannot replace it either.
+      const later = { ...decision, at: T0 + 1 };
+      await write("check-later", later);
+      await write("check-later", { ...later, run: { checked: 3, elapsedMs: 50 } });
+      await write("check-delayed", { ...later, reason: "delayed_initial" });
+      expect((await read()).metadata.cmuxIdleLastDecision).toEqual({ ...later, checkId: "check-later", run: { checked: 3, elapsedMs: 50 } });
+      // Run totals can also retry an initial write that failed while its timestamp is still newer.
+      await write("check-retry", { ...decision, at: T0 + 2 });
+      expect((await read()).metadata.cmuxIdleLastDecision).toMatchObject({ at: T0 + 2, checkId: "check-retry" });
+      // A paused row still records diagnostics without restoring its idle observation.
+      await sql`update cloud_vms set status = 'paused', provider_metadata = provider_metadata - 'cmuxIdleObservation' where id = ${rowId}`;
+      await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision: { ...decision, at: T0 + 3, outcome: "paused" }, checkId: "paused" }));
+      row = await read();
+      expect(row.status).toBe("paused");
+      expect(row.metadata.cmuxIdleObservation).toBeUndefined();
+      expect(row.metadata.cmuxIdleEpoch).toBe(7);
+      expect(row.metadata.cmuxIdlePauseClaim).toBe(7);
+      expect(row.updatedAt).toEqual(before.updatedAt);
+      expect(row.metadata.cmuxIdleLastDecision).toMatchObject({ outcome: "paused" });
+    } finally {
+      await sql`update cloud_vms set status = ${original.status}, provider_metadata = ${JSON.stringify(original.metadata)}::text::jsonb where id = ${rowId}`;
+    }
   });
 
   dbTest("a create stores its idle pause with the row, and a same-key retry keeps the first one", async () => {
