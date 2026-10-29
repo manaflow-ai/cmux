@@ -39,7 +39,14 @@ fn wait_settled(watchdog: &RequestWatchdog, total: u64) -> SlowRequestsSnapshot 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let snapshot = watchdog.snapshot();
-        if snapshot.total >= total && snapshot.recent.iter().all(|r| r.duration_ms.is_some()) {
+        // `record` counts `total` before it pushes the entry (another lock),
+        // so a snapshot between the two sees the count with no entry: wait
+        // for the entries too, not only for the count.
+        let entries = u64::try_from(snapshot.recent.len()).unwrap_or(u64::MAX);
+        if snapshot.total >= total
+            && entries >= total.min(SLOW_REQUEST_RING as u64)
+            && snapshot.recent.iter().all(|r| r.duration_ms.is_some())
+        {
             return snapshot;
         }
         assert!(Instant::now() < deadline, "never settled at {total}: {snapshot:?}");
