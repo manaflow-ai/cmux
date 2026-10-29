@@ -2518,8 +2518,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         // Close shortcuts target the focused window, as they do in the app.
         targetWindow.makeKeyAndOrderFront(nil)
-        waitUntil(timeout: 1.0) { targetWindow.isKeyWindow }
-        XCTAssertTrue(targetWindow.isKeyWindow)
+        XCTAssertTrue(appDelegate.shortcutRoutingKeyWindow === targetWindow)
 
         // This test exercises keep-workspace-open semantics, not close-confirm heuristics.
         // Mark the shell idle so Cmd+W routes through the immediate close path deterministically.
