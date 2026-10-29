@@ -48,6 +48,7 @@ import {
   type VmBillingGatewayShape,
 } from "./billingGateway";
 import { vmCreateDisabledReason } from "./config";
+import { VM_FORK_METHOD_METADATA_KEY, readVmForkMethod, type PersistedVmForkMethod } from "./forkMethod";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_DISK_MB_MAX,
@@ -1237,6 +1238,8 @@ type CreateVmInput = {
   readonly resourceReservation?: VmResourceReservation;
   /** How the machine came to exist; analytics only. Defaults to `create`. */
   readonly origin?: VmCreateOrigin;
+  /** Set only for fork-created rows; persisted with the initial VM reservation. */
+  readonly forkMethod?: PersistedVmForkMethod;
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
    * is the token binding) and before the provider call; a failure fails the
@@ -1484,7 +1487,10 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: {
+          ...(handle.providerMetadata ?? create.vm.providerMetadata),
+          ...(input.forkMethod ? { [VM_FORK_METHOD_METADATA_KEY]: input.forkMethod } : {}),
+        },
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -2968,7 +2974,7 @@ export function forkVm(input: {
         return yield* Effect.fail(new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }));
       }
       const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existingRetry, existingRetry.providerVmId);
-      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: "unknown" as const };
+      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: readVmForkMethod(existingWithReservation.providerMetadata) };
     }
     yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
     yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
@@ -3049,6 +3055,7 @@ export function forkVm(input: {
           : {}),
         billingPlanId: input.billingPlanId,
         idempotencyKey: input.idempotencyKey,
+        forkMethod: "native-live" as const,
         agentUpdates: vmAgentUpdatesFromRow(source),
         timing: input.timing,
       });
@@ -3073,7 +3080,7 @@ export function forkVm(input: {
         // allocation remains subject to the source-shape and pool checks
         // above.
         const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
-        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: "unknown" as const };
+        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: readVmForkMethod(existingWithReservation.providerMetadata) };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {
@@ -3143,7 +3150,8 @@ export function forkVm(input: {
             providerVmId: handle.providerVmId,
             image: source.imageId,
             imageVersion: source.imageVersion,
-            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+            providerMetadata: { ...(handle.providerMetadata ?? source.providerMetadata),
+              [VM_FORK_METHOD_METADATA_KEY]: "native-live" },
           }),
         );
       }).pipe(
@@ -3223,6 +3231,7 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      forkMethod: "snapshot-create",
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
       agentUpdates: vmAgentUpdatesFromRow(source),
