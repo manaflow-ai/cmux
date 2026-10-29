@@ -229,7 +229,7 @@ describe("prod-copy.ts account-check", () => {
   test("before any production snapshot is recorded, the protected production key is trusted once it is not the dev key", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("trust-on-use");
+    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("trust-on-first-use");
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });

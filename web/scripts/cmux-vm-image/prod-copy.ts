@@ -103,7 +103,7 @@ export async function accountCheck(root: string, resolve: (name: string) => Prom
   }
   const anchors = productionAnchors(root);
   if (!anchors.length) {
-    return "account check passed: the dev account's key was refused; trusting the protected production environment on first use, whose first production snapshot will be recorded";
+    return "account check passed: the dev account's key was refused; trust-on-first-use accepts the protected production environment's key, whose first production snapshot will be recorded";
   }
   for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
   throw new Error(`the Freestyle key resolves none of the ${anchors.length} known production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
