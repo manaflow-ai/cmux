@@ -27,6 +27,12 @@ on:
       timeout:
         description: Command deadline in seconds, at most 10800
         default: '3600'
+      runner:
+        description: >-
+          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
+          label that started no job; any other value is ignored
+        default: ''
 
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
 # environment, provider credentials or write token is passed to test commands.
@@ -36,7 +42,10 @@ permissions:
 jobs:
   checks:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
+    # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
+    # another size; only the Blacksmith Linux labels listed are taken.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     defaults:
       run:
