@@ -187,7 +187,10 @@ test("another pane's drag reaches this one", async () => {
 });
 
 test("a saved order with unknown or missing sections keeps every section once", async () => {
-  dom.window.localStorage.setItem(ORDER_KEY, JSON.stringify({ about: ["context", "bogus", "context", "environment"], made: 3 }));
+  dom.window.localStorage.setItem(
+    ORDER_KEY,
+    JSON.stringify({ about: ["context", "bogus", "context", "environment"], made: 3 }),
+  );
   const { container, root } = await mount();
   expect(layout(container).map((block) => block.sections)).toEqual([
     // Connectors, missing, takes its place after Context, the section it follows by default.
