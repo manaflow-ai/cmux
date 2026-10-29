@@ -159,6 +159,10 @@ struct RequestSchema: Equatable {
         switch result["kind"]?.string ?? "" {
         case "object": response = .object(try reader.object(result, path: "\(path).result", name: "Response"))
         case "ref" where result["name"]?.string == "EmptyResult": response = .named("EmptyResponse")
+        // A document the daemon writes whole (trace-status): JSONValue, as a ref to an
+        // opaque_json type is. Only a result: an inline opaque request member would hide its
+        // keys from WireKeyInventory, so the reader still refuses it.
+        case "opaque_json": response = .json(schema: "\(path).result")
         default: response = try reader.type(result, path: "\(path).result", field: "", nested: "Response")
         }
         let spawnsTerminal = try flag(node, "spawns_terminal", path: path)
