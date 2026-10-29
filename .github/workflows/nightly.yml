@@ -1657,11 +1657,10 @@ jobs:
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
   # The Blacksmith macOS 26 label the jobs after the build take (prepare, sign and notarize, verify,
-  # deltas): 6 vCPU while its queue moves, else 12 vCPU, by the queue janitor's snapshot and the one
-  # stall rule (scripts/ci/classic_nightly_build_runner.py, ENABLED 0: no trusted pick). Picked once
-  # the build is done, so it reads the queues as they are when signing starts. `alternate` is the
-  # other label, which a re-run takes so it never queues again on the label that stalled. Signing
-  # stays on Blacksmith: never an owned label. Every step continues on error, so the job ends green.
+  # deltas): blacksmith-6vcpu-macos-26 for the pick and for `alternate`, the label a re-run takes
+  # (scripts/ci/classic_nightly_build_runner.py, ONLY 6vcpu, ENABLED 0: no trusted pick). The 12 vCPU
+  # label it could move to started no job from 2026-10-28 20:32Z. Signing stays on Blacksmith: never
+  # an owned label. Every step continues on error, so the job ends green.
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
@@ -1693,6 +1692,9 @@ jobs:
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
           FIRST: 6vcpu
+          # 6 vCPU for the pick and the re-run alternate: the 12 vCPU macOS 26 label started no job
+          # from 2026-10-28 20:32Z (run 40834485210 waited on it from 07:47Z).
+          ONLY: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
