@@ -228,6 +228,11 @@ enum AgentPaneContextMenu {
                     })
                 }
             }
+            if let seq = target.forkSeq {
+                message.append(AgentForkMenu.item { destination in
+                    actions.page("chat.fork", ["throughSeq": String(seq), "placement": destination.rawValue])
+                })
+            }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
         }
