@@ -1,3 +1,5 @@
+import Foundation
+
 /// The operations each settings descriptor exposes on the non-UI surfaces.
 ///
 /// This is derived from the one native descriptor registry and exported with
