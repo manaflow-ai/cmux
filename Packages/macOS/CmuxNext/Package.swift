@@ -1871,6 +1871,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextInputModel"],
             swiftSettings: daemonSwiftSettings
         ),
+        // oracle-input-walk: seeded walks of the terminal attach machine against AttachOracle,
+        // each failure shrunk to a minimized journal (input-spec.md section 6). A tool for the VM and the fleet like
+        // oracle-replay: not linked into the app, not a test target, not run by CI.
+        .executableTarget(
+            name: "OracleInputWalk",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextInputModel",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
         // phase and window that replace AppKit event monitors and the application object's closures.
         // The only target besides the App that sees NSEvent for input routing; core and service
