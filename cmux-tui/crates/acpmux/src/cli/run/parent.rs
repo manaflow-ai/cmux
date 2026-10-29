@@ -57,11 +57,7 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
     Ok(p)
 }
 
-pub(super) async fn run(
-    args: NewArgs,
-    json_out: bool,
-    deadline: Option<tokio::time::Instant>,
-) -> Result<()> {
+pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
     if let Some(why) = refused_flags(&args) {
         return Err(errors::AppError::usage(why).into());
     }
@@ -74,22 +70,14 @@ pub(super) async fn run(
         .into());
     };
     let parent = args.parent.clone().unwrap_or_default();
-    let client = before_deadline(deadline, &parent, connect(true)).await?;
-    let started = before_deadline(
-        deadline,
-        &parent,
-        client.request(method::MUX_SUBSESSION_START, start_params(&args, &parent, &prompt)?),
-    )
-    .await?;
+    let client = connect(true).await?;
+    let started = client
+        .request(method::MUX_SUBSESSION_START, start_params(&args, &parent, &prompt)?)
+        .await?;
     let id = started["sessionId"].as_str().unwrap_or_default().to_owned();
     let name = started["name"].as_str().unwrap_or(&id).to_owned();
     if !args.tags.is_empty() {
-        before_deadline(
-            deadline,
-            &id,
-            client.request(method::MUX_TAG, json!({"sessionId": id, "set": tags})),
-        )
-        .await?;
+        client.request(method::MUX_TAG, json!({"sessionId": id, "set": tags})).await?;
     }
     if args.detach {
         if json_out {
@@ -99,12 +87,9 @@ pub(super) async fn run(
         }
         return Ok(());
     }
-    let row = before_deadline(deadline, &id, wait_turn(&client, &id, args.timeout)).await?;
+    let row = wait_turn(&client, &id, args.timeout).await?;
     // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
-    let reply = before_deadline(deadline, &id, last_replies(&client, &id, 1))
-        .await?
-        .pop()
-        .map(|r| crate::secret_scan::mask(&r));
+    let reply = last_replies(&client, &id, 1).await?.pop().map(|r| crate::secret_scan::mask(&r));
     let last = &row["lastTurn"];
     let (state, error) = turn_end(last);
     if json_out {
