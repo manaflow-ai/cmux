@@ -415,7 +415,8 @@
 .acpmux-diff-scope{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;overflow:hidden;height:var(--acpmux-diff-scope-height);padding:0 12px;border-radius:6px;background:var(--cmux-diff-pill-bg,var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg))));box-shadow:var(--cmux-diff-pill-rim,inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge));white-space:nowrap}
 .acpmux-diff-scope strong{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .acpmux-diff-counts{display:inline-flex;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.acpmux-diff-tools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:100%;min-height:var(--acpmux-diff-tools-min-height);box-sizing:border-box;padding:2.5px;border-radius:8px;background:var(--cmux-diff-pill-bg,var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg))));box-shadow:var(--cmux-diff-pill-rim,inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge))}
+.acpmux-diff-tools{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:100%;min-height:var(--acpmux-diff-tools-min-height);box-sizing:border-box;padding:2.5px;background:none;box-shadow:none}
+/* Trailing tools sit on the header's own surface: no plate of their own (Leo 2026-10-28). Only a tool's hover and pressed state fill, and only that tool. */
 /* The changes view's scope pill and toolbar ring; appearance.borders none clears it, the fill stays. */
 :root{--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 :root[data-borders=none]{--acpmux-pill-edge:transparent}
