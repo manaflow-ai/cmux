@@ -93,7 +93,7 @@
 //              password reveal one bytes field, the password, or no field when
 //              the shim found none (or 64 reveals wait already).
 //              That REPLY is the only place the password crosses:
-// no log, trace or counter here names its fields.
+//              no log, trace or counter here names its fields.
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
 //   kOpEvent   CMUX_SHIM_COLOR_CHOOSER, _DEVICE_CHOOSER, _DESKTOP_MEDIA: an

@@ -1088,8 +1088,14 @@ pub(super) fn run_pending_request(
         None => (&scheduler.cancelled, None),
     };
     if frame_call.is_some() && cancellation.is_cancelled() {
-        // Cancelled while queued: answered, never run.
-        return send_request_error(writer, request.id, "request cancelled");
+        // Cancelled while queued: answered, never run. A clear-history that
+        // never ran is known not delivered, as every other refusal says.
+        return send_request_error_with_delivery(
+            writer,
+            request.id,
+            "request cancelled",
+            request.cmd.is_clear_history().then_some(ResponseErrorDelivery::KnownNotDelivered),
+        );
     }
     // The control sequence, a clear-history worker or a creation commit
     // runs the request: a request path like the reader's
