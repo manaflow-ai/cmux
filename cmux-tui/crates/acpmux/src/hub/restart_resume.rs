@@ -74,7 +74,7 @@ fn input_prefix(update: &Value) -> Option<String> {
         (!raw.is_null()).then(|| {
             let mut bytes = Vec::with_capacity(MAX_TOOL_SCAN_BYTES);
             let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_SCAN_BYTES };
-            let truncated = serde_json::to_writer(&mut writer, raw).is_err();
+            let truncated = serde_json::to_writer(&mut writer, &MaskedInput(raw)).is_err();
             let valid = match std::str::from_utf8(&bytes) {
                 Ok(text) => text.len(),
                 Err(error) => error.valid_up_to(),
@@ -93,6 +93,34 @@ fn input_prefix(update: &Value) -> Option<String> {
             masked[..end].to_owned()
         })
     })
+}
+
+/// Mask decoded strings before JSON escaping (e.g. PASSWORD="value" in a shell
+/// command). Serialize lazily so the bounded writer still stops large arrays/objects.
+struct MaskedInput<'a>(&'a Value);
+
+impl serde::Serialize for MaskedInput<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeMap, SerializeSeq};
+        match self.0 {
+            Value::String(text) => serializer.serialize_str(&masked_scan(text)),
+            Value::Array(values) => {
+                let mut seq = serializer.serialize_seq(Some(values.len()))?;
+                for value in values {
+                    seq.serialize_element(&MaskedInput(value))?;
+                }
+                seq.end()
+            }
+            Value::Object(values) => {
+                let mut map = serializer.serialize_map(Some(values.len()))?;
+                for (key, value) in values {
+                    map.serialize_entry(&masked_scan(key), &MaskedInput(value))?;
+                }
+                map.end()
+            }
+            value => serde::Serialize::serialize(value, serializer),
+        }
+    }
 }
 
 struct BoundedJsonWriter<'a> {
@@ -118,6 +146,13 @@ impl std::io::Write for BoundedJsonWriter<'_> {
 }
 
 fn bounded_text(value: &str) -> String {
+    crate::hub::session::short_text(&masked_scan(value), MAX_TOOL_FIELD_CHARS)
+        .chars()
+        .take(MAX_TOOL_FIELD_CHARS)
+        .collect()
+}
+
+fn masked_scan(value: &str) -> String {
     let end = value
         .char_indices()
         .map(|(at, _)| at)
@@ -125,7 +160,7 @@ fn bounded_text(value: &str) -> String {
         .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
         .last()
         .unwrap_or(0);
-    safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_FIELD_CHARS)
+    safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_SCAN_BYTES)
 }
 
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
@@ -575,6 +610,18 @@ mod tests {
         assert!(
             !bounded_text(&format!("Authorization: Bearer {credential}")).contains(&credential)
         );
+    }
+
+    #[test]
+    fn restart_inputs_mask_decoded_quoted_assignments_before_json_escaping() {
+        let password = ["open", "sesame", "42"].join("_");
+        let command = format!("PASSWORD=\"{password}\" ./deploy");
+        for raw in [json!(command), json!({"command": command}), json!([{"nested": command}])] {
+            let masked = input_prefix(&json!({"rawInput": raw})).unwrap();
+            assert!(!masked.contains(&password), "quoted assignment leaked into restart input");
+            assert!(masked.contains("[secret]"), "{masked}");
+            assert!(masked.contains("./deploy"), "{masked}");
+        }
     }
 
     #[test]
