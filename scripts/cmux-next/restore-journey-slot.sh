@@ -53,16 +53,22 @@ host=$(sed -n 's/.*host=\([^ ]*\).*/\1/p' <<<"$info")
 slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")
 echo "lease $lease host $host slot $slot"
 
+# capture-host launches only the build it is told (--commit, checked against the bundle): the
+# job's commit, or RJ_COMMIT for a job the controller no longer lists.
+commit=${RJ_COMMIT:-$(cmux-ci status "$job" 2>/dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ref", ""))' 2>/dev/null || true)}
+[[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "no 40-hex commit for job $job (set RJ_COMMIT)" >&2; exit 2; }
 ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$stage' '$run'
   if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then
     tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
     for a in \"\$tmp\"/*.app; do mv \"\$a\" '$stage/'; done; rm -rf \"\$tmp\"
-  fi"
-scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+  fi
+  # The commit the staged build was made from, beside it, for capture-host's launch check.
+  echo '$commit' > '$stage/capture-commit'"
+scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
-capture-host launch "$lease" "$app" rj -- | tee "$out/launch.txt"
+capture-host launch --commit "$commit" "$lease" "$app" rj -- | tee "$out/launch.txt"
 # The app's control socket: the build's own (build_names.py: a slot clone, whose bundle id does
 # not end in its tag, gets cmux-debug--<key hash>.sock in ~/.local/state/cmux, then its /tmp
 # link); before per-build isolation it was

@@ -8,13 +8,22 @@ Blacksmith macOS last (Leo, 2026-10-24). A signing job imports the Developer ID
 certificate into a per-job temporary keychain (scripts/ci/signing-keychain.sh),
 so on an owned Mac it must have the mini to itself:
 
-- `owned` is offered only while vars.CI_SIGN_OWNED is 1 (ENABLED) and the owned
-  runners can be read live (ROUTE_TOKEN). It names a mini none of whose online
-  runners is busy now (a drained mini), as the JSON runs-on array
+- `owned` is offered only while vars.CI_SIGN_OWNED is 1 (ENABLED), the owned
+  runners can be read live (ROUTE_TOKEN), and no other signing job holds an
+  owned Mac now (MAX_OWNED_SIGNING, counted with SNAPSHOT_TOKEN's actions: read).
+  It names a mini none of whose runners is busy now (a drained mini; an offline
+  runner GitHub calls idle is a parked slot), as the JSON runs-on array
   `["<pool label>", "glaeda-runner-<runner name>"]`: the pool label is one of
   OWNED_LABELS, so ci-owned-pool-rescue.yml watches the job, and the runner
   label pins it to that idle runner. Empty otherwise: a busy fleet is never
   waited on.
+- With no drained mini (under steady PR load there never is one: run 40859232446), a nightly-next signing job is
+  sent to drain one: an idle runner of glaeda's nightly slot (NIGHTLY_SLOT_LABEL, offered only when OWNED_LABELS
+  names it, which nightly.yml's does and the DEV daily's does not) on the mini with the fewest busy runners. The
+  slot listens however full its mini is, and the waiting signing job, a nightly job, stops every other admission
+  and holds every other runner's gate there (glaeda FEED_FIRST): the running jobs finish, nothing new starts, and it
+  takes the whole mini within glaeda's SIGNING_DRAIN_WAIT_S (600 s), or is refused and the run's Blacksmith twin
+  signs. The hold is the waiting job's own marker, so it ends with the job and never strands the mini.
 - On the mini, glaeda's job-started hook gives every signing job the exclusive
   class (glaeda SIGNING_JOBS): every capacity unit and both fast tokens, so no
   other job starts beside it, and it waits at most 300 s for the mini to drain
@@ -38,6 +47,7 @@ prints the Blacksmith pair).
 
 from __future__ import annotations
 
+import collections
 import datetime as dt
 import json
 import os
@@ -48,9 +58,22 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nightly_sign_runner as blacksmith_picker  # noqa: E402
 import pr_runner_pool as pool  # noqa: E402
-from nightly_build_runner import owned_label  # noqa: E402
+from nightly_build_runner import NIGHTLY_SLOT_LABEL, owned_label  # noqa: E402
 
 ENABLED_VALUE = "1"
+# The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
+# lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
+SIGNING_JOBS = {
+    "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy"),
+    "release.yml": ("build-sign-notarize",),
+    "repair-v0-64-25-helper-rpaths.yml": ("repair",),
+    "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),
+}
+# At most this many minis are held for signing at once (the coordinator's cap, 2026-10-29): a drained mini is taken
+# whole, so each one held is a mini's worth of PR and nightly work sent elsewhere.
+MAX_OWNED_SIGNING = 1
+# The run statuses that are not finished (GitHub's `status` filter for workflow runs).
+ACTIVE_RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
 
 
 def member(name: str) -> str:
@@ -60,30 +83,38 @@ def member(name: str) -> str:
 
 
 def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], seed: str = "") -> tuple[str, str]:
-    """(the JSON runs-on array for an idle runner on a mini with no busy runner, or "", why).
+    """(the JSON runs-on array for an idle runner on a mini with no busy runner, else one to drain, or "", why).
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
-    `glaeda-runner-<name>` label. Its mini qualifies only when no online runner of that mini, whatever
-    its labels, is busy or offline now. `seed` (the run ID) picks among the qualifying minis, so two signing jobs
-    picking at once tend to land on different minis.
+    `glaeda-runner-<name>` label. Its mini is drained when no runner of that mini, whatever its
+    labels or status, is busy now (an offline runner GitHub calls idle is a parked slot and runs nothing).
+    `seed` picks among the drained minis; owned_pick passes none, so two pickers at once name the same
+    mini and glaeda admits only one of them. With no drained mini, a candidate carrying a nightly slot label
+    (NIGHTLY_SLOT_LABEL) is offered on the mini with the fewest busy runners, which glaeda drains for the
+    signing job (the module docstring); the first by name on a tie, so two pickers name the same one.
     """
     # The owned labels nightly_build_runner offers: a persistent pool or glaeda's nightly slot, which
     # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name (its hook still admits a signing job only as the exclusive class).
     wanted = [label for label in labels if label and owned_label(label)]
     if not wanted:
         return "", f"no owned pool label among {list(labels) or 'none'}"
-    busy: set[str] = set()
+    busy: collections.Counter[str] = collections.Counter()
     idle: dict[str, list[tuple[str, str]]] = {}
     for runner in runners:
         name = str(runner.get("name") or "")
         mini = member(name)
         if not mini:
             continue
-        if runner.get("busy") or runner.get("status") != "online":
-            # A busy runner of any status keeps its mini, and so does an offline one: it may still run a job whose
-            # end GitHub has not seen, or come back with one (glaeda's admission, which takes every unit, is the
-            # guarantee; this keeps the pick off minis it would refuse).
-            busy.add(mini)
+        if runner.get("busy"):
+            # A busy runner of any status keeps its mini: an offline one GitHub still calls busy may be running a
+            # job whose end it has not seen.
+            busy[mini] += 1
+            continue
+        if runner.get("status") != "online":
+            # An offline runner GitHub calls idle runs nothing: glaeda parks most of a mini's registered runners
+            # offline as spare slots (5 to 11 of 12 on every mini on 2026-10-29), so counting them as busy left no
+            # mini ever drained and every pick empty. glaeda's admission, which takes every unit or refuses within
+            # 300 s, stays the guarantee if one comes back with a job.
             continue
         names = pool.runner_labels(runner)
         label = next((label for label in wanted if pool.carries_office_pool_label(runner, label)), "")
@@ -91,11 +122,47 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
             idle.setdefault(mini, []).append((label, name))
     drained = sorted(mini for mini in idle if mini not in busy)
     if not drained:
+        slots = sorted((busy[mini], mini, label, name) for mini, found in idle.items()
+                       for label, name in found if NIGHTLY_SLOT_LABEL.fullmatch(label))
+        if slots:
+            count, mini, label, name = slots[0]
+            return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
+                    f"`{name}` on {mini}, to drain: no mini is drained now, and glaeda holds every new job off "
+                    f"{mini} while this one waits for its {count} busy runner(s) to finish")
         return "", f"no mini with an idle {' or '.join(f'`{label}`' for label in wanted)} runner is drained now"
     mini = drained[sum(map(ord, seed)) % len(drained)] if seed else drained[0]
     label, name = sorted(idle[mini])[0]
     return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
             f"`{name}` on {mini}, which runs no job now ({len(drained)} drained mini(s))")
+
+
+def owned_signing_jobs(read: Callable[[str], Any]) -> int:
+    """How many signing jobs (SIGNING_JOBS) are queued or running on an owned Mac now: pinned by a
+    `glaeda-runner-<name>` label, which only the owned pick adds to a signing job's runs-on. `read` GETs a path
+    under the repository (actions: read). Raises on any read it cannot make, so the caller offers no owned Mac."""
+    count, seen = 0, set()
+    for workflow, names in SIGNING_JOBS.items():
+        # Every run status GitHub has that is not finished: a run waiting on an environment, or pending a
+        # concurrency slot, can still hold a signing job that already carries its pin.
+        for status in ACTIVE_RUN_STATUSES:
+            page = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=100")
+            runs = page.get("workflow_runs") or []
+            if int(page.get("total_count") or 0) > len(runs):
+                raise RuntimeError(f"{workflow} has more {status} runs than one page lists")
+            for run in runs:
+                if run["id"] in seen:
+                    continue
+                seen.add(run["id"])
+                listed = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+                jobs = listed.get("jobs") or []
+                if int(listed.get("total_count") or 0) > len(jobs):
+                    raise RuntimeError(f"run {run['id']} has more jobs than one page lists")
+                for job in jobs:
+                    name = str(job.get("name") or "").split(" (", 1)[0]
+                    if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
+                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
+                        count += 1
+    return count
 
 
 def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Sequence[str]) -> None:
@@ -110,7 +177,8 @@ def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Seque
 
 
 def owned_pick(env: Mapping[str, str],
-               read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None) -> tuple[str, str]:
+               read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
+               read_jobs: Callable[[str], Any] | None = None) -> tuple[str, str]:
     if (env.get("ENABLED") or "").strip() != ENABLED_VALUE:
         return "", "vars.CI_SIGN_OWNED is not 1, so signing stays off the owned Macs"
     if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1"):
@@ -118,18 +186,34 @@ def owned_pick(env: Mapping[str, str],
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if not (token and repo):
         return "", "owned runners could not be read live (no routing token), so none is offered"
+    jobs_token = env.get("SNAPSHOT_TOKEN", "")
+    if not (jobs_token or read_jobs):
+        return "", "the signing jobs on owned Macs could not be counted (no actions: read token), so none is offered"
+    # The runners are read BEFORE the signing jobs are counted. A signing job that made a mini busy in this
+    # snapshot is then already listed when the count runs, so the count sees it and nothing is offered; one not
+    # yet started left its mini drained in the snapshot, and the first-drained pick (no run-ID spread) names that
+    # same mini, where glaeda's exclusive admission lets only one of the two in (the other is refused within
+    # 300 s and its re-run takes Blacksmith).
     try:
         runners = (read_runners or (lambda t, r: pool.GitHub(t, r).runners()))(token, repo)
     except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
         print(f"::warning title=signing runner::could not list owned runners ({str(error)[:200]})")
         return "", "owned runners could not be read"
-    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), env.get("GITHUB_RUN_ID", ""))
+    try:
+        held = owned_signing_jobs(read_jobs or pool.GitHub(jobs_token, repo).get)
+    except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
+        print(f"::warning title=signing runner::could not count the signing jobs on owned Macs ({str(error)[:200]})")
+        return "", "the signing jobs on owned Macs could not be counted, so none is offered"
+    if held >= MAX_OWNED_SIGNING:
+        return "", f"{held} signing job(s) already hold an owned Mac (at most {MAX_OWNED_SIGNING} at once)"
+    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split())
 
 
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
+         read_jobs: Callable[[str], Any] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None) -> int:
-    owned, owned_why = owned_pick(env, read_runners)
+    owned, owned_why = owned_pick(env, read_runners, read_jobs)
     if list(argv[:1]) == ["owned"]:
         write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
         return 0
