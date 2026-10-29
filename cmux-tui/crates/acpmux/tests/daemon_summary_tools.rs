@@ -195,13 +195,6 @@ with socket.socket(socket.AF_UNIX) as sock:
     assert info.get('id') == 2 and 'error' not in info, str(info)[:1000]
     assert len(info['result'].get('tools', [])) == tools
     assert info['result'].get('toolsMutable') is True
-    sock.sendall(json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/list',
-                             'params': {}}).encode() + b'\n')
-    acp = json.loads(reader.readline())
-    assert acp.get('id') == 3 and 'error' not in acp, str(acp)[:1000]
-    acp_row = acp['result']['sessions'][0]['_meta']['acpmux']
-    assert len(acp_row.get('tools', [])) == tools
-    assert acp_row.get('toolsMutable') is True
     report = {'fixture': 'summary-tools-v1', 'seed': int(seed), 'sessions': count,
         'closed_sessions': closed, 'open_sessions': count - closed,
         'seeded_tool_rows_per_session': tools, 'method': method,
@@ -209,7 +202,6 @@ with socket.socket(socket.AF_UNIX) as sock:
         'summary_tool_rows': sum(len(r.get('tools', [])) for r in rows),
         'summaries_with_tools_mutable': sum('toolsMutable' in r for r in rows),
         'info_tool_rows': len(info['result'].get('tools', [])),
-        'acp_tool_rows': len(acp_row.get('tools', [])),
         'receive_ms': (received - started) * 1000, 'parse_ms': (parsed - received) * 1000,
         'memory_source': 'Linux /proc VmRSS and reset VmHWM; bytes',
         'consumer': 'CPython JSON consumer holding raw reply and parsed tree; NOT browser/page RSS',

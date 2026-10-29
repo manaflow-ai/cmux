@@ -268,6 +268,15 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .cloned()
         .expect("the session is listed");
     assert_summary_without_tools(&summary);
+    let acp_list = local.call("session/list", json!({})).await.unwrap();
+    let acp_row = acp_list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == json!(acp))
+        .expect("the ACP list includes the session");
+    assert_eq!(rows(&acp_row["_meta"]["acpmux"]["tools"]), cmux_servers, "{acp_row}");
+    assert_eq!(acp_row["_meta"]["acpmux"]["toolsMutable"], false, "{acp_row}");
     // It cannot change them mid-session: refused, never a silent no-op.
     let refused = local
         .call("_acpmux/set_tools", json!({"sessionId": acp, "id": "mcp:cmux", "enabled": false}))
