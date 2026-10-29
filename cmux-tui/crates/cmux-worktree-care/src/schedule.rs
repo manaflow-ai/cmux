@@ -138,10 +138,14 @@ fn try_lock(_file: &File) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
 
     fn folder(name: &str) -> PathBuf {
+        let serial = NEXT_FOLDER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "care-schedule-{name}-{}-{}",
+            "care-schedule-{name}-{}-{}-{serial}",
             std::process::id(),
             crate::inventory::now_ms()
         ));
