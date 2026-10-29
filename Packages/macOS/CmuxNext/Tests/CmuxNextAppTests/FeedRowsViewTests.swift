@@ -4,9 +4,10 @@ import Foundation
 import Testing
 
 /// The Feed list (panel and Inbox column) is one AppKit table over the feed model: its event rows
-/// are AppKit cells that say what happened, who, where and when; one owner event redraws only the
-/// row it changed; an event above the reader keeps the reader's row in place; a click selects
-/// and reads the item.
+/// are AppKit cells that say what happened, who, where and when; the model keeps the list's order
+/// and hands the list each change as row edits, so one owner event moves, inserts or redraws only
+/// its own row and builds no other row's value; rows are built only when shown; an event above the
+/// reader keeps the reader's row in place; a click selects and reads the item.
 @MainActor @Suite struct FeedRowsViewTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -62,7 +63,7 @@ import Testing
         defer { window.close() }
         let swiftUI = subviews(of: view).map { NSStringFromClass(type(of: $0)) }.filter { $0.contains("SwiftUI") }
         #expect(swiftUI.isEmpty, "SwiftUI views in the Feed list: \(swiftUI)")
-        #expect(view.entries.count == 40)
+        #expect(view.rowIDs.count == 40)
         #expect(!visibleCells(view).isEmpty)
     }
 
@@ -83,14 +84,14 @@ import Testing
     }
 
     @Test func oneOwnerEventRedrawsOnlyItsRow() async throws {
-        let (view, _, source, window) = shown(count: 30)
+        let (view, model, source, window) = shown(count: 30)
         defer { window.close() }
         let before = visibleCells(view)
         let renders = view.renderCount
         // An agent repeats its notice: the owner coalesces it into fi_2 (count 2).
         source.post(item(99, ago: 0, dedupe: "d2"))
         await until { view.renderCount > renders }
-        let index = try #require(view.entries.firstIndex { $0.id == "fi_2" })
+        let index = try #require(model.listRow(of: "fi_2"))
         #expect(view.lastReloaded == IndexSet(integer: index), "reloaded \(Array(view.lastReloaded)), want only \(index)")
         let after = visibleCells(view)
         for (id, cell) in before where id != "fi_2" {
@@ -99,18 +100,79 @@ import Testing
         #expect(after["fi_2"]?.meta.stringValue.contains("×2") == true)
     }
 
-    /// A live event costs the rows it changed, not the list: at 1,500 items one coalesced notice
-    /// builds one row value, also when no item's place resolves (another Mac's items).
-    @Test(arguments: [true, false]) func oneEventBuildsOneRowValue(resolves: Bool) async throws {
+    /// Rows are built when shown: a 1,500-item list builds the values of the rows on screen, not
+    /// of every row, also when no item's place resolves (another Mac's items).
+    @Test(arguments: [true, false]) func rowsAreBuiltOnlyWhenShown(resolves: Bool) async throws {
         let (view, model, source, window) = shown(count: 1_500, resolves: resolves)
         defer { window.close() }
         let builds = view.contentBuilds
-        #expect(builds == 1_500)
+        #expect(builds > 0 && builds <= 40, "a 600 pt list built \(builds) row values")
         let renders = view.renderCount
         source.post(item(99, ago: 0, dedupe: "d7"))
         await until { view.renderCount > renders }
         #expect(model.item("fi_7")?.count == 2)
-        #expect(view.contentBuilds - builds == 1, "a render built \(view.contentBuilds - builds) row values")
+        #expect(view.contentBuilds - builds <= 1, "one event built \(view.contentBuilds - builds) row values")
+    }
+
+    /// The model hands the list each change as row edits: a new event is one insert at the top, an
+    /// agent repeating its notice is one row redrawn where it is, reading an item is one row
+    /// redrawn, and an archived item is one removal; nothing else moves.
+    @Test func eachChangeIsOneRowEdit() async throws {
+        let (_, model, source, window) = shown(count: 1_500)
+        defer { window.close() }
+        var edits: [FeedRowChanges] = []
+        let subscription = model.observeList { edits.append($0) }
+        defer { subscription.cancel() }
+
+        source.post(item(5_000, ago: 0))
+        await until { !edits.isEmpty }
+        #expect(edits == [FeedRowChanges(inserted: [0])], "a new event: \(edits)")
+
+        edits.removeAll()
+        source.post(item(99, ago: 0, dedupe: "d7"))
+        await until { !edits.isEmpty }
+        let row = try #require(model.listRow(of: "fi_7"))
+        #expect(edits == [FeedRowChanges(updated: [row])], "a coalesced notice: \(edits)")
+
+        edits.removeAll()
+        model.markRead(["fi_9"])
+        let read = try #require(model.listRow(of: "fi_9"))
+        await until { model.pending.isEmpty }
+        #expect(edits.allSatisfy { $0 == FeedRowChanges(updated: [read]) } && !edits.isEmpty, "a read: \(edits)")
+
+        edits.removeAll()
+        let archived = try #require(model.listRow(of: "fi_11"))
+        model.archive(["fi_11"])
+        await until { model.pending.isEmpty }
+        #expect(edits.first == FeedRowChanges(removed: [archived]), "an archive: \(edits)")
+        #expect(model.listRow(of: "fi_11") == nil && model.listCount == 1_500)
+    }
+
+    /// The model's kept order is the order a full sort gives, through a mixed run of new events,
+    /// coalesced notices, requests that open and close, reads, snoozes and archives.
+    @Test func theKeptOrderMatchesAFullSort() async throws {
+        let (_, model, source, window) = shown(count: 200)
+        defer { window.close() }
+        for step in 0..<60 {
+            switch step % 6 {
+            case 0: source.post(item(1_000 + step, ago: Double(step)))
+            case 1: source.post(item(step, ago: 0, dedupe: "d\(step)"))
+            case 2:
+                source.post(FeedItem(id: "fi_req_\(step)", title: "Allow make?", prompt: .question(.init(question: "Ship?")),
+                                     priority: step % 4 == 2 ? .high : nil, poster: FeedPoster(kind: .agent, label: "Agent"),
+                                     createdAt: now.addingTimeInterval(-Double(step))))
+            case 3: model.markRead(["fi_\(step)"])
+            case 4: model.archive(["fi_\(step)"])
+            default: model.snooze(["fi_\(step)"], for: 3_600)
+            }
+            await until { model.pending.isEmpty }
+        }
+        let sorted = FeedListSections(items: model.visibleItems, now: model.now)
+        let kept = model.listSections
+        #expect(kept.requests.map(\.id) == sorted.requests.map(\.id))
+        #expect(kept.rest.map(\.id) == sorted.rest.map(\.id))
+        #expect(model.counts == FeedCounts(items: model.visibleItems, now: model.now))
+        #expect(model.visibleItems.map(\.id) == model.visibleItems.sorted(by: FeedOrder.newest).map(\.id))
     }
 
     @Test func aNewEventAboveKeepsTheReadersRow() async throws {
@@ -120,19 +182,20 @@ import Testing
         view.scroll.contentView.scroll(to: NSPoint(x: 0, y: target))
         view.scroll.reflectScrolledClipView(view.scroll.contentView)
         let topRow = view.table.row(at: NSPoint(x: 1, y: view.scroll.contentView.bounds.minY + 1))
-        let anchor = view.entries[topRow].id
+        let anchor = try #require(view.entry(at: topRow)).id
         let renders = view.renderCount
         source.post(item(500, ago: 0))
         await until { view.renderCount > renders }
-        #expect(view.entries.first?.id == "fi_500")
+        #expect(view.entry(at: 0)?.id == "fi_500")
         let nowTop = view.table.row(at: NSPoint(x: 1, y: view.scroll.contentView.bounds.minY + 1))
-        #expect(view.entries[nowTop].id == anchor, "the reader's row moved: \(view.entries[nowTop].id) is on top, not \(anchor)")
+        let top = view.entry(at: nowTop)?.id
+        #expect(top == anchor, "the reader's row moved: \(top ?? "none") is on top, not \(anchor)")
     }
 
     @Test func aClickSelectsAndReadsTheItem() async throws {
         let (view, model, _, window) = shown(count: 5)
         defer { window.close() }
-        let entry = try #require(view.entries.first { $0.id == "fi_3" })
+        let entry = try #require(model.listRow(of: "fi_3").flatMap(view.entry(at:)))
         view.clicked(entry, clickCount: 1)
         #expect(model.selection == "fi_3")
         await until { model.item("fi_3")?.isUnread == false }
@@ -144,11 +207,11 @@ import Testing
     @Test func theInboxGroupsRowsUnderTitles() {
         let (view, _, _, window) = shown(count: 4, mode: .inbox)
         defer { window.close() }
-        guard case .header = view.entries.first else {
-            Issue.record("the Inbox list starts with a section title: \(view.entries.map(\.id))")
+        guard case .header = view.entry(at: 0) else {
+            Issue.record("the Inbox list starts with a section title: \(view.rowIDs)")
             return
         }
-        #expect(view.entries.filter { if case .row = $0 { true } else { false } }.count == 4)
+        #expect(view.rowIDs.filter { !$0.hasPrefix("header:") }.count == 4)
     }
 
     /// Rows say who and where even when the poster named nobody, and never print an opaque id.
