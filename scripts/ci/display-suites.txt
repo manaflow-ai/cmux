@@ -28,6 +28,8 @@ Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuPerformanceTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupCompletionTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.NativePopupReplacementTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PopupGrowMotionTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.TabHoverCardAttachTests
