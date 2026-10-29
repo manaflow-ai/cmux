@@ -38,7 +38,7 @@ impl FakeClockWatcher {
     /// right before it takes the `slow_requests` ring.
     fn with_before_ring(
         hang: Option<Duration>,
-        before_ring: Option<Box<dyn Fn(&Shared) + Send + Sync>>,
+        before_ring: Option<BeforeRingHook>,
     ) -> (RequestWatchdog, Self) {
         fn no_thread(_body: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
             Ok(supervised::Unparker::current_for_test())

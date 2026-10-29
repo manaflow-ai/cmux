@@ -297,6 +297,11 @@ struct RecentEntry {
     request: SlowRequest,
 }
 
+/// Tests: a hook the recording thread runs just before it takes the
+/// `slow_requests` ring.
+#[cfg(test)]
+type BeforeRingHook = Box<dyn Fn(&Shared) + Send + Sync>;
+
 struct Shared {
     epoch: Instant,
     /// The epoch as milliseconds since the Unix epoch, for hang records.
@@ -337,7 +342,7 @@ struct Shared {
     recent: Mutex<VecDeque<RecentEntry>>,
     /// Tests: runs on the recording thread just before it takes `recent`.
     #[cfg(test)]
-    before_ring_for_test: Option<Box<dyn Fn(&Shared) + Send + Sync>>,
+    before_ring_for_test: Option<BeforeRingHook>,
     /// Tests: held to keep the watchdog thread from scanning.
     #[cfg(test)]
     scan_hold: Mutex<()>,
