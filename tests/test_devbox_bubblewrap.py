@@ -28,7 +28,7 @@ apt-get update
 apt-get install -y --no-install-recommends --reinstall bubblewrap
 test "$(sha256sum /usr/bin/bwrap)" = "$before"
 test "$(bwrap --version)" = "$version"
-runuser -u nobody -- bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true
+runuser -u nobody -- bwrap --ro-bind-symlink / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true
 echo bubblewrap-install-and-sandbox-ok
 '''
 try:
