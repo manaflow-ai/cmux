@@ -16,6 +16,8 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
+use std::time::{Duration, Instant};
+use wait_timeout::ChildExt;
 
 /// A state folder whose config names a relay that records each call in `relayed` (its argv,
 /// `ACPMUX_FROM` and stdin, one line per call), prints a delivery id and exits 7 for the
@@ -149,4 +151,43 @@ fn a_target_nobody_here_resolves_goes_to_the_relay_and_a_session_here_never_does
     let current = cli(&dir, &["send", "--no-wait", "@", "x"]);
     assert_eq!(current.status.code(), Some(4), "{}", text(&current));
     assert_eq!(relayed(&dir).len(), count, "{:?}", relayed(&dir));
+}
+
+#[test]
+fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
+    let dir = scratch("deadline");
+    let _shutdown = Shutdown(&dir);
+    let pid_file = dir.join("relay-pid");
+    let relay = dir.join("relay");
+    fs::write(&relay, format!("#!/bin/sh\necho $$ > {}\nsleep 30\n", pid_file.display())).unwrap();
+    fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {}, "sendRelay": {"argv": [relay.display().to_string()]}}).to_string(),
+    )
+    .unwrap();
+
+    let mut command = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+    command
+        .args(["send", "--timeout", "1", "far/coordinator", "hello"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .current_dir(dir.join("p"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let started = Instant::now();
+    let mut child = command.spawn().unwrap();
+    let status = child
+        .wait_timeout(Duration::from_secs(4))
+        .unwrap()
+        .expect("stalled relay was not bounded by --timeout");
+    let elapsed = started.elapsed();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(status.code(), Some(3), "stdout: {:?}\nstderr: {:?}", output.stdout, output.stderr);
+    assert!(elapsed < Duration::from_secs(3), "relay exceeded deadline: {elapsed:?}");
+
+    let relay_pid = fs::read_to_string(&pid_file).unwrap().trim().parse::<i32>().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(unsafe { libc::kill(relay_pid, 0) }, -1, "relay child survived timeout");
 }
