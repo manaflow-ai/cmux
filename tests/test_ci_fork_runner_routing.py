@@ -1067,6 +1067,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             errors.extend(ungated_blacksmith_labels(path.name, path.read_text(encoding="utf-8")))
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
 
+    def test_janitor_route_inventory_is_data_but_runner_selection_is_checked(self) -> None:
+        value = "${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+        inventory = f"env:\n  CMUX_CI_RUNS_ON_VARIABLES: |\n    MACOS_RUNNER_BACKGROUND={value}\n"
+        self.assertEqual(ungated_blacksmith_labels("ci-queue-janitor.yml", inventory), [])
+        selected = f"jobs:\n  sweep:\n    runs-on: {value}\n"
+        self.assertTrue(ungated_blacksmith_labels("ci-queue-janitor.yml", selected))
+        self.assertTrue(ungated_blacksmith_labels("other.yml", inventory))
+
     def test_ungated_blacksmith_fallbacks_are_rejected(self) -> None:
         text = (
             "on:\n"

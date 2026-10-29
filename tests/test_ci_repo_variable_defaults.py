@@ -256,6 +256,12 @@ def self_test_gate_matcher(errors: list[str]) -> None:
         ("ci-health-report.yml",
          "    env:\n      CMUX_CI_RUNNER_VARIABLES: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
          0, "the exempt reporting block"),
+        ("ci-queue-janitor.yml",
+         "    env:\n      CMUX_CI_RUNS_ON_VARIABLES: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
+         0, "the janitor's raw route inventory"),
+        ("ci-queue-janitor.yml",
+         f"runs-on: ${{{{ vars.MACOS_RUNNER_15 || '{free}' }}}}",
+         1, "an ungated janitor runner selection outside its inventory"),
     )
     with tempfile.TemporaryDirectory() as directory:
         for filename, body, expected, description in probes:
