@@ -3012,7 +3012,7 @@
       "nextMachines": "Machines : tailles, forfaits, redimensionnement, pause, snapshots et suppression.",
       "nextWorkspaces": "Espaces de travail et agents : terminaux persistants, agents, notifications et logiciels installés.",
       "nextNetworking": "Fichiers et réseau : envoi de fichiers, variables d'environnement, ports, bureau et URL publiques.",
-      "nextCli": "Référence CLI Cloud : chaque verbe de cmux vm.",
+      "nextCli": "Référence de la CLI Cloud : actions NEXT proposées, secrets et commandes de transmission.",
       "nextTroubleshooting": "Sécurité et dépannage : fonctionnement de l'accès et résolution des erreurs courantes."
     },
     "cloudMachines": {
@@ -3145,10 +3145,10 @@
       "customDomainDesc": "cmux cloud domains verify affiche les enregistrements DNS à ajouter : un enregistrement TXT pour prouver la propriété, les enregistrements de routage et la délégation de certificat. Ajoutez-les, puis relancez verify. Une fois la vérification faite, vous pouvez publier sur le domaine ou sur un sous-domaine d'un niveau inférieur."
     },
     "cloudCli": {
-      "title": "Référence CLI Cloud",
-      "metaTitle": "Référence CLI cmux Cloud",
-      "metaDescription": "Référence de toutes les commandes cmux vm et cmux cloud : cycle de vie, espaces de travail, fichiers, environnement, domaines et VPN.",
-      "intro": "cmux vm et cmux cloud sont la même commande. Le CLI communique avec l'app cmux en cours d'exécution, qui conserve votre connexion. Ajoutez --json à n'importe quel verbe pour obtenir une sortie lisible par une machine. Chaque verbe a une page --help.",
+      "title": "Référence de la CLI Cloud (NEXT)",
+      "metaTitle": "Référence de la CLI Cloud (NEXT)",
+      "metaDescription": "Aperçu des actions proposées par cmux NEXT Cloud, stockage des secrets, commandes de transmission, cibles explicites et limites des images.",
+      "intro": "Voici les actions Cloud proposées par la CLI de cmux NEXT. Une commande proposée peut néanmoins être indisponible sur une image de machine donnée. L’image vérifiée le 2026-10-29 ne prend pas encore en charge les onglets de chat natifs des agents, l’ouverture d’onglets de navigateur pour les serveurs de développement, la redirection locale de ports, les forks ni la pause automatique en cas d’inactivité.",
       "exitCodes": "Codes de sortie : 0 en cas de succès, 1 en cas d'erreur et 2 pour une commande inconnue. cmux vm run renvoie le code de sortie distant.",
       "authTitle": "Connexion",
       "authDesc": "Connectez-vous, vérifiez votre compte et choisissez une équipe.",

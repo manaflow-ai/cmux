@@ -3007,7 +3007,7 @@
       "nextMachines": "Maskiner: størrelser, abonnementer, størrelsesændring, pause, snapshots og sletning.",
       "nextWorkspaces": "Arbejdsområder og agenter: holdbare terminaler, agenter, notifikationer og hvad der er installeret.",
       "nextNetworking": "Filer og netværk: upload af filer, miljøvariabler, porte, skrivebord og offentlige URL'er.",
-      "nextCli": "Cloud CLI-reference: alle cmux vm-verber.",
+      "nextCli": "Cloud-CLI-reference: tilbudte NEXT-handlinger, hemmeligheder og overdragelseskommandoer.",
       "nextTroubleshooting": "Sikkerhed og fejlfinding: hvordan adgang fungerer, og hvordan du løser almindelige fejl."
     },
     "cloudMachines": {
@@ -3140,10 +3140,10 @@
       "customDomainDesc": "cmux cloud domains verify udskriver de DNS-poster, du skal tilføje: en TXT-post for ejerskab, routingposterne og certifikatdelegeringen. Tilføj dem, og kør verify igen. Efter verificeringen kan du udgive på domænet eller på et underdomæne ét niveau under det."
     },
     "cloudCli": {
-      "title": "Cloud CLI-reference",
-      "metaTitle": "cmux Cloud CLI-reference",
-      "metaDescription": "Reference til alle cmux vm- og cmux cloud-kommandoer: livsforløb, arbejdsområder, filer, miljø, domæner og VPN.",
-      "intro": "cmux vm og cmux cloud er den samme kommando. CLI'en taler med den kørende cmux-app, som holder dit login. Tilføj --json til ethvert verbum for maskinlæsbart output. Hvert verbum har en --help-side.",
+      "title": "Cloud-CLI-reference (NEXT)",
+      "metaTitle": "Cloud-CLI-reference (NEXT)",
+      "metaDescription": "Oversigt over tilbudte cmux NEXT Cloud-handlinger, hemmeligheder, overdragelseskommandoer, eksplicitte maskinmål og aktuelle imagebegrænsninger.",
+      "intro": "Dette er de Cloud-handlinger, som cmux NEXT CLI tilbyder. En tilbudt kommando kan stadig være utilgængelig på et bestemt maskinimage. Det image, der blev kontrolleret den 2026-10-29, understøtter endnu ikke integrerede agentchatfaner, åbning af browserfaner til udviklingsservere, lokal portvideresendelse, forks eller automatisk pause ved inaktivitet.",
       "exitCodes": "Exitkoder: 0 ved succes, 1 ved fejl og 2 for en ukendt kommando. cmux vm run returnerer den eksterne exitkode.",
       "authTitle": "Log ind",
       "authDesc": "Log ind, tjek din konto, og vælg et team.",

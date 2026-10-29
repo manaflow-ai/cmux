@@ -3010,7 +3010,7 @@
       "nextMachines": "Maszyny: rozmiary, plany, zmiana rozmiaru, wstrzymywanie, migawki i usuwanie.",
       "nextWorkspaces": "Obszary robocze i agenci: trwałe terminale, agenci, powiadomienia i zainstalowane oprogramowanie.",
       "nextNetworking": "Pliki i sieć: przesyłanie plików, zmienne środowiskowe, porty, pulpit i publiczne adresy URL.",
-      "nextCli": "Dokumentacja CLI Cloud: wszystkie czasowniki cmux vm.",
+      "nextCli": "Dokumentacja CLI Cloud: udostępnione działania NEXT, sekrety i polecenia przekazania informacji.",
       "nextTroubleshooting": "Bezpieczeństwo i rozwiązywanie problemów: jak działa dostęp i jak naprawić typowe błędy."
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify wypisuje rekordy DNS do dodania: rekord TXT potwierdzający własność, rekordy routingu i delegację certyfikatu. Dodaj je, a następnie ponownie uruchom verify. Po weryfikacji możesz publikować w tej domenie lub w subdomenie o jeden poziom niżej."
     },
     "cloudCli": {
-      "title": "Dokumentacja CLI Cloud",
-      "metaTitle": "Dokumentacja CLI cmux Cloud",
-      "metaDescription": "Dokumentacja wszystkich poleceń cmux vm i cmux cloud: cykl życia, obszary robocze, pliki, środowisko, domeny i VPN.",
-      "intro": "cmux vm i cmux cloud to to samo polecenie. CLI komunikuje się z uruchomioną aplikacją cmux, która przechowuje Twoje logowanie. Dodaj --json do dowolnego czasownika, aby uzyskać wynik czytelny dla maszyn. Każdy czasownik ma stronę --help.",
+      "title": "Dokumentacja CLI Cloud (NEXT)",
+      "metaTitle": "Dokumentacja CLI Cloud (NEXT)",
+      "metaDescription": "Zestaw udostępnionych działań cmux NEXT Cloud, przechowywanie sekretów, polecenia przekazania informacji, jawne cele maszyn i ograniczenia obrazu.",
+      "intro": "Oto działania Cloud udostępniane przez CLI cmux NEXT. Udostępnione polecenie może mimo to być niedostępne w konkretnym obrazie maszyny. Obraz sprawdzony 2026-10-29 nie obsługuje jeszcze natywnych kart czatu agentów, otwierania kart przeglądarki serwera deweloperskiego, lokalnego przekierowywania portów, tworzenia forków ani automatycznego wstrzymywania po okresie bezczynności.",
       "exitCodes": "Kody wyjścia: 0 przy powodzeniu, 1 przy błędzie i 2 dla nieznanego polecenia. cmux vm run zwraca zdalny kod wyjścia.",
       "authTitle": "Logowanie",
       "authDesc": "Zaloguj się, sprawdź swoje konto i wybierz zespół.",

@@ -3009,7 +3009,7 @@
       "nextMachines": "Máquinas: tamaños, planes, ampliación, pausa, snapshots y eliminación.",
       "nextWorkspaces": "Espacios de trabajo y agentes: terminales persistentes, agentes, notificaciones y software instalado.",
       "nextNetworking": "Archivos y red: subir archivos, variables de entorno, puertos, escritorio y URL públicas.",
-      "nextCli": "Referencia de la CLI de Cloud: todos los verbos de cmux vm.",
+      "nextCli": "Referencia de la CLI de Cloud: acciones de NEXT ofrecidas, secretos y comandos de entrega.",
       "nextTroubleshooting": "Seguridad y solución de problemas: cómo funciona el acceso y cómo corregir errores comunes."
     },
     "cloudMachines": {
@@ -3142,10 +3142,10 @@
       "customDomainDesc": "cmux cloud domains verify muestra los registros DNS que debes añadir: un registro TXT para demostrar la propiedad, los registros de enrutamiento y la delegación del certificado. Añádelos y vuelve a ejecutar verify. Tras la verificación, puedes publicar en el dominio o en un subdominio un nivel por debajo."
     },
     "cloudCli": {
-      "title": "Referencia de la CLI de Cloud",
-      "metaTitle": "Referencia de la CLI de cmux Cloud",
-      "metaDescription": "Referencia de todos los comandos cmux vm y cmux cloud: ciclo de vida, espacios de trabajo, archivos, entorno, dominios y VPN.",
-      "intro": "cmux vm y cmux cloud son el mismo comando. La CLI se comunica con la app de cmux en ejecución, que guarda tu sesión. Añade --json a cualquier verbo para obtener una salida legible por máquinas. Cada verbo tiene una página --help.",
+      "title": "Referencia de la CLI de Cloud (NEXT)",
+      "metaTitle": "Referencia de la CLI de Cloud (NEXT)",
+      "metaDescription": "Listado de acciones ofrecidas por cmux NEXT Cloud, almacenamiento de secretos, comandos de entrega, destinos explícitos y límites de la imagen.",
+      "intro": "Estas son las acciones de Cloud que ofrece la CLI de cmux NEXT. Un comando ofrecido puede no estar disponible en una imagen de máquina concreta. La imagen verificada el 2026-10-29 aún no admite pestañas de chat nativas de agentes, la apertura de pestañas del navegador para servidores de desarrollo, el reenvío local de puertos, las bifurcaciones ni la pausa automática por inactividad.",
       "exitCodes": "Códigos de salida: 0 si tiene éxito, 1 si hay un error y 2 para un comando desconocido. cmux vm run devuelve el código de salida remoto.",
       "authTitle": "Iniciar sesión",
       "authDesc": "Inicia sesión, comprueba tu cuenta y elige un equipo.",

@@ -3010,7 +3010,7 @@
       "nextMachines": "Macchine: dimensioni, piani, ridimensionamento, pausa, snapshot ed eliminazione.",
       "nextWorkspaces": "Workspace e agenti: terminali persistenti, agenti, notifiche e software installato.",
       "nextNetworking": "File e rete: caricamento di file, variabili d'ambiente, porte, desktop e URL pubblici.",
-      "nextCli": "Riferimento CLI Cloud: ogni verbo di cmux vm.",
+      "nextCli": "Riferimento della CLI Cloud: azioni NEXT offerte, segreti e comandi di consegna.",
       "nextTroubleshooting": "Sicurezza e risoluzione dei problemi: come funziona l'accesso e come correggere gli errori comuni."
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify stampa i record DNS da aggiungere: un record TXT per la proprietà, i record di instradamento e la delega del certificato. Aggiungili ed esegui di nuovo verify. Dopo la verifica puoi pubblicare sul dominio o su un sottodominio di un livello inferiore."
     },
     "cloudCli": {
-      "title": "Riferimento CLI Cloud",
-      "metaTitle": "Riferimento CLI di cmux Cloud",
-      "metaDescription": "Riferimento per tutti i comandi cmux vm e cmux cloud: ciclo di vita, workspace, file, ambiente, domini e VPN, con esempi di utilizzo.",
-      "intro": "cmux vm e cmux cloud sono lo stesso comando. La CLI comunica con l'app cmux in esecuzione, che conserva il tuo accesso. Aggiungi --json a qualsiasi verbo per un output leggibile dalle macchine. Ogni verbo ha una pagina --help.",
+      "title": "Riferimento della CLI Cloud (NEXT)",
+      "metaTitle": "Riferimento della CLI Cloud (NEXT)",
+      "metaDescription": "Panoramica delle azioni offerte da cmux NEXT Cloud, segreti, comandi di consegna, destinazioni esplicite e limiti attuali delle immagini.",
+      "intro": "Queste sono le azioni Cloud offerte dalla CLI di cmux NEXT. Un comando offerto può comunque non essere disponibile su una determinata immagine della macchina. L’immagine verificata il 2026-10-29 non supporta ancora le schede di chat native degli agenti, l’apertura di schede del browser per i server di sviluppo, l’inoltro locale delle porte, i fork o la pausa automatica per inattività.",
       "exitCodes": "Codici di uscita: 0 in caso di successo, 1 in caso di errore e 2 per un comando sconosciuto. cmux vm run restituisce il codice di uscita remoto.",
       "authTitle": "Accesso",
       "authDesc": "Accedi, controlla il tuo account e scegli un team.",

@@ -3010,7 +3010,7 @@
       "nextMachines": "Maschinen: Größen, Pläne, Vergrößern, Pausieren, Snapshots und Löschen.",
       "nextWorkspaces": "Workspaces und Agenten: dauerhafte Terminals, Agenten, Benachrichtigungen und vorinstallierte Software.",
       "nextNetworking": "Dateien und Netzwerk: Dateien hochladen, Umgebungsvariablen, Ports, Desktop und öffentliche URLs.",
-      "nextCli": "Cloud-CLI-Referenz: jedes cmux vm-Verb.",
+      "nextCli": "Cloud-CLI-Referenz: angebotene NEXT-Aktionen, Secrets und Übergabebefehle.",
       "nextTroubleshooting": "Sicherheit und Fehlerbehebung: wie der Zugriff funktioniert und wie du häufige Fehler behebst."
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify gibt die DNS-Einträge aus, die du hinzufügen musst: einen TXT-Eintrag für den Eigentumsnachweis, die Routing-Einträge und die Zertifikatsdelegation. Füge sie hinzu und führe verify erneut aus. Nach der Verifizierung kannst du auf der Domain oder auf einer Subdomain eine Ebene darunter veröffentlichen."
     },
     "cloudCli": {
-      "title": "Cloud-CLI-Referenz",
-      "metaTitle": "cmux Cloud-CLI-Referenz",
-      "metaDescription": "Referenz für alle Befehle von cmux vm und cmux cloud: Lebenszyklus, Workspaces, Dateien, Umgebung, Domains und VPN.",
-      "intro": "cmux vm und cmux cloud sind derselbe Befehl. Die CLI kommuniziert mit der laufenden cmux-App, die deine Anmeldung verwaltet. Füge --json zu einem beliebigen Verb hinzu, um maschinenlesbare Ausgabe zu erhalten. Jedes Verb hat eine --help-Seite.",
+      "title": "Cloud-CLI-Referenz (NEXT)",
+      "metaTitle": "Cloud-CLI-Referenz (NEXT)",
+      "metaDescription": "Übersicht der angebotenen cmux NEXT Cloud-Aktionen: Secrets, Übergabebefehle, explizite Maschinenziele und aktuelle Image-Einschränkungen.",
+      "intro": "Dies sind die Cloud-Aktionen, die die CLI von cmux NEXT anbietet. Ein angebotener Befehl kann auf einem bestimmten Maschinen-Image dennoch nicht verfügbar sein. Das am 2026-10-29 überprüfte Image unterstützt noch keine nativen Agent-Chat-Tabs, Browser-Tabs für Entwicklungsserver, lokale Portweiterleitungen, Forks oder automatisches Pausieren bei Inaktivität.",
       "exitCodes": "Exit-Codes: 0 bei Erfolg, 1 bei einem Fehler und 2 bei einem unbekannten Befehl. cmux vm run gibt den Remote-Exit-Code zurück.",
       "authTitle": "Anmelden",
       "authDesc": "Melde dich an, prüfe dein Konto und wähle ein Team.",

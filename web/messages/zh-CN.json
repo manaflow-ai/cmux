@@ -3010,7 +3010,7 @@
       "nextMachines": "机器：规格、套餐、调整规格、暂停、快照和删除。",
       "nextWorkspaces": "工作区与代理：持久化终端、代理、通知以及预装内容。",
       "nextNetworking": "文件与网络：上传文件、环境变量、端口、桌面和公开 URL。",
-      "nextCli": "Cloud CLI 参考：所有 cmux vm 子命令。",
+      "nextCli": "Cloud CLI 参考：NEXT 提供的操作、密钥和交接命令。",
       "nextTroubleshooting": "安全与故障排除：访问机制以及常见错误的解决方法。"
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify 会输出需要添加的 DNS 记录：用于验证所有权的 TXT 记录、路由记录以及证书委派记录。添加后再次运行 verify。验证通过后，你可以在该域名或其下一级子域名上发布。"
     },
     "cloudCli": {
-      "title": "Cloud CLI 参考",
-      "metaTitle": "cmux Cloud CLI 参考",
-      "metaDescription": "所有 cmux vm 和 cmux cloud 命令的参考：生命周期、工作区、文件、环境变量、域名和 VPN。",
-      "intro": "cmux vm 和 cmux cloud 是同一个命令。CLI 与正在运行的 cmux 应用通信，登录状态由应用保存。为任意子命令添加 --json 即可获得机器可读的输出。每个子命令都有 --help 页面。",
+      "title": "Cloud CLI 参考（NEXT）",
+      "metaTitle": "Cloud CLI 参考（NEXT）",
+      "metaDescription": "cmux NEXT Cloud 提供的操作快照，以及密钥存储和交接命令、明确指定机器目标的方法和当前镜像限制。",
+      "intro": "以下是 cmux NEXT CLI 提供的 Cloud 操作。某个命令即使已提供，也可能无法在特定机器镜像上使用。2026-10-29 检查的镜像尚不支持原生智能体聊天标签页、打开开发服务器浏览器标签页、本地端口转发、派生机器或空闲时自动暂停。",
       "exitCodes": "退出码：成功为 0，出错为 1，未知命令为 2。cmux vm run 会返回远程命令的退出码。",
       "authTitle": "登录",
       "authDesc": "登录、查看账户并选择团队。",

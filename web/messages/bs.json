@@ -3010,7 +3010,7 @@
       "nextMachines": "Mašine: veličine, planovi, promjena veličine, pauza, snimci i brisanje.",
       "nextWorkspaces": "Radni prostori i agenti: trajni terminali, agenti, notifikacije i šta je instalirano.",
       "nextNetworking": "Datoteke i mreža: otpremanje datoteka, varijable okruženja, portovi, radna površina i javni URL-ovi.",
-      "nextCli": "Cloud CLI referenca: svaki cmux vm glagol.",
+      "nextCli": "Referenca za Cloud CLI: ponuđene NEXT radnje, tajne i komande predaje informacija.",
       "nextTroubleshooting": "Sigurnost i rješavanje problema: kako pristup funkcioniše i kako riješiti česte greške."
     },
     "cloudMachines": {
@@ -3143,10 +3143,10 @@
       "customDomainDesc": "cmux cloud domains verify ispisuje DNS zapise koje treba dodati: TXT zapis za vlasništvo, zapise za rutiranje i delegiranje certifikata. Dodajte ih, pa ponovo pokrenite verify. Nakon verifikacije možete objavljivati na domeni ili na poddomeni jedan nivo ispod nje."
     },
     "cloudCli": {
-      "title": "Cloud CLI referenca",
-      "metaTitle": "cmux Cloud CLI referenca",
-      "metaDescription": "Referenca za svaku cmux vm i cmux cloud komandu: životni ciklus, radni prostori, datoteke, okruženje, domene i VPN.",
-      "intro": "cmux vm i cmux cloud su ista komanda. CLI komunicira s pokrenutom cmux aplikacijom, koja čuva vašu prijavu. Dodajte --json bilo kojem glagolu za mašinski čitljiv izlaz. Svaki glagol ima --help stranicu.",
+      "title": "Referenca za Cloud CLI (NEXT)",
+      "metaTitle": "Referenca za Cloud CLI (NEXT)",
+      "metaDescription": "Pregled ponuđenih cmux NEXT Cloud radnji, pohrana tajni, komande predaje informacija, izričiti ciljevi mašina i trenutna ograničenja slike.",
+      "intro": "Ovo su Cloud radnje koje nudi cmux NEXT CLI. Ponuđena komanda ipak može biti nedostupna na određenoj slici mašine. Slika provjerena 2026-10-29 još ne podržava ugrađene kartice razgovora s agentima, otvaranje kartica preglednika za razvojne servere, lokalno prosljeđivanje portova, pravljenje forkova ni automatsko pauziranje pri neaktivnosti.",
       "exitCodes": "Izlazni kodovi: 0 pri uspjehu, 1 pri grešci i 2 za nepoznatu komandu. cmux vm run vraća udaljeni izlazni kod.",
       "authTitle": "Prijava",
       "authDesc": "Prijavite se, provjerite svoj račun i izaberite tim.",

@@ -3009,7 +3009,7 @@
       "nextMachines": "機器：規格、方案、調整規格、暫停、快照和刪除。",
       "nextWorkspaces": "工作區與代理：持久終端機、代理、通知以及預先安裝的內容。",
       "nextNetworking": "檔案與網路：上傳檔案、環境變數、連接埠、桌面和公開 URL。",
-      "nextCli": "Cloud CLI 參考：所有 cmux vm 子指令。",
+      "nextCli": "Cloud CLI 參考：NEXT 提供的動作、機密和交接指令。",
       "nextTroubleshooting": "安全性與疑難排解：存取機制以及常見錯誤的解決方法。"
     },
     "cloudMachines": {
@@ -3142,10 +3142,10 @@
       "customDomainDesc": "cmux cloud domains verify 會輸出需要新增的 DNS 記錄：用於驗證擁有權的 TXT 記錄、路由記錄以及憑證委派記錄。新增後再次執行 verify。驗證通過後，你可以在該網域或其下一層的子網域上發布。"
     },
     "cloudCli": {
-      "title": "Cloud CLI 參考",
-      "metaTitle": "cmux Cloud CLI 參考",
-      "metaDescription": "所有 cmux vm 和 cmux cloud 指令的參考：生命週期、工作區、檔案、環境變數、網域和 VPN。",
-      "intro": "cmux vm 和 cmux cloud 是同一個指令。CLI 會與執行中的 cmux 應用程式通訊，登入狀態由應用程式保存。為任何子指令加上 --json 即可取得機器可讀的輸出。每個子指令都有 --help 頁面。",
+      "title": "Cloud CLI 參考（NEXT）",
+      "metaTitle": "Cloud CLI 參考（NEXT）",
+      "metaDescription": "cmux NEXT Cloud 提供的動作快照，以及機密儲存和交接指令、明確指定機器目標的方法和目前映像檔限制。",
+      "intro": "以下是 cmux NEXT CLI 提供的 Cloud 動作。某個指令即使已提供，也可能無法在特定機器映像檔上使用。2026-10-29 檢查的映像檔尚不支援原生代理聊天分頁、開啟開發伺服器瀏覽器分頁、本機連接埠轉送、分叉機器或閒置時自動暫停。",
       "exitCodes": "結束代碼：成功為 0，發生錯誤為 1，未知指令為 2。cmux vm run 會傳回遠端指令的結束代碼。",
       "authTitle": "登入",
       "authDesc": "登入、查看帳號並選擇團隊。",

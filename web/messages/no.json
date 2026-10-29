@@ -3007,7 +3007,7 @@
       "nextMachines": "Maskiner: størrelser, abonnementer, størrelsesendring, pause, snapshots og sletting.",
       "nextWorkspaces": "Arbeidsområder og agenter: varige terminaler, agenter, varsler og hva som er installert.",
       "nextNetworking": "Filer og nettverk: opplasting av filer, miljøvariabler, porter, skrivebord og offentlige URL-er.",
-      "nextCli": "Cloud CLI-referanse: alle cmux vm-verb.",
+      "nextCli": "Cloud CLI-referanse: tilbudte NEXT-handlinger, hemmeligheter og overleveringskommandoer.",
       "nextTroubleshooting": "Sikkerhet og feilsøking: hvordan tilgang fungerer og hvordan du løser vanlige feil."
     },
     "cloudMachines": {
@@ -3140,10 +3140,10 @@
       "customDomainDesc": "cmux cloud domains verify skriver ut DNS-postene du må legge til: en TXT-post for eierskap, rutingspostene og sertifikatdelegeringen. Legg dem til og kjør verify på nytt. Etter verifiseringen kan du publisere på domenet eller på et underdomene ett nivå under det."
     },
     "cloudCli": {
-      "title": "Cloud CLI-referanse",
-      "metaTitle": "cmux Cloud CLI-referanse",
-      "metaDescription": "Referanse for alle cmux vm- og cmux cloud-kommandoer: livsløp, arbeidsområder, filer, miljøvariabler, domener og VPN.",
-      "intro": "cmux vm og cmux cloud er samme kommando. CLI-en snakker med den kjørende cmux-appen, som holder innloggingen din. Legg til --json på et hvilket som helst verb for maskinlesbar utdata. Hvert verb har en --help-side.",
+      "title": "Cloud CLI-referanse (NEXT)",
+      "metaTitle": "Cloud CLI-referanse (NEXT)",
+      "metaDescription": "Oversikt over tilbudte cmux NEXT Cloud-handlinger, lagring av hemmeligheter, overleveringskommandoer, eksplisitte maskinmål og avbildningsbegrensninger.",
+      "intro": "Dette er Cloud-handlingene som tilbys av cmux NEXT CLI. En tilbudt kommando kan likevel være utilgjengelig på en bestemt maskinavbildning. Avbildningen som ble kontrollert 2026-10-29, støtter ennå ikke innebygde agentchatfaner, åpning av nettleserfaner for utviklingsservere, lokal portvideresending, forking eller automatisk pause ved inaktivitet.",
       "exitCodes": "Avslutningskoder: 0 ved suksess, 1 ved feil og 2 for en ukjent kommando. cmux vm run returnerer den eksterne avslutningskoden.",
       "authTitle": "Logg inn",
       "authDesc": "Logg inn, sjekk kontoen din og velg et team.",
