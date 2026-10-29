@@ -474,7 +474,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
-  flex: 0 0 clamp(320px, 46%, 760px);
+  flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -489,12 +489,20 @@
   margin-top: var(--acpmux-tab-row-height);
   max-height: calc(100% - var(--acpmux-tab-row-height));
 }
+/* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
+   pane edge, across the Preview column, just as the inline Summary does. */
+.acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
+  width: calc(100% + var(--acpmux-artifact-width, clamp(320px, 46vw, 760px)));
+}
 @media (max-width: 720px) {
   .acpmux-artifact {
     position: absolute;
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
+    width: 100%;
   }
 }
 .acpmux-artifact-bar {
