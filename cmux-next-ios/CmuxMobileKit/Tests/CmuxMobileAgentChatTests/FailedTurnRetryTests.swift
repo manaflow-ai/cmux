@@ -29,6 +29,30 @@ import Testing
         #expect(source.sent.count == 2)
     }
 
+    @Test func aLostRetryCanBeSentAgainAfterReconnect() throws {
+        let source = PromptResendTests.Recorder()
+        let store = AgentChatStore(source: source)
+        let at = Date()
+        let attachment = AgentAttachment(kind: .file, name: "notes.txt", data: Data("notes".utf8))
+        store.apply(.userMessage(text: "Read this", promptId: "p", turnId: "t", attachments: [attachment], at: at))
+        let failure = AgentSessionEvent.turnResult(turnId: "t", status: .failed, errorText: "unavailable", at: at)
+        store.apply(failure)
+        let turn = try #require(store.turns.last)
+        store.retryFailedTurn(turn)
+        #expect(source.sent == [.retryFailedTurn])
+
+        // linkDown emits only status. Incremental reattach need not replay the original
+        // user message, and a request lost before acceptance has no retry record.
+        store.apply(.status(.disconnected))
+        store.apply(.batch([failure]))
+        store.apply(.status(.idle))
+        #expect(store.turns == [turn])
+        store.retryFailedTurn(try #require(store.turns.last))
+        store.retryFailedTurn(turn)
+        #expect(source.sent == [.retryFailedTurn, .retryFailedTurn])
+        #expect(store.turns == [turn])
+    }
+
     @Test func aRetryWhoseOriginalIsOutsideLoadedHistoryStillAppears() {
         let store = AgentChatStore(source: PromptResendTests.Recorder())
         store.apply(.turnRetried(previousTurnID: "older", turnID: "retry"))
