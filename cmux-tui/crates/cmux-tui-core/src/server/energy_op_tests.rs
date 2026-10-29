@@ -267,6 +267,20 @@ fn energy_set_needs_the_verified_app_and_well_formed_fields() {
     assert_eq!(cleared["data"], json!({"changed": false, "saver": false}), "{cleared}");
 }
 
+/// A remote relay never reaches either energy line: its frame gate denies
+/// both, even for a record that claims the verified app.
+#[test]
+fn energy_lines_are_denied_on_remote_relays() {
+    let mux = Mux::new_for_test("energy-remote", SurfaceOptions::default());
+    let relay = Caller::new(&mux, ClientTransport::Remote, true);
+    assert_eq!(
+        code(&relay.call(&mux, json!({"id": 1, "cmd": SET, "saver": true}))),
+        "remote_denied"
+    );
+    assert_eq!(code(&relay.call(&mux, json!({"id": 2, "cmd": STATUS}))), "remote_denied");
+    assert!(!mux.energy.mode().is_saver());
+}
+
 #[test]
 fn energy_lines_are_routed_and_the_capability_is_advertised() {
     for cmd in COMMANDS {

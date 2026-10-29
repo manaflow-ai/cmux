@@ -29,9 +29,14 @@ struct Caller {
 
 impl Caller {
     fn new(mux: &Arc<Mux>, app: bool) -> Self {
+        Self::on(mux, ClientTransport::Unix, app)
+    }
+
+    /// A caller on `transport`; with `app`, its record claims the verified app.
+    fn on(mux: &Arc<Mux>, transport: ClientTransport, app: bool) -> Self {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-        let id = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let id = mux.control_clients.register(transport, writer.clone());
         if app {
             origin_gate::set_role_for_test(mux, id, "main");
             origin_gate::set_verified_app_for_test(mux, id, true);
@@ -165,6 +170,19 @@ fn frontend_visibility_set_needs_the_verified_app_and_well_formed_fields() {
     ] {
         assert_eq!(code(&app.call(&mux, bad.clone())), "frontend_visibility.bad_request", "{bad}");
     }
+}
+
+/// Only the local Unix connection of the verified app may scope a stream: a
+/// WebSocket whose record claims the verified app is refused by its transport,
+/// and a remote relay never reaches the route (its frame gate denies it).
+#[test]
+fn frontend_visibility_set_is_refused_off_the_local_unix_connection() {
+    let mux = Mux::new_for_test("frontend-visibility-transports", SurfaceOptions::default());
+    let web = Caller::on(&mux, ClientTransport::WebSocket, true);
+    let relay = Caller::on(&mux, ClientTransport::Remote, true);
+    let request = json!({"id": 1, "cmd": SET, "visible": [SHOWN]});
+    assert_eq!(code(&web.call(&mux, request.clone())), "frontend_visibility.not_trusted");
+    assert_eq!(code(&relay.call(&mux, request)), "remote_denied");
 }
 
 #[test]
