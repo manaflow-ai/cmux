@@ -2976,10 +2976,10 @@
       "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Ejecuta máquinas Linux persistentes en la nube desde cmux y deja que tus agentes de programación sigan trabajando aunque cierres tu Mac.",
-      "intro": "cmux Cloud te da máquinas Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux. Los terminales siguen en marcha cuando cierras un panel, pierdes la red o cierras el portátil, así que los agentes de programación pueden seguir trabajando y puedes volver a conectarte desde cualquier Mac con la sesión iniciada.",
+      "title": "Inicio rápido de cmux Cloud",
+      "metaTitle": "Inicio rápido de cmux Cloud",
+      "metaDescription": "Empieza con cmux NEXT Cloud: inicia sesión, crea una máquina Linux, abre un terminal y el escritorio, pausa, reanuda y elimina la máquina.",
+      "intro": "Ejecuta tus herramientas en una máquina Linux en la nube y reserva tu Mac para la app. Esta guía utiliza comandos de cmux NEXT, verificados el 2026-10-29. Las versiones anteriores utilizan una CLI diferente.",
       "betaNote": "cmux Cloud está en acceso anticipado y está disponible salvo que tu organización lo desactive. Para usarlo, activa Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Qué es una máquina",
       "whatDesc": "Una máquina es un ordenador persistente en la nube que te pertenece a ti o a tu equipo. Conserva sus archivos, las herramientas instaladas y los terminales en ejecución. Trátala como una mascota, no como ganado: instalas una vez lo que necesitas y vuelves a ella más tarde.",

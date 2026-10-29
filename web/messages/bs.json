@@ -2977,10 +2977,10 @@
       "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Pokrećite trajne Linux mašine u oblaku iz cmux-a i neka agenti za kodiranje nastave raditi i nakon što zatvorite svoj Mac.",
-      "intro": "cmux Cloud vam daje trajne Linux mašine u oblaku koje se otvaraju kao obični cmux radni prostori. Terminali nastavljaju raditi kada zatvorite panel, izgubite mrežu ili zatvorite laptop, tako da agenti za kodiranje mogu nastaviti raditi, a vi se možete ponovo povezati sa bilo kojeg Mac računara na kojem ste prijavljeni.",
+      "title": "Brzi početak s cmux Cloud",
+      "metaTitle": "Brzi početak s cmux Cloud",
+      "metaDescription": "Počnite s cmux NEXT Cloud: prijavite se, kreirajte Linux mašinu, otvorite terminal i radnu površinu, pauzirajte ili nastavite rad, pa je izbrišite.",
+      "intro": "Pokrećite alate na Linux Cloud mašini, a Mac koristite za aplikaciju. Ovaj vodič koristi cmux NEXT komande, provjerene 2026-10-29. Starija izdanja koriste drugačiji CLI.",
       "betaNote": "cmux Cloud je u ranom pristupu i dostupan je osim ako ga vaša organizacija onemogući. Da biste ga koristili, uključite Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Šta je mašina",
       "whatDesc": "Mašina je trajni računar u oblaku koji pripada vama ili vašem timu. Ona čuva svoje datoteke, instalirane alate i pokrenute terminale. Tretirajte je kao ljubimca, a ne kao stado: jednom instalirate ono što vam treba i kasnije joj se vraćate.",

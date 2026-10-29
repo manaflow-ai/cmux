@@ -2974,10 +2974,10 @@
       "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@cmux.com</link>으로 문의하세요."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "cmux에서 영구적인 Linux 클라우드 머신을 실행하고, Mac을 닫은 뒤에도 코딩 에이전트가 계속 작업하게 하세요.",
-      "intro": "cmux Cloud는 일반 cmux 워크스페이스로 열리는 영구적인 Linux 머신을 클라우드에서 제공합니다. 패널을 닫거나, 네트워크가 끊기거나, 노트북을 닫아도 터미널은 계속 실행되므로 코딩 에이전트는 작업을 이어가고, 로그인된 어떤 Mac에서든 다시 연결할 수 있습니다.",
+      "title": "cmux Cloud 빠른 시작",
+      "metaTitle": "cmux Cloud 빠른 시작",
+      "metaDescription": "cmux NEXT Cloud 시작: 로그인, Linux 머신 생성, 터미널과 데스크톱 열기, 일시 중지 또는 재개, 삭제 방법을 알아보세요.",
+      "intro": "Linux Cloud 머신에서 도구를 실행하고 Mac에서는 앱을 사용하세요. 이 가이드는 2026-10-29에 검증한 cmux NEXT 명령을 사용합니다. 이전 릴리스는 다른 CLI를 사용합니다.",
       "betaNote": "cmux Cloud는 얼리 액세스 단계이며 조직에서 비활성화하지 않은 경우 사용할 수 있습니다. 사용하려면 Settings › Beta Features › Cloud Machines를 켜세요.",
       "whatTitle": "머신이란",
       "whatDesc": "머신은 사용자 또는 팀에 속한 영구적인 클라우드 컴퓨터입니다. 파일, 설치한 도구, 실행 중인 터미널을 그대로 유지합니다. 쓰고 버리는 자원이 아니라 오래 쓰는 컴퓨터로 다루세요. 필요한 것을 한 번 설치하고 나중에 다시 돌아와 사용합니다.",

@@ -2977,10 +2977,10 @@
       "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Uruchamiaj trwałe maszyny Linux w chmurze z poziomu cmux, aby agenci kodujący pracowali dalej po zamknięciu Twojego Maca.",
-      "intro": "cmux Cloud daje Ci trwałe maszyny Linux w chmurze, które otwierają się jak zwykłe obszary robocze cmux. Terminale działają dalej, gdy zamkniesz panel, stracisz połączenie z siecią lub wyłączysz laptopa, więc agenci kodujący mogą pracować dalej, a Ty możesz ponownie się połączyć z dowolnego zalogowanego Maca.",
+      "title": "Szybki start z cmux Cloud",
+      "metaTitle": "Szybki start z cmux Cloud",
+      "metaDescription": "Zacznij z cmux NEXT Cloud: zaloguj się, utwórz maszynę Linux, otwórz terminal i pulpit, wstrzymaj lub wznów maszynę, a następnie ją usuń.",
+      "intro": "Uruchamiaj narzędzia na maszynie Cloud z systemem Linux, a na Macu korzystaj z aplikacji. Ten przewodnik używa poleceń cmux NEXT sprawdzonych 2026-10-29. Starsze wydania mają inny interfejs CLI.",
       "betaNote": "cmux Cloud jest we wczesnym dostępie i jest dostępny, o ile Twoja organizacja go nie wyłączy. Aby z niego korzystać, włącz Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Czym jest maszyna",
       "whatDesc": "Maszyna to trwały komputer w chmurze, który należy do Ciebie lub do Twojego zespołu. Zachowuje swoje pliki, zainstalowane narzędzia i działające terminale. Traktuj ją jak zwierzę domowe, a nie jak bydło: instalujesz to, czego potrzebujesz, jeden raz i wracasz do niej później.",

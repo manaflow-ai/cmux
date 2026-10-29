@@ -2976,10 +2976,10 @@
       "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@cmux.com</link>。"
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "在 cmux 中執行持久的 Linux 雲端機器，即使闔上 Mac，程式設計代理仍會在雲端持續工作，並可從任何 Mac 重新連線。",
-      "intro": "cmux Cloud 為你提供雲端上的持久 Linux 機器，並以一般 cmux 工作區的形式開啟。關閉窗格、網路中斷或闔上筆電時，終端機都會繼續執行，因此程式設計代理可以持續工作，你也能從任何已登入的 Mac 重新連線。",
+      "title": "cmux Cloud 快速入門",
+      "metaTitle": "cmux Cloud 快速入門",
+      "metaDescription": "開始使用 cmux NEXT Cloud：登入、建立 Linux 機器、開啟終端機和桌面、暫停或恢復，以及刪除機器。",
+      "intro": "在 Linux Cloud 機器上執行工具，在 Mac 上使用應用程式。本指南使用已於 2026-10-29 驗證的 cmux NEXT 指令。舊版使用不同的 CLI。",
       "betaNote": "cmux Cloud 目前為搶先體驗階段，除非你的組織將其停用，否則皆可使用。若要使用，請啟用 Settings › Beta Features › Cloud Machines。",
       "whatTitle": "什麼是機器",
       "whatDesc": "機器是一台屬於你或你團隊的持久雲端電腦。它會保留檔案、已安裝的工具和執行中的終端機。請把它當成長期使用的機器，而不是用完即丟的資源：需要的工具只要安裝一次，之後隨時回來繼續使用。",

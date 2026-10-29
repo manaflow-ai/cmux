@@ -2974,10 +2974,10 @@
       "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Kør vedvarende Linux-maskiner i skyen fra cmux, og lad dine kodningsagenter arbejde videre, efter du har lukket din Mac.",
-      "intro": "cmux Cloud giver dig vedvarende Linux-maskiner i skyen, som åbnes som almindelige cmux-arbejdsområder. Terminalerne kører videre, når du lukker en rude, mister netværket eller lukker din bærbare, så kodningsagenter kan arbejde videre, og du kan genoprette forbindelsen fra enhver Mac, der er logget ind.",
+      "title": "Kom hurtigt i gang med cmux Cloud",
+      "metaTitle": "Kom hurtigt i gang med cmux Cloud",
+      "metaDescription": "Kom i gang med cmux NEXT Cloud: log ind, opret en Linux-maskine, åbn terminal og skrivebord, sæt på pause, genoptag og slet maskinen.",
+      "intro": "Kør dine værktøjer på en Linux-maskine i Cloud, og brug din Mac til appen. Denne vejledning bruger cmux NEXT-kommandoer, som blev kontrolleret den 2026-10-29. Ældre versioner bruger en anden CLI.",
       "betaNote": "cmux Cloud er i early access og er tilgængelig, medmindre din organisation deaktiverer det. Slå Settings › Beta Features › Cloud Machines til for at bruge det.",
       "whatTitle": "Hvad en maskine er",
       "whatDesc": "En maskine er en vedvarende computer i skyen, som tilhører dig eller dit team. Den beholder sine filer, installerede værktøjer og kørende terminaler. Behandl den som et kæledyr, ikke som kvæg: du installerer det, du har brug for, én gang og vender tilbage til den senere.",
