@@ -52,9 +52,13 @@ struct PageRouterSubscribeEndTests {
         onEvent(event) // warm-up outside the count: a first call may resolve metadata
         let control = mainThreadAllocations { _ = ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
-        // A list that kept each event would grow (and reallocate) as these arrive.
-        let kept = try #require(mainThreadAllocations { for _ in 0..<10_000 { onEvent(event) } })
-        #expect(kept == 0, "the router kept \(kept) allocations' worth of events for a stream that ended")
+        // A list that kept each event would grow (and reallocate) as these arrive. The same loop with nothing in
+        // it is the baseline: a Debug build's for-in over a range allocates once per iteration on the fleet
+        // (10 000 for 10 000, probe 5529e509), so only what the events add counts.
+        let loop = try #require(mainThreadAllocations { for _ in 0..<10_000 {} })
+        let measured = try #require(mainThreadAllocations { for _ in 0..<10_000 { onEvent(event) } })
+        let kept = measured - loop
+        #expect(kept == 0, "the router kept \(kept) allocations' worth of events for a stream that ended (loop alone: \(loop))")
         #expect(sent == 0, "an event of a failed subscribe reached the page")
         withExtendedLifetime(router) {}
     }
