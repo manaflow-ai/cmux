@@ -43,6 +43,30 @@ struct DockBadgeTests {
         #expect(dock.writes == 1)
     }
 
+    /// `activationPolicies(of:)` observes its app with KVO, which keeps no reference to the app. When
+    /// the stream let its app go, the app was freed while still observed ("NSRunningApplication ...
+    /// is being deallocated while observers are still registered") and the observation's teardown
+    /// then crashed on the freed app: the CloudBringBack cases died on signal 11 in
+    /// -[NSRunningApplication removeObserver:forKeyPath:] under NotificationCenterService.start
+    /// (cmux#26809, 2026-10-29). The stream keeps its app until it ends, then lets it go.
+    @Test func thePolicyStreamKeepsItsAppUntilItEnds() async throws {
+        weak var observed: NSRunningApplication?
+        let stream = try autoreleasepool {
+            let app = try #require(NSRunningApplication(processIdentifier: getpid()))
+            observed = app
+            return DockBadge.activationPolicies(of: app)
+        }
+        let aliveWhileFollowed = observed != nil
+        #expect(aliveWhileFollowed, "the app was freed while the stream still observed it")
+        // Its follower stops (as NotificationCenterService's task does when the service stops): the
+        // stream ends, its observation ends, then it lets its app go.
+        let follower = Task { for await _ in stream {} }
+        follower.cancel()
+        await follower.value
+        let aliveAfterTheEnd = observed != nil
+        #expect(!aliveAfterTheEnd, "the stream kept its app after it ended")
+    }
+
     @Test func noBadgeStaysNoneWhenTheIconReturns() async {
         let dock = FakeDock()
         let badge = DockBadge(tile: dock)
