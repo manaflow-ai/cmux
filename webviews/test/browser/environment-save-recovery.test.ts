@@ -36,8 +36,10 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", theme })}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", colorScheme: theme, reducedMotion: "true" })}`,
         );
+        expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(theme);
+        expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
         const save = page.locator('[data-section="environment"] button.acpmux-chat-inspector-link');
         await save.click();
         await page.waitForFunction(() => {
