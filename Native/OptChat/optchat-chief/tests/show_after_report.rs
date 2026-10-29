@@ -440,14 +440,16 @@ fn a_legacy_spawn_without_a_route_delivers_but_does_not_project_into_home() {
     });
     h.settle();
 
-    let owner = h.owner.lock().unwrap();
-    assert!(
-        owner.run_steps.iter().all(|(_, run, _)| !run["id"]
-            .as_str()
-            .is_some_and(|id| id.starts_with("reports:"))),
-        "a legacy report must not be projected without its saved route: {:?}",
-        owner.run_steps
-    );
+    {
+        let owner = h.owner.lock().unwrap();
+        assert!(
+            owner.run_steps.iter().all(|(_, run, _)| !run["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("reports:"))),
+            "a legacy report must not be projected without its saved route: {:?}",
+            owner.run_steps
+        );
+    }
     assert!(
         h.log()
             .iter()
