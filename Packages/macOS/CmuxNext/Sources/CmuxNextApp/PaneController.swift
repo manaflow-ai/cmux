@@ -439,18 +439,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         apply(snapshot())
     }
 
-    /// A stand-in tab (a create the daemon answers later, P4) is selected and takes the keys in the key's turn:
-    /// `target` (a blank browser tab's address bar, a terminal) is the focus now, not only once the daemon's tab
-    /// replaces it (plans/cmux-next/focus-invariant.md: focus is part of the action's own turn). The reply asks
-    /// for the same focus on the daemon's tab in the same `intent` generation, so a person who moved on meanwhile
-    /// keeps their focus. The one path for every stand-in create; without view-change permission it only selects
-    /// as `selectWhenReported` does.
-    func showStandIn(surface: SurfaceID, focus target: FocusState.Target, intent: UInt64?) {
-        selectWhenReported(surface: surface)
-        guard ActionRunScope.viewChangeAllowed() else { return }
-        workspace?.expectFocus(on: surface, target: target, generation: intent)
-    }
-
     /// Same, for a tab named by its resource id (a reopened tab).
     func selectWhenReported(tab: String) {
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }

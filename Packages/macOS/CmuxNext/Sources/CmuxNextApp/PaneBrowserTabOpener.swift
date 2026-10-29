@@ -213,8 +213,7 @@ extension PaneBrowserTabOpener {
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
         if let timing { cache.createTabs.expect(timing, tab: pending.tab, standIn: true) }
-        // Its address bar (a blank tab) or page has the keys from this turn, not from the daemon's reply (felt 1f).
-        controller.showStandIn(surface: pending.surface, focus: focusesAddressBar ? .addressBar : .content, intent: intent)
+        controller.selectWhenReported(surface: pending.surface)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and moves the page in its reply's job
         services.registry.track(Task {
             var landed = false
