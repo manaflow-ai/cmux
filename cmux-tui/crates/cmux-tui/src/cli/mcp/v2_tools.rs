@@ -58,7 +58,7 @@ const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the perso
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
 
-/// Settings writes still use the app socket and its user confirm sheet.
+/// Settings writes with --confirm use the app socket and its native sheet.
 /// The daemon list is CLI-only until its MCP read policy is implemented;
 /// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
 /// policy decision cx-ncc.32.
