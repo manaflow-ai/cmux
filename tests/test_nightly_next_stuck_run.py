@@ -32,7 +32,8 @@ def ago(minutes: float) -> str:
 def job(name: str, minutes: float = 34, label: str = "blacksmith-4vcpu-ubuntu-2404", status: str = "queued",
         runner: str | None = None, conclusion: str | None = None, job_id: int = 0) -> dict:
     return {"id": job_id or abs(hash(name)) % 10**9 + 1, "name": name, "status": status, "conclusion": conclusion,
-            "runner_name": runner, "labels": [label], "created_at": ago(minutes)}
+            "runner_name": runner, "labels": [label], "created_at": ago(minutes),
+            "completed_at": ago(minutes) if status == "completed" else None}
 
 
 def done(name: str) -> dict:
@@ -40,9 +41,9 @@ def done(name: str) -> dict:
 
 
 def run(run_id: int, status: str = "queued", event: str = "push", sha: str = TIP, attempt: int = 1,
-        title: str = "Nightly") -> dict:
+        title: str = "Nightly", branch: str = "nightly-next") -> dict:
     return {"id": run_id, "event": event, "status": status, "conclusion": None, "run_attempt": attempt,
-            "head_sha": sha, "display_title": title}
+            "head_sha": sha, "display_title": title, "head_branch": branch}
 
 
 STUCK = [job("decide"), job("signer-build", label="blacksmith-8vcpu-ubuntu-2404"), done("probe")]
@@ -83,7 +84,10 @@ class FakeGh:
                 return json.dumps(body)
         rel = path.split("repos/o/r/", 1)[1]
         if rel == "git/ref/heads/nightly-next":
-            return json.dumps({"object": {"sha": self.tip, "type": "commit"}})
+            index = self.reads.get("tip", 0)
+            self.reads["tip"] = index + 1
+            tip = self.tip[min(index, len(self.tip) - 1)] if isinstance(self.tip, list) else self.tip
+            return json.dumps({"object": {"sha": tip, "type": "commit"}})
         if rel.startswith("actions/workflows/nightly.yml/runs?"):
             query = dict(part.split("=", 1) for part in rel.split("?", 1)[1].split("&"))
             chosen = [item for item in self.runs.values() if item["status"] == query["status"]
@@ -152,6 +156,37 @@ class StuckRun(unittest.TestCase):
                 tick(gh)
                 self.assertEqual(gh.writes(), [])
 
+    def test_a_newly_unblocked_job_does_not_inherit_its_dependency_build_time(self):
+        for minutes, cancel in ((1, False), (19, False), (20, True), (30, True)):
+            with self.subTest(minutes_since_build=minutes):
+                build = dict(done("build-nightly-app"), created_at=ago(70), completed_at=ago(minutes))
+                gh = FakeGh(runs=[run(7)], jobs={7: [job("sign", minutes=70), build]})
+                tick(gh)
+                self.assertEqual(bool(gh.writes()), cancel)
+        gh = FakeGh(runs=[run(7)], jobs={7: [job("sign"), dict(done("build"), completed_at=None)]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [], "an unknown dependency completion time is not proof of a stall")
+
+    def test_a_new_tip_revalidates_dispatch_and_attempt_cap_before_cancel(self):
+        for current in (run(7, attempt=3), run(7, event="workflow_dispatch")):
+            with self.subTest(run=current):
+                gh = FakeGh(runs=[current], jobs={7: STUCK}, tip=[OLD, TIP])
+                tick(gh)
+                self.assertEqual(gh.writes(), [])
+        gh = FakeGh(runs=[run(7, attempt=3)], jobs={7: STUCK}, tip=[OLD, OLD, TIP],
+                    after_cancel={7: [run(7, attempt=3)]})
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"],
+                         "a newly current tip with no recovery path must not be force-cancelled")
+
+    def test_only_a_main_promotion_with_an_active_replacement_path_is_cancelled(self):
+        title = f"Promote nightly-next to tick:{TIP}"
+        for train, branch in (("on", "main"), ("off", "nightly-next")):
+            with self.subTest(train=train, branch=branch), mock.patch.dict(stuck.os.environ, {"NIGHTLY_NEXT_TRAIN": train}):
+                gh = FakeGh(runs=[run(7, event="workflow_dispatch", title=title, branch=branch)], jobs={7: STUCK})
+                tick(gh)
+                self.assertEqual(gh.writes(), [])
+
     def test_a_gated_run_is_never_cancelled_whatever_its_jobs_show(self):
         for case, extra in {
             "the run is waiting (an environment)": dict(run_reads={7: [run(7, "waiting")]}),
@@ -180,7 +215,7 @@ class StuckRun(unittest.TestCase):
 
     def test_only_a_run_an_existing_path_builds_again_is_cancelled(self):
         gh = FakeGh(runs=[run(1), run(2, sha=OLD), run(3, event="workflow_dispatch", sha=OLD),
-                          run(4, event="workflow_dispatch", sha=OLD, title=f"Promote nightly-next to tick:{TIP}"),
+                          run(4, event="workflow_dispatch", sha=OLD, title=f"Promote nightly-next to tick:{TIP}", branch="main"),
                           run(5, event="workflow_dispatch"), run(6, attempt=3)],
                     jobs={i: STUCK for i in range(1, 7)})
         out = "\n".join(tick(gh))
@@ -208,7 +243,7 @@ class StuckRun(unittest.TestCase):
                     "head_sha": [None, "abc", TIP.upper()], "display_title": [None, 3]}
         bad_jobs = {"id": [None, "7", True], "name": [None, 3], "status": [None, "stuck"],
                     "conclusion": [3, {}, "weird"], "runner_name": [{}, [], 3],
-                    "labels": [None, {}, [3], "x"], "created_at": [None, "yesterday", 3]}
+                    "labels": [None, {}, [3], "x"], "created_at": [None, "yesterday", 3, "2026-02-30T00:00:00Z"]}
         for kind, good, cases in (("run", good_run, bad_runs), ("job", good_job, bad_jobs)):
             parse = stuck.Run.parse if kind == "run" else stuck.Job.parse
             parse(good)
@@ -333,6 +368,8 @@ class StuckRun(unittest.TestCase):
         names = [step.get("name") for step in steps]
         step = steps[names.index("Cancel a nightly-next run stuck without a runner")]
         self.assertTrue(step["continue-on-error"])
+        self.assertLessEqual(step["timeout-minutes"], 5)
+        self.assertEqual(step["env"]["NIGHTLY_NEXT_TRAIN"], "${{ vars.NIGHTLY_NEXT_TRAIN }}")
         self.assertEqual(step["run"], 'python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
         # Only in the shared tick group (no sha input), which runs one tick at a time.
         self.assertEqual(step.get("if"), "inputs.sha == ''")
