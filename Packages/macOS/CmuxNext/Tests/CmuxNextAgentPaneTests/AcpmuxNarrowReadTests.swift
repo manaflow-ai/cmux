@@ -20,6 +20,12 @@ import Testing
         #expect(AcpmuxStatusClient.sessionSummary("other", in: result) == nil)
     }
 
+    @Test func exactResolveFallsBackForOlderDaemons() {
+        #expect(AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32601, message: "missing")))
+        #expect(AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32602, message: "invalid")))
+        #expect(!AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32002, message: "not found")))
+    }
+
     @Test func sessionInfoFolderUsesTheSingleRowAndPeerBoundary() {
         let remote = AgentPaneSessionFolder(sessionId: "s1", info: [
             "sessionId": "s1", "cwd": "/work", "peer": "gcp-codex-lane-1",

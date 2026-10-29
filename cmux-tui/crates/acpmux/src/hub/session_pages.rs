@@ -9,10 +9,9 @@
 //! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
 //! Without `limit` the reply is the whole list, as before.
 //!
-//! `peer` and `status` narrow the list before it is paged: only the sessions
-//! that peer owns (the sidebar's machine group), only those in that status
-//! (`closed`: its Older row). A peer's hundreds of closed sessions then come a
-//! page at a time instead of the whole multi-megabyte list. Only
+//! `peer`, `status`, `localOnly` and `excludeStatus` narrow the list before it
+//! is paged. A caller that only needs this daemon's live sessions can therefore
+//! avoid walking the peer mirror. Only
 //! `_acpmux/sessions` takes them: a watch streams every session's changes, so
 //! a filtered first page would promise a scope its events do not keep
 //! (`refuse_watch_filters`).
@@ -48,13 +47,17 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
         };
     let peer = text_filter(params, "peer")?;
     let status = text_filter(params, "status")?;
-    let sorted: Vec<Value> = if peer.is_none() && status.is_none() {
+    let local_only = bool_filter(params, "localOnly")?;
+    let excluded = status_filter(params, "excludeStatus")?;
+    let sorted: Vec<Value> = if peer.is_none() && status.is_none() && !local_only && excluded.is_empty() {
         sorted
     } else {
         sorted
             .into_iter()
             .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
             .filter(|s| status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st)))
+            .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
+            .filter(|s| s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st)))
             .collect()
     };
     let start = cursor.map_or(0, |c| c.start(&sorted));
@@ -92,9 +95,40 @@ fn text_filter<'a>(params: &'a Value, name: &str) -> Result<Option<&'a str>, Rpc
     }
 }
 
+fn bool_filter(params: &Value, name: &str) -> Result<bool, RpcError> {
+    match params.get(name) {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(RpcError::invalid_params(format!("{name} must be a boolean"))),
+    }
+}
+
+fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcError> {
+    match params.get(name) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| value.as_str().ok_or_else(|| RpcError::invalid_params(format!("{name} must contain strings"))))
+            .collect(),
+        Some(_) => Err(RpcError::invalid_params(format!("{name} must be an array"))),
+    }
+}
+
 /// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
 pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
-    for name in ["peer", "status"] {
+    for name in ["peer", "status", "localOnly", "excludeStatus"] {
+        if name == "localOnly" {
+            if bool_filter(params, name)? {
+                return Err(RpcError::invalid_params(format!("{name} filters _acpmux/sessions only: a watch streams every session")));
+            }
+            continue;
+        }
+        if name == "excludeStatus" {
+            if !status_filter(params, name)?.is_empty() {
+                return Err(RpcError::invalid_params(format!("{name} filters _acpmux/sessions only: a watch streams every session")));
+            }
+            continue;
+        }
         if text_filter(params, name)?.is_some() {
             return Err(RpcError::invalid_params(format!(
                 "{name} filters _acpmux/sessions only: a watch streams every session"
@@ -219,12 +253,26 @@ mod tests {
             ids(&session_list_reply(list(), &json!({"peer": null})).unwrap()),
             ["a", "b", "c", "d", "e"]
         );
+        assert_eq!(
+            ids(&session_list_reply(
+                vec![
+                    json!({"sessionId": "local", "updatedAt": 9, "status": "idle"}),
+                    json!({"sessionId": "remote", "updatedAt": 8, "peer": "b", "status": "idle"}),
+                    json!({"sessionId": "old", "updatedAt": 7, "status": "closed"}),
+                ],
+                &json!({"localOnly": true, "excludeStatus": ["closed"]}),
+            )
+            .unwrap()),
+            ["local"]
+        );
     }
 
     #[test]
     fn an_empty_filter_is_none_and_a_non_string_one_is_refused() {
         assert_eq!(ids(&session_list_reply(list(), &json!({"peer": ""})).unwrap()).len(), 5);
         assert!(session_list_reply(list(), &json!({"status": 3})).is_err());
+        assert!(session_list_reply(list(), &json!({"localOnly": "yes"})).is_err());
+        assert!(session_list_reply(list(), &json!({"excludeStatus": [3]})).is_err());
     }
 
     #[test]
@@ -232,5 +280,7 @@ mod tests {
         assert!(refuse_watch_filters(&json!({"peer": "huge-blue"})).is_err());
         assert!(refuse_watch_filters(&json!({"status": "closed", "limit": 5})).is_err());
         assert!(refuse_watch_filters(&json!({"limit": 5, "peer": null, "status": ""})).is_ok());
+        assert!(refuse_watch_filters(&json!({"localOnly": true})).is_err());
+        assert!(refuse_watch_filters(&json!({"excludeStatus": ["closed"]})).is_err());
     }
 }

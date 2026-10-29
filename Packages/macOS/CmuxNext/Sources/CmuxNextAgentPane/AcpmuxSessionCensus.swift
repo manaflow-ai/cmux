@@ -85,7 +85,11 @@ public nonisolated struct AcpmuxQuit {
         // changes status between requests and drops idle Chief hosts. The
         // daemon-side local/non-closed filter is owned by the session-list
         // lane; pass it here when that protocol is available.
-        let rows = try await AcpmuxStatusClient.sessionPages(socketPath: socketPath, deadline: deadline)
+        let rows = try await AcpmuxStatusClient.sessionPages(
+            socketPath: socketPath,
+            params: ["localOnly": true, "excludeStatus": ["closed"]],
+            deadline: deadline
+        )
         return rows.filter {
             ($0["peer"] as? String)?.isEmpty != false && ($0["status"] as? String) != "closed"
         }

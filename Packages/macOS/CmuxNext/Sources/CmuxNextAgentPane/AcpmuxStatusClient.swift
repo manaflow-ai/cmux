@@ -118,8 +118,19 @@ nonisolated enum AcpmuxStatusClient {
                                     deadline: deadline, detailed: true)
         } catch let error as AcpmuxRPCError where error.code == -32002 {
             return nil
+        } catch let error as AcpmuxRPCError where shouldFallbackExactResolve(error) {
+            // Attached DEV daemons can be older than the app. Their resolver
+            // accepts `query` but rejects the opt-in exact-session parameter;
+            // query by the complete mux id and retain only an exact match.
+            let fallback = try await call(socketPath: socketPath, method: "_acpmux/resolve",
+                                          params: ["query": sessionId], deadline: deadline, detailed: true)
+            return sessionSummary(sessionId, in: fallback)
         }
         return sessionSummary(sessionId, in: result)
+    }
+
+    static func shouldFallbackExactResolve(_ error: AcpmuxRPCError) -> Bool {
+        error.code == -32601 || error.code == -32602
     }
 
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
