@@ -183,12 +183,17 @@ with socket.socket(socket.AF_UNIX) as sock:
         '01a16c00-0000-7000-8000-%012x' % i for i in range(count)}
     closed = sum(r['status'] == 'closed' for r in rows)
     assert closed == count // 3, closed
+    sock.sendall(json.dumps({'jsonrpc': '2.0', 'id': 2, 'method': '_acpmux/info',
+                             'params': {'sessionId': rows[0]['sessionId']}}).encode() + b'\n')
+    info = json.loads(reader.readline())
+    assert info.get('id') == 2 and 'error' not in info, str(info)[:1000]
     report = {'fixture': 'summary-tools-v1', 'seed': int(seed), 'sessions': count,
         'closed_sessions': closed, 'open_sessions': count - closed,
         'seeded_tool_rows_per_session': tools, 'method': method,
         'wire_reply_bytes_including_newline': len(wire),
         'summary_tool_rows': sum(len(r.get('tools', [])) for r in rows),
         'summaries_with_tools_mutable': sum('toolsMutable' in r for r in rows),
+        'info_tool_rows': len(info['result'].get('tools', [])),
         'receive_ms': (received - started) * 1000, 'parse_ms': (parsed - received) * 1000,
         'memory_source': 'Linux /proc VmRSS and reset VmHWM; bytes',
         'consumer': 'CPython JSON consumer holding raw reply and parsed tree; NOT browser/page RSS',
