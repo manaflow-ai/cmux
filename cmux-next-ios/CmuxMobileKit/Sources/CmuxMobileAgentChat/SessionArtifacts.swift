@@ -6,18 +6,43 @@ import Foundation
 /// input and shell output, images in tool output, the person's attachments,
 /// links and paths in prompts and answers, and the same inside subagents.
 /// Items with data already in the session (attachments, images) are served
-/// inline; the rest load from `fallback` (the Mac's `file` service, or mock).
+/// inline, attachments kept on disk from the phone's file; the rest load from
+/// `fallback` (the Mac's `file` service, or mock).
 public struct SessionArtifacts: Sendable {
     public var artifacts: [TerminalArtifact]
     public var inline: [String: ArtifactContent]
+    /// Attachments held by URL, not bytes (a large picked or pasted file), by reference.
+    public var onDisk: [String: LocalFile]
 
-    public init(artifacts: [TerminalArtifact], inline: [String: ArtifactContent]) {
+    public init(artifacts: [TerminalArtifact], inline: [String: ArtifactContent], onDisk: [String: LocalFile] = [:]) {
         self.artifacts = artifacts
         self.inline = inline
+        self.onDisk = onDisk
     }
 
     public func source(fallback: any ArtifactSource) -> any ArtifactSource {
-        InlineArtifactSource(inline: inline, fallback: fallback)
+        let files = onDisk.isEmpty ? fallback : OnDiskAttachmentSource(files: onDisk, fallback: fallback)
+        return InlineArtifactSource(inline: inline, fallback: files)
+    }
+
+    /// Serves `onDisk` attachments by their `Attachments/` reference through
+    /// `LocalFileArtifactSource`, which opens the file's scope and holds it
+    /// while this source (the open browser) lives.
+    struct OnDiskAttachmentSource: ArtifactSource {
+        let files: [String: LocalFile]
+        let local: LocalFileArtifactSource
+
+        init(files: [String: LocalFile], fallback: any ArtifactSource) {
+            self.files = files
+            local = LocalFileArtifactSource(files: Array(files.values), fallback: fallback)
+        }
+
+        func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
+            guard let file = files[artifact.reference] else { return try await local.load(artifact) }
+            var own = file.artifact
+            own.kind = artifact.kind
+            return try await local.load(own)
+        }
     }
 
     /// How strongly a reference was tied to the session (a later, stronger mention wins the label).
@@ -43,6 +68,7 @@ public struct SessionArtifacts: Sendable {
         let cwd: String
         var entries: [String: (artifact: TerminalArtifact, weight: Weight)] = [:]
         var inline: [String: ArtifactContent] = [:]
+        var onDisk: [String: LocalFile] = [:]
         var count = 0
 
         /// Relevance order (the browser lists the highest `order` first):
@@ -59,7 +85,7 @@ public struct SessionArtifacts: Sendable {
                 artifact.order = ranked.count - 1 - index
                 return artifact
             }
-            return SessionArtifacts(artifacts: artifacts, inline: inline)
+            return SessionArtifacts(artifacts: artifacts, inline: inline, onDisk: onDisk)
         }
 
         static func tier(_ artifact: TerminalArtifact, _ weight: Weight) -> Int {
@@ -121,6 +147,8 @@ public struct SessionArtifacts: Sendable {
                         for: TerminalArtifact(reference: reference, kind: kind), data: data)) ?? .binary(description: attachment.name)
                 }
             }
+            // Too large to hold: the phone's file, never the Mac's (it has no `Attachments/`).
+            if attachment.data == nil, attachment.fileURL != nil { onDisk[normalize(reference)] = attachment.localFile }
         }
 
         /// Paths and URLs in free text (prompts, answers, shell output). Markdown link targets count too.
