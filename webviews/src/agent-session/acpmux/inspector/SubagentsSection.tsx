@@ -19,6 +19,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
@@ -106,7 +107,7 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                <Icon name={item.icon} size={14} />
+                <AgentIdentity harness={undefined} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
               </span>
             )}
           </span>
@@ -157,7 +158,11 @@ export function SubagentsSection({
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      detail: live(status)
+        ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
+        : isRepeatedAgentKind(agent.kind)
+          ? undefined
+          : agent.kind,
       status,
       state: subagentStateText(t, agent, waiting),
       working: Boolean(retrying(agent)),
@@ -215,6 +220,8 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
+        mark={item.agent?.harness}
+        tone={agentTone(item.identity)}
         card={
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>

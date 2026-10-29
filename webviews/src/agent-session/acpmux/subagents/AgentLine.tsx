@@ -7,12 +7,10 @@
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
-// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
-// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
-// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
-// a disabled button with no hover at all (subagents.css).
+// In the tray a command line says its kind before its name; agent lines use the harness mark because
+// the tray header already names the agent list. A line that opens something ends in a chevron. A
+// line with nothing to open is a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
@@ -20,6 +18,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
 import { Tick } from "./trayMotion";
+import { AgentIdentity } from "./AgentIdentity";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -45,6 +44,7 @@ export function AgentLine({
   working = false,
   expanded,
   trayColumns = false,
+  tone,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -85,9 +85,10 @@ export function AgentLine({
   expanded?: boolean;
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
+  /// Stable fallback colour for an unknown harness.
+  tone?: number;
 }) {
   const shimmer = waveProps(wave);
-  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const button = (
     <button
       type="button"
@@ -107,13 +108,7 @@ export function AgentLine({
         style={shimmer.style}
         data-state={status}
       >
-        {working ? (
-          <Spinner size={iconSize} loading />
-        ) : brand ? (
-          <AgentMark agent={brand} size={iconSize} />
-        ) : (
-          <Icon name={icon} size={iconSize} row />
-        )}
+        {working ? <Spinner size={iconSize} loading /> : <AgentIdentity harness={mark} tone={tone} size={iconSize} fallback={icon} />}
       </span>
       <span className="acpmux-summary-text">
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}

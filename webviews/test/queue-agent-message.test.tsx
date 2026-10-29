@@ -1,7 +1,6 @@
 // Another agent's message waiting in the queue is no composer-queue row (Leo, 2026-10-25: "I don't
 // know why these things are queued up. It's kind of strange."): the transcript draws it at once as
-// its received line, "Read after this turn" said once over the first of them (conversation/QueuedMessageCard.tsx), its actions in
-// the card's ⋯ menu. The queue's rows, its fold and its "N more queued" count are the person's own
+// its received line and its actions in the card's ⋯ menu. The queue's rows, its fold and its "N more queued" count are the person's own
 // prompts alone (ComposerQueue.tsx).
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -208,17 +207,14 @@ async function openMenu() {
   await settle();
 }
 
-test("the received card says when it is read and keeps the queue row's actions in its ⋯ menu", async () => {
+test("the received card keeps the queue row's actions in its ⋯ menu without narration", async () => {
   const calls: string[] = [];
   const entry = agent(1);
   await card(entry, calls);
-  // The message's own line: the sender's name, its first line; the quiet note over it, as the first
-  // (here the only) message queued; no spinner, no queue row. Opened, its whole text.
+  // The message's own line: the sender's name and its first line; no narration, spinner, or queue row.
   expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
   expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
-  const head = host.querySelector(".cv-received__queued-head");
-  expect(head?.textContent).toBe(t("message.readAfterTurn"));
-  expect(head?.nextElementSibling?.classList.contains("cv-received")).toBe(true);
+  expect(host.querySelector(".cv-received__queued-head")).toBeNull();
   expect(host.querySelector(".cv-received__queued")).toBeNull();
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   expect(host.querySelector(".cv-received__text")).toBeNull();
@@ -266,7 +262,7 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(calls.at(-1)).toBe("move a1 2");
 });
 
-test("several queued messages say Read after this turn once, over the first", async () => {
+test("several queued messages show no narration label", async () => {
   const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
   expect(rows.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false, false]);
   await show(
@@ -276,10 +272,7 @@ test("several queued messages say Read after this turn once, over the first", as
       ))}
     </>,
   );
-  const heads = [...host.querySelectorAll(".cv-received__queued-head")];
-  expect(heads.map((head) => head.textContent)).toEqual([t("message.readAfterTurn")]);
-  expect(getComputedStyle(heads[0]!).opacity).toBe("1");
-  expect(heads[0]!.closest("[data-queued-message]")?.getAttribute("data-queued-message")).toBe("a4");
+  expect(host.querySelectorAll(".cv-received__queued-head")).toHaveLength(0);
   expect(host.querySelectorAll(".cv-received").length).toBe(3);
   expect(host.querySelector(".cv-received__queued")).toBeNull();
   // The queue drains: the next one leads and says it.
@@ -314,7 +307,7 @@ test("a message sent now offers no second Steer; one with images keeps them and 
   expect(calls.at(-1)).toBe(`edit a3 ${agent(3).prompt} (1 images)`);
 });
 
-test("a steer the agent has not read: Read after this step, and Send now in its ⋯ menu, no spinner", async () => {
+test("a steer the agent has not read: Send now in its ⋯ menu, no narration or spinner", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const sent: string[] = [];
@@ -326,14 +319,10 @@ test("a steer the agent has not read: Read after this step, and Send now in its 
       actions={<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />}
     />,
   );
-  expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterStep"));
-  const status = host.querySelector<HTMLElement>(".cv-received__queued")!;
-  expect(status.dataset.reveal).toBe("hover");
-  expect(getComputedStyle(status).opacity).toBe("0");
+  expect(host.querySelector(".cv-received__queued")).toBeNull();
   expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
   await openMenu();
   expect(items()).toEqual([t("steer.sendNow")]);
-  expect(getComputedStyle(status).opacity).toBe("1");
   await act(async () => item(t("steer.sendNow")).click());
   await settle();
   expect(sent).toEqual(["p-steer"]);

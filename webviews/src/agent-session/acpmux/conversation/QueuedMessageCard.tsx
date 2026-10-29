@@ -1,8 +1,5 @@
 // Another agent's message waiting in the queue (a `QUEUED_MESSAGE` row, queuedMessages.ts): its
-// received line, as it reads once delivered. The first of the queued messages has one quiet "Read
-// after this turn" over its line for them all, never one per message and never a spinner or a
-// pulsing dot (Leo, 2026-10-25; 2026-10-29: "the "read after this turn" stuff gets a bit
-// redundant"). Its
+// received line, as it reads once delivered. Its
 // ⋯ menu keeps the queue row's actions: Steer (`send_now`, once), Edit message (into the composer,
 // images too), Open in side chat (a message without images), Move up/down, queueing, Delete.
 import { useContext, useState } from "react";
@@ -105,7 +102,6 @@ export function QueuedMessageCard({
   );
   return (
     <div className="cv-incoming" data-queued-message={promptId}>
-      {queued.lead && <div className="cv-received__queued-head">{t("message.readAfterTurn")}</div>}
       <IncomingMessageLine
         id={row.id}
         message={message}
@@ -121,8 +117,8 @@ export function QueuedMessageCard({
 
 /// A message another agent steered into the running turn that the agent has not read yet
 /// (`steer === "waiting"`): its received card's actions, then Send now in a ⋯ menu (`send_now`
-/// with the steer's promptId, which stops the current step), and "Read after this step" last. No
-/// spinner row and no dot (Leo, 2026-10-25).
+/// with the steer's promptId, which stops the current step). No narration row or dot (Leo,
+/// 2026-10-25; 2026-10-29).
 export function SteerWaitingActions({ promptId, send }: { promptId?: string; send: (promptId: string) => void }) {
   const t = useT();
   return (
@@ -152,9 +148,6 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
           </Menu>
         </span>
       )}
-      <span className="cv-received__queued" data-reveal="hover">
-        {t("message.readAfterStep")}
-      </span>
     </>
   );
 }

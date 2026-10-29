@@ -93,9 +93,9 @@ async function line(message: { name: string; sessionId?: string }) {
   };
 }
 
-test("a peer lane, found by its bare name, opens from Open chat; its name is plain text on the toggle", async () => {
+test("a peer lane, found by its bare name, opens from the chat identity control", async () => {
   const { open, from, toggle, opened } = await line({ name: "chief-ui" });
-  expect(open?.textContent).toBe(t("subsession.openChat"));
+  expect(open?.getAttribute("aria-label")).toBe(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
   expect(from?.closest("button")).toBe(toggle);
   expect(host.querySelector(".cv-received__name")).toBeNull();

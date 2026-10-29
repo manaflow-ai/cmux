@@ -1,14 +1,15 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
-// harness's mark, name, model, state (the working spinner, never a dot), what its turn does now, and
-// "Open chat". The caller reads its state live (subsessions.ts) and adds a prompt or a reply below.
+// harness's mark, name, model, state (the working spinner, never a dot), and what its turn does now.
+// Its head is the chat target when one exists. The caller reads its state live (subsessions.ts) and
+// adds a prompt or a reply below.
 import type { ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
 import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
+import { AgentIdentity } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 import "./AgentCard.css";
 
 export type AgentCardProps = {
@@ -31,7 +32,7 @@ export type AgentCardProps = {
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
-  /// The open button's word: "Open chat" when absent.
+  /// The accessible name for the chat target.
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
@@ -63,8 +64,8 @@ export function AgentCard({
 }: AgentCardProps) {
   const t = useT();
   // A profile names its family first (`claude-sr2`): its family's mark when it has none.
-  const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
   const avatar = useAgentAvatar(sessionId);
+  const tone = agentTone(sessionId ?? name);
   const stateText = state
     ? slot
       ? t("subsession.state.slot")
@@ -79,10 +80,8 @@ export function AgentCard({
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : mark ? (
-            <AgentMark agent={mark} size={14} />
           ) : (
-            <Icon name="agent.session" size={16} />
+            <AgentIdentity harness={harness} tone={tone} size={14} />
           )
         }
         label={disclosureLabel ?? name}
@@ -105,16 +104,32 @@ export function AgentCard({
       </DisclosureRow>
     );
   }
+  const openName = openLabel ?? t("subagents.open", { name });
   return (
     <div className="cv-agent-card" data-state={state}>
-      <div className="cv-agent-card__head">
+      <div
+        className="cv-agent-card__head"
+        role={onOpen ? "button" : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        aria-label={onOpen ? openName : undefined}
+        title={onOpen ? openName : undefined}
+        onClick={onOpen}
+        onKeyDown={
+          onOpen
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpen();
+                }
+              }
+            : undefined
+        }
+      >
         <span className="cv-agent-card__icon" aria-hidden>
           {avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : mark ? (
-            <AgentMark agent={mark} size={14} />
           ) : (
-            <Icon name="agent.session" size={16} />
+            <AgentIdentity harness={harness} tone={tone} size={14} />
           )}
         </span>
         <span className="cv-agent-card__name">{name}</span>
@@ -126,16 +141,6 @@ export function AgentCard({
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
             {time ? ` · ${time}` : ""}
           </span>
-        )}
-        {onOpen && (
-          <button
-            type="button"
-            className="cv-agent-card__open"
-            aria-label={t("subagents.open", { name })}
-            onClick={onOpen}
-          >
-            {openLabel ?? t("subsession.openChat")}
-          </button>
         )}
       </div>
       {doing && <div className="cv-agent-card__doing">{doing}</div>}

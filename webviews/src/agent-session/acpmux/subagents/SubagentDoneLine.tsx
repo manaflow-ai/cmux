@@ -12,8 +12,9 @@ import { formatDuration } from "../conversation/turns";
 import { Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
-import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { AgentIdentity } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 
@@ -47,7 +48,7 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         onClick={() => open?.(agent.id)}
       >
         <span className="cv-tool__icon">
-          <Icon name="agent.session" size={16} />
+          <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
         </span>
         <span className="cv-tool__text">{[label, ...(reasonKey ? [t(reasonKey)] : []), time].join(" · ")}</span>
       </button>

@@ -10,7 +10,7 @@
 //   last row with the view pinned to its end, the toggle's top stays within 1px once the fold ends.
 // - Each message is its own row: three from three senders between two replies are three rows in
 //   their order, never one card; ones queued behind the running turn draw after that turn, with
-//   one "Read after this turn" over the first of them.
+//   no narration label over them.
 //
 // The page is the pane's dev entry (vite.config.acpmux-pane.mjs) talking JSON-RPC over a WebSocket
 // to a stand-in acpmux daemon (as agent-pane-suggested-tasks.test.ts). Real Chromium from
@@ -415,7 +415,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  test("messages queued behind the running turn draw after it, one Read after this turn over the first", async () => {
+  test("messages queued behind the running turn draw after it without narration labels", async () => {
     const page = await openChat(
       [
         ...turn(1),
@@ -436,22 +436,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await rows.nth(1).waitFor({ timeout: 10_000 });
       expect(await rows.count()).toBe(2);
       expect(await rows.locator(".cv-received__from").allInnerTexts()).toEqual(["lint-lane", "docs-lane"]);
-      // The note is said once, over the first queued message's line, not on each line.
-      const heads = page.locator(".cv-received__queued-head");
-      expect(await heads.allInnerTexts()).toEqual(["Read after this turn"]);
-      expect(await page.getByText("Read after this turn").count()).toBe(1);
+      // Queue state is conveyed by the row and its actions, without a narration label.
+      expect(await page.locator(".cv-received__queued-head").count()).toBe(0);
       expect(await page.locator(".cv-disclosure__line .cv-received__queued").count()).toBe(0);
-      expect(
-        await heads.evaluate((head) => head.closest("[data-queued-message]")?.getAttribute("data-queued-message")),
-      ).toBe("q-1");
-      const headBottom = await heads.evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await topOf(rows.first())).toBeGreaterThanOrEqual(headBottom - 0.5);
       // After the running turn: below the turn's reply, in the queue's order.
-      const replyBottom = await page
-        .getByText("Reading the helper now.")
-        .first()
-        .evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await heads.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(replyBottom);
       expect(await topOf(rows.nth(1))).toBeGreaterThan(await topOf(rows.first()));
       // No composer-queue row for them.
       expect(await page.locator(".acpmux-queued").count()).toBe(0);

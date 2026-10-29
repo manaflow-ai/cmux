@@ -32,8 +32,9 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
-import { AgentMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import "../subagents/AgentCard.css";
@@ -171,7 +172,12 @@ export function IncomingMessageLine({
   const icon = avatar ? (
     <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
   ) : (
-    <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
+    <AgentIdentity
+      harness={sender.harness}
+      tone={agentTone(sessionId ?? message.sessionId ?? message.name)}
+      size={14}
+      fallbackNode={<Bot size={16} />}
+    />
   );
   return (
     <DisclosureRow

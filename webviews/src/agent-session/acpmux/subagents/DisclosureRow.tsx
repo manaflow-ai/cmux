@@ -10,6 +10,7 @@ import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
+import { Icon } from "../icons/Icon";
 import "./DisclosureRow.css";
 
 export type DisclosureRowProps = {
@@ -98,8 +99,14 @@ export function DisclosureRow({
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />
         </button>
         {onOpen && (
-          <button type="button" className="cv-disclosure__open" title={openTitle} onClick={onOpen}>
-            {openLabel}
+          <button
+            type="button"
+            className="cv-disclosure__open"
+            aria-label={openLabel}
+            title={openTitle ?? openLabel}
+            onClick={onOpen}
+          >
+            <Icon name="agent.chat" size={14} />
           </button>
         )}
         {actions}
