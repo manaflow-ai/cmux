@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bench_power.py `loaded` (the shared idle-cost bench): renderer roles come from `debug.cef` pages
+"""bench_power.py `loaded` (the shared idle-cost bench): renderer roles come from `debug.cef_pages`
 by renderer client id, the per-role numbers sum their processes (p95 over the summed 1 s steps),
 the peer's processes stay out, and the Performance-table rows carry before, after and delta.
 idle_cost_load.seed_store copies the template chats under new ids, folders owner-only."""
@@ -51,7 +51,7 @@ class LoadedTests(unittest.TestCase):
             bp.time = clock
             bp.bm.owned = lambda pid, bundle: {1: ("app", "app"), 2: ("cef-renderer", "r"), 3: ("cef-renderer", "r"),
                                                9: ("acpmux-daemon", "peer")}
-            bp.usage_v6 = lambda pid: (0, int(cpu_per_s[pid] * clock.now), int(2 * clock.now), 0, 100 * 1048576)
+            bp.usage_v6 = lambda pid: (0, int(cpu_per_s[pid] * clock.now), int(2 * clock.now), int(3 * clock.now), 100 * 1048576)
             bp.main_thread_ns = lambda pid: int(0.25e9 * clock.now) if pid == 1 else None
             result = bp.measure_processes(1, "/x.app", "loaded", 10, {2: "cef-renderer: agent", 3: "cef-renderer: agent"}, {9})
         finally:
@@ -66,6 +66,7 @@ class LoadedTests(unittest.TestCase):
         self.assertIsNone(agent["main_thread_pct"])
         self.assertAlmostEqual(result["roles"]["total"]["cpu_pct"], 80.0)
         self.assertAlmostEqual(result["roles"]["total"]["idle_wakeups_per_s"], 6.0)
+        self.assertAlmostEqual(result["roles"]["total"]["wakeups_per_s"], 15.0)  # idle 2 + interrupt 3, three processes
 
     def test_perf_rows(self):
         before = {"roles": {"total": {"cpu_pct": 70.0, "footprint_mb": 2000.0, "main_thread_pct": None}}}

@@ -36,7 +36,7 @@ script again (live_ms), plus the app's cold-show and prewarm counts.
 --settle seconds, then --measure idle seconds sampled once a second from
 outside (proc_pid_rusage and proc_pidinfo, which wake nothing). Per process
 and per role (app, each Chromium renderer by the page it hosts, from
-`debug.cef` {"pages": true} on bench and DEV builds, cef-gpu, WebKit, acpmux
+`debug.cef_pages` on bench and DEV builds, cef-gpu, WebKit, acpmux
 daemon): phys_footprint, CPU % average and p95 over the 1 s steps, idle and
 interrupt wakeups/s, main-thread CPU %. Prints PERF-IDLE-COST lines and
 Performance-table rows; the JSON goes to --out. Two runs side by side:
@@ -70,6 +70,8 @@ _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libproc.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
 _libproc.proc_pidinfo.restype = ctypes.c_int
 MB = 1048576.0
+# <sys/proc_info.h>: PROC_PIDLISTTHREADIDS (28) lists the 64-bit thread ids that PROC_PIDTHREADID64INFO
+# (15) takes. PROC_PIDLISTTHREADS (6) lists thread handles, which PROC_PIDTHREADINFO (5) takes instead.
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -331,7 +333,7 @@ def page_role(origin: str) -> str:
 
 
 def renderer_roles(pages: list[dict], processes: dict) -> dict[int, str]:
-    """{pid: role} for the Chromium renderers that host `pages` (`debug.cef` {"pages": true}),
+    """{pid: role} for the Chromium renderers that host `pages` (`debug.cef_pages`),
     matched by `--renderer-client-id`. A renderer hosting several pages names them all."""
     by_client = {}
     for pid, (kind, cmd) in processes.items():
@@ -376,7 +378,11 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(u1[4] / MB, 1),
                      "cpu_pct": round(100 * (u1[1] - u0[1]) / 1e9 / span, 3), "cpu_p95_pct": round(percentile(steps, 0.95), 3),
                      "idle_wakeups_per_s": round((u1[2] - u0[2]) / span, 2),
-                     "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2), "mw": round((u1[0] - u0[0]) / 1e6 / span, 3),
+                     "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2),
+                     # Idle plus interrupt wakeups, as bench_memory counts them: Apple silicon reports
+                     # package idle wakeups as 0, so the interrupt count carries the signal there.
+                     "wakeups_per_s": round((u1[2] - u0[2] + u1[3] - u0[3]) / span, 2),
+                     "mw": round((u1[0] - u0[0]) / 1e6 / span, 3),
                      "main_thread_pct": round(100 * (m1 - m0) / 1e9 / span, 3) if m0 is not None and m1 is not None else None,
                      "command": cmd[:160]})
         steps_by_role.setdefault(role, []).append(steps)
@@ -392,16 +398,17 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                         "cpu_pct": round(sum(r["cpu_pct"] for r in members), 3), "cpu_p95_pct": round(percentile(summed, 0.95), 3),
                         "idle_wakeups_per_s": round(sum(r["idle_wakeups_per_s"] for r in members), 2),
                         "interrupt_wakeups_per_s": round(sum(r["interrupt_wakeups_per_s"] for r in members), 2),
+                        "wakeups_per_s": round(sum(r["wakeups_per_s"] for r in members), 2),
                         "main_thread_pct": round(sum(main), 3) if main else None}
     for role, entry in totals.items():
         print(f"PERF-IDLE-COST {label} role={role!r} n={entry['count']} footprint_mb={entry['footprint_mb']} "
               f"cpu_pct={entry['cpu_pct']} cpu_p95_pct={entry['cpu_p95_pct']} idle_wakeups_per_s={entry['idle_wakeups_per_s']} "
-              f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
+              f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} wakeups_per_s={entry['wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
     return {"label": label, "seconds": round(seconds, 1), "roles": totals, "processes": rows}
 
 
 METRICS = (("cpu_pct", "CPU % (avg)"), ("cpu_p95_pct", "CPU % (p95 of 1 s)"), ("footprint_mb", "footprint MB"),
-           ("idle_wakeups_per_s", "idle wakeups/s"), ("main_thread_pct", "main thread CPU %"))
+           ("wakeups_per_s", "wakeups/s (idle + interrupt)"), ("main_thread_pct", "main thread CPU %"))
 
 
 def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
@@ -459,12 +466,12 @@ def run_loaded(args):
         reached.update(seeded)
         print(f"PERF-IDLE-COST-LOAD {json.dumps(reached)}", flush=True)
         time.sleep(args.settle)  # test script: let the app settle
-        pages = (rpc(sock, "debug.cef", {"pages": True}) or {}).get("pages")
+        pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
         time.sleep(5)  # test script: the debug read's own work ends before the window
         result = measure_processes(pid, args.app, "loaded", args.measure, roles, peer.pids())
         result["load"] = reached
-        result["renderer_roles"] = "debug.cef pages" if pages is not None else "none (a build without debug.* methods)"
+        result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
         result["harness"] = f"bench_power.py loaded @{sha or '?'} {model}, {int(args.measure)} s"

@@ -118,7 +118,7 @@ def rpc(path: str, method: str, params: dict, timeout: float = 60):
                     continue
                 if message.get("id") == 1:
                     if message.get("error"):
-                        raise RuntimeError(f"{method}: {json.dumps(message['error'])[:300]}")
+                        raise RuntimeError(f"{method}: {json.dumps(message['error'])[:2000]}")
                     return message.get("result")
 
 
@@ -197,7 +197,7 @@ class PeerDaemon:
         try:
             session = json.loads(made.stdout)["sessionId"]
         except (ValueError, KeyError):
-            print(f"   peer acpmux new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            print(f"   peer acpmux new: {(made.stdout + made.stderr).strip()[:2000]}", file=sys.stderr)
             return None
         self.acpmux("wait", session, "--timeout", "60", timeout=90)
         return session
@@ -210,7 +210,7 @@ class PeerDaemon:
             raise SystemExit("idle-cost: the peer acpmux made no template chats")
         killed = self.acpmux("kill", closed)
         if killed.returncode != 0:
-            raise SystemExit(f"idle-cost: acpmux kill: {(killed.stdout + killed.stderr).strip()[:300]}")
+            raise SystemExit(f"idle-cost: acpmux kill: {(killed.stdout + killed.stderr).strip()[:2000]}")
         return read_chat(self.home, answered), read_chat(self.home, closed)
 
     def pids(self) -> set[int]:
@@ -238,7 +238,7 @@ class PeerDaemon:
             try:
                 done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
                 if done.returncode != 0:
-                    print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:300]}", file=sys.stderr)
+                    print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
                 self.process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.process.kill()
@@ -257,7 +257,7 @@ def new_session(cli: str, env: dict, text: str) -> str | None:
     try:
         return json.loads(made.stdout)["sessionId"]
     except (ValueError, KeyError):
-        print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+        print(f"   acp new: {(made.stdout + made.stderr).strip()[:2000]}", file=sys.stderr)
         return None
 
 
@@ -266,7 +266,7 @@ def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float
     sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
                           capture_output=True, text=True, timeout=60, env=env)
     if sent.returncode != 0:
-        print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:300]}", file=sys.stderr)
+        print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:2000]}", file=sys.stderr)
     return sent.returncode == 0
 
 

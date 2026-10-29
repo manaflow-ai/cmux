@@ -1,7 +1,7 @@
 import Foundation
 
 /// One live Chromium page (a browser tab or one of cmux's own pages, such as the agent page) and
-/// the renderer processes that host its frames (`debug.cef` {"pages": true}).
+/// the renderer processes that host its frames (`debug.cef_pages`).
 public nonisolated struct CEFRendererPage: Sendable, Equatable {
     public var browserID: Int32
     /// The page URL's scheme and host (`cmux-page://cmux.agent`, `http://t3.localhost`), never its

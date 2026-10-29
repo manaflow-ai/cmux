@@ -11,12 +11,10 @@ import Darwin
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
 /// fallbacks so far, the external pump's counters (`pump`) and what the
 /// fork's page tracker read from host views (`tracker`). Helper
-/// processes are separate; measure them with `ps`. With `pages`, every live
-/// Chromium page's origin, whether it is hidden, and the renderer client ids
-/// that host it (`pages`), so a bench names each renderer's role.
+/// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
-    static func report(_ services: AppServices, pages: Bool = false) -> JSONValue {
+    static func report(_ services: AppServices) -> JSONValue {
         let report = services.cache.cef.startReport
         var object: [String: JSONValue] = [
             "state": .string(report.state),
@@ -51,12 +49,6 @@ enum DebugCEF {
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
-        if pages {
-            object["pages"] = .array(services.cache.cef.rendererPages.map { page in
-                .object(["browser": .number(Double(page.browserID)), "origin": .string(page.origin), "hidden": .bool(page.hidden),
-                         "renderer_clients": .array(page.rendererClients.map { .number(Double($0)) })])
-            })
-        }
         return .object(object)
     }
 
