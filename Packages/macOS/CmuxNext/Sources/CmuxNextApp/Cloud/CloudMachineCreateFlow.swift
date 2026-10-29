@@ -65,16 +65,17 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
-        /// The plan cannot create a machine; the upgrade card was shown and nothing was created.
-        case upgradeRequired
+        /// The plan cannot create a machine; nothing was created. A person's create showed the upgrade card
+        /// (for `reason`); an agent's shows none and reports the refusal.
+        case upgradeRequired(CloudUpgradeReason)
     }
 
     var run: CloudAppOp
     /// The native confirmation sheet; true only for a person's click.
     var confirm: @MainActor (Prompt) async -> Bool
     /// Answers approval `request` as the person's own session, only when
-    /// it holds `cloud.machine.create` with exactly `params`.
-    var approve: @MainActor (_ request: String, _ params: JSONValue) async throws -> Void
+    /// it holds `op` (the op this flow sent) with exactly `params`.
+    var approve: @MainActor (_ request: String, _ op: String, _ params: JSONValue) async throws -> Void
     /// Waits before the next same-key retry after the approval (cancellable).
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     var newKey: () -> String = { UUID().uuidString }
@@ -90,25 +91,44 @@ struct CloudMachineCreateFlow {
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
+    /// `environment`: boot it in that Cloud environment (`cloud.environment.boot`)
+    /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             if startedByPerson { _ = await confirm(.upgrade(need)) }
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(need.reason)
         }
         let machine = Self.named(name, askedBy: askedBy)
-        var confirmed = !startedByPerson
+        let confirmed = !startedByPerson
         if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
+        if let environment { args["environment"] = .string(environment) }
+        let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
+        let answer = try await approvalLoop(op, args: .object(args), confirmed: confirmed) { request in
+            await confirm(.approval(request: request, machine))
+        }
+        return answer["machine"] ?? answer
+    }
+
+    /// Any other Cloud money or destructive op (`cloud.environment.build`, `.delete`) a person started
+    /// in this app: sent once with one key; when the backend holds it for approval, `confirm` asks the
+    /// person (a no sends nothing more), then the approval is answered and the same key retried.
+    func approvedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
+        try await approvalLoop(op, args: args, confirmed: false) { _ in await confirm() }
+    }
+
+    /// The first call, then at most `retries` same-key calls after the approval: every pass
+    /// returns, throws, or counts one retry. `confirmed`: a person already confirmed in this flow.
+    private func approvalLoop(_ op: String, args: JSONValue, confirmed: Bool,
+                              ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
+        var confirmed = confirmed
         let key = newKey()
         var approved: String?
         var attempt = 0
-        // The first call, then at most `retries` same-key calls after the
-        // approval: every pass returns, throws, or counts one retry.
         for _ in 0...max(retries, 0) {
             do {
-                let answer = try await run("cloud.machine.create", .object(args), key, .user)
-                return answer["machine"] ?? answer
+                return try await run(op, args, key, .user)
             } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
                 guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
                 if let approved {
@@ -119,10 +139,10 @@ struct CloudMachineCreateFlow {
                     continue
                 }
                 if !confirmed {
-                    guard await confirm(.approval(request: request, machine)) else { throw Failure.declined }
+                    guard await ask(request) else { throw Failure.declined }
                     confirmed = true
                 }
-                try await approve(request, .object(args))
+                try await approve(request, op, args)
                 approved = request
                 // The call right after the answer is the first same-key retry.
                 attempt = 1
@@ -141,14 +161,14 @@ struct CloudMachineCreateFlow {
             // The upgrade card is for the person who asked for the machine; an agent's refused create
             // only fails with the refusal, so the person is not prompted on every agent request.
             if startedByPerson { _ = await confirm(.upgrade(need)) }
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(need.reason)
         }
         if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         do {
             return try await create()
         } catch CloudAPIError.http(let status, _, _, _, _) where status == 402 {
             _ = await confirm(.upgrade(Upgrade(reason: .server)))
-            throw Failure.upgradeRequired
+            throw Failure.upgradeRequired(.server)
         }
     }
 

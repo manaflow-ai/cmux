@@ -16,6 +16,31 @@ const profile = (models: { id: string; name: string }[]): AcpmuxSnapshot["catalo
 const modelsOf = (catalog: ReturnType<typeof buildPickerCatalog>) =>
   catalog.harnesses.find((harness) => harness.id === "claude-sr2")!.models;
 
+test("a renamed running release stays in the harness-reported alias shortlist", () => {
+  const joined = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    user: { overrides: { "claude-sr2/opus": { name: "My Opus", shortName: "My Opus" } } },
+    acpmux: profile([
+      { id: "opus", name: "Opus 5.5" },
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+    ]),
+    session: {
+      harness: "claude-sr2",
+      model: "claude-opus-5-5",
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          currentValue: "claude-opus-5-5",
+          options: [{ value: "opus", name: "Opus 5.5" }],
+        },
+      ],
+    },
+  });
+  expect(joined.harnesses.find((harness) => harness.id === "claude-sr2")!.topModels).toEqual(["claude-opus-5-5"]);
+});
+
 test("a folded alias keeps the user's overrides of it", () => {
   const models = modelsOf(
     buildPickerCatalog({

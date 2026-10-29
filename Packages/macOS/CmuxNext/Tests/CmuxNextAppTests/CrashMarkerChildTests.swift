@@ -52,6 +52,27 @@ struct CrashMarkerChildTests {
         #expect(LaunchRecovery.decide(previous: previous).isRestart,
                 "a crash after a failed Chromium start showed no restart notice")
     }
+
+    /// A restart that crashes again while a restored page loads holds that page on the next launch,
+    /// and only that page (user, 2026-10-27: every other tab loads when it shows).
+    @Test func aPageLoadingInAQuickSecondCrashIsHeldOnTheNextLaunch() async throws {
+        let directory = CrashChild.directory("page", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // The run before crashed: the child's run watches for a loop.
+        let crashed = PreviousRun(pid: 1, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: false, survived: true, signal: nil, quitting: false)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try encoder.encode(crashed).write(to: directory.appending(path: "run.json"))
+        try "\(SIGSEGV)\n".write(to: directory.appending(path: "run.signal"), atomically: true, encoding: .utf8)
+        await #expect(processExitsWith: .failure) {
+            await CrashChild.crashWhileAPageLoads()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        let recovery = LaunchRecovery.decide(previous: previous)
+        #expect(recovery.isSafeRestart)
+        #expect(recovery.crashedPages == ["tab-crashing"], "held \(recovery.crashedPages.sorted())")
+    }
 }
 
 /// A fault signal sent by software (`raise`, `pthread_kill`) reads like a
@@ -142,6 +163,16 @@ enum CrashChild {
         let marker = AppRunMarker(directory: directory(name, parent: getppid()))
         _ = await marker.flush()
         return marker
+    }
+
+    /// A restart (the parent wrote a crashed run) starts a restored page, then crashes.
+    @MainActor
+    static func crashWhileAPageLoads() async {
+        let marker = await markRun("page")
+        marker.notePageStarted("tab-crashing")
+        _ = await marker.flush()
+        raise(SIGSEGV)
+        withExtendedLifetime(marker) {}
     }
 
     /// Runaway recursion on the main thread, where the app installs its

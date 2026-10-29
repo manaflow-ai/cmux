@@ -64,6 +64,26 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
         #expect(bare.kind == .modelUnreachable)
     }
 
+    /// QA 2026-10-27 (live, rig Mac without Claude): a turn the brain refused
+    /// before it ran showed as Chief's reply in operator words (harness kinds,
+    /// CLI commands). It reads as a plain sentence now, like a failed turn.
+    @Test func aRefusedTurnReadsAsPlainWords() throws {
+        let live = "(turn refused: the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude. Fix the acpmux harness (`acpmux daemon harnesses` lists them) and send the message again.)"
+        let refused = try #require(ChiefTurnFailure(text: live))
+        #expect(refused.reply.isEmpty)
+        #expect(refused.detail.hasPrefix("the Chief runs Claude only"))
+        #expect(!refused.displayText.contains("acpmux"))
+        #expect(ChiefTurnFailure(text: "(turn refused)")?.detail == "refused")
+    }
+
+    /// The Mac's Home list cuts previews short (no closing parenthesis).
+    @Test func homeRowPreviewsReadAsPlainWords() {
+        let cut = "(turn refused: the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running"
+        #expect(ChiefTurnFailure.previewText(cut) == "Chief ran into a problem on your Mac and didn't finish this.")
+        #expect(ChiefTurnFailure.previewText("Done.\n\n(turn failed: ECONNREFUSED to 10.0.0.1:443") .hasPrefix("Done.\n\nChief couldn't reach its model"))
+        #expect(ChiefTurnFailure.previewText("All 12 tests pass.") == "All 12 tests pass.")
+    }
+
     @Test func leavesOtherMessagesAlone() {
         #expect(ChiefTurnFailure(text: "All 12 tests pass.") == nil)
         #expect(ChiefTurnFailure(text: "(turn stopped)") == nil)

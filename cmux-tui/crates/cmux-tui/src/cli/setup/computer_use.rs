@@ -256,6 +256,15 @@ fn next_step(status: &Value) -> Option<Value> {
             );
         }
         "starting" => return Some(wait_step()),
+        "failed" => {
+            return action(
+                "app",
+                "The cmux Computer Use helper did not respond. Run the Restart Computer Use \
+                 Helper palette action, or click Restart Helper in Settings > Agents.",
+                Some("cmux action run palette.computerUse.restart".into()),
+                None,
+            );
+        }
         phase => {
             let text = format!(
                 "The Computer Use helper is not ready ({}); Computer Use Setup in cmux shows why",
@@ -290,4 +299,21 @@ fn wait_step() -> Value {
         "command": "cmux setup computer-use",
         "url": Value::Null,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_helper_offers_restart_instead_of_waiting() {
+        let step = next_step(&json!({"phase": "failed", "accessibility": null,
+                                    "screen_recording": null}))
+        .expect("restart step");
+        assert_eq!(step["kind"], "app");
+        assert_eq!(step["command"], "cmux action run palette.computerUse.restart");
+        let text = step["text"].as_str().unwrap();
+        assert!(text.contains("did not respond"));
+        assert!(text.contains("Settings > Agents"));
+    }
 }

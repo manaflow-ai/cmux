@@ -225,7 +225,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             Ok(())
         }
         HarnessCmd::Reload => {
-            if reload_daemon().await {
+            let daemon_reloaded = reload_daemon().await;
+            if json_out {
+                println!("{}", json!({"daemonReloaded": daemon_reloaded}));
+            } else if daemon_reloaded {
                 println!("the daemon read the harness profiles again");
             } else {
                 println!("no daemon is running; it reads the profiles when it starts");

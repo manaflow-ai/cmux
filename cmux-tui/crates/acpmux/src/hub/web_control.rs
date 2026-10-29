@@ -443,8 +443,20 @@ impl Hub {
 }
 
 /// A remote chain's agent adopted with no record that it runs in the
-/// sandbox: no Web control until the chat restarts.
+/// sandbox: no Web control until the chat restarts. A session at its owner's
+/// VM boundary (`vm_boundary.rs`) gets none ever, spawned yet or not: only
+/// the owner's own clients control it, and a request held to the Web's rules
+/// (a paired machine's included, `Hub::refuse_at_vm_boundary`) does not.
 fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
+    if meta.vm_boundary {
+        return Some(
+            RpcError::new(
+                -32000,
+                "This chat runs without the sandbox on its owner's own VM: only the owner's own devices control it.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})),
+        );
+    }
     session.floor.unsandboxed.load(Ordering::SeqCst).then(|| {
         RpcError::new(
             -32000,

@@ -73,34 +73,19 @@ import Testing
         #expect(menu.items.last === commands)
     }
 
-    @Test func creationButtonsStayVisibleForChatAndTargetTheirOwnPane() throws {
+    @Test func creationButtonsStayOutOfTheTopBarForChatAndTerminal() throws {
         let registry = ActionRegistry.standard()
         let pane = ActionTargetRef(kind: .pane, id: "sample-pane")
-        var calls: [ActionInvocation] = []
-        for action in PaneToolbar.creationActions { registry.bind(action, invoke: { calls.append($0) }) }
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: pane)
         toolbar.update(target: "sample-chat", kind: nil)
-        #expect(toolbar.view.items.map(\.id) == ["newSurface", "openBrowser"])
-        #expect(toolbar.view.buttons.count == 2)
-        let height = PaneChromeMetrics.current.resolvedStripHeight(scale: 2)
-        toolbar.view.frame = NSRect(origin: .zero, size: NSSize(width: toolbar.view.intrinsicContentSize.width, height: height))
-        toolbar.view.layoutSubtreeIfNeeded()
-        #expect(toolbar.view.buttons[0].frame.maxX <= toolbar.view.buttons[1].frame.minX)
-        for button in toolbar.view.buttons {
-            #expect(button.alphaValue == 1)
-            #expect(HoverReveal.owner(of: button) == nil)
-        }
-        for item in toolbar.view.items {
-            #expect(item.alwaysVisible)
-            #expect(item.shortcut == registry.shortcutDisplay(for: ActionID(rawValue: item.id)))
-            toolbar.view.onPerform?(item.id)
-        }
-        #expect(calls.count == 2)
-        #expect(calls.allSatisfy { $0.target == pane && $0.origin == .user })
+        #expect(toolbar.view.items.isEmpty, "the new-terminal and new-browser buttons repeat the + menu")
+        #expect(toolbar.view.buttons.isEmpty)
+        toolbar.update(target: "sample-terminal", kind: .terminal)
+        #expect(toolbar.view.items.isEmpty)
         registry.bind("splitRight", invoke: { _ in })
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: ["splitRight"])
-        #expect(toolbar.view.items.prefix(2).allSatisfy { $0.alwaysVisible })
-        #expect(toolbar.view.items.last?.id == "splitRight", "existing pinned controls remain available")
+        #expect(toolbar.view.items.map(\.id) == ["splitRight"], "existing pinned controls remain available")
+        #expect(toolbar.view.items.allSatisfy { !$0.alwaysVisible })
     }
 
     @Test func narrowPaneFoldsCreationButtonsWithoutCoveringPinnedControls() throws {
@@ -121,9 +106,7 @@ import Testing
             pane.frame = NSRect(x: 0, y: 0, width: width, height: 200)
             toolbar.view.frame = NSRect(x: 0, y: 0, width: pane.toolbarWidth(shown: height), height: height)
             toolbar.view.layoutSubtreeIfNeeded()
-            let creation = Array(toolbar.view.buttons.prefix(2))
-            #expect(creation.allSatisfy { $0.isHidden == (width == 280) })
-            let pinned = Array(toolbar.view.buttons.dropFirst(2))
+            let pinned = toolbar.view.buttons
             #expect(pinned.count == pins.count)
             #expect(pinned.allSatisfy { !$0.isHidden })
             let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
@@ -168,8 +151,6 @@ import Testing
             #expect(tab.pane.isBandActive)
             #expect(toolbar.view.frame.width <= width / 2)
             #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
-            let creation = Array(toolbar.view.buttons.prefix(2))
-            #expect(creation.allSatisfy { $0.isHidden == (width == 200) })
             let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX)

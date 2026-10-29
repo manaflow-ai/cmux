@@ -34,10 +34,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
-    /// Whether a machine is a dedicated agent VM (vmHost), where Claude would
-    /// run without the sandbox. Off everywhere until an attested source exists:
-    /// nothing on the machine (its /etc/cmux/vm-kind, its config) may turn off
-    /// the sandbox, so `on` is refused. Shows whether cmux created the VM.
+    /// Whether a machine takes its owner's VM boundary (vmHost): Claude runs
+    /// there without the sandbox only for a session whose caller asked, once
+    /// the Cloud API said the caller owns that VM. `off` refuses that on the
+    /// machine; `on` (the default off a Mac) stops refusing. Nothing on the
+    /// machine turns the boundary on. Shows whether cmux created the VM.
     VmHost {
         /// A peer; omit for this machine.
         name: Option<String>,
@@ -52,9 +53,12 @@ pub enum PeerCmd {
     #[command(subcommand)]
     Ticket(TicketCmd),
     /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
+    /// (the install script runs this with the pasted ticket). The ticket
+    /// comes on stdin, one line: `printf '%s\n' TICKET | acpmux host join`.
     Join {
-        ticket: String,
+        /// Deprecated: other users of this machine read argv (ps). Omit it
+        /// and pass the ticket on stdin; given here, it warns.
+        ticket: Option<String>,
         /// This machine's name on the other one (default: the host name's first label).
         #[arg(long)]
         name: Option<String>,
@@ -165,9 +169,15 @@ pub enum PeerCmd {
         cmd: Option<ApprovalsCmd>,
     },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
-    /// repairs what fails. Without --fix nothing changes.
+    /// repairs what fails. Without --fix nothing changes. `--here` checks
+    /// this machine's one-line join instead (binary, service, daemon,
+    /// credential, hub, heartbeat, consent).
     Doctor {
-        target: String,
+        #[arg(required_unless_present = "here", conflicts_with = "here")]
+        target: Option<String>,
+        /// Check this machine's one-line join (`cmux machine add`).
+        #[arg(long)]
+        here: bool,
         #[arg(long)]
         fix: bool,
         /// A harness profile to check (repeatable).

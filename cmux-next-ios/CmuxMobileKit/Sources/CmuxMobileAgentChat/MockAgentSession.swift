@@ -103,6 +103,9 @@ public final class MockAgentSession: AgentSessionSource {
         case .setModel(let id):
             currentModel = id
             emit(.modelsAvailable(Self.models, current: id))
+        case .retryWithModel(let model, let text, let promptID):
+            send(.setModel(model))
+            send(.prompt(text: text, attachments: [], steer: false, promptID: promptID, resend: false))
         case .setMode(let id):
             mode = id
             emit(.update(.currentMode(id)))

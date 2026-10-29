@@ -17,9 +17,11 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-tailnet",
  "cmux-sdk",
  "cmux-unix-socket",
  "cmux-worktree-care",
+ "cmux-wg",
  "crossterm",
  "dirs",
  "futures",
@@ -28,9 +30,11 @@ dependencies = [
  "libc",
  "memchr",
  "notify",
+ "plist",
  "png",
  "pulldown-cmark",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -40,8 +44,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
@@ -52,6 +58,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -944,9 +951,11 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1566,6 +1575,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -1577,6 +1598,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-build-identity",
+ "cmux-chat-index",
  "cmux-config",
  "cmux-holder",
  "cmux-host",

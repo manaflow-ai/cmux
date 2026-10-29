@@ -37,6 +37,8 @@ REAL = {
     "scripts/cmux-next/release-derived-data-path.sh": ROOT / "scripts/cmux-next/release-derived-data-path.sh",
     "scripts/ci/canonical-build-root.sh": ROOT / "scripts/ci/canonical-build-root.sh",
     "scripts/ci/apfs_clone.py": ROOT / "scripts/ci/apfs_clone.py",
+    "scripts/cmux-next/dev_cas_seed.py": ROOT / "scripts/cmux-next/dev_cas_seed.py",
+    "scripts/ci/dev_release_product_reuse.py": ROOT / "scripts/ci/dev_release_product_reuse.py",
 }
 # A real one on macOS, where /usr/bin/git and /usr/bin/python3 resolve through it; only hashed here.
 DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR") or (
@@ -55,8 +57,10 @@ import json, os, subprocess, sys
 root, dd, locked = sys.argv[1:]
 print(json.dumps({"root": root, "dd": dd, "head": subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
     capture_output=True, text=True).stdout.strip(), "stale": os.path.exists(os.path.join(root, "stale.txt")),
-    "locked": locked == "true", "acpmux": os.environ.get("CMUX_NEXT_ACPMUX_BIN", "")}))
+    "locked": locked == "true", "acpmux": os.environ.get("CMUX_NEXT_ACPMUX_BIN", ""),
+    "tokens": sorted(k for k in ("CMUX_NEXT_DEV_CAS_TOKEN", "CMUX_NEXT_DEV_CAS_GH_TOKEN", "GH_TOKEN") if k in os.environ)}))
 PY
+if [[ -n "${STUB_CAS:-}" ]]; then mkdir -p "$1/CompilationCache.noindex/v1.1" && echo "$STUB_CAS" > "$1/CompilationCache.noindex/v1.1/data"; fi
 if [[ -n "${STUB_HOLD:-}" ]]; then
   echo $$ > "$STUB_HOLD.tmp" && mv "$STUB_HOLD.tmp" "$STUB_HOLD"
   for _ in $(seq 600); do [[ -e "$STUB_HOLD.go" ]] && break; sleep 0.1; done
@@ -175,6 +179,22 @@ class HostRootTests(unittest.TestCase):
         self.assertNotIn("/host/", seen["dd"])
         if not other_holder:
             self.assertFalse(seen["locked"], "a per-instance build kept the host lock")
+
+    def test_the_compile_cache_seed_keeps_its_tokens_from_the_build_and_marks_the_host(self):
+        ws = self.workspace("runner-2")
+        zstd = self.bin / "zstd"
+        write_executable(zstd, "#!/bin/bash\nexec cat\n")
+        pack = self.root / "pack"
+        seen = self.compile(ws, CMUX_NEXT_DEV_CAS_TOKEN="store-token", CMUX_NEXT_DEV_CAS_GH_TOKEN="gh-token",
+                            CMUX_NEXT_DEV_CAS_PACK_DIR=str(pack), CMUX_NEXT_DEV_CAS_ZSTD=str(zstd), STUB_CAS="objects")
+        self.assert_host(seen, ws)
+        self.assertEqual(seen["tokens"], [], "a compile cache token reached the build's environment")
+        self.assertIn("no seed installed: the shared compile cache is off", seen["out"])
+        marker = json.loads((self.host / "cas-origin.json").read_text())
+        self.assertEqual(marker["sha"], seen["head"])
+        info = json.loads((pack / "pack.json").read_text())
+        self.assertEqual((info["source_sha"], info["key_fields"]["derived_data"]), (seen["head"], seen["dd"]))
+        self.assertTrue((pack / "seed.tar.zst").is_file())
 
     def test_two_runner_instances_build_at_one_host_path(self):
         first = self.compile(self.workspace("runner-2"), "cmux14-glaeda-2")
