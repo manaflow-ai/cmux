@@ -13,7 +13,12 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   beforeAll(async () => {
-    vite = await createServer({ root, configFile: path.join(root, "vite.config.ts"), server: { port: 0, host: "127.0.0.1" }, logLevel: "error" });
+    vite = await createServer({
+      root,
+      configFile: path.join(root, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1" },
+      logLevel: "error",
+    });
     await vite.listen();
     browser = await chromium.launch();
     await warmGalleryFrame(vite, "agent-pane.environment-save", { browser });
@@ -24,23 +29,38 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
   });
   for (const theme of ["light", "dark"]) {
     test(`${theme}: a refused environment save is visible and can be retried`, async () => {
-      const page = await browser.newPage({ viewport: { width: 600, height: 260 }, reducedMotion: "reduce" });
+      const page = await browser.newPage({
+        viewport: { width: 600, height: 260 },
+        reducedMotion: "reduce",
+      });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", theme })}`);
-        const save = page.locator('[data-section="environment"] button.acpmux-chat-inspector-link');
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", theme })}`,
+        );
+        const save = page.locator(
+          '[data-section="environment"] button.acpmux-chat-inspector-link',
+        );
         await save.click();
         await page.waitForFunction(() => {
-          const button = document.querySelector<HTMLButtonElement>('[data-section="environment"] button.acpmux-chat-inspector-link');
+          const button = document.querySelector<HTMLButtonElement>(
+            '[data-section="environment"] button.acpmux-chat-inspector-link',
+          );
           return button && !button.disabled;
         });
         if (process.env.CMUX_CAPTURE_DIR) {
           await mkdir(process.env.CMUX_CAPTURE_DIR, { recursive: true });
-          await page.screenshot({ path: path.join(process.env.CMUX_CAPTURE_DIR, `environment-save-${theme}.png`) });
+          await page.screenshot({
+            path: path.join(process.env.CMUX_CAPTURE_DIR, `environment-save-${theme}.png`),
+          });
         }
         expect(await page.locator('[role="alert"]').textContent()).toBe("Couldn’t save: Request failed");
         await save.click();
-        await page.waitForFunction(() => document.querySelector('[data-section="environment"] button.acpmux-chat-inspector-link')?.textContent === "Saved");
+        await page.waitForFunction(
+          () =>
+            document.querySelector('[data-section="environment"] button.acpmux-chat-inspector-link')
+              ?.textContent === "Saved",
+        );
         expect(await save.isDisabled()).toBe(true);
         expect(await page.locator('[role="alert"]').count()).toBe(0);
       } finally {
