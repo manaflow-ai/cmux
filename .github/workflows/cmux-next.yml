@@ -3011,7 +3011,7 @@ jobs:
     # broad pass (~860 s on a slow mini) ran, so 90; the main-thread-heavy
     # suites' serial step (up to 60 min, out of the broad pass since #26809)
     # makes it 135.
-    timeout-minutes: 165
+    timeout-minutes: 135
     outputs:
       # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
       # reused pass of a folded run was recorded only with the generated files fresh.
@@ -3312,7 +3312,7 @@ jobs:
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 60
+        timeout-minutes: 30
         working-directory: Packages/macOS/CmuxNext
         env:
           # Whole-run limit per pass. The hang guard is the stall rule (no test
@@ -3320,21 +3320,23 @@ jobs:
           # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
           # Both passes share one deadline below the step's 30 minutes.
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
-          # At most 6 Swift Testing tests run at once. A test's time limit
-          # counts from its start, and Swift Testing otherwise starts all
-          # ~5,900 at once: on a mini shared with Xcode compiles, tests used
-          # their 60 s waiting for the main actor (18 to 73 time-limit
-          # failures per push run; 0 on an idle worker, where width 6 costs
-          # 117 s -> 141 s). Xcode 26.6's Swift Testing reads this variable.
+          # One Swift Testing test at a time inside each shard process; the
+          # shards themselves run side by side (swift-test-shards.py). A test's
+          # time limit counts from its start, and Swift Testing otherwise starts
+          # all ~5,900 at once (width 6 here before #26809). With 6 at once in
+          # each of 3 shards, suites that pass alone at the base went red only
+          # in shards: WorkspaceGroupPinLive, ClickedLinkFocus,
+          # BrowserEngineStateRestore, RapidWorkspaceCreate,
+          # WorkspaceHoverCardScroll, MarkdownTableWidthMemory (run
+          # 40896449485); at 1 at once all six passed (run 40906115871), and
+          # the pass took 9.5 min against 8.1.
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
-          # EXPERIMENT (#26809): crash backtraces in the log.
-          SWIFT_BACKTRACE: "enable=yes,interactive=no,color=no,threads=all"
         run: |
           set -euo pipefail
           echo "Test targets: $SWIFT_TARGETS"
           # One deadline for both passes, 2 min inside the step timeout, so a pass
           # hung before any test starts is still sampled and reported.
-          deadline=$(( $(date +%s) + 3480 ))
+          deadline=$(( $(date +%s) + 1680 ))
           # The heavy suites only ever run in their own step: never --skip "" (an
           # empty pattern matches, and so skips, every test).
           heavy_skip=()
