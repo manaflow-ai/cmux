@@ -10,12 +10,6 @@ struct WorkspaceTodoRow: View {
     let isEditing: Bool
     let actions: WorkspaceTodoRowActions
 
-    /// One row as an AppKit view (its `NSHostingView`): the hosting seam for tests, which import no SwiftUI
-    /// (no-swiftui-DESIGN.md); the page hosts rows inside WorkspaceTodoPageView.
-    static func hostingView(item: WorkspaceChecklistItem, isEditing: Bool, actions: WorkspaceTodoRowActions) -> NSView {
-        NSHostingView(rootView: WorkspaceTodoRow(item: item, isEditing: isEditing, actions: actions))
-    }
-
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
