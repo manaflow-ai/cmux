@@ -77,6 +77,7 @@ impl Hub {
             }));
         }
         let mut turn_id: Option<String> = None;
+        let mut started = false;
         let mut ended: Option<Value> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
             match (rec.kind.as_str(), &turn_id) {
@@ -84,6 +85,12 @@ impl Hub {
                     if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                }
+                ("turn_started", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    started = true;
                 }
                 // Read on: a failed turn of agent messages may put it back (`requeued` below).
                 ("turn_result", Some(id))
@@ -118,6 +125,11 @@ impl Hub {
             true
         });
         let turn_id = turn_id?;
+        // A user_message is written before turn_started. A crash in that interval leaves a
+        // prompt that has not run and must remain eligible for recovery/resend.
+        if !started {
+            return None;
+        }
         let status = ended
             .as_ref()
             .and_then(|e| e.get("status").cloned())

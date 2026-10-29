@@ -95,6 +95,26 @@ impl Hub {
             }
             true
         });
+        // `turn_result` is durable before the asynchronous scheduler runs. If restart cuts
+        // that small window, synthesize its first retry now instead of losing the transient
+        // failure forever.
+        if retry.is_none() && last.msg["status"] == "failed" {
+            if let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
+                .and_then(RetryReason::from_cause)
+            {
+                let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
+                if done < MAX_ATTEMPTS {
+                    retry = Some(RetrySummary {
+                        attempt: done + 1,
+                        of: MAX_ATTEMPTS as u64,
+                        reason,
+                        next_at: crate::hub::now_ms(),
+                        prompt_id: root.to_owned(),
+                        turn_id: turn_id.to_owned(),
+                    });
+                }
+            }
+        }
         let Some(retry) = retry.filter(|r| {
             scanned.is_ok()
                 && r.attempt > 0
@@ -210,6 +230,45 @@ mod tests {
             "turnId": "later-turn", "promptId": "later-prompt", "attempt": 1, "of": 4,
             "reason": "transport", "nextAt": crate::hub::now_ms() + 60000}),
         );
+    }
+
+    #[tokio::test]
+    async fn retry_restore_synthesizes_a_schedule_after_a_crash_window() {
+        let (hub, session) = idle_chat();
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "window-turn", "promptId": "window-prompt", "control": "local", "trustGate": false}),
+        );
+        hub.append_unknown_outcome(
+            &session,
+            json!({"turnId": "window-turn", "promptId": "window-prompt", "status": "failed", "errorText": "stream disconnected"}),
+        );
+        hub.restore_auto_resume(&session);
+        let retry = hub.session_summary(&session)["retry"].clone();
+        assert_eq!(retry["promptId"], "window-prompt");
+        assert_eq!(retry["turnId"], "window-turn");
+        assert_eq!(retry["attempt"], 1);
+    }
+
+    #[tokio::test]
+    async fn a_pre_turn_user_message_is_not_a_logged_retry() {
+        let (hub, session) = idle_chat();
+        hub.append(
+            &session,
+            "in",
+            "user_message",
+            json!({"promptId": "resume~1", "turnId": "resume-turn", "text": "continue"}),
+        );
+        assert!(hub.logged_prompt(&session, "resume~1").is_none());
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "resume-turn", "promptId": "resume~1"}),
+        );
+        assert!(hub.logged_prompt(&session, "resume~1").is_some());
     }
 
     #[tokio::test]
