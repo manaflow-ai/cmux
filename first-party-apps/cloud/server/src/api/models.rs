@@ -276,7 +276,7 @@ impl PartialOrd for Revision {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConnectInfo, DaemonInfo, MachineStatus, Peer, Revision};
+    use super::{ConnectInfo, DaemonInfo, Machine, MachineStatus, Peer, Revision};
 
     fn info() -> ConnectInfo {
         ConnectInfo {
@@ -326,5 +326,38 @@ mod tests {
             .expect("older machine decodes");
         assert!(older.platform.is_none());
         assert!(older.capabilities.is_empty());
+    }
+
+    #[test]
+    fn machine_idle_pause_diagnostics_round_trip_without_changing_older_shape() {
+        let source = serde_json::json!({
+            "id": "vm-idle",
+            "revision": "4",
+            "idlePause": {
+                "minutes": 30,
+                "lastCheckedAt": 1_700_000_000_000i64,
+                "idleSince": 1_699_998_000_000i64,
+                "lastApiActivityAt": 1_699_999_000_000i64,
+                "privateAddressKnown": true,
+                "lastDecision": {
+                    "at": 1_700_000_000_000i64,
+                    "outcome": "idle",
+                    "reason": "idle",
+                    "run": { "checked": 8, "elapsedMs": 120 }
+                }
+            }
+        });
+        let machine: Machine = serde_json::from_value(source.clone()).expect("idle diagnostics decode");
+        assert_eq!(machine.idle_pause.as_ref().expect("idle diagnostics")["minutes"], source["idlePause"]["minutes"]);
+        let encoded = serde_json::to_value(&machine).expect("idle diagnostics encode");
+        assert_eq!(encoded["idlePause"], source["idlePause"]);
+
+        let snake = serde_json::json!({ "id": "vm-snake", "revision": "5", "idle_pause": { "minutes": 0 } });
+        let snake_machine: Machine = serde_json::from_value(snake).expect("snake alias decode");
+        assert_eq!(snake_machine.idle_pause.as_ref().expect("snake idle diagnostics")["minutes"], 0);
+        let older: Machine = serde_json::from_value(serde_json::json!({ "id": "vm-old", "revision": "6" }))
+            .expect("older machine decode");
+        assert!(older.idle_pause.is_none());
+        assert!(serde_json::to_value(older).expect("older machine encode").get("idlePause").is_none());
     }
 }
