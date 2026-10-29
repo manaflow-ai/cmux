@@ -113,7 +113,9 @@ export function QueuedMessageCard({
           <>
             {menu}
             {/* Last: a row's focus Copy (App.tsx) sits over the line's end, never over the menu. */}
-            <span className="cv-received__queued" data-reveal="hover">{t("message.readAfterTurn")}</span>
+            <span className="cv-received__queued" data-reveal="hover">
+              {t("message.readAfterTurn")}
+            </span>
           </>
         }
         githubRepository={githubRepository}
@@ -155,7 +157,9 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
           </Menu>
         </span>
       )}
-      <span className="cv-received__queued" data-reveal="hover">{t("message.readAfterStep")}</span>
+      <span className="cv-received__queued" data-reveal="hover">
+        {t("message.readAfterStep")}
+      </span>
     </>
   );
 }
