@@ -106,6 +106,7 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
       test(`${scheme}, ${width}px: immediate keyboard blur clears the name`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 240 } });
         try {
+          await page.clock.install();
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(
             `http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
@@ -120,33 +121,29 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           await page.getByRole("button", { name: "Before dots" }).click();
           await page.mouse.move(1, 1);
           await page.keyboard.press("Tab");
-          const started = await page.evaluate(() => performance.now());
+          // Freeze before selection so browser round trips cannot expire the 1100ms pick timer.
+          await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
           await page.keyboard.press("ArrowRight");
-          // Let the existing post-pick focus restoration run before the user's next key.
-          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+          // Advance only the post-pick focus frame, then hold time through Tab and its assertions.
+          await page.clock.runFor(32);
           expect(await page.getByRole("radio", { name: "Quick actions", exact: true }).isChecked()).toBe(true);
-          await page.waitForFunction(
-            () => getComputedStyle(document.querySelector(".nt-style-name")!).opacity === "1",
-            undefined,
-            { timeout: 500 },
-          );
+          await label.evaluate(async (node) => {
+            await Promise.all(node.getAnimations().map((animation) => animation.finished));
+          });
           expect(await label.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
           await page.keyboard.press("Tab");
-          const result = await page.evaluate(
-            (started) => ({
-              elapsed: performance.now() - started,
-              active: document.activeElement?.textContent,
-              shown: document.querySelector(".nt-style-name")!.hasAttribute("data-shown"),
-              reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
-            }),
-            started,
-          );
+          const result = await page.evaluate(() => ({
+            active: document.activeElement?.textContent,
+            shown: document.querySelector(".nt-style-name")!.hasAttribute("data-shown"),
+            reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+          }));
           console.log("dot-immediate-blur", JSON.stringify({ scheme, width, ...result }));
-          expect(result.elapsed).toBeLessThan(1100);
           expect(result.active).toBe("After dots");
           expect(result.reduced).toBe(width === 340);
           expect(result.shown).toBe(false);
-          await page.waitForFunction(() => getComputedStyle(document.querySelector(".nt-style-name")!).opacity === "0");
+          await label.evaluate(async (node) => {
+            await Promise.all(node.getAnimations().map((animation) => animation.finished));
+          });
           expect(await label.evaluate((node) => getComputedStyle(node).opacity)).toBe("0");
         } finally {
           await page.close();
