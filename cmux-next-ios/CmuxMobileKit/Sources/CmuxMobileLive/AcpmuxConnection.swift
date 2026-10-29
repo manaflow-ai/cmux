@@ -25,6 +25,8 @@ public actor AcpmuxConnection {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
+    private var sends: [Int: Task<Void, Never>] = [:]
+    private var ended: (any Error)?
     public nonisolated let notifications: AsyncStream<Notification>
     private let continuation: AsyncStream<Notification>.Continuation
 
@@ -38,32 +40,47 @@ public actor AcpmuxConnection {
         readTask = Task { await self.readLoop() }
     }
 
+    /// Prompts resolve when the turn ends, which can include a person answering an
+    /// approval. Other requests are short reads or mutations; both have finite bounds.
+    static func replyTimeout(for method: String) -> Duration {
+        method == "session/prompt" ? .seconds(24 * 60 * 60) : .seconds(30)
+    }
+
     public func request(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
+        try await request(method, params, timeout: Self.replyTimeout(for: method))
+    }
+
+    /// A late reply is ignored; cancellation and expiry release the request and
+    /// cancel its write without closing unrelated requests on the same channel.
+    public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
+        try Task.checkCancellation()
+        if let ended { throw ended }
         start()
         let id = nextID
         nextID += 1
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            Task {
-                do { try await channel.send(data) } catch { self.fail(id, error) }
-            }
-        }
+        return try await LinkDeadline.run(
+            timeout: timeout,
+            operation: { try await self.sendAndWait(id: id, data: data) },
+            onCancel: { await self.fail(id, CancellationError()) }
+        )
     }
 
-    /// `request` that gives up after `timeout` (a read the person waits on: the
-    /// agent catalog). A late reply is dropped.
-    public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
-        let id = nextID
-        let timer = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled else { return }
-            await self?.fail(id, LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"))
+    private func sendAndWait(id: Int, data: Data) async throws -> JSONValue {
+        try Task.checkCancellation()
+        if let ended { throw ended }
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation
+            sends[id] = Task {
+                do {
+                    try Task.checkCancellation()
+                    try await channel.send(data)
+                    sends[id] = nil
+                } catch { fail(id, error) }
+            }
         }
-        defer { timer.cancel() }
-        return try await request(method, params)
     }
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -75,11 +92,12 @@ public actor AcpmuxConnection {
 
     public func close() async {
         readTask?.cancel()
-        await channel.close(code: "eof", reason: "client closed")
         finish(LinkError(code: "closed", message: "acpmux channel closed"))
+        await channel.close(code: "eof", reason: "client closed")
     }
 
     private func fail(_ id: Int, _ error: any Error) {
+        sends.removeValue(forKey: id)?.cancel()
         pending.removeValue(forKey: id)?.resume(throwing: error)
     }
 
@@ -116,6 +134,7 @@ public actor AcpmuxConnection {
                 rpcLog.debug("<- \(Int(id)) with no request waiting")
                 return
             }
+            sends.removeValue(forKey: Int(id))?.cancel()
             rpcLog.debug("<- \(Int(id)) \(value["error"] == nil ? "result" : "error", privacy: .public)")
             if let error = value["error"] {
                 continuation.resume(throwing: RPCError(
@@ -172,6 +191,9 @@ public actor AcpmuxConnection {
     }
 
     private func finish(_ error: any Error) {
+        ended = error
+        for task in sends.values { task.cancel() }
+        sends.removeAll()
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
         continuation.finish()
