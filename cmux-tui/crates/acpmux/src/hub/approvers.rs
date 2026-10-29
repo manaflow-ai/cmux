@@ -169,7 +169,7 @@ pub fn parse_approvers(list: &[Value]) -> Result<Vec<Approver>, RpcError> {
             .get("publicKey")
             .and_then(Value::as_str)
             .and_then(unhex)
-            .filter(|k| k.len() == 65 && k[0] == 4)
+            .filter(|k| k.len() == 65 && k.first() == Some(&4))
             .ok_or_else(|| {
                 RpcError::invalid_params(
                     "publicKey must be a 65-byte uncompressed P-256 point as hex",
