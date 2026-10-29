@@ -56,8 +56,9 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
-    /// A drag's rows, ratios and widths, shown until the next layout arrives (`ScreenDragPreview`).
-    var dragPreview = ScreenDragPreview()
+    /// A row divider drag's heights, shown until the next layout arrives
+    /// (gesture state; the model keeps no copy, rows.md Z1).
+    var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
     var scroll: SpringValue {
         get { scrollState.spring }
         set { scrollState.spring = newValue }
@@ -194,14 +195,14 @@ final class ScreenContentView: NSView {
         self.layout = layout
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
-        if activeDrag == nil { dragPreview = ScreenDragPreview() }
+        if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false)
         return moving || canvasState.camera.isMoving
     }
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false, presents: Bool = true) -> Bool {
-        let shown = dragPreview.applied(to: layout)
+        let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
@@ -425,7 +426,7 @@ final class ScreenContentView: NSView {
     /// A row divider release's preview waits for the layout that carries
     /// it: the next model sync reconciles this screen even when its layout
     /// did not change (the daemon refused the heights).
-    var holdsRowDragPreview: Bool { !dragPreview.isEmpty && activeDrag == nil }
+    var holdsRowDragPreview: Bool { rowDragPreview != nil && activeDrag == nil }
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {

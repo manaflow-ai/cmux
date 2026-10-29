@@ -154,8 +154,6 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.animatesScroll = { [weak self] in self.map { $0.canAnimate && $0.context.animatesPaneLayout } ?? false }
-        context.dragPreviewShown = { [weak self] in self?.updateVisibility() }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)

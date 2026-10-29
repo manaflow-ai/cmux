@@ -83,7 +83,7 @@ import Testing
     /// column edge in a strip beside a right dock: each event's model writes and syncs, geometry computes
     /// (reconciles), presentation passes, pane chrome updates, host frames, strip clips and ring masks, catcher
     /// area changes, page update requests and display link starts. A drag moves its panes in the event's own
-    /// turn, writes the model once (on release), and leaves the catcher panels where they are until it lands.
+    /// turn through the model's observation, and leaves the catcher panels where they are until it lands.
     @Test func dividerDragWorkPerEvent() async throws {
         let layout = ScreenLayout.columns([
             LayoutColumn(id: "c0", width: 0.4, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))),
@@ -109,7 +109,6 @@ import Testing
             let name = if case .split = kind { "split" } else { "column" }
             print(moves.line("drag-\(name)-move", steps: steps))
             print(release.line("drag-\(name)-release", steps: 1))
-            #expect(moves.modelWrites == 0, "\(name): \(moves.modelWrites) model writes over \(steps) moves")
             #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
             #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
             // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring.

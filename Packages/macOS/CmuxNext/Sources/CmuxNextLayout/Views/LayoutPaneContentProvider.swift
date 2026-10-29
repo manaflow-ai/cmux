@@ -54,10 +54,6 @@ final class LayoutViewContext {
     /// A pane's strip clip changed since the last overlay sync (`PaneHostView.setStripClip`): that sync tells the
     /// window once, with its divider lines, and its Chromium pages re-read their clips (`reportInteractiveRects`).
     var stripClipsChanged = false
-    /// The camera may spring now (`LayoutRootView.canAnimate` and `ui.paneAnimations`), for a drag's preview.
-    var animatesScroll: () -> Bool = { false }
-    /// A drag's preview is shown (`DividerDrag.present`): the root reports the visible panes, as after a sync.
-    var dragPreviewShown: () -> Void = {}
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
     var gridHoldScreens: Set<ScreenID> = [] {
         didSet { if oldValue.isEmpty != gridHoldScreens.isEmpty { gridHoldDidChange(!gridHoldScreens.isEmpty) } }
