@@ -235,6 +235,7 @@ impl HttpHub {
 /// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
 /// string): any other code is dropped, since a free string could carry anything.
 const KNOWN_CODES: &[&str] = &[
+    "machine.revoked",
     "mesh.unauthorized",
     "mesh.forbidden",
     "mesh.bad_request",
@@ -411,6 +412,7 @@ mod tests {
     #[test]
     fn only_a_refused_credential_ends_the_relay() {
         assert!(answer(401, br#"{"code": "mesh.unauthorized"}"#).unwrap_err().ends_relay());
+        assert!(answer(401, br#"{"code": "machine.revoked"}"#).unwrap_err().ends_relay());
         assert!(answer(403, b"").unwrap_err().ends_relay());
         // A duplicate name or another bad heartbeat is tried again, not the end of the relay.
         assert!(!answer(400, br#"{"code": "mesh.bad_request"}"#).unwrap_err().ends_relay());

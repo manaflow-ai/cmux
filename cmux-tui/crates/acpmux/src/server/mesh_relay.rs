@@ -250,7 +250,7 @@ async fn heartbeats(
                     heartbeat_wait(&options, reply.ttl_seconds)
                 }
                 Err(e) if e.ends_relay() => {
-                    if e.code.as_deref() == Some("mesh.unauthorized") {
+                    if matches!(e.code.as_deref(), Some("machine.revoked" | "mesh.unauthorized")) {
                         tracing::error!("revoked: run machine add again");
                     } else {
                         tracing::error!(
@@ -355,7 +355,7 @@ async fn inbox(
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
             Err(e) if e.ends_relay() => {
-                if e.code.as_deref() == Some("mesh.unauthorized") {
+                if matches!(e.code.as_deref(), Some("machine.revoked" | "mesh.unauthorized")) {
                     tracing::error!("revoked: run machine add again");
                 } else {
                     tracing::error!(
