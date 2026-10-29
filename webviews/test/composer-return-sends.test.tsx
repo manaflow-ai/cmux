@@ -95,7 +95,7 @@ async function composer(
   typed: string,
   onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
   importSandboxed = false,
-  onImportFile?: (file: File) => Promise<void>,
+  onImportFile?: (file: File) => void | Promise<void>,
   upload?: (files: File[]) => Promise<{ paths: string[] }>,
 ) {
   const sent: Sent[] = [];
@@ -191,6 +191,7 @@ const refuseCommand = (command: CmuxCommand, args?: string) => {
   const reason = cmuxCommandRefusal(command, args, {
     summary: true,
     forkable: false,
+    sideAvailable: false,
     canContinue: false,
     sideSessions: false,
     session: true,
@@ -216,6 +217,25 @@ test("a cmux-owned command with an invalid target keeps its draft and explains t
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/continue nope");
   expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("No matching harness");
+});
+
+test("an unavailable side command keeps its draft and shows a side-specific refusal", async () => {
+  const { field, sent } = await composer(chat({ commands: [] }), "/side", refuseCommand);
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(sent).toEqual([]);
+  expect(field.textContent).toContain("/side");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Use /side without arguments");
+});
+
+test("a synchronous import exception is visible in the existing chat composer", async () => {
+  const { sent } = await composer(chat(), "/import", undefined, false, () => {
+    throw new Error("Transcript could not be read");
+  });
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+  await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Transcript could not be read");
+  expect(sent).toEqual([]);
 });
 
 test("a Sandboxed chat refuses /import before the picker and ignores a late file", async () => {

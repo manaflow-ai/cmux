@@ -4,6 +4,7 @@ import { composerCommand, cmuxCommandRefusal, CMUX_COMMANDS } from "../src/agent
 const state = {
   summary: true,
   forkable: true,
+  sideAvailable: true,
   canContinue: true,
   sideSessions: true,
   session: true,
@@ -24,8 +25,9 @@ test("owned commands are recognized independently of menu availability, even wit
 });
 
 test("disabled and malformed commands return reasons rather than dispatching", () => {
-  expect(refusal("/side", { forkable: false })).toBe("composer.cmuxForkBusy");
-  expect(refusal("/side question")).toBe("composer.cmuxForkArgs");
+  expect(refusal("/side", { forkable: false })).toBe("composer.cmuxSideUnavailable");
+  expect(refusal("/side", { sideAvailable: false })).toBe("composer.cmuxSideUnavailable");
+  expect(refusal("/side question")).toBe("composer.cmuxSideUnavailable");
   expect(refusal("/fork", { forkable: false })).toBe("composer.cmuxForkBusy");
   expect(refusal("/continue codex", { canContinue: false })).toBe("composer.cmuxContinueBusy");
   expect(refusal("/status", { summary: false })).toBe("composer.cmuxStatusUnavailable");

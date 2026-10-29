@@ -1868,9 +1868,11 @@ export function Composer({
                   return;
                 }
                 if (file)
-                  void Promise.resolve(onImportFile?.(file)).catch((error: unknown) =>
-                    setAttachError(error instanceof Error ? error.message : String(error)),
-                  );
+                  void Promise.resolve()
+                    .then(() => onImportFile?.(file))
+                    .catch((error: unknown) =>
+                      setAttachError(error instanceof Error ? error.message : String(error)),
+                    );
               }}
             />
             {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}

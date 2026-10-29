@@ -8554,6 +8554,30 @@
         }
       }
     },
+    "composer.cmuxImportFailed": {
+      "comment": "Agent pane: import failed or contained no supported conversation messages",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to import this transcript. Choose a supported conversation transcript."
+          }
+        }
+      }
+    },
+    "composer.cmuxSideUnavailable": {
+      "comment": "Agent pane: side command requires a local forkable chat and no arguments",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use /side without arguments in a local chat that is ready to fork"
+          }
+        }
+      }
+    },
     "composer.cmuxUnavailable": {
       "comment": "Agent pane: inline refusal for a cmux-owned slash command",
       "extractionState": "manual",

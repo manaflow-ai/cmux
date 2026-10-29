@@ -131,6 +131,7 @@ export function cmuxCommandRefusal(
   state: {
     summary: boolean;
     forkable: boolean;
+    sideAvailable: boolean;
     canContinue: boolean;
     sideSessions: boolean;
     session: boolean;
@@ -144,6 +145,7 @@ export function cmuxCommandRefusal(
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "side":
+      return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
     case "fork":
       if (args?.trim()) return "composer.cmuxForkArgs";
       return state.forkable ? undefined : "composer.cmuxForkBusy";

@@ -8331,13 +8331,14 @@ function AcpmuxPane() {
     const refusal = cmuxCommandRefusal(command, args, {
       summary: !fresh && !!snapshot.summary,
       forkable: !fresh && forkable && forkSeq !== undefined,
+      sideAvailable: !fresh && localCwd !== undefined && !quick,
       canContinue: !fresh && canContinue,
       sideSessions: opensSideSessions,
       session: !fresh && !!snapshot.sessionId,
       isSideSession,
       targets: fresh ? [] : handoffTargets,
     });
-    if (refusal) return command.action === "side" ? t(refusal).replace("/fork", "/side") : t(refusal);
+    if (refusal) return t(refusal);
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -8791,13 +8792,16 @@ function AcpmuxPane() {
     setImportError(undefined);
     try {
       const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
-      if (!session.messages.length) return;
+      if (!session.messages.length) {
+        setImportError(t("composer.cmuxImportFailed"));
+        return;
+      }
       await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
       await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : undefined);
+      setImportError(errorMessage(error) || t("composer.cmuxImportFailed"));
     }
-  }, []);
+  }, [t]);
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
