@@ -73,7 +73,15 @@ final class CodexAppServerSession {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
         guard !isTurnInFlight else {
-            throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+            guard canQueueInput(text) else {
+                throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+            }
+            queuedInputs.append(CodexAppServerQueuedInput(
+                text: text,
+                permissionMode: permissionMode,
+                continuation: nil
+            ))
+            return
         }
         guard let threadID else {
             guard canQueueInput(text) else {
@@ -209,7 +217,7 @@ final class CodexAppServerSession {
                 outputSink("stdout", delta)
             }
         case "item/agentMessage/completed", "item/agentMessage/complete", "item/agentMessage/finished":
-            completeTurn()
+            completeTurn(advanceQueuedInput: false)
         case "item/started":
             if let item = params?["item"] as? [String: Any] {
                 emitActivity(for: item, defaultStatus: "inProgress")
@@ -217,14 +225,14 @@ final class CodexAppServerSession {
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
                 if Self.itemIsAgentMessage(item) {
-                    completeTurn()
+                    completeTurn(advanceQueuedInput: false)
                     return
                 }
                 emitActivity(for: item, defaultStatus: "completed")
             }
         case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
              "turn/stopped", "turn/failed", "turn/canceled", "turn/cancelled":
-            completeTurn()
+            completeTurn(advanceQueuedInput: true)
         case "item/commandExecution/outputDelta":
             guard let itemID = params?["itemId"] as? String else { break }
             emitActivity(
@@ -260,10 +268,15 @@ final class CodexAppServerSession {
         }
     }
 
-    private func completeTurn() {
+    private func completeTurn(advanceQueuedInput: Bool) {
+        turnCompleteSink()
+        guard advanceQueuedInput else { return }
+        let wasTurnInFlight = isTurnInFlight
         isTurnInFlight = false
         activePermissionMode = .standard
-        turnCompleteSink()
+        if wasTurnInFlight {
+            drainNextQueuedInput()
+        }
     }
 
     private static func itemIsAgentMessage(_ item: [String: Any]) -> Bool {
@@ -532,6 +545,25 @@ final class CodexAppServerSession {
                     input.resume(throwing: error)
                     emitCodexRPCFailure(error)
                 }
+            }
+        }
+    }
+
+    private func drainNextQueuedInput() {
+        guard let threadID, !isTurnInFlight, let input = queuedInputs.first else { return }
+        queuedInputs.removeFirst()
+        Task { @MainActor in
+            do {
+                try await sendTurnStart(
+                    threadID: threadID,
+                    text: input.text,
+                    permissionMode: input.permissionMode
+                )
+                input.resume()
+            } catch {
+                input.resume(throwing: error)
+                emitCodexRPCFailure(error)
+                drainNextQueuedInput()
             }
         }
     }

@@ -939,7 +939,7 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testCodexSubmitBlocksReentrantTurnWhileWriteIsPending() async throws {
+    func testCodexSubmitQueuesReentrantTurnWhileWriteIsPending() async throws {
         var sentLines: [String] = []
         var pendingTurnWrite: CheckedContinuation<Void, Never>?
         let session = CodexAppServerSession(
@@ -971,9 +971,7 @@ struct CodexAppServerSessionTests {
         }
         #expect(pendingTurnWrite != nil, "turn/start write never became pending")
 
-        await expectThrowsErrorAsync {
-            try await session.submit("second prompt")
-        }
+        try await session.submit("second prompt")
 
         pendingTurnWrite?.resume()
         try await firstSubmit.value
@@ -981,6 +979,13 @@ struct CodexAppServerSessionTests {
         let turnParams = try #require(jsonLine(sentLines[3])["params"] as? [String: Any])
         let input = try #require(turnParams["input"] as? [[String: Any]])
         expectEqual(input.first?["text"] as? String, "first prompt")
+
+        session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
+        await settleSpawnedTasks()
+        expectEqual(sentLines.count, 5)
+        let queuedTurnParams = try #require(jsonLine(sentLines[4])["params"] as? [String: Any])
+        let queuedInput = try #require(queuedTurnParams["input"] as? [[String: Any]])
+        expectEqual(queuedInput.first?["text"] as? String, "second prompt")
     }
 
     @Test

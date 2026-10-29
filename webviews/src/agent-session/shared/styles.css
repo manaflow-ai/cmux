@@ -9,7 +9,15 @@
 
 @theme {
   --font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-  --font-mono: var(--vscode-editor-font-family, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace);
+  --font-mono: var(
+    --vscode-editor-font-family,
+    ui-monospace,
+    "SFMono-Regular",
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace
+  );
   --color-token-foreground: var(--agent-text);
   --color-token-description-foreground: var(--agent-muted);
   --color-token-input-background: var(--agent-input-bg);
@@ -47,9 +55,21 @@
   --color-token-text-link-active-foreground: var(--agent-accent);
   --color-token-editor-foreground: var(--agent-text);
   --color-token-editor-background: var(--agent-page-bg);
-  --color-token-scrollbar-slider-background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
-  --color-token-scrollbar-slider-hover-background: color-mix(in srgb, var(--agent-muted) 38%, transparent);
-  --color-token-scrollbar-slider-active-background: color-mix(in srgb, var(--agent-muted) 54%, transparent);
+  --color-token-scrollbar-slider-background: color-mix(
+    in srgb,
+    var(--agent-muted) 24%,
+    transparent
+  );
+  --color-token-scrollbar-slider-hover-background: color-mix(
+    in srgb,
+    var(--agent-muted) 38%,
+    transparent
+  );
+  --color-token-scrollbar-slider-active-background: color-mix(
+    in srgb,
+    var(--agent-muted) 54%,
+    transparent
+  );
   --shadow-md: 0px 2px 4px -1px #00000014;
   --shadow-xl: 0px 8px 16px -4px #0000001f;
   --text-xs: 11px;
@@ -161,7 +181,11 @@
   --color-background-surface: transparent;
   --color-background-surface-under: transparent;
   --color-background-elevated-primary: var(--agent-surface-elevated);
-  --color-background-elevated-primary-opaque: color-mix(in srgb, var(--agent-surface-elevated) 100%, #111111);
+  --color-background-elevated-primary-opaque: color-mix(
+    in srgb,
+    var(--agent-surface-elevated) 100%,
+    #111111
+  );
   --color-background-elevated-secondary: var(--agent-card);
   --color-background-elevated-secondary-opaque: color-mix(in srgb, var(--agent-card) 100%, #111111);
   --thread-content-max-width: none;
@@ -208,7 +232,10 @@
   --padding-row-y: calc(var(--spacing) * 1.25);
   --height-token-nav-row: 32px;
   --codex-chat-font-size: var(--vscode-chat-font-size, var(--vscode-font-size, 13px));
-  --codex-chat-code-font-size: var(--vscode-chat-editor-font-size, var(--vscode-editor-font-size, 12px));
+  --codex-chat-code-font-size: var(
+    --vscode-chat-editor-font-size,
+    var(--vscode-editor-font-size, 12px)
+  );
 }
 
 :root[data-codex-window-type="electron"] {
@@ -229,7 +256,8 @@
   --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
   --text-heading-md: 18px;
   --cursor-interaction: default;
-  --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --vscode-editor-font-family:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --vscode-font-size: var(--text-base);
   --vscode-editor-font-size: var(--text-sm);
   --vscode-chat-font-size: var(--vscode-font-size);
@@ -309,8 +337,21 @@ select {
   overflow-x: hidden;
 }
 
+/* Keep short conversations attached to the composer while preserving scroll
+ * access once the transcript grows beyond the viewport. */
+.agent-thread::before {
+  content: "";
+  flex: 1 0 0;
+  min-height: 0;
+  pointer-events: none;
+}
+
 :root[data-codex-window-type="electron"] .agent-thread {
-  --color-token-description-foreground: color-mix(in srgb, var(--color-token-foreground) 70%, transparent);
+  --color-token-description-foreground: color-mix(
+    in srgb,
+    var(--color-token-foreground) 70%,
+    transparent
+  );
 }
 
 .agent-thread[data-empty] {
@@ -796,13 +837,17 @@ select {
 }
 
 .shadow-xl-spread {
-  --tw-shadow: 0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
-  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  --tw-shadow:
+    0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
+  box-shadow:
+    var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow),
+    var(--tw-ring-shadow), var(--tw-shadow);
 }
 
 ._content_1hiti_1 {
   --dropdown-content-inset: 2px;
-  --dropdown-content-start-transform: translateY(calc(var(--dropdown-content-inset) * -1)) scale(0.98);
+  --dropdown-content-start-transform: translateY(calc(var(--dropdown-content-inset) * -1))
+    scale(0.98);
   transform-origin: var(--radix-dropdown-menu-content-transform-origin);
   will-change: opacity, transform;
 }
@@ -812,7 +857,8 @@ select {
 }
 
 ._content_1hiti_1[data-side="right"] {
-  --dropdown-content-start-transform: translateX(calc(var(--dropdown-content-inset) * -1)) scale(0.98);
+  --dropdown-content-start-transform: translateX(calc(var(--dropdown-content-inset) * -1))
+    scale(0.98);
 }
 
 ._content_1hiti_1[data-side="left"] {
@@ -957,8 +1003,15 @@ img.ProseMirror-separator {
 }
 
 .prompt-editor-mention {
-  --inline-mention-base-color: color-mix(in srgb, var(--color-token-text-link-foreground) 80%, var(--color-token-foreground) 20%);
-  --inline-mention-color: var(--inline-mention-resolved-base-color, var(--inline-mention-base-color));
+  --inline-mention-base-color: color-mix(
+    in srgb,
+    var(--color-token-text-link-foreground) 80%,
+    var(--color-token-foreground) 20%
+  );
+  --inline-mention-color: var(
+    --inline-mention-resolved-base-color,
+    var(--inline-mention-base-color)
+  );
   display: inline-flex;
   align-items: baseline;
   max-width: 100%;
@@ -1091,17 +1144,24 @@ img.ProseMirror-separator {
   border-bottom-left-radius: var(--cmdk-bottom-item-radius);
 }
 
-:where([cmdk-list]) > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) [cmdk-item]:last-of-type {
+:where([cmdk-list])
+  > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden])))
+  [cmdk-item]:last-of-type {
   border-bottom-right-radius: var(--cmdk-bottom-item-radius);
   border-bottom-left-radius: var(--cmdk-bottom-item-radius);
 }
 
-:where([cmdk-list]) > [cmdk-list-sizer] > [cmdk-item]:not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) {
+:where([cmdk-list])
+  > [cmdk-list-sizer]
+  > [cmdk-item]:not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) {
   border-bottom-right-radius: var(--cmdk-bottom-item-radius);
   border-bottom-left-radius: var(--cmdk-bottom-item-radius);
 }
 
-:where([cmdk-list]) > [cmdk-list-sizer] > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) [cmdk-item]:last-of-type {
+:where([cmdk-list])
+  > [cmdk-list-sizer]
+  > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden])))
+  [cmdk-item]:last-of-type {
   border-bottom-right-radius: var(--cmdk-bottom-item-radius);
   border-bottom-left-radius: var(--cmdk-bottom-item-radius);
 }
@@ -1811,7 +1871,8 @@ img.ProseMirror-separator {
   padding: var(--spacing);
   padding-top: calc(var(--spacing) * 3);
   padding-left: calc(var(--spacing) * 2);
-  border: 1px solid var(--composer-top-tray-border, color-mix(in srgb, var(--color-token-border) 72%, transparent));
+  border: 1px solid
+    var(--composer-top-tray-border, color-mix(in srgb, var(--color-token-border) 72%, transparent));
   border-top-color: transparent;
   border-bottom: none;
   border-top-left-radius: var(--radius-3xl);
@@ -1819,7 +1880,10 @@ img.ProseMirror-separator {
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   color: var(--color-token-foreground);
-  background: var(--composer-top-tray-background, color-mix(in oklab, var(--color-token-side-bar-background) 94%, transparent));
+  background: var(
+    --composer-top-tray-background,
+    color-mix(in oklab, var(--color-token-side-bar-background) 94%, transparent)
+  );
   box-shadow: none;
   font-size: var(--text-sm);
   -webkit-backdrop-filter: none;
