@@ -69,6 +69,26 @@ describe("self-hosted attachment bucket", () => {
     }
   })
 
+  it("reads objects with the pre-contentHash metadata format and cleans orphaned data files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const data = "legacy bytes"
+      const etag = createHash("md5").update(data).digest("hex")
+      mkdirSync(join(root, "home", "v1"), { recursive: true })
+      writeFileSync(join(root, "home", "v1", "legacy"), data)
+      writeFileSync(join(root, "home", "v1", "legacy.meta.json"), JSON.stringify({ etag, size: data.length, uploaded: 0 }))
+      expect(await bucket.head("home/v1/legacy")).toMatchObject({ etag, size: data.length })
+
+      // Simulate a crash after the data rename but before metadata publication.
+      writeFileSync(join(root, "home", "v1", "orphan"), "orphaned bytes")
+      expect((await bucket.list({ prefix: "home/v1/" })).objects.map((object) => object.key)).toContain("home/v1/legacy")
+      expect(existsSync(join(root, "home", "v1", "orphan"))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("refuses a parent-directory symlink swapped after the final directory check", async () => {
     const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {

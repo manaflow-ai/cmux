@@ -410,7 +410,7 @@ export class FsBucket {
     const fd = this.openFile(file, "key")
     if (fd === null) return null
     try {
-      if (typeof meta.contentHash !== "string" || meta.contentHash !== meta.etag) return null
+      if (typeof meta.etag !== "string") return null
       const stat = fstatSync(fd)
       if (!stat.isFile() || stat.size !== meta.size) return null
       // Hash in bounded chunks. A crash between the data and metadata renames, or an equal-sized
@@ -424,7 +424,11 @@ export class FsBucket {
         hash.update(buffer.subarray(0, count))
         offset += count
       }
-      return hash.digest("hex") === meta.contentHash ? meta : null
+      const digest = hash.digest("hex")
+      if (digest !== meta.etag) return null
+      // Accept sidecars written before contentHash was introduced. The verified etag is the
+      // legacy content hash; new writes persist it explicitly for torn-commit detection.
+      return typeof meta.contentHash === "string" && meta.contentHash !== meta.etag ? null : { ...meta, contentHash: meta.contentHash ?? meta.etag }
     } finally {
       closeSync(fd)
     }
@@ -727,6 +731,17 @@ export class FsBucket {
             meta = null
           }
           if (meta && (!options.prefix || key.startsWith(options.prefix))) out.push(this.object(key, meta))
+          else if (!meta && (!options.prefix || key.startsWith(options.prefix))) {
+            // A crash after publishing bytes but before its sidecar leaves an orphan that normal
+            // listing would otherwise hide from conversation cleanup. Remove it via the held
+            // parent descriptor; malformed sidecars are removed with the orphan as well.
+            try {
+              this.remove(p, "key")
+              if (lstatOrNull(`${p}.meta.json`)?.isFile()) this.remove(`${p}.meta.json`, "key")
+            } catch {
+              // A concurrent writer or a link swap will be retried by the next listing pass.
+            }
+          }
         }
       }
     }
