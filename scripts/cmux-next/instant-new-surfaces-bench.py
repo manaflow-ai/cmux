@@ -220,7 +220,12 @@ def ensure_terminal():
     """A shown terminal workspace: `newTab` from a script makes one terminal; focus: true shows it."""
     if (focused() or {}).get("kind") == "terminal":
         return True
-    reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
+    if opts.activate:
+        # An active app: a script's newTab does not take a text input the person has (the New Tab page's field, an
+        # address bar; cp/fix-chief-composer-focus), so the set-up presses the person's New Terminal Tab key.
+        reply = rpc("debug.key", {"key": "`", "modifiers": ["control"]})
+    else:
+        reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
     print("newTab:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
     time.sleep(1)  # test harness: shell prompt
