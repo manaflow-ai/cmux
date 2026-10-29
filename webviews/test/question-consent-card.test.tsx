@@ -182,6 +182,23 @@ test("Return trusts and Esc declines from anywhere in the consent", async () => 
   expect(no.replies).toEqual([NOT_NOW]);
 });
 
+test("⌘↩ trusts, and Return on a focused Not now is left to the button, never Allow", async () => {
+  const yes = await renderCard(folderTrust);
+  await press(yes.container.querySelector(".acpmux-question")!, "Enter", { metaKey: true });
+  expect(yes.replies).toEqual([TRUST]);
+  await act(async () => root!.unmount());
+  root = undefined;
+
+  const no = await renderCard(folderTrust);
+  const notNow = button(no.container, ".acpmux-question-skip");
+  const event = new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+  await act(async () => {
+    notNow.dispatchEvent(event);
+  });
+  expect(event.defaultPrevented).toBe(false);
+  expect(no.replies).toEqual([]);
+});
+
 test("a two-option AskUserQuestion keeps its list, Skip and Submit, and Skip shows esc", async () => {
   const { container, replies } = await renderCard(askTwo);
   expect(container.querySelector(".acpmux-question[data-consent]")).toBeNull();

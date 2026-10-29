@@ -268,6 +268,13 @@ function PendingQuestion({
   const onKeyDown = (event: KeyboardEvent) => {
     // WebKit sends the Enter that commits an IME candidate after compositionend, as keyCode 229.
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+    // A consent's Return (or ⌘↩) is its Allow, except on a focused Not now, which presses that.
+    if (consent && event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      if (!event.metaKey && (event.target as HTMLElement).closest(".acpmux-question-skip")) return;
+      event.preventDefault();
+      if (!event.repeat) dispatch({ type: "number", value: consent.accept + 1 });
+      return;
+    }
     // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
     // answers like Enter: the highlighted row, then Submit once every item has an answer.
     if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
@@ -290,12 +297,6 @@ function PendingQuestion({
     if (event.key === "Escape") {
       event.preventDefault();
       if (!event.repeat) skip();
-      return;
-    }
-    // A consent's Return is its Allow wherever the keyboard is in the card.
-    if (consent && event.key === "Enter") {
-      event.preventDefault();
-      if (!event.repeat) dispatch({ type: "number", value: consent.accept + 1 });
       return;
     }
     // In Other, plain Enter submits; Shift-Enter and every other editing key stay native.
