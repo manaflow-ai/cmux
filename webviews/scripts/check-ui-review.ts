@@ -316,11 +316,9 @@ function jsxChildrenCopy(
   translations: Map<string, string>,
   chunks: CopyChunk[],
 ): void {
-  if (ts.isJsxSelfClosingElement(node)) {
-    // An intrinsic like <img /> renders no copy; a component's output is unknown here.
-    if (/^[A-Z]/.test(jsxName(node.tagName))) chunks.push(null);
-    return;
-  }
+  // A component's output is unknown here, paired or self-closing; an intrinsic like <img /> renders no copy.
+  if (!ts.isJsxFragment(node) && /^[A-Z]/.test(jsxName(openingElement(node).tagName))) chunks.push(null);
+  if (ts.isJsxSelfClosingElement(node)) return;
   for (const child of node.children) {
     if (ts.isJsxText(child)) chunks.push(child.getText());
     else if (ts.isJsxExpression(child) && child.expression) renderedCopy(child.expression, translations, chunks);
@@ -350,28 +348,24 @@ function leadingText(node: ts.Node, translations: Map<string, string>): string |
   return first === null || first === undefined ? undefined : normalizeCopy(first);
 }
 
-const ACTIVATION = ["onClick", "onPointerDown", "onMouseDown", "onDoubleClick"];
-
-/** Pointer activation handlers as source text. Focusability (tabIndex, onKeyDown) alone opens nothing. */
-function activationHandlers(element: ts.JsxElement | ts.JsxSelfClosingElement): string[] {
-  return ACTIVATION.flatMap((name) => {
-    const initializer = jsxAttribute(element, name)?.initializer;
-    return initializer ? [initializer.getText()] : [];
-  });
+function handlerText(element: ts.JsxElement | ts.JsxSelfClosingElement, name: string): string | undefined {
+  return jsxAttribute(element, name)?.initializer?.getText();
 }
 
 /**
- * A row that performs the button's action: the button has no activation of its own (its click falls through to
- * the row) or the same handler as the row. A row that only stops propagation does not duplicate the button.
+ * A row that performs the button's action. The row activates on click (onClick, or onDoubleClick for rows that
+ * open on a double click), and the button either has no onClick of its own (its click falls through to the row)
+ * or the same onClick as the row. Pointer-down, key and focus handlers are propagation and focus plumbing, not
+ * evidence: a row with onClick={select} and a button with onClick={open} stay distinct whatever else they share.
  */
 function sameActionRow(
   button: ts.JsxElement | ts.JsxSelfClosingElement,
 ): ts.JsxElement | ts.JsxSelfClosingElement | undefined {
-  const own = activationHandlers(button);
+  const own = handlerText(button, "onClick");
   return ancestors(button).find((ancestor): ancestor is ts.JsxElement | ts.JsxSelfClosingElement => {
     if (!ts.isJsxElement(ancestor) && !ts.isJsxSelfClosingElement(ancestor)) return false;
-    const row = activationHandlers(ancestor);
-    return row.length > 0 && (own.length === 0 || own.some((handler) => row.includes(handler)));
+    const row = handlerText(ancestor, "onClick") ?? handlerText(ancestor, "onDoubleClick");
+    return row !== undefined && (own === undefined || own === row);
   });
 }
 
@@ -546,7 +540,14 @@ function cssRowGroups(file: string, source: string): Finding[] {
     if (!weight || /^(?:inherit|normal)$/i.test(weight)) continue;
     const classes = [...(match[1] ?? "").matchAll(/\.([A-Za-z_][\w-]*)/g)].map((item) => item[1]!);
     const candidates = classes
-      .map((name) => (name.includes("__") ? name.split("__", 1)[0]! : ROW_CLASS.test(name) ? name : undefined))
+      .map((name) => {
+        // A BEM block groups its elements only when the block itself is a row kind (cv-subagent__name);
+        // .dialog__title and .dialog__body are one component's title and body, not a row.
+        if (!name.includes("__")) return ROW_CLASS.test(name) ? name : undefined;
+        const [block, element] = name.split("__", 2) as [string, string];
+        if (ROW_CLASS.test(block)) return block;
+        return ROW_CLASS.test(element) ? name : undefined;
+      })
       .filter((name): name is string => Boolean(name));
     for (const group of new Set(candidates)) {
       const list = groups.get(group) ?? [];

@@ -47,6 +47,10 @@ describe("cross-surface UI review lint", () => {
     expect(findRedundantOpenButtons(tsx, stops)).toHaveLength(0);
     const same = `<div onClick={open}><button onClick={open}>Open</button></div>`;
     expect(findRedundantOpenButtons(tsx, same)).toMatchObject([{ fingerprint: "Open" }]);
+    const sharedPlumbing = `<div onClick={select} onPointerDown={stop}><button onClick={open} onPointerDown={stop}>Open</button></div>`;
+    expect(findRedundantOpenButtons(tsx, sharedPlumbing)).toHaveLength(0);
+    const pointerOnlyRow = `<div onPointerDown={stop}><button>Open chat</button></div>`;
+    expect(findRedundantOpenButtons(tsx, pointerOnlyRow)).toHaveLength(0);
   });
 
   test("a focusable row without a pointer action does not make its Open button redundant", () => {
@@ -99,6 +103,8 @@ describe("cross-surface UI review lint", () => {
     expect(findRepeatedLeadingLabels(tsx, unknownFirst)).toHaveLength(0);
     const componentFirst = `<ul>{items.map((item) => <li><PersonName person={item} /><span>Agent</span></li>)}</ul>`;
     expect(findRepeatedLeadingLabels(tsx, componentFirst)).toHaveLength(0);
+    const pairedComponentFirst = `<ul>{items.map((item) => <li><PersonName person={item}></PersonName><span>Agent</span></li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, pairedComponentFirst)).toHaveLength(0);
     const branch = `<ul>{items.map((item) => <li className="cv-row">{item.done ? "Task done" : t("row.pending")}</li>)}</ul>`;
     expect(findRepeatedLeadingLabels(tsx, branch)).toMatchObject([{ fingerprint: "task" }]);
   });
@@ -111,6 +117,12 @@ describe("cross-surface UI review lint", () => {
     expect(
       findMixedRowWeights(css, `.cv-subagent { font-weight: 400; } .cv-subagent__name { font-weight: 400; }`),
     ).toHaveLength(0);
+    expect(
+      findMixedRowWeights(css, `.dialog__title { font-weight: 600; } .dialog__body { font-weight: 400; }`),
+    ).toHaveLength(0);
+    expect(
+      findMixedRowWeights(css, `.panel__row { font-weight: 400; } .panel__row:hover { font-weight: 600; }`),
+    ).toMatchObject([{ fingerprint: "panel__row|400,600" }]);
   });
 
   test("requires the harness icon component for agent rows, but permits its fallback", () => {
