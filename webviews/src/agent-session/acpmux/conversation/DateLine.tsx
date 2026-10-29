@@ -1,14 +1,14 @@
-// The timestamp line over a turn (conversation/timestamps.ts), centered and quiet:
-// "Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM". English, like the rest of the pane's
-// transcript words, so the date and its " at " read as one language.
+// The timestamp line over a turn, centered and quiet, in the pane's live language.
+import { usePaneLanguage } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { hasTimestamp, timestampText } from "./timestamps";
 
 export function DateLine({ row, now = Date.now() }: { row: AcpmuxRow; now?: number }) {
+  const language = usePaneLanguage();
   if (!hasTimestamp(row.at)) return null;
   return (
     <time className="cv-date-line" dateTime={new Date(row.at).toISOString()}>
-      {timestampText(row.at, { now, locale: "en-US" })}
+      {timestampText(row.at, { now, locale: language })}
     </time>
   );
 }

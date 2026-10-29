@@ -154,12 +154,15 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                 }
               },
               (paint) => {
-                if (frames === 8 && phase === "prime") {
+                // At least, not exactly: a frame's read can land after the next frame's callbacks
+                // on a busy runner, and an exact count passed unseen left the run in its first phase
+                // with no samples (frames 0, run 40753431130).
+                if (frames >= 8 && phase === "prime") {
                   phase = "away";
                   scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50000, bubbles: true }));
                   scroller.scrollTop = Math.max(0, end() - 50000);
                 }
-                if (frames === 32 && phase === "away") {
+                if (frames >= 32 && phase === "away") {
                   phase = "return";
                   started = paint;
                   if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();

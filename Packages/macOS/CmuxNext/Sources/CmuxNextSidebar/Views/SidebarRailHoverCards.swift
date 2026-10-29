@@ -6,7 +6,7 @@ public import CmuxNextDesign
 /// Cmd-digit), anchored to the mark's row. It is a source of the app's one `HoverCardCoordinator`,
 /// as the sidebar list's rows are, with the list's one anchor rule: the mark's row as a band
 /// across the sidebar column (`HoverCardEscapeGeometry.rowBand`, `sidebarColumnOnScreen`), placement
-/// `.besideRow`, so the card's top is the row's top and it stands one device pixel past the rail. Rows
+/// `.besideRow`, so the card's top is the row's top and it touches the rail. Rows
 /// of a group touch, and the gaps between groups bridge, so moving from mark to mark retargets
 /// the one card instead of hiding and showing it.
 @MainActor

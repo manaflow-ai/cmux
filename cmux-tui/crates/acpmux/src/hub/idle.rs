@@ -33,6 +33,7 @@
 //! for good once shutdown starts (`stop_idle_reaper`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
@@ -76,8 +77,9 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && session.queued() == 0
             && session.pending_permissions().is_empty()
-            // A process still running in the background (a dev server, a
-            // watcher) ends with the harness: never reap it for idleness.
+            // A harness's own background process (a dev server, a watcher) ends with the
+            // harness: never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not
+            // in this table and outlives the harness.
             && !self.any_process_running(session)
             // Nor a background subagent, which the harness's exit would end too.
             && session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() == 0
@@ -299,7 +301,7 @@ impl Hub {
     /// `record` (a `resumed` one) with `"wake": true` when the start is a wake (`waking`).
     pub(super) fn wake_marked(&self, session: &Session, mut record: Value) -> Value {
         if self.waking(session) {
-            record["wake"] = json!(true);
+            record.set("wake", json!(true));
         }
         record
     }

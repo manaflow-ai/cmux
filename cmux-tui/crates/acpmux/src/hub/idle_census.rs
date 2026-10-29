@@ -174,12 +174,16 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
     let Some(home) = env("HOME") else { return out };
     let cwd = &launch.cwd;
     if family == "claude" {
-        for pair in launch.args.windows(2).filter(|w| w[0] == "--mcp-config") {
-            match serde_json::from_str::<Value>(&pair[1]) {
+        for pair in launch.args.windows(2) {
+            let [flag, value] = pair else { continue };
+            if flag != "--mcp-config" {
+                continue;
+            }
+            match serde_json::from_str::<Value>(value) {
                 Ok(inline) if inline.is_object() => out.extend(from_json(inline.get("mcpServers"))),
                 // A file, relative to the harness's folder.
                 _ => {
-                    let file = read_json(&cwd.join(&pair[1]));
+                    let file = read_json(&cwd.join(value));
                     out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
                 }
             }
@@ -324,7 +328,8 @@ fn runs(args: &str, s: &Sidecar) -> bool {
     } else {
         return false;
     };
-    words.len() == at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
+    words.len() == at + s.args.len()
+        && words.get(at..).unwrap_or_default().iter().zip(&s.args).all(|(a, b)| a == b)
 }
 
 /// `Busy` with the first process that is neither a server (a child of `leader`) nor under one.
