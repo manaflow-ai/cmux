@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4084960044301",
+  "notes": "notes/4084960044301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24804,
+      "title": "fix(cmux-next): preserve copy-on-select in TUI terminals",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
