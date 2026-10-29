@@ -75,10 +75,34 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main(args, invocation))
+    runtime(&args)?.block_on(async_main(args, invocation))
+}
+
+/// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
+/// A harness starts a set of them for every thread it loads (a codex
+/// subagent gets its own set, kept until the app-server exits), so a tokio
+/// worker per core in each one adds up: about 100 tasks a set on a 32-core
+/// machine, which filled the sessions slice's task cap on a fleet host.
+const STDIO_MCP_SERVERS: [&str; 6] =
+    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"];
+
+/// Worker threads of a stdio MCP server: it answers one client's requests
+/// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
+const MCP_WORKERS: usize = 2;
+
+/// The worker count `args` (without the program name) runs with: None is
+/// tokio's default, one per core.
+fn runtime_workers(args: &[OsString]) -> Option<usize> {
+    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
+    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+}
+
+fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    if let Some(workers) = runtime_workers(args) {
+        builder.worker_threads(workers);
+    }
+    builder.enable_all().build()
 }
 
 async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
