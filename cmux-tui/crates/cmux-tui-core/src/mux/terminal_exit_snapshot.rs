@@ -1,6 +1,7 @@
 //! Terminal output and exit snapshots read from state: plain output rendering, output read results, run placements, and exit snapshots.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Render raw terminal output bytes to plain text by replaying them through
 /// a fresh terminal emulator sized to the recorded geometry, then formatting
@@ -78,7 +79,7 @@ pub(super) fn terminal_exit_snapshot_in_state(
         "running": false,
     });
     if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
-        snapshot["cwd"] = serde_json::json!(cwd);
+        snapshot.set("cwd", serde_json::json!(cwd));
     }
     Ok(snapshot)
 }
