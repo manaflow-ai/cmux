@@ -321,6 +321,112 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   client.close();
 });
 
+test("compaction fences rebuild chronologically when replay seeks backward and forward", async () => {
+  const history = record([
+    ["mux", "user_message", { text: "legacy history" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })],
+    ["mux", "turn_result", { status: "completed" }],
+    ["mux", "user_message", { text: "stop this", turnId: "turn-old" }],
+    ["mux", "turn_started", { turnId: "turn-old" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+    ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+    ["mux", "turn_started", { turnId: "turn-new" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ]);
+  let rows: AcpmuxRow[] = [];
+  const replay = AcpmuxDirectClient.replay(CHAT, history, (snapshot) => { rows = snapshot.rows; });
+  const visible = (items: AcpmuxRow[]) => items
+    .filter((row) => row.kind === "compaction" || row.kind === "turnSummary")
+    .map((row) => [row.id, row.turnId, row.compaction, row.status]);
+  replay.seekReplay(12);
+  const forward = visible(rows);
+  replay.seekReplay(5);
+  expect(visible(rows)).toEqual([
+    ["compaction-3", undefined, { state: "completed" }, undefined],
+    ["summary-5", undefined, undefined, "completed"],
+  ]);
+  replay.seekReplay(12);
+  expect(visible(rows)).toEqual(forward);
+  const live = await connect(fakeDaemon(history));
+  try {
+    expect(visible(live.rows())).toEqual(forward);
+  } finally {
+    live.client.close();
+  }
+});
+
+test("loading a retired compaction above a new turn matches whole-history reduction", async () => {
+  const history = record([
+    ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+    ["mux", "turn_started", { turnId: "turn-old" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+    ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+    ["mux", "turn_started", { turnId: "turn-new" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ]);
+  const wholeDaemon = fakeDaemon([...history]);
+  const pagedDaemon = fakeDaemon([...history], 3);
+  const whole = await connect(wholeDaemon);
+  const paged = await connect(pagedDaemon);
+  const compactions = (rows: AcpmuxRow[]) => rows.filter((row) => row.kind === "compaction")
+    .map((row) => [row.id, row.turnId, row.compaction]);
+  try {
+    await paged.client.loadOlder();
+    expect(compactions(paged.rows())).toEqual(compactions(whole.rows()));
+    expect(compactions(paged.rows())).toEqual([
+      ["compaction-3", "turn-old", { state: "failed", inferred: true }],
+      ["compaction-7", "turn-new", { state: "running" }],
+    ]);
+    const late = record([
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })],
+      ["mux", "turn_end", {}],
+      ["mux", "turn_result", { turnId: "turn-new", status: "completed" }],
+    ], 8);
+    wholeDaemon.push(late);
+    pagedDaemon.push(late);
+    expect(compactions(paged.rows())).toEqual(compactions(whole.rows()));
+  } finally {
+    whole.client.close();
+    paged.client.close();
+  }
+});
+
+test("a stale cancelled result cannot cancel the newer turn's foreground subagent", async () => {
+  const daemon = fakeDaemon(record([
+    ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+    ["mux", "turn_started", { turnId: "turn-old" }],
+  ]));
+  const { client, rows } = await connect(daemon);
+  try {
+    await client.cancel();
+    daemon.push(record([
+      ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+      ["mux", "turn_started", { turnId: "turn-new" }],
+      ["in", "subagent_spawned", {
+        method: "session/update",
+        params: {
+          update: { sessionUpdate: "subagent_spawned" },
+          _meta: { acpmux: { subagents: [{ id: "new-reviewer", parent: null, name: "Reviewer", state: "running", toolCallId: "review-call" }] } },
+        },
+      }],
+    ], 3));
+    const agents = () => rows().filter((row) => row.kind === "subagents")
+      .flatMap((row) => row.subagents ?? []);
+    expect(agents().map((agent) => [agent.id, agent.state])).toEqual([["new-reviewer", "running"]]);
+    const before = agents();
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-old", status: "cancelled" }]], 6));
+    expect(agents()).toEqual(before);
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-new", status: "cancelled" }]], 7));
+    expect(agents().map((agent) => [agent.id, agent.state])).toEqual([["new-reviewer", "cancelled"]]);
+  } finally {
+    client.close();
+  }
+});
+
 test("an old Stop result clears its cancel without settling the newer turn or blocking send-now", async () => {
   const daemon = fakeDaemon(
     record([
