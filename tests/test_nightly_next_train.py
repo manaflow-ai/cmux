@@ -458,6 +458,106 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(train.VERDICTS, train.FEED.rsplit("/", 1)[0] + "/verdicts")
 
 
+class OwnedRefusal(unittest.TestCase):
+    """A compile an owned Mac refused, or never ran, is re-run once and then judged on Blacksmith."""
+
+    SETUP = {"name": "Set up job", "conclusion": "failure"}
+
+    def job(self, labels, conclusion, steps):
+        return {"name": drive.GATE_JOB, "labels": labels, "conclusion": conclusion, "steps": steps}
+
+    def test_only_an_owned_job_that_never_ran_its_steps_is_refused(self) -> None:
+        owned = ["glaeda-side-std-xcode-26.6"]
+        self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [])))
+        self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", [self.SETUP, {"name": "Complete job", "conclusion": "success"}])))
+        self.assertTrue(drive.refused_on_owned(self.job(owned, "cancelled", [{"name": "Set up job", "conclusion": "success"}])))
+        lost_after_setup = [{"name": "Set up job", "conclusion": "success"}, {"name": "Complete job", "conclusion": "success"}]
+        self.assertTrue(drive.refused_on_owned(self.job(owned, "failure", lost_after_setup)))
+        compile_red = [{"name": "Set up job", "conclusion": "success"}, {"name": "Release compile", "conclusion": "failure"}]
+        self.assertFalse(drive.refused_on_owned(self.job(owned, "failure", compile_red)))
+        self.assertFalse(drive.refused_on_owned(self.job(["blacksmith-6vcpu-macos-26"], "failure", [])))
+        self.assertFalse(drive.refused_on_owned(self.job(owned, "success", [])))
+        self.assertFalse(drive.refused_on_owned(None))
+
+    def test_a_refused_compile_is_re_run_once_then_read(self) -> None:
+        commit = "c" * 40
+        refused = self.job(["glaeda-side-std-xcode-26.6"], "failure", [self.SETUP])
+        green = self.job(["blacksmith-6vcpu-macos-26"], "success", [{"name": "Release compile", "conclusion": "success"}])
+        # The second poll still shows attempt 1 completed (GitHub has not started the re-run): no second re-run.
+        polls = iter([({"id": 7, "status": "completed", "run_attempt": 1}, refused),
+                      ({"id": 7, "status": "completed", "run_attempt": 1}, refused),
+                      ({"id": 7, "status": "in_progress", "run_attempt": 2}, None),
+                      ({"id": 7, "status": "completed", "run_attempt": 2}, green)])
+        calls, state = [], {}
+
+        def fake_gh(*args, **_):
+            calls.append(args)
+            if args[:2] in (("workflow", "run"), ("run", "rerun")):
+                return ""
+            if "/jobs?" in args[1]:
+                return json.dumps({"jobs": [state["job"]] if state["job"] else []})
+            run, state["job"] = next(polls)
+            return json.dumps({"workflow_runs": [dict(run, head_sha=commit)]})
+
+        builder = drive.GitHubBuilder("o/r", "1", poll_seconds=0, sleep=lambda _: None)
+        original_gh, original_git = drive.gh, drive.train.git
+        drive.gh, drive.train.git = fake_gh, lambda *a, **k: ""
+        try:
+            results = builder.build([(commit, "candidate")], deadline=float("inf"))
+        finally:
+            drive.gh, drive.train.git = original_gh, original_git
+        self.assertEqual(results, {commit: True})
+        self.assertEqual([c for c in calls if c[:2] == ("run", "rerun")],
+                         [("run", "rerun", "7", "--failed", "--repo", "o/r")])
+
+    def test_a_compile_red_on_an_owned_mac_is_red(self) -> None:
+        commit = "d" * 40
+        red = self.job(["glaeda-side-std-xcode-26.6"], "failure",
+                       [{"name": "Set up job", "conclusion": "success"}, {"name": "Release compile", "conclusion": "failure"}])
+        calls = []
+
+        def fake_gh(*args, **_):
+            calls.append(args)
+            if args[:2] == ("workflow", "run"):
+                return ""
+            if "/jobs?" in args[1]:
+                return json.dumps({"jobs": [red]})
+            return json.dumps({"workflow_runs": [{"id": 8, "status": "completed", "run_attempt": 1, "head_sha": commit}]})
+
+        builder = drive.GitHubBuilder("o/r", "1", poll_seconds=0, sleep=lambda _: None)
+        original_gh, original_git = drive.gh, drive.train.git
+        drive.gh, drive.train.git = fake_gh, lambda *a, **k: ""
+        try:
+            results = builder.build([(commit, "candidate")], deadline=float("inf"))
+        finally:
+            drive.gh, drive.train.git = original_gh, original_git
+        self.assertEqual(results, {commit: False})
+        self.assertFalse([c for c in calls if c[:2] == ("run", "rerun")])
+
+    def test_the_compile_picks_an_idle_owned_mac_then_blacksmith(self) -> None:
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
+        pick = jobs["pick-train-runner"]
+        self.assertEqual(pick["environment"], "ci-routing-agent")
+        self.assertIn("nightly_build_runner.py", pick["steps"][-1]["run"])
+        self.assertNotIn("DEDICATED_LABEL", pick["steps"][-1]["env"])
+        # vars.NIGHTLY_NEXT_TRAIN_RUNNER reaches only OWNED_LABELS, and the picker offers no hosted Mac from it.
+        picker = load("nightly_build_runner", "nightly_build_runner.py")
+        for label in ("macos-26", "macos-latest", "blacksmith-6vcpu-macos-26"):
+            self.assertFalse(picker.owned_label(label))
+        self.assertTrue(picker.owned_label("glaeda-side-std-xcode-26.6"))
+        text = (ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8")
+        self.assertEqual([line.split(":")[0].strip() for line in text.splitlines()
+                          if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in line and not line.lstrip().startswith("#")],
+                         ["OWNED_LABELS"])
+        self.assertIn("ubuntu", pick["runs-on"])
+        runs_on = jobs["build"]["runs-on"]
+        self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
+        self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
+                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
+                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+
+
 class Wiring(unittest.TestCase):
     def read(self, name: str) -> str:
         return (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")

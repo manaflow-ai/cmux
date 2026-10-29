@@ -346,7 +346,9 @@ export class MonacoView implements CodeView {
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
       // A right-click opens the app's standard macOS menu, not Monaco's (nativeEditorMenu.ts).
-      installNativeEditorMenu(this.editor, container),
+      installNativeEditorMenu(this.editor, container, {
+        [MONACO_QUICK_COMMAND]: () => this.callbacks.openCommandPalette?.(),
+      }),
       // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS). Monaco
       // reports a new scroll size too (its first layout, a pane or window resize); that is not a scroll.
       this.editor.onDidScrollChange((event) => {

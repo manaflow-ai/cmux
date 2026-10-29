@@ -23,6 +23,8 @@ struct Fake {
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
     resource_result: Option<Value>,
+    /// A refusal from the resource owner, passed through unchanged.
+    resource_error: Option<Value>,
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
@@ -178,6 +180,13 @@ impl Backend for Fake {
             "request": request,
             "prefixes": prefixes.len(),
         }));
+        if let Some(error) = &self.resource_error {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: error.clone(),
+                idempotency_key: key,
+            });
+        }
         if self.fail_resources {
             return Err(CallFailure {
                 kind: FailureKind::InProgress,
@@ -1412,6 +1421,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod machine_catalog;
+mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);

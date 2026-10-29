@@ -330,6 +330,31 @@ describe("Codex sign-in precedence", () => {
     expect(env.OPENAI_API_KEY).toBe(PLACEHOLDER);
   });
 
+  test("shared team CODEX_HOME carries the baked file-hook trust state", async () => {
+    const m = machine();
+    mkdirSync(path.join(m.home, ".codex"), { recursive: true });
+    writeFileSync(
+      path.join(m.home, ".codex/config.toml"),
+      [
+        "[hooks.state.\"" + path.join(m.home, ".codex/hooks.json:pre_tool_use:0:0") + "\"]",
+        'trusted_hash = "sha256:pre-tool"',
+        "",
+        "[hooks.state.\"/tmp/user-hooks.json:stop:0:0\"]",
+        'trusted_hash = "sha256:user"',
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(path.join(m.home, ".codex/hooks.json"), "{}\n");
+    writeFileSync(m.kind, "team\n");
+    choose(m, "team", "codex");
+    await Promise.all([launch(m, "codex"), launch(m, "codex")]);
+    const team = readFileSync(path.join(m.home, ".config/cmux/codex-team/config.toml"), "utf8");
+    expect(() => Bun.TOML.parse(team)).not.toThrow();
+    expect(team).toContain(`[hooks.state.\"${path.join(m.home, ".codex/hooks.json:pre_tool_use:0:0")}\"]`);
+    expect(team).toContain('trusted_hash = "sha256:pre-tool"');
+    expect(team).not.toContain("sha256:user");
+  });
+
   test("a provider the user chose in config.toml is never overridden", async () => {
     const m = machine();
     cmuxCodexConfig(m, "mine");

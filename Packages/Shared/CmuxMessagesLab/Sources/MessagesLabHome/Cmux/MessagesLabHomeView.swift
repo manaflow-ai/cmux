@@ -214,7 +214,7 @@ public final class MessagesLabHomeView: NSView {
             // cmux: the window background is per view too; a view made after the
             // process-wide theme was set would keep the one it was made with.
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
