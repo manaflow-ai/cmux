@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
-import { describe, expect, it } from "vitest"
+import type { Principal } from "@cmux/ownership"
+import type { Connection } from "@cmux/protocol"
+import { describe, expect, it, vi } from "vitest"
+import type { ConnectionsState } from "../src/domains/connections.ts"
+import { drainTokenRevocations, githubRepos, githubStatus, githubToken, type LedgerHost } from "../src/integrations/github-tokens.ts"
 import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -53,6 +57,125 @@ const linkGitHub = async (session: string, team: string) => {
 }
 
 describe("GitHub token endpoint", { timeout: 60_000 }, () => {
+  it.each(["provider", "register"] as const)("refuses a machine token whose requested TTL elapses during %s work and retries revocation until provider expiry", async (delay) => {
+    const a = await signedInWithInstall(`gh-token-expiry-${delay}`, "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const start = Date.now()
+      const requestedExpiry = start + 60_000
+      const providerExpiry = start + 3600_000
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start)
+      const audit = vi.fn()
+      const register = vi.fn(async () => {
+        if (delay === "register") clock.mockReturnValue(requestedExpiry)
+        return true
+      })
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, register, audit }
+      const p: Principal = { identity: `install:${a.install}`, kind: "install", install_kind: "vm", install: a.install, user: a.user, team: a.team }
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => {
+        if (delay === "provider") clock.mockReturnValue(requestedExpiry + 1)
+        return ok({ token: "ghs_expiring", expires_at: new Date(providerExpiry).toISOString(), permissions: { contents: "read", metadata: "read" } }, 201)
+      }
+      gh.routes["https://api.github.com/installation/token"] = () => new Response(null, { status: 503 })
+      try {
+        const reply = await githubToken(h, p, { repo: "acme/web", permissions: { contents: "read" }, ttlSec: 60 }, start)
+        expect(reply).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+        expect(JSON.stringify(reply)).not.toContain("ghs_expiring")
+        expect(audit).not.toHaveBeenCalled()
+        expect(register).toHaveBeenCalledWith(p, providerExpiry)
+        expect(gh.deletes().map((call) => call.auth)).toEqual(["Bearer ghs_expiring"])
+        const rows = () => h.sql.exec("SELECT * FROM github_tokens").toArray()
+        expect(rows()).toMatchObject([{ expires_at: requestedExpiry, provider_expires_at: providerExpiry, revoking: 1, attempts: 1 }])
+        expect(JSON.stringify(rows())).not.toContain("ghs_expiring")
+
+        // Requested TTL expiry does not erase a still-valid provider credential after DELETE fails.
+        const retryAt = Number(rows()[0]!.retry_at)
+        clock.mockReturnValue(retryAt)
+        await drainTokenRevocations(h, retryAt)
+        expect(gh.deletes()).toHaveLength(2)
+        expect(rows()).toMatchObject([{ revoking: 1, attempts: 2 }])
+        clock.mockReturnValue(providerExpiry)
+        await drainTokenRevocations(h, providerExpiry)
+        expect(rows()).toEqual([])
+        expect(gh.deletes()).toHaveLength(2)
+      } finally {
+        clock.mockRestore()
+      }
+    })
+  })
+
+  it("uses the earlier provider expiry and refuses a token if registration outlasts that expiry", async () => {
+    const a = await signedInWithInstall("gh-token-native-expiry", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const start = Date.now()
+      const providerExpiry = start + 30_000
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start)
+      const p: Principal = { identity: `install:${a.install}`, kind: "install", install_kind: "vm", install: a.install, user: a.user, team: a.team }
+      const register = vi.fn(async () => true)
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, register, audit: vi.fn() }
+      let n = 0
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_native_${++n}`, expires_at: new Date(providerExpiry).toISOString(), permissions: { contents: "read" } }, 201)
+      try {
+        const ask = { repo: "acme/web", permissions: { contents: "read" as const }, ttlSec: 60 }
+        expect(await githubToken(h, p, ask, start)).toMatchObject({ ok: true, value: { expires_at: new Date(providerExpiry).toISOString() } })
+        register.mockImplementation(async () => {
+          clock.mockReturnValue(providerExpiry)
+          return true
+        })
+        expect(await githubToken(h, p, ask, start)).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+        expect(h.sql.exec("SELECT * FROM github_tokens").toArray()).toEqual([])
+        // Native expiry already makes both credentials unusable; no provider DELETE is necessary.
+        expect(gh.deletes()).toHaveLength(0)
+      } finally {
+        clock.mockRestore()
+      }
+    })
+  })
+
+  it("reports expired visible connections as needs_reauth while preferring a visible active connection", async () => {
+    const a = await signedInWithInstall("gh-token-expired-status", "cli")
+    await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const state = instance.boundEngine.currentState as ConnectionsState
+      const original = Object.values(state.connections).find((c) => c.provider === "github")!
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      const expired: Connection = { ...original, status: "expired", updated_at: original.updated_at + 1 }
+      const hidden: Connection = { ...original, id: "conn_00000000000000000001", sharing: "private", created_by: "usr_other", updated_at: original.updated_at + 2 }
+      const active: Connection = { ...original, id: "conn_00000000000000000002" }
+      const status = (connections: Record<string, Connection>) => githubStatus(instance.env, { ...state, connections }, p)
+      expect(status({ expired, hidden }).connection).toMatchObject({ id: original.id, status: "needs_reauth", account: "acme", repos: ["acme/api", "acme/web"] })
+      expect(status({ expired, hidden, active }).connection).toMatchObject({ id: active.id, status: "active" })
+      expect(status({ hidden }).connection).toBeNull()
+      expect(status({ expired: { ...expired, sharing: "private", created_by: "usr_other" } }).connection).toBeNull()
+    })
+  })
+
+  it("rejects string-valued repository cursor numbers and accepts the numeric cursor from a previous page", async () => {
+    const a = await signedInWithInstall("gh-token-repo-cursor", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      const cursor = (value: unknown) => btoa(JSON.stringify(value)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+      for (const value of [{ installation: "0", page: 1 }, { installation: 0, page: "1" }, { installation: 0, page: 0 }, { installation: -1, page: 1 }]) {
+        expect(await githubRepos(h, p, { cursor: cursor(value) })).toMatchObject({ ok: false, status: 400, code: "request.invalid" })
+      }
+      expect(gh.mints()).toHaveLength(0)
+      gh.routes["https://api.github.com/installation/repositories"] = (request) => {
+        const page = new URL(request.url).searchParams.get("page")
+        return ok({ total_count: 101, repositories: page === "1"
+          ? [{ full_name: "acme/web", private: true }, ...Array.from({ length: 99 }, (_, i) => ({ full_name: `acme/hidden-${i}`, private: true }))]
+          : [{ full_name: "acme/api", private: false }] })
+      }
+      const first = await githubRepos(h, p, {})
+      expect(first).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web", private: true }], cursor: expect.any(String) } })
+      if (!first.ok || !first.value.cursor) throw new Error("first page must return a cursor")
+      expect(await githubRepos(h, p, { cursor: first.value.cursor })).toEqual({ ok: true, value: { repos: [{ full_name: "acme/api", private: false }], cursor: null } })
+      expect(gh.calls.filter((call) => call.url.includes("/installation/repositories?")).map((call) => new URL(call.url).searchParams.get("page"))).toEqual(["1", "2"])
+    })
+  })
+
   it("mints a token narrowed to one repository and the asked permissions, reuses it per principal, never across principals", async () => {
     const a = await signedInWithInstall("gh-token-1", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
