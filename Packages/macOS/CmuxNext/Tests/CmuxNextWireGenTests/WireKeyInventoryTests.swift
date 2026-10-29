@@ -18,7 +18,7 @@ private func json(_ text: String) throws -> SchemaJSON {
 
     /// Every keyed wire name of a macOS request is snake case but `energy.set`'s `offForNow`
     /// (the daemon's `#[serde(rename = "offForNow")]`). A snake-case coder would have sent
-    /// `off_for_now`; WireCoding writes CodingKeys as spelled since p05-ipc-046, so the
+    /// `off_for_now`; WireCoding now writes CodingKeys as spelled, so the
     /// hand-written EnergySetRequest already sends `offForNow` (DaemonEnergyEdgesTests
     /// requestLineCarriesTheReasonOnlyWithTheSaver) and the generated coder sends the same
     /// bytes. Any other entry is a new camelCase member: its migration must keep its spelling.
