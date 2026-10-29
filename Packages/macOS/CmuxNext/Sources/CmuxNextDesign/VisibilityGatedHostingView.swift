@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextWakeups
-public import SwiftUI
 
 /// A tab content view that hosts SwiftUI and stops its graph work while the tab's node is hidden
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, section B, task 214).
@@ -62,23 +61,15 @@ public import SwiftUI
     /// The view inside the hosting view that had the keyboard when it left.
     private weak var focused: NSView?
 
-    /// Hosts `content`, built in the root's body: the observable state it reads is the root's, and each
-    /// evaluation counts (``bodyEvaluations``, `debug.observations`). Views below count themselves with
-    /// `@Environment(\.hostingBodyCounter)`.
-    public convenience init<Content: View>(owner: String, policy: Policy = .gated,
-                                           @ViewBuilder content: @escaping @MainActor () -> Content) {
-        let counter = HostingBodyCounter()
-        self.init(owner: owner, policy: policy, counter: counter,
-                  hosting: NSHostingView(rootView: HostingBodyCountedRoot(counter: counter, content: content)))
-    }
-
     /// Gates a hosting view made elsewhere (an `NSHostingView` subclass that measures itself). Its bodies
     /// count only where its views read `\.hostingBodyCounter`.
     public convenience init(owner: String, policy: Policy = .gated, hosting: NSView) {
         self.init(owner: owner, policy: policy, counter: HostingBodyCounter(), hosting: hosting)
     }
 
-    private init(owner: String, policy: Policy, counter: HostingBodyCounter, hosting: NSView) {
+    /// The designated init: the SwiftUI convenience init (HostingBodyCounter+SwiftUI.swift) passes the
+    /// counter its root records into.
+    init(owner: String, policy: Policy, counter: HostingBodyCounter, hosting: NSView) {
         self.owner = owner
         self.policy = policy
         self.counter = counter
