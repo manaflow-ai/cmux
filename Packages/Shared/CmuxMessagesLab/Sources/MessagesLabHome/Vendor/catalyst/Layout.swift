@@ -430,7 +430,10 @@ struct ThreadPreview: Hashable {
                 break
             }
             guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
-            lines.append(ns.substring(with: line.range))
+            // cmux: a wrapped line's trailing space is not drawn, so it does not widen the quote (user, 2026-10-28).
+            var text = ns.substring(with: line.range)
+            while text.last == " " { text.removeLast() }
+            lines.append(text)
         }
         return lines.isEmpty ? [""] : lines
     }
