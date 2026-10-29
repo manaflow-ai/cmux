@@ -146,7 +146,7 @@ impl OutMessage {
     /// Validate the platform wire invariant before an HTTP request is posted.
     pub fn validate(&self) -> Result<(), String> {
         match (self.kind, self.op.as_deref()) {
-            (Kind::Control, Some(op)) if matches!(op, "start" | "resume" | "stop") => Ok(()),
+            (Kind::Control, Some("start" | "resume" | "stop")) => Ok(()),
             (Kind::Control, _) => Err("control messages require op start, resume or stop".into()),
             (Kind::Prompt, None) => Ok(()),
             (Kind::Prompt, Some(_)) => Err("prompt messages cannot carry an operation".into()),
