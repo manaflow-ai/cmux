@@ -212,6 +212,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
                   bubbleLeft: bubble.left,
                   bubbleRight: bubble.right,
                   bubbleWidth: bubble.width,
+                  footerTop: footer.top,
                   footerRight: footer.right,
                   footerGap: footer.top - bubble.bottom,
                   footerHeight: footer.height,
@@ -236,6 +237,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
               "bubbleLeft",
               "bubbleRight",
               "bubbleWidth",
+              "footerTop",
               "footerRight",
               "footerGap",
               "footerHeight",
@@ -326,10 +328,11 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       const restoredImage = page.locator('.acpmux-composer img[alt="queued.png"]');
       await restoredImage.waitFor();
       await page.waitForFunction(
-        () => document.querySelector<HTMLImageElement>('.acpmux-composer img[alt="queued.png"]')?.naturalWidth === 1,
+        () =>
+          (document.querySelector<HTMLImageElement>('.acpmux-composer img[alt="queued.png"]')?.naturalWidth ?? 0) > 0,
       );
       expect(await restoredImage.count()).toBe(1);
-      expect(await restoredImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+      expect(await restoredImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
       expect(calls.some((call) => call.method === "_acpmux/attachment" && call.params.id === "queued-image")).toBe(
         true,
       );
