@@ -64,22 +64,24 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
-    // A session here, one a peer lists, or one on a peer that is down now: anything else is no
-    // session, said at once.
+    // A session here or one a peer lists is delivered directly. A peer-qualified session whose
+    // link is down fails over to the durable mesh relay when it is configured; without the relay,
+    // the local outbox keeps its existing retry path.
     if hub.resolve(&target).is_err()
         && hub.resolve_remote(&target).is_none()
-        && hub.peer_down_for(&target).is_none()
     {
-        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
-        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
-        // refusal (`Hub::mesh_may_route`).
+        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches,
+        // or may carry a durable delivery for a peer whose direct link is down. A name several
+        // sessions here or on peers match stays this daemon's refusal.
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        return Err(RpcError::invalid_params(format!("no session: {target}"))
-            .with_data(json!({"reason": "no_session", "session": target})));
+        if hub.peer_down_for(&target).is_none() {
+            return Err(RpcError::invalid_params(format!("no session: {target}"))
+                .with_data(json!({"reason": "no_session", "session": target})));
+        }
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;

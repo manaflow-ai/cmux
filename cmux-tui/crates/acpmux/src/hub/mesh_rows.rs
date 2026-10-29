@@ -56,14 +56,13 @@ impl Hub {
             .collect()
     }
 
-    /// Whether a send to `target` may go to the mesh hub: nothing here or on a peer names it. Not
-    /// a session here (one or several), not one or several that a peer lists, not one on a peer
-    /// that is down now. An ambiguous name stays this daemon's refusal; the hub is never asked to
-    /// pick.
+    /// Whether a send to `target` may go to the mesh hub: nothing here or on a peer names it. A
+    /// peer-qualified target whose peer is down is eligible too: the durable relay is the failover
+    /// for the direct peer link. An ambiguous name stays this daemon's refusal; the hub is never
+    /// asked to pick.
     pub fn mesh_may_route(&self, target: &str) -> bool {
         self.resolve(target).is_err_and(|e| e.code == RpcError::not_found("").code)
             && self.remote_matches(target) == 0
-            && self.peer_down_for(target).is_none()
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
