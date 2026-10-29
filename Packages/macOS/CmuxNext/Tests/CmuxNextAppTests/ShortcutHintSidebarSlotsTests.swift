@@ -4,12 +4,13 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Modifier-hold hints in the sidebar come from the same slot mapping Cmd-1…9 uses
 /// (`SidebarItemOrder.number(for:_:)`): every digit that reaches a shown destination
 /// has a chip on that destination, so Home and the App Store (Cmd-1, Cmd-2 with
 /// `sidebar.numbering = allItems`) show theirs too (u4457: "i dont see cmd 1 and cmd 2 hints").
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct ShortcutHintSidebarSlotsTests {
     private static func machine(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
         let store = DaemonStore()

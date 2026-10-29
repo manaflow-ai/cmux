@@ -4,6 +4,7 @@ import AppKit
 import CmuxHomeCore
 @testable import MessagesLabSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19 (u2611): "After clicking on one of the things in home (like I click on the
 /// profile), I want us to be focused on the text input area directly. Specifically the text input
@@ -17,7 +18,7 @@ import Testing
 ///
 /// The clicks run as AppKit runs them: a left mouse-down on the list's document view at the
 /// item's place, with its mouse-up queued for the list's press-and-drag loop.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
     struct Harness {
         let services: AppServices
         let window: NSWindow

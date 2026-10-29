@@ -5,6 +5,7 @@ import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19 (msg 2371): "The hover-on update ready card ... needs to have the same
 /// style, behavior, and styling ... like the hover-on workspace cards. Right now it has a
@@ -15,7 +16,7 @@ import Testing
 /// fades in while it slides a few points away from its target on the `.panel` spring, and fades
 /// out without moving. These tests show both cards in real windows and compare what each one
 /// actually animates, so the two cannot drift apart again.
-@MainActor @Suite(.serialized) struct UpdateCardHoverParityTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateCardHoverParityTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 120))

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
 /// are CEF chromium views involved". On every motion frame the window asks its Chromium pages to
@@ -10,7 +11,7 @@ import Testing
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
-@MainActor @Suite struct PageGeometryPostTests {
+@MainActor @Suite(.closesItsWindows) struct PageGeometryPostTests {
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
         /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.

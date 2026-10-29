@@ -4,11 +4,12 @@ import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-24: "by default, i should see every person in my team as contacts in the
 /// imessage list". The list draws every teammate without a DM as a row, but the team is read after
 /// the page opens (and again when a team is joined): the list must redraw when the read lands.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeTeamListRefreshTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomeTeamListRefreshTests {
     @Test func teammatesAppearInTheListWhenTheTeamIsRead() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

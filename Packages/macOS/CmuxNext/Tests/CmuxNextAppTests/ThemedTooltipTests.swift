@@ -3,11 +3,12 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Leo, 2026-10-12: cmux-next's tooltips were macOS's stock yellow-gray bubble ("Default" on the
 /// sidebar's space tile). Controls hand their tooltip to the app's themed one instead: no AppKit
 /// `toolTip`, while VoiceOver still reads the same text as the control's help.
-@MainActor @Suite(.serialized) struct ThemedTooltipTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct ThemedTooltipTests {
     @Test func controlsUseTheThemedTooltipNotAppKits() {
         let views: [(NSView, String)] = [
             (SidebarIconButton(icon: .actionClose, label: "Close Workspace"), "Close Workspace"),

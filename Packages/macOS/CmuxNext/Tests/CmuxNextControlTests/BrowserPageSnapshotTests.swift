@@ -4,12 +4,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// `browser.page.snapshot`: the agent's page outline (`- role "name" [ref=eN]`) as real sites need it.
 /// Accessible names from images, SVG titles, labels and `aria-labelledby`; open shadow roots and
 /// same-origin frames walked, with refs that click there; `cursor: pointer` clickables; control
 /// state; select options; and offscreen refs marked. The scripts run in a real WebKit page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageSnapshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageSnapshotTests {
     static let html = """
     <!doctype html><html><head><title>Snapshot</title><style>
       body { margin: 0; font: 14px sans-serif; }

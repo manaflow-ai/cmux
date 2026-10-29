@@ -3,11 +3,12 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHostPressure
 import Testing
+import CmuxNextTestSupport
 
 /// The top-row host pressure indicator (cmuxterm-hq#2995): Debug Settings forces a level with
 /// sample numbers for captures, and the popover shows the load against its limit, then acpmux's
 /// other reasons in its words.
-@MainActor @Suite struct HostPressureIndicatorTests {
+@MainActor @Suite(.closesItsWindows) struct HostPressureIndicatorTests {
     private static func store(forcing force: HostPressureForce?, enabled: Bool? = nil) -> TunableStore {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
@@ -189,7 +190,7 @@ import Testing
 
 /// A closed banner stays closed for its critical spell: a new spell starts each time the shown level
 /// enters critical again, and a force that leaves the shown level as it was starts none.
-@MainActor @Suite struct HostPressureBannerTests {
+@MainActor @Suite(.closesItsWindows) struct HostPressureBannerTests {
     @Test func eachEntryIntoCriticalStartsANewSpell() async {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
@@ -253,7 +254,7 @@ import Testing
 /// `hostPressure.enabled` and `hostPressure.banner` on, the level forced to critical (the sample
 /// numbers, no timer read), windows that count as seen, and a toast center whose host records the
 /// toast views so the test presses their close and Show Details buttons as a click does.
-@MainActor @Suite(.serialized) struct HostPressureBannerToastTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct HostPressureBannerToastTests {
     /// Records each window's toast views (the center's overlay host, without an overlay).
     @MainActor private final class RecordingHost: CmuxToastHosting {
         private(set) var shown: [(view: CmuxToastView, window: NSWindow)] = []

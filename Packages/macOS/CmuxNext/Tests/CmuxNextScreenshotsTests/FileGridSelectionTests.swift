@@ -71,7 +71,7 @@ import Testing
 
 /// The same rules through the real grid: mouse and key events sent to its collection view
 /// (AppKit's press tracking off: a ci-step Mac has no window server session to track in).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct FileGridClickTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct FileGridClickTests {
     private static let names = (0..<8).map { "shot-\($0).png" }
 
     private func grid() -> (FileGridView, NSWindow) {

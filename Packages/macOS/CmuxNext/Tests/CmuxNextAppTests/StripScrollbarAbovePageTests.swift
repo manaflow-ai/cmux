@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 @testable import CmuxNextLayout
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -11,7 +12,7 @@ import CmuxNextWakeupsTestSupport
 /// the window's own views: a page at the bottom of the strip hid the thumb and took its clicks. The
 /// fork leaves a page's occlusion rects uncovered and sends the mouse there to the window, so the
 /// shown thumb must be one of them, and only while it shows.
-@MainActor @Suite struct StripScrollbarAbovePageTests {
+@MainActor @Suite(.closesItsWindows) struct StripScrollbarAbovePageTests {
     /// The app's window with a page filling it and the strip scrollbar along its bottom, as the
     /// layout places them (the band is in the page's superview).
     struct Strip {
@@ -81,7 +82,7 @@ import CmuxNextWakeupsTestSupport
 
 /// A screen switch or an empty workspace hides the view holding the bar, not the bar (review of
 /// #20759): the old screen's thumb left a hole in the page, the new screen's had none.
-@MainActor @Suite struct StripScrollbarHiddenScreenTests {
+@MainActor @Suite(.closesItsWindows) struct StripScrollbarHiddenScreenTests {
     @Test func aHiddenScreenLeavesNoHoleAndShowsItsThumbAgain() throws {
         let strip = StripScrollbarAbovePageTests.Strip()
         // The bar in its screen's view, as `ScreenContentView` holds it.

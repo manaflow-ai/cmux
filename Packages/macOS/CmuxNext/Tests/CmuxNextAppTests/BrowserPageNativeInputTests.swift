@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The control socket's JSON (CmuxNextDaemon has its own `JSONValue`).
 typealias NativeInputJSON = CmuxNextSettings.JSONValue
@@ -15,7 +16,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
 /// its default actions (Tab moves focus, a held button drags). Agents drive real sites, which check
 /// both. Page events stay only as the fallback when the page has no engine view (not in a window).
 /// These run the app's own engine (`AppBrowserPageEngine`) on a real WebKit page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageNativeInputTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageNativeInputTests {
     static let tabID = "tab_0123456789abcdef0123456789abcdef"
     static let html = """
     <!doctype html><title>native</title><style>

@@ -4,12 +4,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// `browser.page.mouse|wheel|insert_text|key`: raw input at a point or on the focused element of
 /// an app browser tab, which daemon `browser.input.mouse|wheel|text|key` route to for a page the
 /// app draws (WebKit or CEF). The scripts run in a real WebKit page here; the page's listeners
 /// record what it saw.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageRawInputTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageRawInputTests {
     static let html = """
     <!doctype html><html><head><style>
       body { margin: 0; font: 14px sans-serif; }

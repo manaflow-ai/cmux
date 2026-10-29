@@ -7,13 +7,14 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card and its popup (Leo 2026-10-13, cx-5dvig). At the sidebar's default width
 /// the card's text is whole (it read "1.0.0 nightly 3845050 · Oct 13, 2..."), the card does not
 /// repeat the popup ("See all changes" was on both), and the popup is the themed popup every
 /// cmux popover is, beside the card, not AppKit's NSPopover with its stock arrow. The update is
 /// staged the way `debug.updater stage` stages one in the app.
-@MainActor @Suite(.serialized) struct UpdateReadyCardLayoutTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardLayoutTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))

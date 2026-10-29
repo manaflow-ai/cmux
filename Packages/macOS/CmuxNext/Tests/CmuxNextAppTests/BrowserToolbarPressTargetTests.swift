@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// resolved through the focused pane's selected content, so a press on a page that was not that
 /// content (another workspace's dock had focus, a pane shown in two windows, an adopted Web Store
 /// tab) refused with "No browser tab is focused."
-@MainActor @Suite(.serialized) struct BrowserToolbarPressTargetTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserToolbarPressTargetTests {
     private func onScreen(_ key: String, in services: AppServices) -> (BrowserEntry, NSWindow) {
         let entry = services.cache.browser(for: key, url: URL(string: "https://example.com/\(key)"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],

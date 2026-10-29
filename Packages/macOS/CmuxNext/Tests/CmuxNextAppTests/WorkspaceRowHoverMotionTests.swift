@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Leo 2026-10-13 (cosmic-gray): moving the pointer from one workspace row to
 /// the next snapped the hover state. Hover entry is immediate; clearing the
@@ -11,6 +12,7 @@ import Testing
 /// moves or resizes. Since Leo 2026-10-20 the controls clear at once too: no
 /// exit delay on hover-out, so the old row's buttons never trail the pointer.
 @MainActor
+@Suite(.closesItsWindows)
 struct WorkspaceRowHoverMotionTests {
     private static let name = "a workspace whose name runs under the hover buttons"
 

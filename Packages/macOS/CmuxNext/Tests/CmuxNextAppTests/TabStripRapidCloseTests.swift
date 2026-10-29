@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextTestSupport
 
 /// Leo 2026-10-12 (cx-ag5.11), the tab strip every pane kind shows
 /// (`PaneContentView.stripView`), driven with real mouse events:
@@ -14,7 +15,7 @@ import Testing
 ///   leaves the strip (Chrome's closing mode). A click that comes before the
 ///   strip caught up with the last close still closes the next tab, never the
 ///   closed one again and never selects instead.
-@MainActor @Suite(.serialized) struct TabStripRapidCloseTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct TabStripRapidCloseTests {
     final class Harness {
         let model: TabStripModel
         let strip: TabStripView

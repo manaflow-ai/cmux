@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextDesign
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// Nightly crash 2026-10-25: Cmd-W held over many tabs freed WKWebViews whose pages were still
 /// scrolling, and macOS 26.6's WebKit left their scroll event dispatcher registered with the display
 /// link (SIGSEGV in `DisplayLink::notifyObserversDisplayDidRefresh`, bugs.webkit.org 315775). A
 /// closed tab's web view now leaves its window at once and stays alive, its page open, until
 /// `WebViewRetirement` closes the page after the scrolling stopped.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabCloseRetirementTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WebKitTabCloseRetirementTests {
     @Test func aClosedTabsWebViewLeavesItsWindowButIsNotFreedWithTheTab() {
         weak var released: WKWebView?
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],

@@ -8,12 +8,13 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
-@MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         var contentHeight: CGFloat = 2000

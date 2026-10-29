@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// browser showed, and putting a WKWebView back into a window waits synchronously for WebKit's
 /// web process (`waitForDidUpdateActivityState`). A pane now keeps the agent page in place,
 /// hidden, as it does a browser (cx-asb1), so showing it again never re-enters the window.
-@MainActor @Suite(.serialized) struct AgentPageStaysInWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AgentPageStaysInWindowTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
