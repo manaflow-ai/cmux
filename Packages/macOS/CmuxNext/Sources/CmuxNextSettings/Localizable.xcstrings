@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.machineJoin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join Any Machine with One Line"
+          }
+        }
+      }
+    },
+    "settings.labs.machineJoin.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+          }
+        }
+      }
+    },
     "settings.group.workspaceHibernation": {
       "extractionState": "manual",
       "localizations": {

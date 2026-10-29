@@ -66,6 +66,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
+    /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
+    /// consent switches); off when unset.
+    public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -318,6 +321,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
+        snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
