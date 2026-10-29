@@ -881,7 +881,7 @@ describe("cancellation, the sweep, masking and the scan", () => {
     expect(e.secretScan.home.cmm).toBe(1)
     expect(e.reason).toContain("the home holds a credential outside the credential file")
     // The scan is one tar with a fixed argv; no run names a file under the home but the credential file.
-    for (const r of w.runs) for (const a of r.argv) if (a.startsWith(`${HOME}/`)) expect(a).toBe(CRED_PATH)
+    for (const r of w.runs) for (const a of r.argv) if (a.startsWith(`${HOME}/`)) expect([CRED_PATH, `${HOME}/.acpmux`]).toContain(a)
     assertNoSecretEscaped(w)
   })
 

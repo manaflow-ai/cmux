@@ -280,7 +280,7 @@ export async function runE2E(
     const own =
       r.code === 0 &&
       dir?.[0] === stateDir && dir[1] === "directory" && dir[2] === opts.user &&
-      file?.[0] === credentialFile && file[1] === "regular file" && file[2] === opts.user && file[3] === "1"
+      file?.[0] === credentialFile && /^regular (empty )?file$/.test(file[1] ?? "") && file[2] === opts.user && file[3] === "1"
     return { own, mode: own && /^[0-7]{3,4}$/.test(file?.[4] ?? "") ? file![4]! : null }
   }
   const acpmux = async (args: string[], stdin?: string, signal?: AbortSignal) => {
