@@ -59,8 +59,16 @@ test("a toggle, a drag or a fold in one pane leaves the other pane as it was", a
   left.setInspectorSection("context", true);
   for (const key of Object.keys(localStorage)) storageEvent(key);
 
-  expect(left.inspectorState()).toMatchObject({ open: true, width: 480, sections: { context: true } });
-  expect(right.inspectorState()).toMatchObject({ open: false, width: 320, sections: { context: false } });
+  expect(left.inspectorState()).toMatchObject({
+    open: true,
+    width: 480,
+    sections: { context: true },
+  });
+  expect(right.inspectorState()).toMatchObject({
+    open: false,
+    width: 320,
+    sections: { context: false },
+  });
 });
 
 // cmux #26692: Session Info (machine, folder, repository, branch and Save) opened by itself over every
@@ -79,7 +87,11 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
     `${PREFIX}chat-old-default`,
     JSON.stringify({ open: true, width: 360, sourcesAll: true, at: Date.now() }),
   );
-  expect((await page("chat-old-default")).inspectorState()).toMatchObject({ open: false, width: 360, sourcesAll: true });
+  expect((await page("chat-old-default")).inspectorState()).toMatchObject({
+    open: false,
+    width: 360,
+    sourcesAll: true,
+  });
 
   // A pane showing a chat with Session Info open moves to a new chat: the new chat shows it closed
   // from its first frame, and keeps it closed once bound.
