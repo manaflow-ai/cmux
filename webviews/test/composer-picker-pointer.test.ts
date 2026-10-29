@@ -21,9 +21,15 @@ await requireBrowserLane("composer-picker-pointer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const)
+    for (const [name, engine] of [
+      ["chromium", chromium],
+      ["webkit", webkit],
+    ] as const)
       browsers.set(name, await engine.launch({ headless: true }));
-    await warmGalleryFrame(vite, entry, { browser: browsers.get("chromium"), params: { variant: "closed" } });
+    await warmGalleryFrame(vite, entry, {
+      browser: browsers.get("chromium"),
+      params: { variant: "closed" },
+    });
     if (captureDir) await mkdir(captureDir, { recursive: true });
   });
   afterAll(async () => {
@@ -37,16 +43,23 @@ await requireBrowserLane("composer-picker-pointer.test.ts", async () => {
         const page = await browsers.get(engine)!.newPage({ viewport: { width: 520, height: 400 } });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "closed", frame: "component", width: 520, theme: "Catppuccin Mocha" })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "closed", frame: "component", width: 520, theme: "Catppuccin Mocha" })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const trigger = page.getByRole("combobox", { name: "Actions" });
           await trigger.click();
           await page.getByRole("option", { name: "Mention file" }).click({ button });
           // Capture before the assertions so the same harness records the broken base as well.
-          if (captureDir) await page.screenshot({ path: path.join(captureDir, `${engine}-${button}.png`) });
+          if (captureDir)
+            await page.screenshot({ path: path.join(captureDir, `${engine}-${button}.png`) });
           const receipt = page.getByTestId("picker-receipt");
-          expect(await receipt.textContent()).toBe(button === "left" ? "Selected: mention" : "No action selected");
-          expect(await trigger.getAttribute("aria-expanded")).toBe(button === "left" ? "false" : "true");
+          expect(await receipt.textContent()).toBe(
+            button === "left" ? "Selected: mention" : "No action selected",
+          );
+          expect(await trigger.getAttribute("aria-expanded")).toBe(
+            button === "left" ? "false" : "true",
+          );
           expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(true);
           if (button !== "left") {
             // Do not refocus: the rejected press must leave the existing keyboard path usable.

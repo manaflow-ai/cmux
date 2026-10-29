@@ -11,11 +11,25 @@ function PickerPointerGallery() {
     <div className="acpmux-composer-gallery-shell acpmux-composer">
       <div className="acpmux-composer-gallery-copy">
         <strong>Composer action picker</strong>
-        <output data-testid="picker-receipt">{picked.length ? `Selected: ${picked.join(", ")}` : "No action selected"}</output>
+        <output data-testid="picker-receipt">
+          {picked.length ? `Selected: ${picked.join(", ")}` : "No action selected"}
+        </output>
       </div>
-      <Picker label="Actions" className="acpmux-composer-plus" button="Actions" align="start"
-        sections={[{ choices: [{ id: "attach", name: "Attach file" }, { id: "mention", name: "Mention file" }],
-          onPick: (id) => setPicked((values) => [...values, id]) }]} />
+      <Picker
+        label="Actions"
+        className="acpmux-composer-plus"
+        button="Actions"
+        align="start"
+        sections={[
+          {
+            choices: [
+              { id: "attach", name: "Attach file" },
+              { id: "mention", name: "Mention file" },
+            ],
+            onPick: (id) => setPicked((values) => [...values, id]),
+          },
+        ]}
+      />
     </div>
   );
 }

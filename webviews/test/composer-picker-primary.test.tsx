@@ -11,7 +11,10 @@ let host: HTMLElement;
 let root: Root | undefined;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const replacements: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -58,17 +61,33 @@ afterAll(() => {
   }
 });
 
-
 async function fixture(keep = false) {
   const { createRoot } = await import("react-dom/client");
   const { Picker } = await import("../src/agent-session/acpmux/ComposerPickers");
   const calls: string[] = [];
   root = createRoot(host);
-  await act(async () => root!.render(
-    <Picker label="Actions" className="acpmux-composer-plus" button="Actions" align="start"
-      sections={[{ choices: [{ id: "first", name: "First" }, { id: "second", name: "Second" }],
-        onPick: (id) => { calls.push(id); return keep ? "keep" : undefined; } }]} />,
-  ));
+  await act(async () =>
+    root!.render(
+      <Picker
+        label="Actions"
+        className="acpmux-composer-plus"
+        button="Actions"
+        align="start"
+        sections={[
+          {
+            choices: [
+              { id: "first", name: "First" },
+              { id: "second", name: "Second" },
+            ],
+            onPick: (id) => {
+              calls.push(id);
+              return keep ? "keep" : undefined;
+            },
+          },
+        ]}
+      />,
+    ),
+  );
   const trigger = host.querySelector<HTMLButtonElement>("button")!;
   await act(async () => trigger.click());
   const row = host.querySelector<HTMLElement>('[data-value="second"]')!;
@@ -78,7 +97,11 @@ async function fixture(keep = false) {
 for (const button of [1, 2]) {
   test(`button ${button} does not select and keeps the keyboard on the trigger`, async () => {
     const { calls, trigger, row } = await fixture();
-    const press = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button });
+    const press = new dom.window.MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button,
+    });
     await act(async () => row.dispatchEvent(press));
     expect(calls).toEqual([]);
     expect(press.defaultPrevented).toBe(true);
@@ -89,7 +112,11 @@ for (const button of [1, 2]) {
 
 test("primary press selects once, retains focus and closes", async () => {
   const { calls, trigger, row } = await fixture();
-  const press = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+  const press = new dom.window.MouseEvent("mousedown", {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+  });
   await act(async () => row.dispatchEvent(press));
   expect(press.defaultPrevented).toBe(true);
   expect(calls).toEqual(["second"]);
@@ -99,7 +126,9 @@ test("primary press selects once, retains focus and closes", async () => {
 
 test("keep-open rows still select on a primary press", async () => {
   const { calls, trigger, row } = await fixture(true);
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  await act(async () =>
+    row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })),
+  );
   expect(calls).toEqual(["second"]);
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
 });
@@ -107,9 +136,21 @@ test("keep-open rows still select on a primary press", async () => {
 for (const key of ["Enter", " "]) {
   test(`arrows and ${key === " " ? "Space" : key} still select from the trigger`, async () => {
     const { calls, trigger } = await fixture();
-    await act(async () => trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+    await act(async () =>
+      trigger.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
     for (const type of ["keydown", "keyup"]) {
-      await act(async () => trigger.dispatchEvent(new dom.window.KeyboardEvent(type, { key, bubbles: true, cancelable: true })));
+      await act(async () =>
+        trigger.dispatchEvent(
+          new dom.window.KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
+        ),
+      );
     }
     expect(calls).toEqual(["second"]);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
