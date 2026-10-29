@@ -50,8 +50,7 @@ public final class DockBadge {
             // KVO does not retain its observed object. Keep it alive until the token is invalidated,
             // then release it even if the stream itself remains retained by a cancelled task.
             let lifetime = ActivationPolicyObservationLifetime(app)
-            // crash-allow: the token is never mutated; it is only invalidated (thread-safe), once, when the stream ends.
-            nonisolated(unsafe) let token = app.observe(keyPath, options: [.new]) { source, _ in
+            let token = app.observe(keyPath, options: [.new]) { source, _ in
                 continuation.yield(source[keyPath: keyPath])
             }
             continuation.onTermination = { _ in
@@ -62,8 +61,7 @@ public final class DockBadge {
     }
 }
 
-// crash-allow: initialized before publication; only AsyncStream's once-only termination callback
-// accesses the stored reference afterward, releasing it after KVO invalidation.
+// crash-allow: initialized before publication; only the once-only termination callback releases its reference, after KVO invalidation.
 private nonisolated final class ActivationPolicyObservationLifetime<Object: NSObject>: @unchecked Sendable {
     private var object: Object?
 
