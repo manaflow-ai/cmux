@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import zipfile
 from pathlib import Path
+from contextlib import redirect_stderr
 from unittest import mock
 
 import yaml
@@ -3457,6 +3458,81 @@ class OpenHeadNeverCancelledTests(unittest.TestCase):
         self.assertEqual(code, 0)
         posted = {int(run_id) for run_id, verb in fake.posts() if verb in ("cancel", "force-cancel")}
         self.assertEqual(posted & set(expected), set())
+
+
+class OneGuardTests(unittest.TestCase):
+    """janitor_guard.py over categories a-f, orphans and superseded delivery runs (cmux#27114 review, 31d9f9e)."""
+
+    def setUp(self):
+        janitor.READS.reset()
+        self.addCleanup(janitor.READS.reset)
+
+    def store(self, lost=(), dead=(), *, unknown=False, cap=25):
+        return janitor.janitor_guard.OwedStore({janitor.LOST_RERUNS_KEY: None if unknown else list(lost),
+                                                janitor.dead_labels.OBLIGATIONS_KEY: list(dead)}, cap)
+
+    def lost_plan(self):
+        stuck, other, jobs = lost_world(age=85)
+        return stuck, plan([stuck, other], jobs, {PIN_BRANCH: [], "other-pin": []})
+
+    def test_a_run_the_dead_label_pass_owes_is_never_cancelled_by_category_e(self):
+        # Finding 1: an owed run still queued 85 min later is not cancelled again by category e.
+        stuck, result = self.lost_plan()
+        self.assertEqual(decision_for(result, stuck).action, "cancel")
+        janitor.hold_plan(result, self.store(dead=[{"run_id": stuck["id"], "attempt": 1, "at": 0}]), None)
+        decision = decision_for(result, stuck)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("never cancelled twice", decision.note)
+
+    def test_category_e_rerun_counts_toward_the_one_cap(self):
+        # Finding 2: with the store full from the dead-label pass, a cancel that would owe a re-run is refused.
+        stuck, other, jobs = lost_world(age=85)
+        result = live_plan([stuck, other], jobs, branch=PIN_BRANCH)
+        decision = decision_for(result, stuck)
+        if decision is None or decision.action != "cancel" or not decision.candidate.rerun:
+            self.skipTest("this world's lost run asks no re-run")
+        full = self.store(dead=[{"run_id": n, "attempt": 1, "at": 0} for n in range(25)])
+        janitor.hold_plan(result, full, None)
+        self.assertEqual(decision_for(result, stuck).action, "skip")
+        self.assertIn("full", decision_for(result, stuck).note)
+
+    def test_a_failed_listing_anywhere_holds_every_category(self):
+        # Finding 4: an earlier evidence-listing failure leaves no category-e cancel enabled.
+        stuck, result = self.lost_plan()
+        with redirect_stderr(io.StringIO()):
+            janitor.READS.failed("lost-assignment evidence for cmux-tui.yml", "502")
+        janitor.hold_plan(result, self.store(), janitor.READS.hold())
+        self.assertEqual(decision_for(result, stuck).action, "skip")
+        orphan = janitor.Orphan(stuck, "evidence", "job", NOW, 0)
+        held = janitor.hold_orphans([janitor.OrphanDecision(orphan, "cancel")], janitor.READS.hold())
+        self.assertEqual(held[0].action, "skip")
+
+    def test_a_superseded_run_is_kept_after_a_failed_listing_in_the_same_pass(self):
+        # Finding 4: a failed branch listing in skip_superseded_delivery() holds its own cancel and everything after.
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.branches = {"nightly-next": tip["head_sha"]}
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        with redirect_stderr(io.StringIO()):
+            janitor.READS.failed("runs of nightly-next for run 1", "502")
+        decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False,
+                                                        now=NOW, hold=janitor.READS.hold)
+        self.assertEqual({d.run["id"]: d.action for d in decisions}[old["id"]], "keep")
+        self.assertEqual(fake.posts(), [])
+
+    def test_the_owed_lists_are_read_past_any_number_of_unread_or_missing_copies(self):
+        # Finding 3: three failed reads publish copies marked unread; the older list is still found.
+        key = janitor.dead_labels.OBLIGATIONS_KEY
+        docs = [{key + "_unread": True}, {key + "_unread": True}, {key + "_unread": True}, {},
+                {key: [{"run_id": 5, "attempt": 1, "at": 0}]}]
+        fake = FakeGitHub({})
+        fake.snapshots = docs
+        with mock.patch.object(fake, "snapshot_artifacts", lambda: [
+                {"id": i, "archive_download_url": f"https://x/{i}", "created_at": f"2026-10-29T0{9 - i}:00:00Z",
+                 "workflow_run": {"head_branch": "main"}, "expired": False} for i in range(len(docs))]), \
+                mock.patch.object(janitor, "trusted_snapshot_artifact", lambda artifact, branch: True):
+            self.assertEqual(janitor.previous_dead_reruns(fake), [{"run_id": 5, "attempt": 1, "at": 0}])
 
 
 if __name__ == "__main__":

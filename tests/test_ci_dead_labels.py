@@ -9,7 +9,9 @@ import io
 import json
 import sys
 import unittest
+import zipfile
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -100,18 +102,71 @@ class DeadLabelTests(unittest.TestCase):
 
 LINUX_RUNS_ON = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || "
                  "'blacksmith-4vcpu-ubuntu-2404' }}")
-PICKED_RUNS_ON = "${{ needs.pick.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}"
+POOLED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+PICKED_RUNS_ON = "${{ needs.pick.outputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}"
 
 
-def workflow(runs_on=LINUX_RUNS_ON, name="lint", extra=""):
+def workflow(runs_on=POOLED_RUNS_ON, name="lint", extra=""):
     return f"name: CI\non: push\njobs:\n  lint:\n    name: {name}\n    runs-on: \"{runs_on}\"\n    steps: []\n{extra}"
 
 
-VALUES = {"LINUX_RUNNER": B32, "MACOS_RUNNER_26": ""}
+class FakePoolsModule:
+    """runner_pools.py's interface (cmux#27129): load_pools, parse_value, value_problems, members, DEAD_KEY. Its
+    validation mirrors the real one; RealRunnerPoolsTests runs the same cases through the real module when present."""
+    DEAD_KEY = "_dead"
+
+    def __init__(self, pools):
+        self.pools = pools
+
+    def load_pools(self):
+        return {k: v for k, v in self.pools.items() if not k.startswith("$")}
+
+    @staticmethod
+    def members(spec):
+        return list(dict.fromkeys(spec["members"]))
+
+    def parse_value(self, raw, pools):
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            return {}, ["not JSON"]
+        if not isinstance(value, dict):
+            return {}, ["not an object"]
+        clean, dropped = {}, []
+        for name, spec in pools.items():
+            if name in value:
+                if isinstance(value[name], str) and value[name] in self.members(spec):
+                    clean[name] = value[name]
+                else:
+                    dropped.append(f"{name} not a member")
+        marks = value.get("_dead", {})
+        if isinstance(marks, dict):
+            good = {k: v for k, v in marks.items() if isinstance(k, str) and isinstance(v, str) and "T" in v}
+            if len(good) != len(marks):
+                dropped.append("_dead entries")
+            clean["_dead"] = good
+        else:
+            dropped.append("_dead not an object")
+        return clean, dropped
+
+    def value_problems(self, value, pools):
+        return [f"no {name}" for name in pools if not isinstance(value.get(name), str)]
+
+
+POOLS = {"linux": {"why": "x", "members": [B32, B16]}, "$comment": ["x"]}
+MODULE = FakePoolsModule(POOLS)
+
+
+def state(value):
+    return dead_labels.pools_state(json.dumps(value), module=MODULE)[0]
+
+
+LIVE = {"linux": B32, "_dead": {B16: "2026-10-28T22:30:00Z"}}
+VALUES = {"LINUX_RUNNER": B32}
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, runs, jobs_by_run, *, text=None, values=VALUES, **kw):
+    def plan(self, runs, jobs_by_run, *, text=None, values=VALUES, pools="live", **kw):
         dead = dead_labels.dead_labels(runs, jobs_by_run, now=NOW)
         reads = []
 
@@ -120,38 +175,37 @@ class PlanTests(unittest.TestCase):
             return workflow() if text is None else text
         self.reads = reads
         return dead_labels.plan(runs, jobs_by_run, dead, values=values, repo="manaflow-ai/cmux", workflow_text=read,
-                                **kw)
+                                pools=state(LIVE) if pools == "live" else pools, **kw)
 
     def inventory(self, stuck_run, stuck_jobs):
         return [stuck_run, run(99, status="in_progress")], {stuck_run["id"]: stuck_jobs, 99: [ran(B32, 1)]}
 
-    def test_a_job_whose_variable_now_names_a_live_label_goes(self) -> None:
+    def test_a_pooled_job_whose_pool_points_at_a_live_member_goes(self) -> None:
         runs, jobs = self.inventory(run(1), [job(B16, created=40)])
         decisions = self.plan(runs, jobs)
-        self.assertEqual([(d.run["id"], d.label, d.why_not, d.whole) for d in decisions], [(1, B16, None, False)])
+        self.assertEqual([(d.run["id"], d.label, d.why_not) for d in decisions], [(1, B16, None)])
         self.assertIn(B32, decisions[0].note)
         self.assertEqual(self.reads, [".github/workflows/ci.yml"])
 
-    def test_a_variable_still_naming_the_dead_label_is_left(self) -> None:
+    def test_only_a_runs_on_reading_runner_pools_moves(self) -> None:
+        # Review finding 5 (31d9f9e): a job reading vars.LINUX_RUNNER (or a literal, an input, a matrix value, a
+        # picker's output) is never moved, however the pool moved.
         runs, jobs = self.inventory(run(1), [job(B16, created=40)])
-        self.assertIn("lands on", self.plan(runs, jobs, values={"LINUX_RUNNER": B16})[0].why_not)
-
-    def test_an_unset_variable_falls_back_to_its_literal(self) -> None:
-        # MACOS_RUNNER_15 unset falls back to the literal: if that literal is the dead label, nothing moves.
-        runs, jobs = self.inventory(run(1), [job(B4, created=40)])
-        self.assertIn("lands on", self.plan(runs, jobs, values={"LINUX_RUNNER": ""})[0].why_not)
-
-    def test_a_literal_or_single_host_runs_on_is_flagged_not_moved(self) -> None:
-        runs, jobs = self.inventory(run(1), [job(B16, created=40)])
-        for runs_on in (B16, "${{ 'blacksmith-16vcpu-ubuntu-2404' }}", "${{ inputs.runner }}",
-                        "${{ matrix.runner }}", "${{ vars.NOT_PASSED }}"):
+        for runs_on in (LINUX_RUNS_ON, B16, "${{ 'blacksmith-16vcpu-ubuntu-2404' }}", "${{ inputs.runner }}",
+                        "${{ matrix.runner }}", "${{ vars.NOT_PASSED }}", "${{ needs.pick.outputs.runner }}"):
             decision = self.plan(runs, jobs, text=workflow(runs_on))[0]
             self.assertIsNotNone(decision.why_not, runs_on)
 
-    def test_a_picker_routed_job_reruns_the_whole_run(self) -> None:
+    def test_a_picker_that_falls_through_to_the_pool_moves(self) -> None:
         runs, jobs = self.inventory(run(1), [job(B16, created=40)])
-        decision = self.plan(runs, jobs, text=workflow(PICKED_RUNS_ON))[0]
-        self.assertEqual((decision.why_not, decision.whole), (None, True))
+        # The picker's output is unknown, so the branch taken cannot be shown: not moved.
+        self.assertIsNotNone(self.plan(runs, jobs, text=workflow(PICKED_RUNS_ON))[0].why_not)
+
+    def test_a_pool_still_on_the_dead_label_or_on_a_dead_member_is_left(self) -> None:
+        runs, jobs = self.inventory(run(1), [job(B16, created=40)])
+        self.assertIn("still points", self.plan(runs, jobs, pools=state({"linux": B16, "_dead": {}}))[0].why_not)
+        both = state({"linux": B32, "_dead": {B16: "2026-10-28T22:30:00Z", B32: "2026-10-28T22:31:00Z"}})
+        self.assertIn("dead too", self.plan(runs, jobs, pools=both)[0].why_not)
 
     def test_a_reusable_workflow_job_is_followed_to_its_callee(self) -> None:
         runs, jobs = self.inventory(run(1), [job(B16, created=40, name="guards / lint (linux)")])
@@ -159,13 +213,14 @@ class PlanTests(unittest.TestCase):
         texts = {".github/workflows/ci.yml": caller,
                  ".github/workflows/g.yml": workflow(name="lint (${{ matrix.os }})")}
         dead = dead_labels.dead_labels(runs, jobs, now=NOW)
-        decisions = dead_labels.plan(runs, jobs, dead, values=VALUES, repo="manaflow-ai/cmux",
+        decisions = dead_labels.plan(runs, jobs, dead, values=VALUES, repo="manaflow-ai/cmux", pools=state(LIVE),
                                      workflow_text=lambda r, path: texts.get(path))
         self.assertIsNone(decisions[0].why_not)
 
-    def test_no_values_moves_nothing(self) -> None:
+    def test_no_values_or_no_pools_moves_nothing(self) -> None:
         runs, jobs = self.inventory(run(1), [job(B16, created=40)])
         self.assertIn("not passed", self.plan(runs, jobs, values=None)[0].why_not)
+        self.assertIn("RUNNER_POOLS", self.plan(runs, jobs, pools=None)[0].why_not)
 
     def test_main_push_runs_go_too_since_the_re_run_keeps_them(self) -> None:
         runs, jobs = self.inventory(run(1, event="push", branch="main"), [job(B16, created=40)])
@@ -298,33 +353,41 @@ class FakeGitHub:
         self._rerun(run_id, "rerun-all")
 
 
-class Saved:
-    def __init__(self):
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import janitor_guard  # noqa: E402
+
+
+class Store:
+    """A janitor_guard.OwedStore and the save() the janitor gives redispatch(), recording each publish."""
+
+    def __init__(self, dead=(), lost=(), cap=25, unknown=False):
+        self.store = janitor_guard.OwedStore({janitor_guard.LOST_KEY: None if unknown else [dict(e) for e in lost],
+                                              janitor_guard.DEAD_KEY: [dict(e) for e in dead]}, cap)
         self.history: list[list[dict]] = []
 
     def __call__(self, entries):
+        self.store.set(janitor_guard.DEAD_KEY, entries)
         self.history.append([dict(e) for e in entries])
 
     @property
     def last(self):
-        return self.history[-1] if self.history else []
+        return self.store.entries(janitor_guard.DEAD_KEY)
 
 
-def go(r, whole=False):
-    return dead_labels.Redispatch(r, "lint", B16, None, whole)
+def go(r):
+    return dead_labels.Redispatch(r, "lint", B16, None)
 
 
-def owed_ids(saved):
-    return [e["run_id"] for e in saved.last]
+def owed_ids(entries):
+    return [e["run_id"] for e in entries]
 
 
 class RedispatchTests(unittest.TestCase):
-    def move(self, github, decisions, **kw):
-        saved = kw.pop("save", Saved())
+    def move(self, github, decisions, saved=None, **kw):
+        saved = saved or Store()
         clock = iter(range(0, 10**6, kw.pop("step", 1)))
-        kw.setdefault("cap", 25)
-        out = dead_labels.redispatch(github, decisions, dry_run=False, save=saved, now=lambda: next(clock),
-                                     sleep=lambda _: None, **kw)
+        out = dead_labels.redispatch(github, decisions, dry_run=False, store=saved.store, save=saved,
+                                     now=lambda: next(clock), sleep=lambda _: None, **kw)
         return out, saved
 
     def next_sweep(self, github, saved):
@@ -336,12 +399,12 @@ class RedispatchTests(unittest.TestCase):
         (results, failures), saved = self.move(github, [go(run(1)), dead_labels.Redispatch(run(2), "lint", B16, "held")])
         self.assertEqual(github.calls, [("force-cancel", 1), ("rerun", 1)])
         self.assertEqual(failures, 0)
-        self.assertEqual([e["run_id"] for e in saved.history[0]], [1])  # written before the cancel
-        self.assertEqual(owed_ids(saved), [1])  # a re-run asked is not yet a confirmed outcome
+        self.assertEqual(owed_ids(saved.history[0]), [1])  # written before the cancel
+        self.assertEqual(owed_ids(saved.last), [1])  # a re-run asked is not yet a confirmed outcome
         owed, results, _ = self.next_sweep(github, saved)
-        self.assertEqual(owed, [])  # the next sweep sees attempt 2: cleared
+        self.assertEqual(owed, [])
         self.assertIn("later attempt", results[1])
-        self.assertEqual(github.calls.count(("rerun", 1)), 1)  # never asked twice
+        self.assertEqual(github.calls.count(("rerun", 1)), 1)
 
     def test_a_nightly_build_that_started_since_the_inventory_is_never_cancelled(self) -> None:
         nightly = run(1, event="push", path=".github/workflows/nightly.yml", name="Nightly macOS build",
@@ -354,35 +417,32 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(saved.history, [])
 
     def test_recheck_keeps_runs_that_moved_or_got_served(self) -> None:
-        for jobs, state, why in (([ran(B16, 0.5, name="lint")], {}, "running"),
-                                 ([job(B16, created=40, runner="vm-1")], {}, "no longer queued"),
-                                 (None, {"run_attempt": 2}, "attempt moved"),
-                                 (None, {"status": "completed"}, "completed now")):
+        for jobs, state_, why in (([ran(B16, 0.5, name="lint")], {}, "running"),
+                                  ([job(B16, created=40, runner="vm-1")], {}, "no longer queued"),
+                                  (None, {"run_attempt": 2}, "attempt moved"),
+                                  (None, {"status": "completed"}, "completed now")):
             github = FakeGitHub()
-            github.add(run(1), jobs, **state)
+            github.add(run(1), jobs, **state_)
             (results, _), _ = self.move(github, [go(run(1))])
             self.assertEqual(github.calls, [], why)
             self.assertIn(why, results[1])
 
     def test_an_ambiguous_cancel_error_keeps_the_obligation(self) -> None:
-        # Review finding 1 (e9f7c53): a timeout or 5xx after GitHub took the cancel. The entry stays, and the next
-        # sweep re-reads the run and re-runs it.
         github = FakeGitHub(cancel_error="POST force-cancel failed (502)")
         github.add(run(1))
         (results, _), saved = self.move(github, [go(run(1))])
-        self.assertEqual(owed_ids(saved), [1])
+        self.assertEqual(owed_ids(saved.last), [1])
         self.assertIn("kept owed", results[1])
         owed, _, _ = self.next_sweep(github, saved)
         self.assertEqual(github.calls[-1], ("rerun", 1))
-        self.assertEqual(owed_ids(type("S", (), {"last": owed})()), [1])  # cleared only once attempt 2 is seen
+        self.assertEqual(owed_ids(owed), [1])
         self.assertEqual(dead_labels.resume(github, owed, now=200.0)[0], [])
 
     def test_an_ambiguous_cancel_that_never_took_clears_when_the_run_finishes_on_its_own(self) -> None:
         github = FakeGitHub(cancel_error="POST force-cancel failed (502)", cancel_takes=False)
         github.add(run(1))
-        (_, _), saved = self.move(github, [go(run(1))])
-        self.assertEqual(owed_ids(saved), [1])
-        self.assertEqual(self.next_sweep(github, saved)[0], [{**saved.last[0]}])  # still running: kept
+        _, saved = self.move(github, [go(run(1))])
+        self.assertEqual(owed_ids(self.next_sweep(github, saved)[0]), [1])  # still running: kept
         github.state[1].update(status="completed", conclusion="success")
         owed, results, _ = self.next_sweep(github, saved)
         self.assertEqual(owed, [])
@@ -393,21 +453,21 @@ class RedispatchTests(unittest.TestCase):
         github = FakeGitHub(cancel_limit_on=2)
         github.add(run(1))
         github.add(run(2))
-        saved = Saved()
+        saved = Store()
         with self.assertRaises(RateLimited):
-            self.move(github, [go(run(1)), go(run(2))], save=saved)
+            self.move(github, [go(run(1)), go(run(2))], saved)
         self.assertEqual(github.calls, [("force-cancel", 1)])
-        self.assertIn(1, owed_ids(saved))
-        owed, results, _ = self.next_sweep(github, saved)
+        self.assertIn(1, owed_ids(saved.last))
+        self.next_sweep(github, saved)
         self.assertIn(("rerun", 1), github.calls)
 
     def test_a_rate_limit_on_the_rerun_keeps_it_owed(self) -> None:
         github = FakeGitHub(rerun_limit=True)
         github.add(run(1))
-        saved = Saved()
+        saved = Store()
         with self.assertRaises(RateLimited):
-            self.move(github, [go(run(1))], save=saved)
-        self.assertEqual(owed_ids(saved), [1])
+            self.move(github, [go(run(1))], saved)
+        self.assertEqual(owed_ids(saved.last), [1])
         with self.assertRaises(RateLimited):
             dead_labels.resume(github, saved.last, now=5.0)
 
@@ -417,49 +477,69 @@ class RedispatchTests(unittest.TestCase):
         (results, failures), saved = self.move(github, [go(run(1))])
         self.assertEqual(failures, 1)
         self.assertIn("asks again", results[1])
-        self.assertEqual(owed_ids(saved), [1])
+        self.assertEqual(owed_ids(saved.last), [1])
         github.rerun_error = None
         owed, _, _ = self.next_sweep(github, saved)
         self.assertEqual(github.calls.count(("rerun", 1)), 2)  # the failed ask, then one more
         self.assertEqual(dead_labels.resume(github, owed, now=200.0)[0], [])
 
-    def test_the_cap_refuses_new_cancels_and_never_evicts(self) -> None:
-        # Review finding 2 (e9f7c53): obligations were cut to make room. Now a full cap stops new cancels.
+    def test_one_cap_across_every_list_refuses_and_never_evicts(self) -> None:
+        # Review finding 2 (31d9f9e): category e's carried re-runs count toward the same cap.
         github = FakeGitHub()
         github.add(run(9))
-        owed = [{"run_id": n, "attempt": 1, "whole": False, "at": 0} for n in range(100, 125)]
-        (results, _), saved = self.move(github, [go(run(9))], owed=owed, cap=25)
+        lost = [{"run_id": n, "attempt": 1, "cancelled_at": "x"} for n in range(100, 115)]
+        dead = [{"run_id": n, "attempt": 1, "at": 0} for n in range(200, 210)]
+        saved = Store(dead=dead, lost=lost, cap=25)
+        (results, _), _ = self.move(github, [go(run(9))], saved)
         self.assertEqual(github.calls, [])
-        self.assertIn("cap of 25", results[9])
+        self.assertIn("full (25 of 25)", results[9])
         self.assertEqual(saved.history, [])
+
+    def test_a_run_any_list_owes_is_never_cancelled_again(self) -> None:
+        # Review finding 1 (31d9f9e) and the one before it: owed by either list, never cancelled twice.
+        for lost, dead in (([{"run_id": 1, "attempt": 1}], []), ([], [{"run_id": 1, "attempt": 1, "at": 0}])):
+            github = FakeGitHub(settle_after=10**9)
+            github.add(run(1))
+            (results, _), _ = self.move(github, [go(run(1))], Store(dead=dead, lost=lost))
+            self.assertEqual(github.calls, [])
+            self.assertIn("never cancelled twice", results[1])
+
+    def test_an_unknown_list_or_a_failed_listing_moves_nothing(self) -> None:
+        github = FakeGitHub()
+        github.add(run(1))
+        (results, _), _ = self.move(github, [go(run(1))], Store(unknown=True))
+        self.assertIn("unread", results[1])
+        (results, _), _ = self.move(github, [go(run(1))], hold=lambda: "1 listing(s) failed")
+        self.assertIn("listing(s) failed", results[1])
+        self.assertEqual(github.calls, [])
 
     def test_resume_never_drops_an_unsettled_or_unreadable_entry(self) -> None:
         github = FakeGitHub(settle_after=10**9)
         github.add(run(2))
         github.state[2]["cancelled"] = True
-        entry = {"run_id": 2, "attempt": 1, "whole": False, "at": 0}
+        entry = {"run_id": 2, "attempt": 1, "at": 0}
         owed, results, failures = dead_labels.resume(github, [entry, {"run_id": "x"}],
                                                      now=dead_labels.OBLIGATION_ALARM_S + 1.0)
         self.assertEqual(owed, [entry, {"run_id": "x"}])
         self.assertEqual(failures, 2)
         self.assertIn("by hand", results[2])
 
+    def test_a_completed_run_with_no_conclusion_stays_owed(self) -> None:
+        github = FakeGitHub()
+        github.add(run(1), status="completed", conclusion=None)
+        owed, _, failures = dead_labels.resume(github, [{"run_id": 1, "attempt": 1, "at": 0}], now=5.0)
+        self.assertEqual((owed_ids(owed), failures, github.calls), ([1], 1, []))
+
     def test_without_a_snapshot_nothing_is_cancelled(self) -> None:
         github = FakeGitHub()
         github.add(run(1))
-        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=False, save=None, cap=25)
+        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=False, store=Store().store, save=None)
         self.assertEqual(github.calls, [])
         self.assertIn("no snapshot", results[1])
 
-    def test_a_picker_routed_run_is_rerun_whole(self) -> None:
-        github = FakeGitHub()
-        github.add(run(1))
-        self.move(github, [go(run(1), whole=True)])
-        self.assertEqual(github.calls, [("force-cancel", 1), ("rerun-all", 1)])
-
     def test_dry_run_touches_nothing(self) -> None:
         github = FakeGitHub()
-        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=True, save=Saved(), cap=25)
+        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=True, store=Store().store, save=Store())
         self.assertEqual(github.calls, [])
         self.assertIn("dry run", results[1])
 
@@ -470,92 +550,99 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(failures, 0)
         self.assertIn("next sweep", results[1])
         self.assertNotIn(("rerun", 1), github.calls)
-        self.assertEqual(owed_ids(saved), [1])
+        self.assertEqual(owed_ids(saved.last), [1])
 
     def test_someone_elses_rerun_clears_it_without_a_second(self) -> None:
         github = FakeGitHub(settle_after=10**9)
         github.add(run(1))
-        (_, _), saved = self.move(github, [go(run(1))], step=50)
+        _, saved = self.move(github, [go(run(1))], step=50)
         github.state[1].update(run_attempt=2, status="queued")
-        owed, results, _ = self.next_sweep(github, saved)
+        owed, _, _ = self.next_sweep(github, saved)
         self.assertEqual(owed, [])
         self.assertEqual([c for c in github.calls if c[0].startswith("rerun")], [])
 
 
-class ReviewFourTests(unittest.TestCase):
-    """Findings on 06815ce, each reproduced."""
+class GuardTests(unittest.TestCase):
+    """janitor_guard.py: the one store and the one read log."""
 
-    def test_an_owed_run_still_queued_is_never_cancelled_twice(self) -> None:
-        # Finding 1: the force-cancel took but the run stays queued; the next sweep must not cancel it again.
-        github = FakeGitHub(settle_after=10**9)
-        github.add(run(1))
-        owed = [{"run_id": 1, "attempt": 1, "whole": False, "at": 0}]
-        saved = Saved()
-        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=False, save=saved, owed=owed, cap=25,
-                                            now=lambda: 10.0, sleep=lambda _: None)
-        self.assertEqual(github.calls, [])
-        self.assertIn("never cancelled twice", results[1])
-        self.assertEqual(saved.history, [])
-        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
-        self.assertIn('exclude=acted | {entry.get("run_id") for entry in owed_reruns or ()}', janitor)
+    def test_the_store_is_carried_whole_and_an_unread_list_is_never_written_empty(self) -> None:
+        # Review finding 3 (31d9f9e): a failed read must not publish a copy that loses the list.
+        store = janitor_guard.OwedStore({janitor_guard.LOST_KEY: None, janitor_guard.DEAD_KEY: [{"run_id": 7}]})
+        snapshot = {}
+        store.stamp(snapshot)
+        self.assertEqual(snapshot[janitor_guard.DEAD_KEY], [{"run_id": 7}])
+        self.assertNotIn(janitor_guard.LOST_KEY, snapshot)
+        self.assertTrue(snapshot[janitor_guard.LOST_KEY + janitor_guard.UNREAD_SUFFIX])
+        self.assertEqual(store.room(), 0)  # unknown: nothing new is owed
 
-    def test_every_failed_listing_reaches_the_fail_closed_gate(self) -> None:
-        # Finding 2: a failed delivery-run listing and the main inventory's unread runs count as partial.
-        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
-        self.assertIn('partial_reads.append(f"the jobs of delivery run {run[\'id\']}")', janitor)
-        self.assertIn('*(f"the jobs of run {run_id}" for run_id in sorted(unread))', janitor)
-        runs, jobs = [run(1), run(2)], {1: [job(B16, created=40)], 2: [ran(B32, 1)]}
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW,
-                                                                 unread=["the jobs of delivery run 9"]), [])
+    def test_reading_passes_over_unread_and_missing_copies_however_many(self) -> None:
+        key = janitor_guard.DEAD_KEY
+        older = {key: [{"run_id": 1}]}
+        docs = [{key + "_unread": True}] * 5 + [{}] * 4 + [older]
+        self.assertEqual(janitor_guard.entries_in(docs, key), [{"run_id": 1}])
+        self.assertIsNone(janitor_guard.entries_in([{key + "_unread": True}], key))
+        self.assertEqual(janitor_guard.entries_in([{}, {}], key), [])
 
-    def test_a_completed_run_with_no_conclusion_stays_owed(self) -> None:
-        # Finding 3: completed with a null conclusion is unread, not an outcome.
-        github = FakeGitHub()
-        github.add(run(1), status="completed", conclusion=None)
-        owed, results, failures = dead_labels.resume(github, [{"run_id": 1, "attempt": 1, "whole": False, "at": 0}],
-                                                     now=5.0)
-        self.assertEqual([e["run_id"] for e in owed], [1])
-        self.assertEqual(failures, 1)
-        self.assertEqual(github.calls, [])
+    def test_read_store_downloads_only_as_far_as_needed(self) -> None:
+        def archive(doc):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as handle:
+                handle.writestr("macos-pool-load.json", json.dumps(doc))
+            return buffer.getvalue()
+        docs = [{janitor_guard.LOST_KEY: [], janitor_guard.DEAD_KEY + "_unread": True},
+                {janitor_guard.DEAD_KEY: [{"run_id": 3}]}, {janitor_guard.DEAD_KEY: [{"run_id": 4}]}]
+        fetched = []
+        store = janitor_guard.read_store([{"i": i} for i in range(3)],
+                                         lambda a: fetched.append(a["i"]) or archive(docs[a["i"]]),
+                                         "macos-pool-load.json")
+        self.assertEqual(store.lists[janitor_guard.DEAD_KEY], [{"run_id": 3}])
+        self.assertEqual(fetched, [0, 1])
 
-
-POOLS = {"linux": {"why": "x", "members": [B32, B16]}, "$comment": ["x"]}
-POOLED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+    def test_the_read_log_holds_after_any_failure(self) -> None:
+        log = janitor_guard.ReadLog()
+        self.assertIsNone(log.hold())
+        with redirect_stderr(io.StringIO()):
+            log.failed("head of main", "502")
+        self.assertIn("head of main", log.hold())
+        log.reset()
+        self.assertIsNone(log.hold())
 
 
 class RunnerPoolsTests(unittest.TestCase):
     def test_retired_members_from_the_current_member_and_dead(self) -> None:
-        live = json.dumps({"linux": B16, "_dead": {B32: "2026-10-28T22:30:00Z", B4: "x"}, "_updated": "t"})
-        self.assertEqual(dead_labels.retired_members(live, POOLS), {B32: B16, B4: ""})
-        self.assertEqual(dead_labels.retired_members("", POOLS), {})
-        self.assertEqual(dead_labels.retired_members("{not json", POOLS), {})
-        self.assertEqual(dead_labels.retired_members(json.dumps({"linux": B32}), None), {})
+        pools = state({"linux": B16, "_dead": {B32: "2026-10-28T22:30:00Z"}})
+        self.assertEqual(pools.retired(), {B32: B16})
+        self.assertEqual(state({"linux": B32, "_dead": {}}).retired(), {B16: B32})
+
+    def test_an_undeclared_member_or_a_malformed_dead_is_no_state(self) -> None:
+        # Review finding 6 (31d9f9e): {"linux": B4, "_dead": ["malformed"]} must move nothing.
+        for value in ({"linux": B4, "_dead": {}}, {"linux": B32, "_dead": ["malformed"]},
+                      {"linux": B32, "_dead": {B16: "not a time"}}, {"_dead": {}}, ["linux"]):
+            found, why = dead_labels.pools_state(json.dumps(value), module=MODULE)
+            self.assertIsNone(found, value)
+            self.assertIn("validation", why)
+        self.assertEqual(dead_labels.pools_state("", module=MODULE), (None, "RUNNER_POOLS is unset"))
+        self.assertIsNone(dead_labels.pools_state("{not json", module=MODULE)[0])
+
+    def test_without_runner_pools_py_there_is_no_state(self) -> None:
+        with mock.patch.dict(sys.modules, {"runner_pools": None}):
+            found, why = dead_labels.pools_state(json.dumps(LIVE))
+        self.assertIsNone(found)
+        self.assertIn("not on this tree", why)
 
     def test_a_job_on_a_member_the_pool_left_moves_when_its_runs_on_reads_the_pool(self) -> None:
-        live = json.dumps({"linux": B16, "_dead": {B32: "2026-10-28T22:30:00Z"}})
+        pools = state({"linux": B16, "_dead": {B32: "2026-10-28T22:30:00Z"}})
         runs = [run(1)]
-        jobs = {1: [job(B32, created=10)]}  # no other start evidence at all: the pool's mark is the evidence
-        retired = dead_labels.retired_members(live, POOLS)
-        dead = dead_labels.dead_labels_if_complete(runs, jobs, now=NOW, retired=retired)
+        jobs = {1: [job(B32, created=10)]}  # no other start evidence: the pool's move is the evidence
+        dead = dead_labels.dead_labels_if_complete(runs, jobs, now=NOW, retired=pools.retired())
         self.assertEqual([(d.name(), d.live) for d in dead], [(B32, (B16,))])
-        values = {"RUNNER_POOLS": live}
-        pooled = dead_labels.plan(runs, jobs, dead, values=values, repo="manaflow-ai/cmux",
+        pooled = dead_labels.plan(runs, jobs, dead, values=VALUES, repo="manaflow-ai/cmux", pools=pools,
                                   workflow_text=lambda r, p: workflow(POOLED_RUNS_ON))
-        self.assertEqual((pooled[0].why_not, pooled[0].note), (None, f"a re-run lands on `{B16}`"))
-        literal = dead_labels.plan(runs, jobs, dead, values=values, repo="manaflow-ai/cmux",
-                                   workflow_text=lambda r, p: workflow(B32))
-        self.assertIn("literal", literal[0].why_not)
-
-    def test_runner_pools_unset_or_off_schema_moves_nothing(self) -> None:
-        runs, jobs = [run(1)], {1: [job(B32, created=10)]}
-        self.assertEqual(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW,
-                                                             retired=dead_labels.retired_members(None, POOLS)), [])
-        dead = [dead_labels.DeadLabel(frozenset({B32}), "linux", dt.timedelta(minutes=10), 1, (B16,))]
-        for values in ({}, {"RUNNER_POOLS": "{}"}, {"RUNNER_POOLS": "nope"}):
-            decision = dead_labels.plan(runs, jobs, dead, values=values, repo="manaflow-ai/cmux",
-                                        workflow_text=lambda r, p: workflow(POOLED_RUNS_ON))[0]
-            self.assertIsNotNone(decision.why_not, values)
+        self.assertIsNone(pooled[0].why_not)
+        for runs_on in (B32, LINUX_RUNS_ON):
+            other = dead_labels.plan(runs, jobs, dead, values={"LINUX_RUNNER": B16}, repo="manaflow-ai/cmux",
+                                     pools=pools, workflow_text=lambda r, p, ro=runs_on: workflow(ro))
+            self.assertIsNotNone(other[0].why_not, runs_on)
 
     def test_the_janitor_passes_runner_pools(self) -> None:
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-queue-janitor.yml").read_text(encoding="utf-8"))
@@ -563,9 +650,29 @@ class RunnerPoolsTests(unittest.TestCase):
         self.assertEqual(step["env"]["RUNNER_POOLS"], "${{ vars.RUNNER_POOLS }}")
 
 
+class RealRunnerPoolsTests(unittest.TestCase):
+    """The same validation cases through cmux#27129's runner_pools.py, once it is on the tree."""
+
+    def setUp(self) -> None:
+        try:
+            import runner_pools  # noqa: PLC0415
+        except ImportError:
+            self.skipTest("scripts/ci/runner_pools.py is not on this tree yet (cmux#27129)")
+        self.module = runner_pools
+
+    def test_the_real_validator_refuses_the_review_case(self) -> None:
+        pools = self.module.load_pools()
+        member = self.module.members(pools["linux"])[0]
+        bad = {**{name: self.module.members(spec)[0] for name, spec in pools.items()}, "linux": B4, "_dead": ["x"]}
+        self.assertIsNone(dead_labels.pools_state(json.dumps(bad), module=self.module)[0])
+        good = {**{name: self.module.members(spec)[0] for name, spec in pools.items()}, "_dead": {}}
+        found, why = dead_labels.pools_state(json.dumps(good), module=self.module)
+        self.assertIsNotNone(found, why)
+        self.assertEqual(found.current["linux"], member)
+
+
 class FailClosedTests(unittest.TestCase):
     def test_a_partial_read_finds_no_dead_label(self) -> None:
-        # Review finding 3 (e9f7c53): an unread run may hold the only recent start on a label.
         runs = [run(1), run(2)]
         jobs = {1: [job(B16, created=40)], 2: [ran(B32, 1)]}
         self.assertTrue(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW))
@@ -573,15 +680,7 @@ class FailClosedTests(unittest.TestCase):
             self.assertEqual(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW,
                                                                  unread=["the jobs of Linux-only run 7"]), [])
 
-    def test_the_janitor_counts_failed_linux_only_and_evidence_listings_as_partial(self) -> None:
-        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
-        self.assertIn("dead_labels.dead_labels_if_complete(", janitor)
-        self.assertNotIn("dead_labels.dead_labels(runs", janitor)
-        self.assertIn('partial_reads.append(f"the evidence runs of {workflow}")', janitor)
-        self.assertIn("partial_reads += [f\"the jobs of Linux-only run {run_id}\"", janitor)
-
-    def test_read_linux_only_jobs_names_its_failures(self) -> None:
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    def test_read_linux_only_jobs_notes_its_failures_in_the_read_log(self) -> None:
         import queue_janitor
 
         class GH:
@@ -590,16 +689,13 @@ class FailClosedTests(unittest.TestCase):
                     raise RuntimeError("GET jobs failed (502)")
                 return []
         runs = [{**run(1), "path": ".github/workflows/x.yml"}, {**run(2), "path": ".github/workflows/x.yml"}]
+        queue_janitor.READS.reset()
         with redirect_stderr(io.StringIO()):
             found, failed = queue_janitor.read_linux_only_jobs(GH(), runs, {}, frozenset({".github/workflows/x.yml"}),
                                                                NOW)
         self.assertEqual((sorted(found), failed), ([1], [2]))
-
-    def test_obligations_share_the_janitors_one_cap_and_are_never_cut_on_read(self) -> None:
-        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
-        self.assertIn("cap=LOST_PENDING_MAX", janitor)
-        self.assertNotIn("OBLIGATIONS_MAX", janitor)
-        self.assertIn("return kept if key != LOST_RERUNS_KEY else kept[-LOST_PENDING_MAX:]", janitor)
+        self.assertIn("Linux-only run 2", queue_janitor.READS.hold())
+        queue_janitor.READS.reset()
 
 
 class LinuxOnlyReadTests(unittest.TestCase):

@@ -26,17 +26,16 @@ janitor's own inventory leaves out):
     the proof that the inventory sees starts at all. When nothing in the family
     started (an org-wide stall, or every pool backed up), nothing moves.
 
-A run holding such a job is re-dispatched (plan()) only when a re-run puts the
-job on another live label (rerun_route()): its runs-on, read from the workflow
-file at the run's head, reads a runner variable whose live value now names
-another label of the set, or a picker's output, in which case the whole run is
-re-run so the picker chooses again. A literal label, a single host, an input or
-a matrix value gives the same label back, so such a job is flagged in the
-summary and left. Right before the cancel the run and its jobs are read again
-and every check below is made again (recheck()). Its re-run is written into the
-janitor's snapshot before the cancel, so a rate limit or a crash in between
-never loses the run: only a confirmed outcome clears it, and every later sweep
-reads the run again (resume()). It is never moved when:
+A run holding such a job, or a job queued on a member its RUNNER_POOLS pool moved off
+(PoolsState.retired()), is re-dispatched (plan()) only when its own runs-on, read
+from the workflow file at the run's head, takes its label from
+fromJSON(vars.RUNNER_POOLS).<pool> and that pool now points at another live
+member (rerun_route()). Any other runs-on (a literal, a runner variable, a
+picker's output) is flagged in the summary and left. Right before the cancel
+the run and its jobs are read again and every check below is made again
+(recheck()). The run's re-run is written as an obligation into the janitor's
+one obligation store before the cancel; only a confirmed outcome clears it, and
+every later sweep reads the run again (resume()). It is never moved when:
   - a job of it is running (cancelling would throw that work away; a later
     sweep takes the run once the job ends);
   - it is a nightly, DEV or promote run whose build has started
@@ -204,43 +203,61 @@ def run_reason(run: Mapping[str, Any]) -> str | None:
 
 # --- RUNNER_POOLS ---------------------------------------------------------------------------------------------
 # scripts/ci/runner_pools.py (cmux#27129) keeps RUNNER_POOLS pointed at each pool's live member, with `_dead`
-# (label -> when last seen dead), and declares the pools in .github/runners.json `pools` (each with `members`).
-# Moving a pool moves only jobs created after it: a job already queued on the member it left keeps that label. So a
-# label RUNNER_POOLS marks dead, or a declared member that is not its pool's current member, is retired, and a job
-# queued on it past DEAD_AFTER is a candidate (retired_labels()). It moves only when its runs-on reads RUNNER_POOLS
-# (rerun_route() evaluates fromJSON(vars.RUNNER_POOLS).<pool>); a literal label stays, as everywhere here.
+# (label -> when last seen dead), and declares the pools in .github/runners.json `pools`. A job is re-dispatched
+# only when its own runs-on takes its label from fromJSON(vars.RUNNER_POOLS).<pool> (rerun_route()): a re-run reads
+# the pool's current member, so it lands on another label exactly when the pool moved. Every other runs-on (a
+# literal, a runner variable, a picker's output) is flagged and left. The value is validated by runner_pools.py's
+# own parse_value() and value_problems() (imported, never copied): any dropped part or problem, an unset variable, or
+# no runner_pools.py on this tree means no RUNNER_POOLS state, and so no move.
 POOLS_DEAD_KEY = "_dead"
 
 
-def retired_members(raw: str | None, declared: Mapping[str, Any] | None) -> dict[str, str]:
-    """{retired label: the label its pool points at now} from RUNNER_POOLS (`raw`) and runners.json `pools`
-    (`declared`). Empty when RUNNER_POOLS is unset or unreadable."""
+@dataclasses.dataclass(frozen=True)
+class PoolsState:
+    current: Mapping[str, str]  # pool -> its current member
+    members: Mapping[str, tuple[str, ...]]  # pool -> its declared members
+    dead: frozenset[str]  # labels RUNNER_POOLS marks dead
+
+    def retired(self) -> dict[str, str]:
+        """{label: the member its pool points at now} for every declared member that is not its pool's current
+        member, and every member marked dead."""
+        found: dict[str, str] = {}
+        for pool, listed in self.members.items():
+            for member in listed:
+                if member != self.current[pool] or member in self.dead:
+                    found[member.lower()] = self.current[pool].lower()
+        return found
+
+
+def pools_state(raw: str | None, *, module: Any = None) -> tuple[PoolsState | None, str]:
+    """(the validated RUNNER_POOLS state, or None; why not). `module` is runner_pools (imported when None)."""
+    if not (raw or "").strip():
+        return None, "RUNNER_POOLS is unset"
+    if module is None:
+        try:
+            import runner_pools as module  # noqa: PLC0415 (cmux#27129; absent before it lands)
+        except ImportError:
+            return None, "scripts/ci/runner_pools.py is not on this tree"
     try:
-        live = json.loads(raw) if isinstance(raw, str) and raw.strip() else None
-    except ValueError:
-        return {}
-    if not isinstance(live, dict):
-        return {}
-    retired: dict[str, str] = {}
-    for name, spec in (declared or {}).items():
-        current = live.get(name)
-        listed = spec.get("members") if isinstance(spec, Mapping) else None
-        if str(name).startswith(("$", "_")) or not isinstance(current, str) or not isinstance(listed, list):
-            continue
-        for member in listed:
-            if isinstance(member, str) and member != current:
-                retired[member.lower()] = current.lower()
-    dead = live.get(POOLS_DEAD_KEY)
-    for label in dead if isinstance(dead, dict) else ():
-        if isinstance(label, str):
-            retired.setdefault(label.lower(), "")
-    return retired
+        pools = module.load_pools()
+        value, dropped = module.parse_value(raw, pools)
+        problems = [*dropped, *module.value_problems(value, pools)]
+        marks = value.get(module.DEAD_KEY)
+    except Exception as error:  # noqa: BLE001 any failure to validate is no state, so no move
+        return None, f"RUNNER_POOLS could not be validated ({type(error).__name__}: {error})"
+    if problems:
+        return None, f"RUNNER_POOLS fails runner_pools.py's validation: {'; '.join(problems)[:300]}"
+    if not isinstance(marks, dict):
+        return None, "RUNNER_POOLS has no valid _dead"
+    members = {name: tuple(module.members(spec)) for name, spec in pools.items()}
+    return PoolsState({name: str(value[name]) for name in pools}, members,
+                      frozenset(str(label).lower() for label in marks)), ""
 
 
 def retired_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
                    now: dt.datetime, retired: Mapping[str, str], after: dt.timedelta = DEAD_AFTER) -> list[DeadLabel]:
-    """Retired labels (retired_members()) with a job queued on them past `after`, as DeadLabels whose live member is
-    their pool's current one."""
+    """Retired labels (PoolsState.retired()) with a job queued on them past `after`, as DeadLabels whose live member
+    is their pool's current one."""
     waits: dict[str, list[dt.timedelta]] = {}
     for run in runs:
         run_jobs = list(jobs_by_run.get(run.get("id"), ()))
@@ -292,12 +309,11 @@ def protected_reason(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) 
 
 
 # --- where a re-run goes --------------------------------------------------------------------------------------
-# A re-run evaluates the job's runs-on again. Only a job whose runs-on then names another label is moved: one that
-# reads a runner variable now pointing elsewhere, or a picker's output (needs.<job>.outputs.*), which only a whole
-# re-run asks again. A literal, a single host, an input or a matrix value names the same label again, so such a job
-# is flagged and left. The runs-on comes from the workflow file at the run's head; the variables' live values come in
-# the same NAME=value block ci-repo-variables.yml passes runs_on_values.py (CMUX_CI_RUNS_ON_VARIABLES), the one
-# list of what a runs-on reads (tests/test_ci_dead_labels.py keeps the janitor's block equal to that one).
+# A re-run evaluates the job's runs-on again. The runs-on comes from the workflow file at the run's head; the
+# variables' live values come in the same NAME=value block ci-repo-variables.yml passes runs_on_values.py
+# (CMUX_CI_RUNS_ON_VARIABLES; tests/test_ci_dead_labels.py keeps the janitor's block equal to that one), so the
+# branch of the expression a re-run takes is known. rerun_route() moves the job only when that branch is
+# fromJSON(vars.RUNNER_POOLS).<pool>.
 UNKNOWN = object()
 _LITERAL = re.compile(r"'((?:[^']|'')*)'")
 _CALL = re.compile(r"^(startsWith|endsWith|contains)\((.*)\)$", re.IGNORECASE | re.DOTALL)
@@ -424,27 +440,34 @@ def runs_on_of(read: Callable[[str], str | None], path: str, name: str, depth: i
     return runs_on_of(read, uses[2:], rest, depth + 1)
 
 
-def rerun_route(runs_on: str | None, label: str, values: Mapping[str, str],
-                context: Mapping[str, str]) -> tuple[str | None, bool, str]:
-    """(where a re-run lands, whether the whole run is re-run, why): where is None when the job is left."""
+POOL_MARK = "\x00runner-pool:"
+
+
+def rerun_route(runs_on: str | None, label: str, values: Mapping[str, str], context: Mapping[str, str],
+                pools: PoolsState | None, dead: Iterable[str] = ()) -> tuple[str | None, str]:
+    """(the label a re-run lands on, why), or (None, why not). Only a runs-on whose taken branch is
+    fromJSON(vars.RUNNER_POOLS).<pool> qualifies: the expression is evaluated with each pool standing for a marker,
+    so a value from any other source never counts, and the target is the pool's current member."""
+    if pools is None:
+        return None, "no validated RUNNER_POOLS"
     if runs_on is None:
-        return None, False, "its job's runs-on could not be read at the run's head"
+        return None, "its job's runs-on could not be read at the run's head"
     expressions = runs_on_values.runs_on_expressions(runs_on)
     if len(expressions) != 1 or runs_on_values.EXPRESSION.sub("", runs_on).strip():
-        return None, False, "its runs-on is a literal label, so a re-run waits on it again"
-    value = evaluate(expressions[0], values, context)
-    if value is UNKNOWN:
-        if "needs." in expressions[0]:
-            return "the picker's choice", True, "a picker sets its label: the whole run is re-run so it picks again"
-        return None, False, "its runs-on reads an input, a matrix value or a value not passed in"
-    if not isinstance(value, str) or not value.strip():
-        return None, False, "its runs-on evaluates to no label"
-    value = value.strip().lower()
-    if value == label:
-        return None, False, f"a re-run lands on `{label}` again (a literal, or its variable still names it)"
-    if label_family(value) is None:
-        return None, False, f"a re-run would go to `{value}`, outside the declared set"
-    return value, False, f"a re-run lands on `{value}`"
+        return None, "its runs-on is a literal label, so a re-run waits on it again"
+    marked = {**values, "RUNNER_POOLS": json.dumps({pool: POOL_MARK + pool for pool in pools.current})}
+    value = evaluate(expressions[0], marked, context)
+    if not isinstance(value, str) or not value.startswith(POOL_MARK):
+        return None, "its runs-on does not take its label from fromJSON(vars.RUNNER_POOLS); flagged, not moved"
+    pool = value[len(POOL_MARK):]
+    target = pools.current.get(pool, "").lower()
+    if not target:
+        return None, f"RUNNER_POOLS has no pool {pool!r}"
+    if target == label:
+        return None, f"pool {pool} still points at `{label}`; a re-run lands there again"
+    if target in pools.dead or target in set(dead):
+        return None, f"pool {pool} points at `{target}`, which is dead too"
+    return target, f"pool {pool} now points at `{target}`; a re-run lands there"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -453,7 +476,6 @@ class Redispatch:
     job: str
     label: str
     why_not: str | None  # None: re-dispatch it
-    whole: bool = False  # re-run the whole run (a picker chooses again), not only its failed jobs
     note: str = ""
 
     def line(self) -> str:
@@ -462,7 +484,7 @@ class Redispatch:
 
 
 def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
-         dead: Sequence[DeadLabel], *, values: Mapping[str, str] | None, repo: str,
+         dead: Sequence[DeadLabel], *, values: Mapping[str, str] | None, repo: str, pools: PoolsState | None,
          workflow_text: Callable[[Mapping[str, Any], str], str | None], exclude: Iterable[int] = (),
          max_runs: int = DEFAULT_MAX_REDISPATCH, max_reads: int = MAX_WORKFLOW_READS) -> list[Redispatch]:
     """One decision per run holding a stuck job on a dead label, oldest run first; at most `max_runs` go.
@@ -484,7 +506,7 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
         labels = label_key(stuck)
         name = by_labels[labels].name()
         why = protected_reason(run, jobs)
-        whole, note = False, ""
+        note = ""
         if why is None and values is None:
             why = f"the runner variables ({runs_on_values.RUNS_ON_VARIABLES_ENV}) were not passed"
         if why is None and len(labels) != 1:
@@ -500,14 +522,12 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
                     texts[key] = workflow_text(run, path)
                 return texts[key]
             runs_on = runs_on_of(read, str(run.get("path") or "").split("@", 1)[0], str(stuck.get("name") or ""))
-            target, whole, note = rerun_route(runs_on, name, values or {}, run_context(run, repo))
+            target, note = rerun_route(runs_on, name, values or {}, run_context(run, repo), pools, dead_names)
             if target is None:
                 why = note
-            elif target in dead_names:
-                why = f"a re-run would land on `{target}`, which is dead too"
         if why is None:
             going += 1
-        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why, whole, note))
+        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why, note))
     return decisions
 
 
@@ -553,11 +573,9 @@ def recheck(github: Any, decision: Redispatch) -> str | None:
     return None
 
 
-def _rerun(github: Any, run_id: int, whole: bool) -> None:
-    if whole:
-        github.rerun(run_id)
-    else:
-        github.rerun_failed(run_id)
+def _rerun(github: Any, run_id: int) -> None:
+    # The failed and cancelled jobs: each new job reads RUNNER_POOLS again, so it takes the pool's current member.
+    github.rerun_failed(run_id)
 
 
 def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, str, bool]:
@@ -587,7 +605,7 @@ def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, 
     if conclusion != "cancelled":
         return True, f"finished {conclusion} on its own; nothing to re-run", False
     try:
-        _rerun(github, run_id, bool(entry.get("whole")))
+        _rerun(github, run_id)
     except RuntimeError as error:
         if _rate_limited(error):
             raise
@@ -616,15 +634,17 @@ def resume(github: Any, obligations: Sequence[Mapping[str, Any]], *, now: float)
     return owed, results, failures
 
 
-def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
-               save: Callable[[list[dict[str, Any]]], None] | None, owed: Sequence[Mapping[str, Any]] = (),
-               cap: int, now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
+def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, store: Any,
+               save: Callable[[list[dict[str, Any]]], None] | None,
+               hold: Callable[[], str | None] = lambda: None, now: Callable[[], float] = time.time,
+               sleep: Callable[[float], None] = time.sleep,
                settle_seconds: float = SETTLE_SECONDS) -> tuple[dict[int, str], int]:
-    """Move every run that goes: read it again (recheck()), write its obligation (save(), with `owed`, what earlier
-    sweeps still owe), force-cancel it, then settle() each until its cancel finished or `settle_seconds` passed.
-    ({run id: result}, failures). With `save` None nothing is cancelled, and with `cap` obligations owed already no
-    new run is. `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun(id), rerun_failed(id).
-    A rate limit is raised; every obligation it leaves is saved first."""
+    """Move every run that goes: read it again (recheck()), write its obligation into the janitor's one store
+    (`store`, a janitor_guard.OwedStore; save() publishes this pass's list), force-cancel it, then settle() each until
+    its cancel finished or `settle_seconds` passed. ({run id: result}, failures). Nothing is cancelled with `save`
+    None, while hold() names a failed listing, for a run any list of the store owes, or with no room in the store.
+    `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun_failed(id). A rate limit is
+    raised; every obligation it leaves is saved first."""
     going = [d for d in decisions if d.why_not is None]
     results: dict[int, str] = {}
     failures = 0
@@ -632,22 +652,26 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
         return {int(d.run["id"]): "would force-cancel and re-run (dry run)" for d in going}, 0
     if save is None:
         return {int(d.run["id"]): "not moved: no snapshot to carry its re-run" for d in going}, 0
-    obligations = [dict(entry) for entry in owed]
+    obligations = store.entries(OBLIGATIONS_KEY)
     mine: list[dict[str, Any]] = []
     for decision in going:
         run_id = int(decision.run["id"])
-        if any(entry.get("run_id") == run_id for entry in obligations):
+        why_held = hold()
+        if why_held:
+            results[run_id] = f"not moved: {why_held}"
+            continue
+        if run_id in store.ids():
             results[run_id] = "already owed a re-run; settled through that, never cancelled twice"
             continue
-        if len(obligations) >= cap:
-            results[run_id] = f"not moved: {len(obligations)} re-runs are owed already, the cap of {cap}"
+        if store.room() <= 0:
+            results[run_id] = (f"not moved: the owed re-runs store is full ({store.count()} of {store.cap}) "
+                               "or unread")
             continue
         why = recheck(github, decision)
         if why:
             results[run_id] = f"kept: {why}"
             continue
-        entry = {"run_id": run_id, "attempt": int(decision.run.get("run_attempt") or 1), "whole": decision.whole,
-                 "at": now()}
+        entry = {"run_id": run_id, "attempt": int(decision.run.get("run_attempt") or 1), "at": now()}
         obligations.append(entry)
         save(list(obligations))
         try:

@@ -192,7 +192,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +208,8 @@ import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 import dead_labels  # noqa: E402
+import janitor_guard  # noqa: E402
+from janitor_guard import READS  # noqa: E402
 import runs_on_values  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
@@ -2345,6 +2347,7 @@ def skip_superseded_delivery(
     dry_run: bool,
     max_cancels: int = SUPERSEDED_MAX_CANCELS,
     now: dt.datetime | None = None,
+    hold: Callable[[], str | None] = lambda: None,
 ) -> tuple[list[SupersededDecision], int]:
     """Cancel each candidate delivery_workflows.superseded_unstarted() allows, re-reading its jobs first."""
     decisions: list[SupersededDecision] = []
@@ -2366,7 +2369,7 @@ def skip_superseded_delivery(
                 raise
             except RuntimeError as error:
                 read_jobs[other_id] = None
-                print(f"queue-janitor: jobs of run {other_id}: {error}", file=sys.stderr)
+                READS.failed(f"jobs of run {other_id}", error)
         return read_jobs[other_id]
 
     tips: dict[str, str] = {}
@@ -2380,7 +2383,7 @@ def skip_superseded_delivery(
                 raise
             except RuntimeError as error:
                 tips[branch] = ""
-                print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
+                READS.failed(f"head of {branch}", error)
         return tips[branch]
 
     cancels = 0
@@ -2397,7 +2400,7 @@ def skip_superseded_delivery(
                     raise
                 except RuntimeError as error:
                     listed[key] = []
-                    print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
+                    READS.failed(f"runs of {key[1]} for run {run_id}", error)
             ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), [*runs, *listed.get(key, [])],
                                            jobs_of, tip_sha=tip, now=now)
         if not ok:
@@ -2435,6 +2438,7 @@ def skip_superseded_delivery(
             raise
         except RuntimeError as error:
             failures += 1
+            READS.failed(f"the re-read of run {run_id}", error)
             decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
             continue
         if (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status")):
@@ -2453,7 +2457,12 @@ def skip_superseded_delivery(
             raise
         except RuntimeError as error:
             failures += 1
+            READS.failed(f"the open PRs of {branch}", error)
             decisions.append(SupersededDecision(run, "keep", f"failed to re-read open PRs: {error}"))
+            continue
+        why_held = hold()  # any listing that failed so far in the sweep, this pass's own included
+        if why_held:
+            decisions.append(SupersededDecision(run, "keep", why_held))
             continue
         at_head = open_pr_at_head(current, fresh_prs)
         if at_head is not None:
@@ -3066,32 +3075,51 @@ class GitHub:
 
 
 def previous_lost_reruns(github: GitHub, key: str = LOST_RERUNS_KEY) -> list[dict[str, Any]]:
-    """The pending category-e re-runs the newest janitor snapshot that has them carried.
-
-    Read from the `macos-pool-load` artifact every sweep already uploads (the
-    same trusted main-branch copies pr_runner_pool.py reads), so the state
-    lives where GitHub keeps it and needs no new storage. A snapshot whose
-    sweep failed before writing LOST_RERUNS_KEY is passed over for the one
-    before it (at most LOST_PREVIOUS_SNAPSHOTS). An entry read twice is
-    harmless: plan_lost_reruns() re-checks its run's attempt. Raises
-    RuntimeError when a request fails, so the caller knows the state is
-    unknown rather than empty.
-    """
+    """One list of the owed re-runs store (janitor_guard.read_store()) from the newest trusted `macos-pool-load`
+    snapshots every sweep already uploads (the same main-branch copies pr_runner_pool.py reads), so the state lives
+    where GitHub keeps it and needs no new storage. A copy without the key (a sweep that ended before writing it) or
+    marked unread for it is passed over for an older one, across the whole listing. Raises RuntimeError when a
+    request fails or every copy that has the key marks it unread, so the caller knows the state is unknown rather
+    than empty. An entry read twice is harmless: plan_lost_reruns() and dead_labels.settle() re-check its run."""
     trusted = sorted((artifact for artifact in github.snapshot_artifacts()
                       if trusted_snapshot_artifact(artifact, SNAPSHOT_BRANCH)),
                      key=lambda artifact: str(artifact.get("created_at") or ""), reverse=True)
-    for artifact in trusted[:LOST_PREVIOUS_SNAPSHOTS]:
-        blob = github.download(artifact)
-        try:
-            document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(SNAPSHOT_FILE))
-        except SNAPSHOT_UNREADABLE:
+    entries = janitor_guard.read_store(trusted, github.download, SNAPSHOT_FILE, keys=(key,)).lists[key]
+    if entries is None:
+        raise RuntimeError(f"{key} is marked unread in every snapshot that names it")
+    return entries
+
+
+def previous_dead_reruns(github: GitHub) -> list[dict[str, Any]]:
+    """The dead-label pass's owed re-runs (dead_labels.OBLIGATIONS_KEY), read as previous_lost_reruns() reads its own."""
+    return previous_lost_reruns(github, dead_labels.OBLIGATIONS_KEY)
+
+
+def hold_plan(plan: "Plan", store: janitor_guard.OwedStore, why_held: str | None) -> None:
+    """Turn the plan's cancels the guards forbid into skips, in the plan's own order: every one after a failed
+    listing (`why_held`), one whose run is owed a re-run already, and one that would owe a re-run with no room
+    left in the store (or with it unknown)."""
+    room = store.room()
+    owed = store.ids()
+    for decision in plan.decisions:
+        if decision.action != "cancel":
             continue
-        entries = document.get(key) if isinstance(document, Mapping) else None
-        if isinstance(entries, list):
-            kept = [dict(entry) for entry in entries if isinstance(entry, Mapping)]
-            # The dead-label obligations are never cut: their writer stops at the same cap instead.
-            return kept if key != LOST_RERUNS_KEY else kept[-LOST_PENDING_MAX:]
-    return []
+        if why_held:
+            decision.action, decision.note = "skip", why_held
+        elif decision.candidate.run["id"] in owed:
+            decision.action, decision.note = "skip", "already owed a re-run; never cancelled twice"
+        elif decision.candidate.rerun:
+            if room <= 0:
+                decision.action, decision.note = "skip", (f"the owed re-runs store is full ({store.count()} of "
+                                                          f"{store.cap}) or unread; no new re-run is owed")
+            else:
+                room -= 1
+
+
+def hold_orphans(decisions: Sequence["OrphanDecision"], why_held: str | None) -> list["OrphanDecision"]:
+    if not why_held:
+        return list(decisions)
+    return [OrphanDecision(d.orphan, "skip", why_held) if d.action == "cancel" else d for d in decisions]
 
 
 def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dict[str, Any]], dict[int, str], int]:
@@ -3156,15 +3184,6 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
     return jobs_by_run, unread
 
 
-def runner_pool_declarations(workflows_dir: Path) -> dict[str, Any] | None:
-    """.github/runners.json `pools` beside the workflows the sweep reads (cmux#27129), or None before it exists."""
-    try:
-        pools = json.loads((workflows_dir.parent / "runners.json").read_text(encoding="utf-8")).get("pools")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return pools if isinstance(pools, dict) else None
-
-
 def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
                          jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], linux_only: frozenset[str],
                          now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], list[int]]:
@@ -3182,7 +3201,7 @@ def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
             raise
         except RuntimeError as error:
             failed.append(run["id"])
-            print(f"queue-janitor: jobs of Linux-only run {run['id']}: {error}", file=sys.stderr)
+            READS.failed(f"jobs of Linux-only run {run['id']}", error)
     return found, failed
 
 
@@ -3235,6 +3254,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
+    # One read log for the whole sweep: any listing that fails anywhere holds every cancel (janitor_guard.py).
+    READS.reset()
     try:
         runs = github.in_flight_runs()
         jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
@@ -3246,8 +3267,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         # few completed runs of its own workflow listed (evidence_queries()),
         # only when such a suspect exists.
         evidence_jobs: dict[int, list[dict[str, Any]]] = {}
-        # A listing that failed anywhere in the sweep: the dead-label pass then decides nothing (dead_labels.py).
-        partial_reads: list[str] = []
         for workflow, since in evidence_queries(runs, jobs_by_run, now=now):
             try:
                 listed = github.completed_runs(workflow, since)
@@ -3257,26 +3276,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             except RateLimited:
                 raise
             except RuntimeError as error:
-                partial_reads.append(f"the evidence runs of {workflow}")
-                print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
+                READS.failed(f"lost-assignment evidence for {workflow}", error)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
         unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs,
                                    blacksmith_legs=os.environ.get("PR_POOL_OWNED", "").strip() == "1")
-        # The re-runs an earlier sweep left pending, from its pool snapshot.
-        # None means unknown: then nothing at an open pull request's head is
-        # cancelled for a re-run this sweep could not carry on.
+        # The one store of owed re-runs (janitor_guard.OwedStore), from the newest snapshots: category e and f's
+        # carried re-runs (`pending`) and the dead-label pass's. A list that could not be read is None (unknown):
+        # then nothing that owes a re-run is cancelled, and the snapshot marks it unread.
         pending: list[dict[str, Any]] | None = None
-        # The dead-label pass's owed re-runs (dead_labels.OBLIGATIONS_KEY); None: unknown, so nothing is moved.
         owed_reruns: list[dict[str, Any]] | None = None
         if args.pool_load:
             try:
                 pending = previous_lost_reruns(github)
             except Exception as error:  # noqa: BLE001 optional state (IncompleteRead, ...) never fails a sweep
-                print(f"queue-janitor: lost-assignment re-run state: {error!r}", file=sys.stderr)
+                READS.failed("the lost-assignment re-run state", repr(error))
             try:
-                owed_reruns = previous_lost_reruns(github, dead_labels.OBLIGATIONS_KEY)
+                owed_reruns = previous_dead_reruns(github)
             except Exception as error:  # noqa: BLE001 optional state never fails a sweep
-                print(f"queue-janitor: dead-label re-run state: {error!r}", file=sys.stderr)
+                READS.failed("the dead-label re-run state", repr(error))
+        store = janitor_guard.OwedStore({LOST_RERUNS_KEY: pending, dead_labels.OBLIGATIONS_KEY: owed_reruns})
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
@@ -3291,8 +3309,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except RateLimited:
                 raise
             except RuntimeError as error:  # unread: never a candidate
-                partial_reads.append(f"the jobs of delivery run {run['id']}")
-                print(f"queue-janitor: jobs of delivery run {run['id']}: {error}", file=sys.stderr)
+                READS.failed(f"jobs of delivery run {run['id']}", error)
         superseded = superseded_candidates(runs, delivery_jobs)
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
                           | {str(run["head_branch"]) for run in superseded if run.get("head_branch")}
@@ -3315,26 +3332,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             head_reads += 1
             try:
                 branch_heads[branch] = github.branch_head(branch)
+            except RateLimited:
+                raise
             except RuntimeError as error:
-                print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
+                READS.failed(f"head of {branch}", error)
 
     read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
                                    unclaimed=unclaimed))
 
     # Dead labels (dead_labels.py) are judged on the inventory plus a few queued Linux-only runs it leaves out.
     try:
-        linux_jobs, linux_failed = read_linux_only_jobs(github, runs, jobs_by_run, linux_only, now)
-        partial_reads += [f"the jobs of Linux-only run {run_id}" for run_id in linux_failed]
+        linux_jobs, _ = read_linux_only_jobs(github, runs, jobs_by_run, linux_only, now)
     except RateLimited as error:
-        print(f"queue-janitor: Linux-only jobs for the dead-label pass: {error}", file=sys.stderr)
-        linux_jobs, partial_reads = {}, [*partial_reads, "the Linux-only runs (rate limited)"]
+        READS.failed("the Linux-only runs for the dead-label pass", error)
+        linux_jobs = {}
+    for run_id in sorted(unread):
+        READS.failed(f"jobs of run {run_id}")
     dead_inventory = {**jobs_by_run, **linux_jobs}
     # Fail closed: a run left unread may hold the only recent start on a label, so a partial read finds no dead
-    # label and the pass cancels nothing (dead_labels.dead_labels_if_complete()).
-    retired = dead_labels.retired_members(os.environ.get("RUNNER_POOLS"), runner_pool_declarations(args.workflows_dir))
+    # label (dead_labels.dead_labels_if_complete()), and every pass checks READS.hold() again before it cancels.
+    pools, pools_why = dead_labels.pools_state(os.environ.get("RUNNER_POOLS"))
     dead = dead_labels.dead_labels_if_complete(
-        runs, dead_inventory, now=now, evidence=evidence_jobs, retired=retired,
-        unread=[*partial_reads, *(f"the jobs of run {run_id}" for run_id in sorted(unread))])
+        runs, dead_inventory, now=now, evidence=evidence_jobs, retired=pools.retired() if pools else {},
+        unread=READS.failures)
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -3352,7 +3372,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")
                     except RuntimeError as error:
-                        print(f"queue-janitor: owned-pool marker for run {run['id']}: {error}", file=sys.stderr)
+                        READS.failed(f"owned-pool marker for run {run['id']}", error)
                         continue
                     found = owned_marker(run, names)
                     if found:
@@ -3374,9 +3394,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"queue-janitor: {error}", file=sys.stderr)
             print(render_rate_limits(github.rate_limits), file=sys.stderr)
             return 1
+        if snapshot.get("starved_incomplete") and not unread:
+            READS.failed("the starved-label evidence")
         # Labels that stopped starting jobs while their family serves (dead_labels.py); the re-dispatch below acts
         # on them, and the snapshot carries them for the overflow switch and anyone reading the queue.
         snapshot["dead_labels"] = [item.as_json() for item in dead] if not unread else []
+        # The owed re-runs as read, in the first copy written: a sweep that ends anywhere after this still hands
+        # them on (an unread list as unread, never as empty).
+        store.stamp(snapshot)
         if unread:
             # Read from every run but these: their jobs are missing, so a label one of them is running on
             # can look starved and one it waits on can look recovered. No starved-label issue is opened,
@@ -3395,13 +3420,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread:
-        # Nothing is acted on, so the pending re-runs an earlier sweep left are carried forward as they were.
-        if snapshot is not None and args.pool_load and pending is not None:
-            snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
-            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
-        if snapshot is not None and args.pool_load and owed_reruns is not None:
-            snapshot[dead_labels.OBLIGATIONS_KEY] = owed_reruns
-            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        # Nothing is acted on; the owed re-runs were stamped into the snapshot above as they were read.
         summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
                    f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n"
                    f"\n_{render_rate_limits(github.rate_limits)}_\n")
@@ -3414,18 +3433,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
-        now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
+        now=now, lost=lost, rerun_state=store.known, unclaimed=unclaimed, branch_heads=branch_heads,
         app_rerun=github.app_token,
     )
+    # The guards over categories a-f: never an owed run, a re-run owed only with room in the one store, and
+    # nothing at all after a failed listing (janitor_guard.py).
+    hold_plan(plan, store, READS.hold())
 
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
         results, failures = cancel_plan(github, plan.to_cancel())
 
-    def save_lost_reruns(entries: Sequence[Mapping[str, Any]]) -> None:
+    def save_store() -> None:
         if snapshot is not None and args.pool_load:
-            snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in entries][-LOST_PENDING_MAX:]
+            store.stamp(snapshot)
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     # Category e re-runs: one run request per pending entry, then at most
@@ -3437,7 +3459,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Saved before anything else can fail: this sweep's cancels are
         # already made, and an entry read twice is harmless (plan_lost_reruns()).
         fresh = [] if args.dry_run else new_lost_reruns(plan.to_cancel(), results, now=now)
-        save_lost_reruns([*pending, *fresh])
+        store.set(LOST_RERUNS_KEY, [*pending, *fresh])
+        save_store()
         runs_now: dict[int, Mapping[str, Any]] = {}
         for entry in pending:
             run_id = entry.get("run_id")
@@ -3445,7 +3468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 try:
                     runs_now[run_id] = github.run(run_id)
                 except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    print(f"queue-janitor: pending re-run of run {run_id}: {error!r}", file=sys.stderr)
+                    READS.failed(f"pending re-run of run {run_id}", repr(error))
         # One listing per settled cancel: a newer run at its head that took
         # over (even one finished since) means no re-run.
         head_runs: dict[int, list[Mapping[str, Any]]] = {}
@@ -3454,7 +3477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 try:
                     head_runs[run_id] = [*github.runs_at_head(run), *runs]
                 except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    print(f"queue-janitor: runs at the head of run {run_id}: {error!r}", file=sys.stderr)
+                    READS.failed(f"runs at the head of run {run_id}", repr(error))
         # A settled push or dispatch cancel is re-run only while its branch is live.
         settled = [run for run in runs_now.values()
                    if run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
@@ -3469,29 +3492,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             still_pending, rerun_results, rerun_failures = rerun_lost(github, rerun_decisions)
             failures += rerun_failures
-        save_lost_reruns([*still_pending, *fresh])
+        store.set(LOST_RERUNS_KEY, [*still_pending, *fresh])
+        save_store()
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
-        exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
+        exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()} | store.ids(), now=now,
     )
+    orphan_decisions = hold_orphans(orphan_decisions, READS.hold())
     orphan_results: dict[int, str] = {}
     if not args.dry_run:
         orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
         failures += orphan_failures
 
+    owed_ids = store.ids()
     try:
         superseded_decisions, superseded_failures = skip_superseded_delivery(
-            github, superseded, runs, delivery_jobs, prs_by_branch, dry_run=args.dry_run)
+            github, [run for run in superseded if run["id"] not in owed_ids], runs, delivery_jobs, prs_by_branch,
+            dry_run=args.dry_run, hold=READS.hold)
     except RuntimeError as error:  # a rate limit: what was cancelled before it is in the next sweep's inventory
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
 
-    # Dead labels: a job queued past dead_labels.DEAD_AFTER on a label that started nothing in that time, while
-    # another label of its family did, is force-cancelled and re-run when a re-run puts it on another live label
-    # (dead_labels.rerun_route()), unless its run is a started nightly, DEV or promote build or otherwise protected
-    # (dead_labels.protected_reason()).
+    # Dead labels (dead_labels.py): a job queued past DEAD_AFTER on a label that started nothing while its family
+    # served, or on a member its RUNNER_POOLS pool moved off, is force-cancelled and re-run only when its own
+    # runs-on takes its label from fromJSON(vars.RUNNER_POOLS) and the pool points elsewhere now
+    # (dead_labels.rerun_route()), and never a started nightly, DEV or promote build (protected_reason()).
     acted = ({candidate.run["id"] for candidate in plan.to_cancel()}
              | {decision.orphan.run["id"] for decision in orphan_decisions if decision.action == "cancel"}
              | {decision.run["id"] for decision in superseded_decisions if decision.action == "cancel"})
@@ -3503,37 +3530,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         runner_values: dict[str, str] | None = runs_on_values.parse_values(
             os.environ.get(runs_on_values.RUNS_ON_VARIABLES_ENV) or "") or None
-        if runner_values is not None and (os.environ.get("RUNNER_POOLS") or "").strip():
-            runner_values["RUNNER_POOLS"] = str(os.environ["RUNNER_POOLS"])
     except ValueError as error:
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         runner_values = None
+    if pools is None and dead:
+        print(f"queue-janitor: dead-label re-dispatch moves nothing: {pools_why}", file=sys.stderr)
     redispatch_decisions: list[dead_labels.Redispatch] = []
     resumed_results: dict[int, str] = {}
-
-    def save_owed(entries: Sequence[Mapping[str, Any]]) -> None:
-        if snapshot is not None and args.pool_load:
-            # Never cut: redispatch() refuses new cancels at the cap instead (LOST_PENDING_MAX, shared with category e).
-            snapshot[dead_labels.OBLIGATIONS_KEY] = [dict(entry) for entry in entries]
-            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
-    if owed_reruns is not None:
-        save_owed(owed_reruns)  # carried as read, whatever happens below
+    redispatch_results: dict[int, str] = {}
+    redispatch_failures = 0
     try:
-        redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead, values=runner_values, repo=args.repo,
-                                                workflow_text=github.workflow_file,
-                                                exclude=acted | {entry.get("run_id") for entry in owed_reruns or ()},
-                                                max_runs=max_redispatch)
-        owed = owed_reruns
-        if owed is not None and not args.dry_run:
-            owed, resumed_results, resumed_failures = dead_labels.resume(github, owed, now=time.time())
+        if owed_reruns is not None and not args.dry_run:
+            remaining, resumed_results, resumed_failures = dead_labels.resume(
+                github, store.entries(dead_labels.OBLIGATIONS_KEY), now=time.time())
             failures += resumed_failures
-            save_owed(owed)  # only confirmed outcomes left it
+            store.set(dead_labels.OBLIGATIONS_KEY, remaining)  # only confirmed outcomes left it
+            save_store()
+        why_held = READS.hold()
+        redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead if why_held is None else [],
+                                                values=runner_values, repo=args.repo, pools=pools,
+                                                workflow_text=github.workflow_file, exclude=acted | store.ids(),
+                                                max_runs=max_redispatch)
+
+        def save_dead(entries: Sequence[Mapping[str, Any]]) -> None:
+            store.set(dead_labels.OBLIGATIONS_KEY, entries)
+            save_store()
         redispatch_results, redispatch_failures = dead_labels.redispatch(
-            github, redispatch_decisions, dry_run=args.dry_run, owed=owed or (), cap=LOST_PENDING_MAX,
-            save=save_owed if owed is not None and snapshot is not None else None)
-    except RuntimeError as error:  # a rate limit: the next sweep sees what was cancelled
+            github, redispatch_decisions, dry_run=args.dry_run, store=store,
+            save=save_dead if store.known and snapshot is not None else None, hold=READS.hold)
+    except RuntimeError as error:  # a rate limit: every obligation made so far is in the snapshot already
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
-        redispatch_results, redispatch_failures = {}, 1
+        redispatch_failures += 1
     failures += redispatch_failures
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
