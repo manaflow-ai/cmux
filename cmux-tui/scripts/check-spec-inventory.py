@@ -766,6 +766,10 @@ def event_names() -> set[str]:
         module_names.update(inserted_event_names(module_tokens, module_constants))
         module_names.update(assigned_event_names(module_tokens, module_constants))
         module_names.update(serialized_literal_event_names(source))
+    if names_by_module:
+        gone = sorted(set(SERVER_LOG_RECORDS) - set(names_by_module))
+        if gone:
+            fail(f"SERVER_LOG_RECORDS names server/{', '.join(gone)}, which is gone")
     for module, module_names in names_by_module.items():
         log_records = SERVER_LOG_RECORDS.get(module, frozenset())
         stale = sorted(log_records - module_names)

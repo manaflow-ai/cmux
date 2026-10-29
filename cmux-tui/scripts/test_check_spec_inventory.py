@@ -1050,6 +1050,18 @@ impl ConversationEvent {
             ):
                 CHECKER.event_names()
             self.assertIn("no longer writes log record hang", errors.getvalue())
+            # A listed module that is gone is stale too.
+            watchdog.unlink()
+            (source / "server/other.rs").write_text("fn f() {}\n")
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SERVER_LOG_RECORDS", logs),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.event_names()
+            self.assertIn("names server/request_watchdog, which is gone", errors.getvalue())
 
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
