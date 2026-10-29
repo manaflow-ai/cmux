@@ -211,6 +211,7 @@ struct AgentChatDestinationActionTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-action-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let pane = try #require(services.windows.active?.focusedPane)
+            let expectedWorkspace = try #require(pane.workspace?.workspace.id)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let invocation = ActionInvocation(
                 target: targeted ? ActionTargetRef(kind: .pane, id: pane.paneKey) : nil,
@@ -223,7 +224,8 @@ struct AgentChatDestinationActionTests {
                 #expect(pane.pane.tabs.contains { $0.id == created.id }, "the peer chat keeps the requested local pane")
             } else {
                 // Without a pane target the existing chat-dock placement may move the tab.
-                #expect(services.agentTabs.workspace(holding: created.id)?.id == pane.workspace?.workspace.id)
+                let actualWorkspace = try #require(services.agentTabs.workspace(holding: created.id)?.id)
+                #expect(actualWorkspace == expectedWorkspace)
             }
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
