@@ -166,10 +166,17 @@ pub(crate) fn start_for_owner(mux: &Arc<Mux>, brains: Arc<AtomicUsize>) -> Optio
     let stopping = Arc::downgrade(mux);
     Some(dev_orphan_exit::spawn("chief-owner-exit", watch, mux, move |_| {
         let Some(mux) = stopping.upgrade() else { return true };
-        let stopped = cmux_tui_core::server::stop_orphaned_owner(&mux, || facts.exits());
-        if stopped {
-            // Read again after the fenced stop: no client can come now.
-            cmux_owner_liveness::check("chief owner", true, facts.keeps(), true);
+        // What the fence decided on (the owner and the work, read once there).
+        let decided = std::cell::Cell::new(None);
+        let stopped = cmux_tui_core::server::stop_orphaned_owner(&mux, || {
+            let keeps = facts.keeps();
+            decided.set(Some(keeps));
+            keeps.exits(true)
+        });
+        if stopped && let Some(keeps) = decided.get() {
+            // The clients read again after the fenced stop: none can come now.
+            let keeps = Keeps { clients: facts.clients() > 0, ..keeps };
+            cmux_owner_liveness::check("chief owner", true, keeps, true);
             crate::client_log::stderr_log!(
                 "lifecycle",
                 "{BIN}: stopped Chief owner {session}: its app quit and no client, terminal or brain needs it"

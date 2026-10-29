@@ -164,15 +164,18 @@ impl IdleExit {
                     let delay = self.delay_for(keeps.owner);
                     let idle_for = self.clock.now().saturating_duration_since(since);
                     if idle_for >= delay {
+                        // Read again just before the exit and act on it: the
+                        // host has no fence, so a connection, a session or a
+                        // new app's provider may have come since the read
+                        // above (no assertion here: that is a legitimate race).
                         drop(state);
-                        // The exit: what keeps the host, read again.
-                        cmux_owner_liveness::check(
-                            "cmux-browser-host",
-                            true,
-                            (self.probe)(),
-                            false,
-                        );
-                        return true;
+                        let now = (self.probe)();
+                        state = self.lock();
+                        if now.exits(false) && !state.stopped {
+                            return true;
+                        }
+                        self.record(&mut state, now);
+                        continue;
                     }
                     self.clock.wait_timeout(&self.changed, state, delay - idle_for)
                 }
@@ -250,6 +253,13 @@ mod tests {
 
     fn fires(f: &Fixture) {
         assert_eq!(f.fired.recv_timeout(Duration::from_secs(5)), Ok(true));
+        // The R3 invariant at the exit, on facts no one changes now.
+        let keeps = Keeps {
+            clients: false,
+            owner: *f.owner.lock().unwrap(),
+            live_work: f.busy.load(Ordering::SeqCst),
+        };
+        cmux_owner_liveness::check("cmux-browser-host (test)", true, keeps, false);
     }
 
     #[test]

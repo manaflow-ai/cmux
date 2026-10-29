@@ -344,11 +344,16 @@ pub async fn wait_for_daemon_exit(
                         live_work: live_work(liveness),
                     };
                     if fenced.exits(unowned_keeps) {
-                        // Read again after the close: no client can come now.
+                        // The clients and the owner read again after the close:
+                        // no client can come now, and an owner that is gone or
+                        // unnamed cannot come back (this daemon follows no pid
+                        // file). The work is the fenced read's: a request a
+                        // client left running may still start work, and a
+                        // second read here would race it (known fence gap).
                         let now_keeps = Keeps {
                             clients: presence.clients() > 0,
                             owner: liveness.owner(),
-                            live_work: live_work(liveness),
+                            ..fenced
                         };
                         cmux_owner_liveness::check("acpmux", true, now_keeps, unowned_keeps);
                         return;

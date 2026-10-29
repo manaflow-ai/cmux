@@ -56,7 +56,11 @@ impl Brain {
         if !self.read_since_start {
             // A host started after the quit (another Chief woken by a
             // message) reads that message before it decides. No timer: the
-            // first link Up or a failed connect ends it.
+            // first link Up or a failed connect ends it. Accepted gaps: a
+            // first connect that fails for a moment (the owner daemon
+            // restarting) or a catch-up that fails ends it too; the message
+            // stays in the owner daemon and is read at the next wake (a new
+            // message) or the next app start.
             return Some("the conversation is not read since the host started");
         }
         if !self.is_idle() {
