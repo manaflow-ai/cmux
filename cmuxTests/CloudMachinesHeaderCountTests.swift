@@ -15,7 +15,10 @@ import Testing
 @MainActor
 @Suite("Cloud Machines header count")
 struct CloudMachinesHeaderCountTests {
-    private static let genericHelp = "Machines on your plan. Sleeping machines cost nothing."
+    private static let genericHelp = String(
+        localized: "machines.meter.help",
+        defaultValue: "Running and paused machines count toward your plan’s machine limit."
+    )
 
     @Test("A capped plan shows used/limit in the My Devices count slot")
     func cappedPlanShowsUsedOverLimit() throws {
@@ -121,7 +124,7 @@ struct CloudMachinesHeaderCountTests {
     }
 
     @Test("Hovering the header shows the plan's help", arguments: [
-        (1, "Machines on your plan. Sleeping machines cost nothing."),
+        (1, Self.genericHelp),
         (50, "Your plan includes 50 machines. Upgrade to create more."),
     ])
     func headerRowCarriesThePlanHelp(activeCount: Int, help: String) {
