@@ -26,6 +26,10 @@ final class ComputerUseConsentHost {
     private let refused: @Sendable (String) async -> Void
     private var configuration: AgentActivitySocketSource.Configuration?
     private var connection: AgentActivityLineConnection?
+    /// The connection whose questions are answered; read off the main actor
+    /// by its line callback, so a stopped or replaced connection's late
+    /// lines start no daemon query.
+    private let current = OSAllocatedUnfairLock<ObjectIdentifier?>(initialState: nil)
     private var retry: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(5))
 
@@ -46,6 +50,7 @@ final class ComputerUseConsentHost {
         retry = nil
         connection?.cancel()
         connection = nil
+        current.withLock { $0 = nil }
         backoff.reset()
     }
 
@@ -70,7 +75,8 @@ final class ComputerUseConsentHost {
     nonisolated static func classify(_ object: [String: Any]) -> Line {
         switch object["type"] as? String {
         case "machine_consent", "consent_refused": .question
-        case nil where object["ok"] as? Bool == true: .attached
+        case nil where object["ok"] as? Bool == true
+            && (object["result"] as? [String: Any])?["attached"] as? Bool == true: .attached
         case nil: .refusedAttach
         default: .other
         }
@@ -81,10 +87,13 @@ final class ComputerUseConsentHost {
         let connection = AgentActivityLineConnection(path: configuration.socketPath,
                                                      acceptsServer: CuaHelperIdentity.isHelperServer)
         self.connection = connection
+        let id = ObjectIdentifier(connection)
+        current.withLock { $0 = id }
+        let current = self.current
         let consent = self.consent
         let refused = self.refused
         connection.start(send: Self.attachLine(configuration), onLine: { [weak self, weak connection] line in
-            guard let connection,
+            guard let connection, current.withLock({ $0 == id }),
                   let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
             switch Self.classify(object) {
             case .question:
@@ -108,6 +117,7 @@ final class ComputerUseConsentHost {
     private func lost(_ lostConnection: AgentActivityLineConnection?) {
         guard let lostConnection, connection === lostConnection else { return }
         connection = nil
+        current.withLock { $0 = nil }
         guard configuration != nil else { return }
         retry?.cancel()
         retry = Task { [weak self] in

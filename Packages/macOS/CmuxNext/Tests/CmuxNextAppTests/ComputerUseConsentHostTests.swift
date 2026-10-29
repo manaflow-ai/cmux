@@ -19,6 +19,8 @@ struct ComputerUseConsentHostTests {
 
     @Test func linesAreClassified() {
         #expect(ComputerUseConsentHost.classify(["ok": true, "result": ["attached": true]]) == .attached)
+        #expect(ComputerUseConsentHost.classify(["ok": true, "result": [String: Any]()]) == .refusedAttach)
+        #expect(ComputerUseConsentHost.classify(["ok": true]) == .refusedAttach)
         #expect(ComputerUseConsentHost.classify(["ok": false, "error": "unknown method"]) == .refusedAttach)
         #expect(ComputerUseConsentHost.classify(["type": "machine_consent", "id": 1]) == .question)
         #expect(ComputerUseConsentHost.classify(["type": "consent_refused", "surface": "screen"]) == .question)
