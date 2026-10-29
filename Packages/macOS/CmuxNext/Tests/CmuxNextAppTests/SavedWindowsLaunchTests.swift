@@ -8,8 +8,8 @@ import Testing
 /// starting, answered the launch's read of the saved window records after the 2 s control-plane
 /// deadline; the failure read as "nothing saved", the launch window took every workspace, and its
 /// first save replaced the stored records (two open windows, eighteen closed) with that one window.
-/// When the read fails, the launch never writes the records, so the next launch restores every
-/// window (`SavedWindowsRead`, its retry tests are in CmuxNextDaemonTests).
+/// Saves stay blocked until the saved registry is installed, including while reads time out or
+/// reconnect (`SavedWindowsRead`, its retry tests are in CmuxNextDaemonTests).
 @MainActor @Suite(.serialized)
 struct SavedWindowsLaunchTests {
     /// Before the launch read the records (a quit while the daemon still starts), nothing may save:
@@ -19,6 +19,20 @@ struct SavedWindowsLaunchTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.windows.savedWindowsUnread)
         #expect(!services.windows.restored)
+    }
+
+    @Test(.timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aHydratedLaunchCanSaveItsWindows() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let windows = services.windows
+            #expect(windows.restored)
+            #expect(!windows.savedWindowsUnread)
+            let windowState = try #require(services.daemon.windowState)
+            _ = await windows.recordSaver.saveNow()
+            let saved = try await windowState.load()
+            #expect(!saved.windows.isEmpty)
+            #expect(Set(saved.windows.map(\.id)) == Set(windows.recordSaver.currentRecords().map(\.id)))
+        }
     }
 
     /// Against a same-tree cmux-tui: while the launch's read waits and after it failed, a save leaves
@@ -44,7 +58,7 @@ struct SavedWindowsLaunchTests {
                 throw DaemonError.timedOut("frontend_projection.get")
             }
             #expect(savedDuringRead == saved, "a save during the read replaced the saved windows")
-            #expect(document.windows.isEmpty)
+            #expect(document == nil)
             #expect(windows.savedWindowsUnread)
             _ = await windows.recordSaver.saveNow()
             #expect(try await windowState.load().windows.map(\.id) == saved,
@@ -52,7 +66,7 @@ struct SavedWindowsLaunchTests {
 
             // A read that answers still cannot save before its records have been installed.
             let read = await windows.readSavedWindows()
-            #expect(read.windows.map(\.id) == saved)
+            #expect(read?.windows.map(\.id) == saved)
             #expect(windows.savedWindowsUnread)
             _ = await windows.recordSaver.saveNow()
             #expect(try await windowState.load().windows.map(\.id) == saved)

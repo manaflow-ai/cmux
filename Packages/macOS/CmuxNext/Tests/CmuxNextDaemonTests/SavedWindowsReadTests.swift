@@ -60,4 +60,32 @@ struct SavedWindowsReadTests {
         guard case .unread = outcome else { Issue.record("expected unread"); return }
         #expect(attempts.deadlines.count == 1)
     }
+
+    @Test func aDisconnectedReadWaitsForTheCurrentConnectionBeforeRetrying() async {
+        let attempts = Attempts()
+        var readinessWaits = 0
+        let outcome = await SavedWindowsRead().run(waitUntilReady: { readinessWaits += 1 }) { deadline in
+            attempts.deadlines.append(deadline)
+            switch attempts.deadlines.count {
+            case 1: throw DaemonError.notConnected
+            case 2: throw DaemonError.connectionClosed(reason: "daemon restarting")
+            case 3: throw DaemonError.daemonShutdown
+            default: return Self.twoWindows
+            }
+        }
+        guard case .loaded(let document) = outcome else { Issue.record("reconnect did not resume restoration"); return }
+        #expect(document.windows.map(\.id) == ["front", "second"])
+        #expect(readinessWaits == 4)
+    }
+
+    @Test func quittingCancelsThePendingReadInsteadOfRetrying() async {
+        let read = Task { @MainActor in
+            await SavedWindowsRead().run { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+                throw DaemonError.timedOut("frontend_projection.get")
+            }
+        }
+        guard case .unread(let error) = await read.value else { Issue.record("a cancelled restore completed"); return }
+        #expect(error is CancellationError)
+    }
 }

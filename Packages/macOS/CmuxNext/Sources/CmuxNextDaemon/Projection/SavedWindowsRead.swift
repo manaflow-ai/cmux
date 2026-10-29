@@ -4,8 +4,8 @@ import Foundation
 /// registry, journal maintenance after an update relaunch) can answer later than the 2 s
 /// control-plane deadline; before, that failure read as "nothing saved": the launch window took
 /// every workspace, and its first save replaced the stored windows with that one window. The read
-/// waits up to `attemptTimeout` and tries again after a timeout; when it
-/// still fails, the outcome says so, and the launch keeps the stored records unwritten.
+/// waits up to `attemptTimeout` per request, continuing until the daemon answers or the launch
+/// is cancelled. A reconnect waits for readiness rather than consuming a fixed retry budget.
 public struct SavedWindowsRead: Sendable {
     public enum Outcome: Sendable {
         case loaded(WindowStateDocument)
@@ -13,25 +13,35 @@ public struct SavedWindowsRead: Sendable {
         case unread(any Error)
     }
 
-    public var attempts: Int
+    public var attempts: Int?
     public var attemptTimeout: Duration
 
-    public init(attempts: Int = 3, attemptTimeout: Duration = .seconds(10)) {
+    /// A finite `attempts` bounds a diagnostic read; launch restoration has no total deadline.
+    public init(attempts: Int? = nil, attemptTimeout: Duration = .seconds(10)) {
         self.attempts = attempts
         self.attemptTimeout = attemptTimeout
     }
 
-    /// Runs `load` (one attempt's read with its deadline) on the caller's actor.
+    /// Runs `load` on the caller's actor. `waitUntilReady` suspends on connection events before
+    /// each attempt, including after a disconnect; without it only timed-out requests retry.
     public func run(isolation: isolated (any Actor)? = #isolation,
+                    waitUntilReady: (() async throws -> Void)? = nil,
                     _ load: (Duration) async throws -> WindowStateDocument) async -> Outcome {
         var failure: any Error = DaemonError.notConnected
-        // wakeup-allow: bounded retry (`attempts`), each attempt waits on the daemon's reply or its deadline
-        for _ in 0 ..< max(1, attempts) {
+        var count = 0
+        // wakeup-allow: launch-only retry; each attempt suspends for connection readiness or the request deadline; cancelled on quit
+        while attempts.map({ count < max(1, $0) }) ?? true {
             do {
-                return .loaded(try await load(attemptTimeout))
+                try Task.checkCancellation()
+                try await waitUntilReady?()
+                try Task.checkCancellation()
+                count += 1
+                let document = try await load(attemptTimeout)
+                try Task.checkCancellation()
+                return .loaded(document)
             } catch {
                 failure = error
-                guard Self.isTransient(error) else { break }
+                guard Self.isTransient(error) || (waitUntilReady != nil && (error as? DaemonError)?.isLostConnection == true) else { break }
             }
         }
         return .unread(failure)
