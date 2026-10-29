@@ -61,6 +61,9 @@ jobs:
       - name: Test frontend documentation protocol
         run: python3 cmux-tui/scripts/test_frontend_docs.py
 
+      - name: Test the machine join script
+        run: sh cmux-tui/scripts/machine-join.test.sh
+
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
 

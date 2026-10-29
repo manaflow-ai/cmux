@@ -112,9 +112,20 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
-  /** The commit-time drain of Chief wake channels in flight (afterCommit), and whether a commit came during it. */
+  /** The commit-time drain of prompt channels in flight (afterCommit), and whether a commit came during it. */
   private wakeDrain: Promise<void> | undefined
   private wakeAgain = false
+  /**
+   * The outbox channels a person waits on, drained at commit time instead of only by the alarm (which
+   * drains the PlanetScale projection first: seconds in prod). Chief wake queues by default.
+   */
+  protected promptChannel(channel: string): boolean {
+    return isWakeChannel(channel)
+  }
+  /** Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended. */
+  protected async promptDrained(): Promise<void> {
+    while (this.wakeDrain) await this.wakeDrain
+  }
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -340,8 +351,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private drainWakes(now: number): void {
     if (!this.engine) return
     if (this.wakeDrain) return void (this.wakeAgain = true)
-    if (!this.engine.outbox.dueChannels(now).some(isWakeChannel)) return
-    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel)
+    const prompt = (c: string) => this.promptChannel(c)
+    if (!this.engine.outbox.dueChannels(now).some(prompt)) return
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt)
       .catch(() => undefined)
       .finally(() => {
         this.wakeDrain = undefined
