@@ -40,7 +40,7 @@
 //     failed, so the next attach reads the chat from nothing.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
 import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
@@ -79,6 +79,10 @@ const record = (seq: number, text: string) => ({
 });
 const turn = (from: number, to: number, label: string) =>
   Array.from({ length: to - from + 1 }, (_, at) => record(from + at, `${label} ${from + at}. `));
+const commandUpdate = (name: string) => ({
+  sessionUpdate: "available_commands_update",
+  availableCommands: [{ name, description: name }],
+});
 
 /// The Mac's acpmux with one chat on peer huge-blue (or on this Mac, `peer: undefined`): `down`
 /// refuses its attach as acpmux does for a machine that does not answer, `copy` is what
@@ -99,7 +103,7 @@ class Daemon {
   /// The session the attach names, when the machine recreated it after the row was listed.
   attachCreatedAt: number | undefined;
   /// Live records the machine sends before it answers the attach.
-  beforeAttach: ReturnType<typeof record>[] = [];
+  beforeAttach: EventRecord[] = [];
   /// Attaches that fail for another reason than the machine being down.
   failAttach = 0;
   /// Live records sent while the chat left is detached (before the attach is asked).
@@ -107,6 +111,8 @@ class Daemon {
   /// The slash commands the session's newest command list names, when it has one (or, as a
   /// function, the list a read back from `beforeSeq` finds).
   commandNames: string[] | ((beforeSeq: number) => string[]) | undefined;
+  /// The latest command publication kept in the session summary, outside its tail page.
+  availableCommands: ReturnType<typeof commandUpdate> | undefined;
   /// The row's status while the machine is up, when not idle.
   status: string | undefined;
   /// Another chat, on this Mac, listed beside the peer chat (a tab that switches from it).
@@ -203,6 +209,7 @@ class Daemon {
       turnCount: 1,
       updatedAt: START,
       createdAt: this.createdAt,
+      ...(this.availableCommands ? { availableCommands: this.availableCommands } : {}),
       ...(this.queue ? { queue: this.queue } : {}),
       ...(this.peer ? { peer: this.peer } : {}),
       ...(this.down ? { stale: true } : {}),
@@ -1528,12 +1535,18 @@ test("a cold open whose attach fails keeps none of the records that came before 
   first.log = turn(1, 42, "log");
   // Seqs 41 and 42 come live before the attach answers, which then fails.
   first.beforeAttach = [record(41, "stray 41. "), record(42, "stray 42. ")];
+  first.beforeAttach.push({
+    ...record(43, ""),
+    kind: "available_commands_update",
+    msg: { method: "session/update", params: { sessionId: SESSION, update: commandUpdate("stray-command") } },
+  });
   first.failAttach = 1;
   const second = new Daemon();
   second.down = false;
   second.peer = undefined;
   // The chat ran on to 50; the page holds 48..50.
   second.log = turn(1, 50, "log");
+  second.availableCommands = commandUpdate("current-command");
   const sockets = [first, second];
   resetKeptTailsForTests();
   const drawn: AcpmuxSnapshot[] = [];
@@ -1558,6 +1571,7 @@ test("a cold open whose attach fails keeps none of the records that came before 
   await flush();
   expect(opening.lastSeq).toBe(0);
   expect(text(drawn.at(-1))).not.toContain("stray");
+  expect(drawn.at(-1)?.commands?.map((command) => command.name)).not.toContain("stray-command");
   // The next open reads the chat from nothing: no gap is read after 41 and 42 as if they were.
   await opening.open();
   await flush();
@@ -1567,6 +1581,7 @@ test("a cold open whose attach fails keeps none of the records that came before 
   expect(shown).not.toContain("stray");
   for (const seq of [48, 49, 50]) expect(count(shown, ` ${seq}. `)).toBe(1);
   expect(opening.lastSeq).toBe(50);
+  expect(drawn.at(-1)?.commands?.map((command) => command.name)).toEqual(["current-command"]);
 });
 
 test("a cold select refused as down with no copy keeps none of the records that came before it failed", async () => {
