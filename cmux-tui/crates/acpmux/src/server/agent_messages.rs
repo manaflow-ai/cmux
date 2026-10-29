@@ -12,6 +12,10 @@
 //! And `_acpmux/retry {sessionId, subagentId?}` ([`retry`]): the chat's failed last turn, retried
 //! now (`hub/auto_resume/retry_turn.rs`), or with `subagentId` that failed subagent, resumed now
 //! (`hub/subagent_retry_manual.rs`). It may reach a peer's chat (`peer_forward.rs`).
+//!
+//! And `_acpmux/inbox_digest {sessionId, dryRun?}` ([`inbox_digest`]): the agent messages waiting
+//! in the chat's queue go in as one digest (`hub/inbox_digest.rs`). The unix socket only, from
+//! the person or the chat's own agent (its caller token); never from another session's agent.
 
 use super::{Conn, Origin, session_key, str_param};
 use crate::hub::{Hub, Session};
@@ -24,7 +28,8 @@ fn local_person(conn: &Conn) -> bool {
     conn.is_person() && !conn.origin.web_class()
 }
 
-/// `_acpmux/prompt_withdraw`, `_acpmux/agent_pair_resume` or `_acpmux/retry`.
+/// `_acpmux/prompt_withdraw`, `_acpmux/agent_pair_resume`, `_acpmux/retry` or
+/// `_acpmux/inbox_digest`.
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -33,6 +38,9 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     if m == method::MUX_RETRY {
         return retry(hub, conn, params).await;
+    }
+    if m == method::MUX_INBOX_DIGEST {
+        return inbox_digest(hub, conn, params).await;
     }
     if m == method::MUX_PROMPT_WITHDRAW {
         // The unix socket only; `remote_guard.rs` refuses every other origin first.
@@ -50,6 +58,22 @@ pub(super) async fn handle(
     // The pairs come back with the logs (`restore_queue`): resume what they restored.
     hub.wait_logs().await;
     Ok(hub.agent_pair_resume(&s.id, str_param(params, "peerSessionId")))
+}
+
+/// `_acpmux/inbox_digest`: the unix socket only (`remote_guard.rs` refuses every other origin
+/// first), and never for another session's agent: a connection that says it runs in a session
+/// (its caller token, proven or not) drains only that session's inbox.
+async fn inbox_digest(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    if conn.origin != Origin::Local {
+        return Err(Hub::inbox_digest_origin_refused());
+    }
+    let s = hub.resolve(session_key(params)?)?;
+    let caller = conn.caller().or_else(|| conn.unproven_caller.get().map(String::as_str));
+    if caller.is_some_and(|id| id != s.id) {
+        return Err(Hub::inbox_digest_other_agent());
+    }
+    let dry_run = params.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    hub.inbox_digest(&s, &conn.label(), dry_run).await
 }
 
 /// `_acpmux/retry`: under the caller's rules, as a prompt it sent (its control, the trust gate

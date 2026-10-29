@@ -50,6 +50,10 @@ use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
 use std::sync::atomic::Ordering;
 
+// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
+#[path = "inbox_digest.rs"]
+pub(super) mod inbox_digest;
+
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
 
@@ -253,9 +257,11 @@ impl Hub {
     ) -> Vec<Part> {
         // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
         // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
+        // An inbox digest goes in as it was made (`inbox_digest.rs`): it leads none.
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || inbox_digest::is_digest(head.provenance.as_ref())
         {
             return Vec::new();
         }
@@ -281,7 +287,8 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate
-                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref());
+                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
@@ -419,6 +426,7 @@ mod tests {
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
+            class: None,
             supersede: None,
             full_access_device: None,
         })

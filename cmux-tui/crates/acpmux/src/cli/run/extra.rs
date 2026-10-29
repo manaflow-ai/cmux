@@ -110,6 +110,32 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::InboxDigest { session, dry_run } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if v["digested"].as_u64().unwrap_or(0) == 0 {
+                println!("no agent message waits in its queue");
+            } else if dry_run {
+                println!("{}", v["text"].as_str().unwrap_or_default());
+                println!("\n(dry run: nothing changed; --digest sends it)");
+            } else {
+                let how = match v["delivery"].as_str() {
+                    Some("steer") => "steered into its running turn".to_owned(),
+                    _ => format!("queued at position {}", v["position"]),
+                };
+                println!(
+                    "{} messages went into digest {}, {how}",
+                    v["digested"],
+                    v["promptId"].as_str().unwrap_or_default()
+                );
+            }
+            Ok(())
+        }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;

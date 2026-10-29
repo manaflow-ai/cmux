@@ -60,6 +60,7 @@ export interface AcpmuxRequests {
   "_acpmux/bookmark_get": { params: unknown; result: unknown };
   "_acpmux/bookmark_set": { params: unknown; result: unknown };
   "_acpmux/prompt_withdraw": { params: unknown; result: unknown };
+  "_acpmux/inbox_digest": { params: unknown; result: unknown };
   "_acpmux/send_queue": { params: unknown; result: unknown };
   "_acpmux/send_status": { params: unknown; result: unknown };
   "_acpmux/step_now": { params: unknown; result: unknown };
@@ -329,6 +330,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/prompt_withdraw", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_digest", kind: "request", acp: false, typed: false },
   { name: "_acpmux/send_queue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/send_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/step_now", kind: "request", acp: false, typed: false },

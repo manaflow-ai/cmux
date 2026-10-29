@@ -11,6 +11,9 @@
 //! Only its own turn's start settles it: another turn's (one a daemon that did not restore it
 //! ran, its log load failed) did not run it, and settling it there dropped it unrun.
 //!
+//! A prompt an inbox digest took (`dequeued` with `digestPromptId`) is no such prompt: the
+//! digest's `queued` record, logged before, runs it.
+//!
 //! The prompts are indexed by prompt, turn and starting turn, so each record costs the same
 //! however many of them a long log holds.
 
@@ -53,6 +56,9 @@ impl Unstarted {
         let turn_id = e.msg.get("turnId").and_then(Value::as_str);
         let prompt_id = e.msg.get("promptId").and_then(Value::as_str);
         match e.kind.as_str() {
+            // Folded into an inbox digest (`inbox_digest.rs`): the digest's own `queued` record,
+            // logged before this one, carries it, so it never runs again on its own.
+            "dequeued" if e.msg.get("digestPromptId").is_some() => Vec::new(),
             "dequeued" if !self.open => {
                 if let (Some(p), Some(t)) = (prompt_id, turn_id)
                     && waiting.has_turn(e.msg.get("turnId"))

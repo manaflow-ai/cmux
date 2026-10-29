@@ -76,6 +76,9 @@ pub(super) struct PromptRun {
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
     pub(super) agent: Option<String>,
+    /// Its class when it is another agent's message (`prompt_class.rs`), `None` when it is the
+    /// person's; an edit makes it the person's.
+    pub(super) class: Option<crate::prompt_class::PromptClass>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
     pub(super) supersede: Option<String>,
     /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
@@ -247,6 +250,7 @@ impl Hub {
                             trust_gate: p.trust_gate,
                             provenance: p.provenance.cloned(),
                             agent: p.agent.map(str::to_owned),
+                            class: None,
                             supersede: p.supersede.map(str::to_owned),
                             full_access_device: p.full_access_device.map(str::to_owned),
                         };
@@ -331,7 +335,9 @@ impl Hub {
             prompt_id,
             control,
             trust_gate,
-            interrupt: true,
+            // An inbox digest whose turn ended first waits at the head of the agent messages,
+            // behind the person's prompts (`enqueue`), and stops no turn.
+            interrupt: !super::digest::inbox_digest::is_digest(provenance.as_ref()),
             provenance,
             agent: run.agent.clone(),
             display_parts: run.display_parts.clone(),
@@ -387,7 +393,16 @@ impl Hub {
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
+        // An inbox digest (`inbox_digest.rs`) goes at the head of the agent messages, behind any
+        // digest before it.
+        let is_digest = super::digest::inbox_digest::is_digest;
         let at = match p.agent {
+            Some(_) if is_digest(p.provenance) => queue.iter().position(|q| {
+                q.held
+                    || (q.run.agent.is_some()
+                        && !q.sent_now
+                        && !is_digest(q.run.provenance.as_ref()))
+            }),
             Some(_) => queue.iter().position(|q| q.held),
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
@@ -408,6 +423,7 @@ impl Hub {
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
+                    class: None,
                     supersede: p.supersede.map(str::to_owned),
                     full_access_device: p.full_access_device.map(str::to_owned),
                 }),
@@ -958,6 +974,11 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
+            // A record from before classes: an agent's message is a result (`prompt_class.rs`).
+            let class = crate::prompt_class::of_message(
+                crate::prompt_class::recorded(&e.msg),
+                agent.is_some(),
+            );
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
@@ -974,6 +995,7 @@ impl Hub {
                     trust_gate,
                     provenance,
                     agent,
+                    class,
                     supersede,
                     // A restored prompt names no machine: it does not run a chat out of its
                     // policy's mode (`Hub::full_access_hold`).
