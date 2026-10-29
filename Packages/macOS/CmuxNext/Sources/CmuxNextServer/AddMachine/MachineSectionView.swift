@@ -3,9 +3,11 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
-/// Servers) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
+/// Servers, Joined) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
 /// icon sits in one column and every name starts on one line; text takes three theme inks
-/// (``MachineSectionInk``). Rows take value snapshots and an action bundle, never a store.
+/// (``MachineSectionInk``). A machine that joined with a one-line token (Labs `labs.machineJoin`) is
+/// a ``JoinedMachineRowView`` with its "…" menu, in its link's group or the Joined group. Rows take
+/// value snapshots and an action bundle, never a store.
 public final class MachineSectionView: NSView {
     /// What the section's controls do.
     public struct Actions {
@@ -16,12 +18,36 @@ public final class MachineSectionView: NSView {
         /// A machine's right-click row New Workspace on This Machine, from the action registry (a
         /// registered action, never an inline selector); nil leaves the row without a menu.
         public var newWorkspaceMenuItem: @MainActor (String) -> NSMenuItem?
+        /// A joined machine's "…" menu (the registry's rows for it), with the row it opens on.
+        public var joinedMenu: @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu?
 
         public init(newWorkspace: @escaping @MainActor (String) -> Void, addMachine: @escaping @MainActor () -> Void,
-                    newWorkspaceMenuItem: @escaping @MainActor (String) -> NSMenuItem? = { _ in nil }) {
+                    newWorkspaceMenuItem: @escaping @MainActor (String) -> NSMenuItem? = { _ in nil },
+                    joinedMenu: @escaping @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu? = { _, _ in nil }) {
             self.newWorkspace = newWorkspace
             self.addMachine = addMachine
             self.newWorkspaceMenuItem = newWorkspaceMenuItem
+            self.joinedMenu = joinedMenu
+        }
+    }
+
+    /// What the joined machines' rows show beside their machine, by joined machine id: a Revoke or
+    /// Rotate in flight, the last one that failed, and the menu shown open (the capture fixture's).
+    public struct JoinedRowState: Equatable, Sendable {
+        public var busy: Set<String>
+        public var failed: [String: JoinedMachineChange]
+        public var openMenu: String?
+
+        public init(busy: Set<String> = [], failed: [String: JoinedMachineChange] = [:], openMenu: String? = nil) {
+            self.busy = busy
+            self.failed = failed
+            self.openMenu = openMenu
+        }
+
+        /// `store`'s state now (read where the caller observes it).
+        @MainActor
+        public init(_ store: JoinedMachineStore) {
+            self.init(busy: store.busy, failed: store.failed, openMenu: store.openMenu)
         }
     }
 
@@ -29,8 +55,11 @@ public final class MachineSectionView: NSView {
     let addRow: MachineSectionAddRow
     public private(set) var rows: [MachineSectionRow] = []
     public private(set) var style: MachineSectionStyle = .compact
+    public private(set) var joinedState = JoinedRowState()
     /// Row views by machine id, kept across updates so a row under the pointer keeps its hover.
     private(set) var rowViews: [String: MachineSectionRowView] = [:]
+    /// Joined machines' row views by row id, kept the same way.
+    private(set) var joinedViews: [String: JoinedMachineRowView] = [:]
     /// The shown views top to bottom, each with the gap above it.
     private var arranged: [(view: NSView, gap: CGFloat)] = []
     private var shown = false
@@ -48,11 +77,13 @@ public final class MachineSectionView: NSView {
 
     nonisolated override public var isFlipped: Bool { true }
 
-    /// Shows `rows` in `style`; nothing changes when both are what it shows.
-    public func update(_ rows: [MachineSectionRow], style: MachineSectionStyle) {
-        guard rows != self.rows || style != self.style || !shown else { return }
+    /// Shows `rows` in `style`, joined machines' rows with `joined`; nothing changes when all three
+    /// are what it shows.
+    public func update(_ rows: [MachineSectionRow], style: MachineSectionStyle, joined: JoinedRowState = JoinedRowState()) {
+        guard rows != self.rows || style != self.style || joined != joinedState || !shown else { return }
         self.rows = rows
         self.style = style
+        joinedState = joined
         rebuild()
     }
 
@@ -62,6 +93,7 @@ public final class MachineSectionView: NSView {
             switch item.view {
             case let header as MachineSectionHeaderView: header.label.stringValue
             case let row as MachineSectionRowView: row.shownText
+            case let row as JoinedMachineRowView: row.shownText
             case let add as MachineSectionAddRow: add.label.stringValue
             default: nil
             }
@@ -72,15 +104,28 @@ public final class MachineSectionView: NSView {
         shown = true
         var next: [(view: NSView, gap: CGFloat)] = []
         var live: [String: MachineSectionRowView] = [:]
+        var liveJoined: [String: JoinedMachineRowView] = [:]
         for group in style.groups(rows) {
             if let title = group.title {
                 next.append((MachineSectionHeaderView(title: title), next.isEmpty ? 0 : Metrics.space4))
             }
             for row in group.rows {
-                let view = rowViews[row.id] ?? MachineSectionRowView(newWorkspace: actions.newWorkspace,
-                                                                     menuItem: actions.newWorkspaceMenuItem)
-                view.configure(row, showsStateLine: style.showsStateLine)
-                live[row.id] = view
+                let view: NSView
+                if let machine = row.joined {
+                    let joinedView = joinedViews[row.id] ?? JoinedMachineRowView()
+                    let newWorkspace = actions.newWorkspace, joinedMenu = actions.joinedMenu
+                    joinedView.update(.init(row: row, machine: machine, busy: joinedState.busy.contains(machine.id),
+                                            failed: joinedState.failed[machine.id], menuOpen: joinedState.openMenu == machine.id),
+                                      .init(newWorkspace: { newWorkspace(row.id) }, menu: { joinedMenu(machine, row) }))
+                    liveJoined[row.id] = joinedView
+                    view = joinedView
+                } else {
+                    let rowView = rowViews[row.id] ?? MachineSectionRowView(newWorkspace: actions.newWorkspace,
+                                                                            menuItem: actions.newWorkspaceMenuItem)
+                    rowView.configure(row, showsStateLine: style.showsStateLine)
+                    live[row.id] = rowView
+                    view = rowView
+                }
                 next.append((view, next.last?.view is MachineSectionHeaderView ? Metrics.space1 : 0))
             }
         }
@@ -90,6 +135,7 @@ public final class MachineSectionView: NSView {
         for item in next where item.view.superview !== self { addSubview(item.view) }
         arranged = next
         rowViews = live
+        joinedViews = liveJoined
         needsLayout = true
     }
 

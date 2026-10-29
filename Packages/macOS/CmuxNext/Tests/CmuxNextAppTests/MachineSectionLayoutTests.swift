@@ -114,6 +114,42 @@ import Testing
         #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
     }
 
+    /// Joined machines (Labs `labs.machineJoin`): a mesh-only one sits under the Joined header after the
+    /// other kinds, a linked one stays in its link's group; both are the joined row with its "…" menu,
+    /// and the store's busy, failed and open-menu state reaches them.
+    @Test func joinedMachinesSitInTheirGroupsAsJoinedRows() throws {
+        let linkedMachine = JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, meshPeerId: "h1", mintedBy: "you@example.com")
+        let meshMachine = JoinedMachine(id: "m_2", name: "gpu-west", state: .offline)
+        let linked = MachineSectionRow(id: "h1", name: "lane-vm-3", isConnected: true, isLocal: false, kind: .ssh, joined: linkedMachine)
+        let mesh = MachineSectionRow.joined(meshMachine, health: nil)
+        #expect(mesh.kind == .joined && !mesh.isLinked && linked.isLinked)
+        var menus: [String] = []
+        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}, joinedMenu: { machine, row in
+            menus.append("\(machine.id)@\(row.id)")
+            return NSMenu()
+        }))
+        view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init(busy: ["m_2"], openMenu: "m_1"))
+        let lines = view.shownLines
+        #expect(lines.first == "This Mac")
+        let ssh = try #require(lines.firstIndex(of: AddMachineStrings.group(.ssh)!))
+        let joined = try #require(lines.firstIndex(of: AddMachineStrings.group(.joined)!))
+        #expect(ssh < joined)
+        #expect(lines[ssh + 1].hasPrefix("lane-vm-3 · "))
+        #expect(lines[joined + 1].hasPrefix("gpu-west · "))
+        #expect(view.rowViews.isEmpty, "joined machines are joined rows, never plain ones")
+        let linkedView = try #require(view.joinedViews["h1"]), meshView = try #require(view.joinedViews[mesh.id])
+        #expect(linkedView.snapshot?.menuOpen == true && linkedView.snapshot?.isLinked == true)
+        #expect(meshView.snapshot?.busy == true && meshView.snapshot?.isLinked == false)
+        #expect(linkedView.add.isEnabled && !meshView.add.isEnabled)
+        _ = linkedView.more.pressMenu?()
+        #expect(menus == ["m_1@h1"])
+        // The store's state alone changing reaches the rows.
+        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init())
+        #expect(view.joinedViews[mesh.id]?.snapshot?.busy == false)
+        #expect(view.joinedViews[mesh.id] === meshView)
+    }
+
     @Test func newWorkspaceShowsUnderThePointerAndRunsOnlyWhenConnected() throws {
         var opened: [String] = []
         let view = Self.section { opened.append($0) }

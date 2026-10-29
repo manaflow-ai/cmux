@@ -8,6 +8,10 @@ import Testing
 /// will be jumping to"): the card shows the target's title, state, place and lines; the app reads
 /// a file's first lines off disk and names a missing one; plans/cmux-next/home-link-chips-DESIGN.md.
 @MainActor @Suite(.serialized) struct HomeLinkPreviewTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     @Test func theCardShowsTitleStatePlaceAndLines() {
         let card = HomeLinkPreviewCardView()
         card.configure(HomeLinkPreview(kind: .terminal, title: "build log", place: "Chief · audio · ~/fun/cmux", status: "Open",

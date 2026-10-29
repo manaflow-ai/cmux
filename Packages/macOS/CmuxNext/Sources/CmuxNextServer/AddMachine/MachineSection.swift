@@ -27,6 +27,9 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     case ssh
     /// A paired cmux server.
     case server
+    /// A machine that joined with a one-line token and that the app reaches through the mesh alone
+    /// (Labs `labs.machineJoin`). A joined machine the app also connects to keeps that link's kind.
+    case joined
 
     /// The row's icon: the catalog icon whose meaning is this kind.
     public var icon: IconName {
@@ -35,6 +38,7 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
         case .cloud: .cloud
         case .ssh: .machineRemote
         case .server: .machineMac
+        case .joined: .network
         }
     }
 }
@@ -54,10 +58,14 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     public let health: HostHealth?
     /// The step the last check flagged (its first failure, else its first warning).
     public let healthStep: HostStep?
+    /// A machine that joined with a one-line token (Labs `labs.machineJoin`): reached through the
+    /// mesh, with Check, Rotate Credential and Revoke. Nil for a machine the app connects to.
+    public let joined: JoinedMachine?
 
-    /// - Parameter kind: nil takes `.local` for this Mac and `.ssh` for any other machine.
+    /// - Parameter kind: nil takes `.local` for this Mac and `.ssh` for any other machine (a joined
+    ///   machine's own row, ``joined(_:health:)``, passes `.joined`).
     public init(id: String, name: String, isConnected: Bool, isLocal: Bool, kind: MachineKind? = nil, isConnecting: Bool = false,
-                health: HostHealth? = nil, healthStep: HostStep? = nil) {
+                health: HostHealth? = nil, healthStep: HostStep? = nil, joined: JoinedMachine? = nil) {
         self.id = id
         self.name = name
         self.isConnected = isConnected
@@ -66,6 +74,17 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         self.isConnecting = !isConnected && isConnecting
         self.health = health
         self.healthStep = healthStep
+        self.joined = joined
+    }
+
+    /// Whether the row is a machine the app connects to (it can open a workspace), not a joined
+    /// machine reached through the mesh alone.
+    public var isLinked: Bool { joined == nil || id != joined.map { JoinedMachine.healthID($0.id) } }
+
+    /// The row of a joined machine, with its last Check from `health`.
+    public static func joined(_ machine: JoinedMachine, health: HostReport?) -> MachineSectionRow {
+        MachineSectionRow(id: JoinedMachine.healthID(machine.id), name: machine.name, isConnected: machine.state == .online, isLocal: false,
+                          kind: .joined, health: health?.health, healthStep: health?.worstStep?.step, joined: machine)
     }
 
     /// The tooltip of the status dot: which step the last check flagged.
@@ -92,7 +111,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
 /// How the Machines section lays out its machines (`machines.section.style`, Debug Settings > Server).
 /// Every style keeps every machine and every action; they differ in grouping and in how much each row says.
 public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// This Mac, then a header per kind (Cloud, SSH, Servers) over one-line rows. The link state shows
+    /// This Mac, then a header per kind (Cloud, SSH, Servers, Joined) over one-line rows. The link state shows
     /// only when it is not connected: a spinner while connecting, "Offline" when down.
     case compact
     /// The same groups, with each machine's link state on a second line.
@@ -114,7 +133,7 @@ public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Has
     public var showsStateLine: Bool { self != .compact }
 
     /// `rows` in this style's groups: one untitled group for `.flat`; otherwise this Mac first with no
-    /// header, then Cloud, SSH and server machines under their headers, each in the order given.
+    /// header, then Cloud, SSH, server and joined machines under their headers, each in the order given.
     /// A kind with no machine has no group.
     public func groups(_ rows: [MachineSectionRow]) -> [MachineSectionGroup] {
         guard groupsByKind else { return rows.isEmpty ? [] : [MachineSectionGroup(id: "all", kind: nil, rows: rows)] }
@@ -138,8 +157,9 @@ public nonisolated struct MachineSectionGroup: Identifiable, Hashable, Sendable 
 }
 
 /// The Machines section's rows: this Mac, then every Cloud, SSH and server machine the app knows,
-/// with whether each is connected and how its last check went (the App reads them from its machine
-/// registry; ``MachineSectionView`` shows them).
+/// with whether each is connected and how its last check went, then the machines that joined with a
+/// one-line token (Labs `labs.machineJoin`) (the App reads them from its machine registry and its
+/// joined machines; ``MachineSectionView`` shows them).
 public nonisolated enum MachineSectionModel {
     /// Sample machines, one of each kind and state, for the gallery and captures on a slot with no
     /// remote machine (`machines.section.fixture`). Names are made up.
