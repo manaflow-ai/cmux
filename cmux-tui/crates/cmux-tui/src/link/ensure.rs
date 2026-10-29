@@ -228,8 +228,10 @@ fn pid_alive(pid: u32) -> bool {
         return false;
     }
     // SAFETY: signal 0 only checks that the process exists.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// The lock file at `path`, locked (exclusive) within `budget`; `None` when
