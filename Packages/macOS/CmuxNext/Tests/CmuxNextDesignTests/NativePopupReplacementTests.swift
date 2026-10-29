@@ -132,10 +132,12 @@ import Testing
         let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
         defer { host.hide() }
         let field = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "", editSequence: 0)
+        let slider = NativePopupRow(id: "slider", kind: .slider, label: "Slider", value: "0", minimum: 0, maximum: 0, step: 1,
+                                    slider: NativePopupSlider(stops: [NativePopupSliderStop(value: "only", label: "Only")]))
         var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320,
-                                     rows: [NativePopupRow(id: "parent", kind: .submenu, label: "Parent", children: [field])])
+                                     rows: [NativePopupRow(id: "parent", kind: .submenu, label: "Parent", children: [field, slider])])
         #expect(host.show(model)["shown"] as? Bool == true)
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         func content(in panel: NSWindow) throws -> NativePopupContent {
@@ -146,14 +148,17 @@ import Testing
         let root = try content(in: panel)
         func openChild() throws -> NativePopupContent {
             root.openSubmenu(model.rows[0], try #require(root.rowView(id: "parent")))
-            return try content(in: #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first))
+            return try content(in: #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first(where: { $0.isKeyWindow })))
         }
         let first = try openChild()
         let firstField = try #require(first.rowView(id: "text") as? NSTextField)
         firstField.stringValue = "first"
         first.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: firstField))
         let firstSequence = try #require(events.last?["editSequence"] as? Int)
+        let retiredSlider = try #require(first.rowView(id: "slider") as? NativePopupSliderView)
         first.dismiss()
+        retiredSlider.slider.commitValue(true)
+        #expect(host.activeID == "same")
         let second = try openChild()
         let secondField = try #require(second.rowView(id: "text") as? NSTextField)
         secondField.stringValue = "second"
@@ -212,6 +217,57 @@ import Testing
         current.slider.commitValue(true)
         #expect(events == 1 && closes == 0)
         #expect(content.model?.id == "replacement")
+    }
+
+    @Test func sliderEchoKeepsControlAndEnterDismissal() throws {
+        let content = NativePopupContent()
+        let spec = NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
+                                            NativePopupSliderStop(value: "high", label: "High")], selectedValue: "low")
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Slider", value: "0", minimum: 0, maximum: 1, step: 1, slider: spec)])
+        content.update(model)
+        let slider = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        var closes = 0
+        content.commit = { closes += 1 }
+        content.emit = { _, _, value in
+            model.revision += 1
+            model.rows[0].value = value
+            model.rows[0].slider?.selectedValue = "high"
+            content.update(model)
+        }
+        slider.slider.doubleValue = 1
+        slider.slider.commitValue(true)
+        #expect(content.rowView(id: "slider") === slider)
+        #expect(closes == 1)
+    }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func replacementDismissalCannotOverwriteAReentrantPresentation() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var model = NativePopupModel(schemaVersion: 1, id: "old", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320, rows: [])
+        var reentrant = model
+        reentrant.id = "newest"
+        var events: [[String: Any]] = []
+        var host: DeclarativePopupHost!
+        host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { event in
+            events.append(event)
+            if events.count == 1 { _ = host.show(reentrant) }
+        }, isAppActive: { true })
+        defer { host.hide() }
+        #expect(host.show(model)["shown"] as? Bool == true)
+        model.id = "outer"
+        _ = host.show(model)
+        #expect(host.activeID == "newest")
+        #expect(events.count == 1)
     }
 
 }
