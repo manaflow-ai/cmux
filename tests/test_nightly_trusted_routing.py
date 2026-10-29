@@ -214,6 +214,26 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(label('signer-build', 'blacksmith-16vcpu-ubuntu-2404'), 'blacksmith-16vcpu-ubuntu-2404')
         self.assertEqual(label('signer-build', 'ubuntu-24.04'), 'blacksmith-32vcpu-ubuntu-2404')
 
+    def test_every_linux_nightly_job_takes_a_runner_set_member(self):
+        # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
+        # (empty, the overflow switch's hosted value, an old 4 vCPU value, 16 or 32).
+        members = {'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'}
+        checked = 0
+        for name, job in DOC['jobs'].items():
+            runs_on = job.get('runs-on', '')
+            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
+                continue
+            checked += 1
+            source = runs_on.removeprefix('${{').removesuffix('}}')
+            for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', *sorted(members)):
+                for primary in ('success', 'failure'):
+                    context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
+                               'needs.prepare-nightly-variant-primary.result': primary}
+                    with self.subTest(job=name, runner=runner, primary=primary):
+                        self.assertIn(evaluate(parse_expression(source), context), members)
+        self.assertGreater(checked, 20)
+
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
             {'github.event_name': 'workflow_dispatch'},
