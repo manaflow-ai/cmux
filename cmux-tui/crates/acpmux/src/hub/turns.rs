@@ -359,7 +359,6 @@ impl Hub {
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
-        let text = prompt_text(&blocks);
         if let Err(e) = self
             .check_dispatch(
                 session,
@@ -383,6 +382,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        let text = prompt_text(&blocks);
         // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`); a person's
         // never waits: `start_turn` refuses it then.
         if !no_queue {
@@ -416,6 +416,9 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
+            .chain(parts.iter().map(|part| part.prompt_id.clone()))
+            .collect();
         let (blocks, text) = if parts.is_empty() {
             (blocks, text)
         } else {
@@ -515,6 +518,18 @@ impl Hub {
                 return Err(e);
             }
         };
+        // Add information after digest reconstruction and the person's display record. Slash
+        // commands keep their prompt intact and leave these notices for a normal turn.
+        let team_enabled =
+            self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
+        let team_messages = if team_enabled && super::forum::slash_command(&blocks).is_none() {
+            self.take_team_messages(session)
+        } else {
+            Vec::new()
+        };
+        super::team_information::prepend(&mut blocks, &team_messages);
+        let confirm_team_write = !team_messages.is_empty()
+            || (team_enabled && self.has_team_work(session, &team_prompt_ids));
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -606,7 +621,12 @@ impl Hub {
             &turn_id,
             false,
             fence.as_ref(),
+            confirm_team_write,
             || {
+                self.mark_team_messages(session, &team_messages);
+                if team_enabled {
+                    self.mark_team_work(session, &team_prompt_ids);
+                }
                 self.watch_stalled_turn(session, None);
                 self.title_after_prompt(session)
             },
@@ -729,7 +749,14 @@ impl Hub {
                                         &turn_id,
                                         false,
                                         fence.as_ref(),
-                                        || self.watch_stalled_turn(session, None),
+                                        confirm_team_write,
+                                        || {
+                                            self.mark_team_messages(session, &team_messages);
+                                            if team_enabled {
+                                                self.mark_team_work(session, &team_prompt_ids);
+                                            }
+                                            self.watch_stalled_turn(session, None);
+                                        },
                                     )
                                     .await
                                 }

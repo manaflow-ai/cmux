@@ -27,6 +27,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ls { .. }
             | Command::New(..)
             | Command::Send { .. }
+            | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Process(..)
@@ -703,6 +704,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
+            if session.starts_with('@') {
+                if !attach.is_empty() || superseding {
+                    return Err(anyhow!(
+                        "team messages currently carry text only and do not support --supersede"
+                    ));
+                }
+                let client = connect(true).await?;
+                let receipt = client
+                    .request(
+                        method::MUX_TEAM_SEND,
+                        json!({"to": session, "body": text, "idempotencyKey": prompt_id.id}),
+                    )
+                    .await?;
+                if json_out {
+                    print_json(&receipt);
+                } else {
+                    println!("{}", team_receipt_line(&receipt));
+                }
+                return Ok(());
+            }
             // A target nobody here resolves goes to the configured relay, if any (`send_relay.rs`).
             let relay = crate::cli::send_relay::configured();
             let relaying = relay.is_some();
@@ -838,6 +859,66 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 (sent, _) => sent,
             }
+        }
+        Command::Inbox(args) => {
+            let client = connect(true).await?;
+            let (method, params) = match args.command.unwrap_or(crate::cli::command::InboxCmd::List)
+            {
+                crate::cli::command::InboxCmd::List => {
+                    (method::MUX_TEAM_INBOX, json!({"unreadOnly": false, "before": args.before}))
+                }
+                crate::cli::command::InboxCmd::Read { id } => {
+                    (method::MUX_TEAM_READ, json!({"id": id}))
+                }
+                crate::cli::command::InboxCmd::Ack { id } => {
+                    (method::MUX_TEAM_ACK, json!({"id": id}))
+                }
+            };
+            let value = client.request(method, params).await?;
+            if json_out {
+                print_json(&value);
+            } else if method == method::MUX_TEAM_INBOX {
+                let messages = value.get("messages").and_then(Value::as_array);
+                if messages.is_none_or(Vec::is_empty) {
+                    println!("team inbox is empty");
+                } else {
+                    for message in messages.into_iter().flatten() {
+                        let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
+                        let from = message
+                            .pointer("/from/teamAddress")
+                            .and_then(Value::as_str)
+                            .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
+                            .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
+                            .unwrap_or("teammate");
+                        let to = message
+                            .pointer("/to/teamAddress")
+                            .and_then(Value::as_str)
+                            .unwrap_or("?");
+                        let state =
+                            message.get("state").and_then(Value::as_str).unwrap_or("queued");
+                        let subject = message
+                            .get("subject")
+                            .and_then(Value::as_str)
+                            .or_else(|| message.get("body").and_then(Value::as_str))
+                            .unwrap_or("");
+                        println!(
+                            "{id}\t{from}\t{to}\t{state}\t{}",
+                            subject.lines().next().unwrap_or("")
+                        );
+                    }
+                }
+                if let Some(next) = value.get("next").and_then(Value::as_u64) {
+                    println!("More: acpmux inbox --before {next}");
+                }
+            } else if method == method::MUX_TEAM_READ {
+                println!(
+                    "{}",
+                    value.pointer("/message/body").and_then(Value::as_str).unwrap_or("")
+                );
+            } else {
+                println!("ok");
+            }
+            Ok(())
         }
         Command::Deliver { target, prompt, id, audience } => {
             if !target.starts_with("reports:") {
@@ -1235,8 +1316,24 @@ fn text_field(value: Option<&Value>) -> String {
     }
 }
 
+fn team_receipt_line(receipt: &Value) -> String {
+    let canonical =
+        receipt.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("unresolved");
+    let decision = receipt.get("startWork").and_then(Value::as_str).unwrap_or("information");
+    let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
+    let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
+    format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn team_receipt_shows_the_hubs_canonical_resolution() {
+        let receipt = serde_json::json!({"to":{"teamAddress":"@user_42/coordinator"},"startWork":"information","state":"queued","messageId":"message-1"});
+        let line = super::team_receipt_line(&receipt);
+        assert!(line.contains("@user_42/coordinator"));
+        assert!(line.contains("startWork=information"));
+    }
     use super::{
         new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, parse_fields,
         project_fields, send_steers, started_by,
