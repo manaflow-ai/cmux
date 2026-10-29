@@ -140,3 +140,80 @@ fn meta_replay_showing_a_read_chat_once_caught_up_logs_nothing() {
         "a record was logged"
     );
 }
+
+/// A memory store whose first `tail_after` (the catch-up's read of the log) says when it started
+/// and then stays in the read for a second, the window a slow disk read gives.
+struct HeldTail {
+    inner: crate::store::MemoryStore,
+    entered: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
+}
+
+impl crate::store::Store for HeldTail {
+    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        self.inner.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> anyhow::Result<(u64, u64)> {
+        if let Some(entered) = self.entered.lock().unwrap().take() {
+            let _ = entered.send(());
+            // The window only: the assertion reads the end state, which must hold however long
+            // the read takes (a showing that waits for the catch-up waits the whole second).
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        self.inner.tail_after(id, after, kinds, visit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+}
+
+/// Third look at the fast path (focused review): while a restart's catch-up reads the log of a
+/// chat whose saved record says read and whose log says unread, a client shows the chat. The
+/// fast path must not take the half-done catch-up as done: showing the chat waits for it, then
+/// clears the replayed mark.
+#[test]
+fn meta_replay_showing_a_chat_while_its_log_is_read_waits_and_clears_the_mark() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let store = HeldTail {
+        inner: crate::store::MemoryStore::default(),
+        entered: std::sync::Mutex::new(Some(entered_tx)),
+    };
+    store.append("s", &rec(1, "status", json!({"status": "idle", "read": false}))).unwrap();
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(store));
+    let session = hub.make_session(meta());
+    session.caught_up.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.sessions.lock().unwrap().insert("s".to_owned(), session.clone());
+    // The restart's catch-up starts and is held inside its read of the log.
+    let loading = {
+        let (hub, session) = (hub.clone(), session.clone());
+        std::thread::spawn(move || hub.catch_up(&session))
+    };
+    entered_rx.recv().unwrap();
+    // A client shows the chat meanwhile.
+    let showing = {
+        let (hub, session) = (hub.clone(), session.clone());
+        std::thread::spawn(move || hub.attach_count(&session, 1, true))
+    };
+    loading.join().unwrap();
+    showing.join().unwrap();
+    assert!(!session.meta.lock().unwrap().unread, "a chat shown during the catch-up stayed unread");
+}
