@@ -36,8 +36,23 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
             const [a, b, c, d, e] = values;
             if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
           } else if (matrix?.[1] && values.length === 16) {
-            const [a, b, c, d, , , , , , , , , e] = values;
-            if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
+            const [a, b, c, d, e, f, g, h, i, j, k, l, tx, ty, tz, p] = values;
+            if (
+              a === 1 &&
+              b === 0 &&
+              c === 0 &&
+              d === 0 &&
+              e === 0 &&
+              f === 1 &&
+              g === 0 &&
+              h === 0 &&
+              i === 0 &&
+              j === 0 &&
+              k === 1 &&
+              l === 0 &&
+              p === 1
+            )
+              shift += tx;
           }
         }
       }
@@ -77,19 +92,27 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
   for (const node of [box, dock, actions, plus]) resize.observe(node);
   if (dock.parentElement) resize.observe(dock.parentElement);
   // Draft/working state can replace the last action without resizing the action cluster.
-  const mutation = new MutationObserver(apply);
-  mutation.observe(box, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class", "style", "hidden"],
+  const mutation = new MutationObserver(() => {
+    observeLayoutAncestors();
+    apply();
   });
-  // The inspector can move or replace the dock's layout parent without changing the action
-  // cluster's size. Observe those attributes too, but omit the dock's own style because `apply`
-  // writes the measured custom properties there and would otherwise retrigger itself.
-  mutation.observe(dock, { attributes: true, attributeFilter: ["class", "hidden"] });
-  if (dock.parentElement)
-    mutation.observe(dock.parentElement, { attributes: true, attributeFilter: ["class", "style", "hidden"] });
+  const observeLayoutAncestors = () => {
+    mutation.disconnect();
+    mutation.observe(box, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden"],
+    });
+    // The inspector can move or replace any ancestor without changing the action cluster's size.
+    // Omit the dock's own style because `apply` writes the measured properties there.
+    for (let current: HTMLElement | null = box; current; current = current.parentElement) {
+      if (current === dock) mutation.observe(current, { attributes: true, attributeFilter: ["class", "hidden"] });
+      else mutation.observe(current, { attributes: true, childList: true, attributeFilter: ["class", "style", "hidden"] });
+      if (current === dock.parentElement) break;
+    }
+  };
+  observeLayoutAncestors();
   apply();
   return () => {
     resize.disconnect();

@@ -270,7 +270,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               const visibleRows = track.rows.filter((row) => row.visible);
               expect(track.head.width, `${track.name} head must be measurable`).toBeGreaterThan(0);
               expect(visibleRows.length, `${track.name} row count`).toBe(expectedRows);
-              for (const row of visibleRows) expect(row.width, `${track.name} row must be measurable`).toBeGreaterThan(0);
+              for (const row of visibleRows) {
+                expect(row.width, `${track.name} row must be measurable`).toBeGreaterThan(0);
+                expect(row.height, `${track.name} row must be measurable`).toBeGreaterThan(0);
+              }
             }
             const center = (box: { left: number; right: number }) => (box.left + box.right) / 2;
             const checks = {
@@ -364,6 +367,11 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             if (variant.endsWith("expanded")) {
               expect(result.commandRow, "expanded tray must render a command row").not.toBeNull();
               expect(result.commandStop, "command stop must carry the right-action marker").not.toBeNull();
+              if (!result.commandRow || !result.commandStop) throw new Error("expanded command geometry missing");
+              expect(result.commandStop.width, "command stop must be measurable").toBeGreaterThan(0);
+              expect(result.commandStop.height, "command stop must be measurable").toBeGreaterThan(0);
+              expect(result.commandRow.width, "command row must be measurable").toBeGreaterThan(0);
+              expect(result.commandRow.height, "command row must be measurable").toBeGreaterThan(0);
               expect(checks.commandRightColumn).toBeLessThanOrEqual(TOLERANCE);
               expect(checks.commandStopWithinRow).toBeLessThanOrEqual(TOLERANCE);
               expect(result.noStopRow, "expanded tray must render a no-stop row").not.toBeNull();
