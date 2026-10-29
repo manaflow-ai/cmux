@@ -1231,7 +1231,7 @@ mod tests {
                 };
                 stream.set_nonblocking(false).unwrap();
                 let count = owner_served.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
-                let mut reader = io::BufReader::new(stream.try_clone().unwrap());
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
                 if reader.read_line(&mut line).unwrap_or(0) == 0 {
                     continue;

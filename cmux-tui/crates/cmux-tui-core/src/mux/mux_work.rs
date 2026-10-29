@@ -90,13 +90,19 @@ impl Mux {
         self.post_sequenced(sequence, priority, lane, Shutdown::SkipOnShutdown, Box::new(body))
     }
 
-    /// Queues a connection's pump (`server::connection_scheduler`): it
-    /// takes the connection's next request and runs it on `lane` at
-    /// `priority` ([`ConnectionRoute`]), inside
-    /// [`cmux_threads::work::will_block`] as [`Mux::post_request_wait`]'s
-    /// items are (a request may wait on a terminal host or a child
-    /// process). A connection has one pump at a time, so its requests keep
-    /// their order with no sequence. A connection's reader disallows
+    /// Queues a connection's pump on its `sequence`
+    /// (`server::connection_scheduler`): it takes the connection's next
+    /// request and runs it on `lane` at `priority` ([`ConnectionRoute`]),
+    /// inside [`cmux_threads::work::will_block`] as
+    /// [`Mux::post_request_wait`]'s items are (a request may wait on a
+    /// terminal host or a child process). The sequence does not order the
+    /// requests (one pump at a time does); it keeps a connection on one lane
+    /// worker: a pump that ends posts the next one from inside its running
+    /// item, and the sequence's drain runs that next pump in the same item
+    /// (Chrome re-enqueues a sequence after its task) instead of a new item
+    /// the lane would start a second worker for while the first one is still
+    /// busy. A drain keeps the lane of its first pump until it empties. A
+    /// connection's reader disallows
     /// blocking (p02-threads 210, 211), so a request's SQLite, file and
     /// process work runs here, as Chrome's IO thread only routes a message
     /// and a task runner that may block runs it
@@ -106,6 +112,7 @@ impl Mux {
     /// the requests it would have run.
     pub(crate) fn post_connection_request(
         &self,
+        sequence: &Arc<Sequence>,
         route: ConnectionRoute,
         body: impl FnOnce() + Send + 'static,
     ) -> Result<(), Refused> {
@@ -113,9 +120,14 @@ impl Mux {
             route.lane != Lane::User || route.priority == Priority::UserBlocking,
             "only the person's UserBlocking requests take the User lane"
         );
-        self.work.post(route.priority, route.lane, Shutdown::ContinueOnShutdown, move || {
-            cmux_threads::work::will_block(body);
-        })
+        let body = move |_: &Weak<Mux>| cmux_threads::work::will_block(body);
+        self.post_sequenced(
+            sequence,
+            route.priority,
+            route.lane,
+            Shutdown::ContinueOnShutdown,
+            Box::new(body),
+        )
     }
 
     fn post_sequenced(

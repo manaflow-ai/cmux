@@ -398,6 +398,10 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; its
     /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
+    /// Where the connection's pumps run (`Mux::post_connection_request`):
+    /// one pump at a time orders the requests; the sequence's drain keeps a
+    /// connection on one lane worker.
+    pub(super) pumps: Arc<crate::mux::mux_work::Sequence>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -431,6 +435,7 @@ impl ConnectionSurfaceScheduler {
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
             class: Arc::default(),
+            pumps: Arc::default(),
         }
     }
 
@@ -758,12 +763,6 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
-    /// Whether a request may run now (the running pump takes it next).
-    fn has_runnable(&self) -> bool {
-        let state = self.state.lock().recover_poison();
-        state.context.is_some() && Self::next_runnable_index(&state).is_some()
-    }
-
     /// The pump ended (or unwound, or never ran): the next runnable request
     /// gets its own.
     pub(super) fn finish_pump(self: &Arc<Self>) {
@@ -1021,7 +1020,8 @@ impl PumpPost {
     /// connection.
     fn post(self) {
         let PumpPost { ticket, mux, route } = self;
-        let _ = mux.post_connection_request(route, move || ticket.run());
+        let pumps = ticket.scheduler.pumps.clone();
+        let _ = mux.post_connection_request(&pumps, route, move || ticket.run());
     }
 }
 
@@ -1036,37 +1036,11 @@ struct PumpTicket {
     ran: bool,
 }
 
-/// Requests one pump item runs before it yields its worker: the next
-/// runnable request runs in the same item, so a connection's burst takes one
-/// lane worker, not a new item (and worker) per request; past the bound the
-/// connection goes behind the lane's other items (Chrome re-enqueues a
-/// sequence after its task).
-///
-/// Why 16: the same turn as a connection's line sequence (`TURN_MESSAGES`
-/// in line_connection.rs), which cuts and routes these requests, so one
-/// connection's turn is the same size on both sides.
-///
-/// A turn never puts the person's request behind automation's. A pump
-/// item runs one connection's requests only; the person's connection pumps
-/// on the User lane, which no automation request takes, so automation's
-/// turns on System never reach it. On one lane a turn only defers other
-/// connections' pumps, and only while every slot is taken: the item runs
-/// inside `will_block`, so it stops counting against the lane's limits and
-/// another connection's pump is admitted beside it.
-const PUMP_TURN_REQUESTS: usize = 16;
-
 impl PumpTicket {
     fn run(mut self) {
         self.ran = true;
         let scheduler = self.scheduler.clone();
-        for _ in 0..PUMP_TURN_REQUESTS {
-            scheduler.pump();
-            if !scheduler.has_runnable() {
-                break;
-            }
-        }
-        // The drop ends the pump; a request that arrived since, or the rest
-        // of a burst past the bound, gets a new one.
+        scheduler.pump();
     }
 }
 
