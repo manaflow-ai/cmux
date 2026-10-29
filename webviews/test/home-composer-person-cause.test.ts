@@ -1,5 +1,5 @@
 // A composer send (HomeOps.send) in the app names its op's client `transaction` to the host before
-// the op goes out (`cmux.host.cause.person`, CmuxNextPages PagePersonCauseRoute, p06-scheduler-231),
+// the op goes out (`cmux.host.cause.person`, CmuxNextPages PagePersonCauseRoute),
 // and the op carries that `transaction`, which the daemon echoes in `conversation-changed`. The
 // host decides from its own record of a real key or click whether the echo is the person's; the
 // Swift half is HomeComposerPersonCauseTests.

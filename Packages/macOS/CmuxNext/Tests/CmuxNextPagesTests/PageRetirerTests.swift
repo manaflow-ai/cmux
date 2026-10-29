@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 /// A closed page leaves the view tree in the close's turn and its engine page ends after it
-/// (p13-webui-064, ``PageRetirer``): Cmd-W on a page tab makes 0 engine close calls in its turn, 1 at the
+/// (``PageRetirer``): Cmd-W on a page tab makes 0 engine close calls in its turn, 1 at the
 /// retirer's deadline, and the page's routes and subscriptions end in the turn.
 @MainActor
 struct PageRetirerTests {

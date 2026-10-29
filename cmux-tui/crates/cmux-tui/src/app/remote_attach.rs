@@ -33,9 +33,14 @@ pub(super) fn perform_surface_attach(
     after_obsolete_check: impl FnOnce(),
 ) -> SurfaceAttachResult {
     let retired_before_attach = {
-        let retired_surfaces = retired_surfaces.lock().unwrap();
+        let retired_surfaces =
+            retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         retired_surfaces.contains(&id)
-            || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+            || attach_claims
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&id)
+                .is_some_and(|claim| claim.retired)
     };
     if retired_before_attach {
         return SurfaceAttachResult {
@@ -46,10 +51,14 @@ pub(super) fn perform_surface_attach(
     }
     after_obsolete_check();
     let result = session.try_surface_sized(id, size);
-    let retired = attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired);
+    let retired = attach_claims
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&id)
+        .is_some_and(|claim| claim.retired);
     match result {
         Ok(SurfaceAttach::Attached(_)) if retired => {
-            attach_failures.lock().unwrap().remove(&id);
+            attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
@@ -57,7 +66,7 @@ pub(super) fn perform_surface_attach(
             }
         }
         Ok(SurfaceAttach::Attached(surface)) => {
-            attach_failures.lock().unwrap().remove(&id);
+            attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Attached,
                 surface: Some(surface),
@@ -79,7 +88,7 @@ pub(super) fn perform_surface_attach(
             }
         }
         Ok(SurfaceAttach::Deferred) => {
-            attach_failures.lock().unwrap().remove(&id);
+            attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Deferred,
                 surface: None,
@@ -87,7 +96,7 @@ pub(super) fn perform_surface_attach(
             }
         }
         Ok(SurfaceAttach::Missing) if retired => {
-            attach_failures.lock().unwrap().remove(&id);
+            attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
             SurfaceAttachResult {
                 outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
@@ -95,7 +104,8 @@ pub(super) fn perform_surface_attach(
             }
         }
         Ok(SurfaceAttach::Missing) => {
-            let mut failures = attach_failures.lock().unwrap();
+            let mut failures =
+                attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let state = next_surface_sync_failure(failures.get(&id).copied(), false, false);
             failures.insert(id, state);
             SurfaceAttachResult {
@@ -127,7 +137,8 @@ pub(super) fn perform_surface_attach(
             let timed_out = is_remote_timeout(&error);
             let transport_failed = is_remote_transport_failure(&error);
             let message = error.to_string();
-            let mut failures = attach_failures.lock().unwrap();
+            let mut failures =
+                attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let state =
                 next_surface_sync_failure(failures.get(&id).copied(), transport_failed, timed_out);
             failures.insert(id, state);
@@ -200,14 +211,19 @@ impl RemoteSurfaceAttachJob {
                 {
                     match surface.resize(cols, rows) {
                         Ok(_) => {
-                            resize_failures.lock().unwrap().remove(&id);
+                            resize_failures
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .remove(&id);
                             result.outcome = SurfaceAttachOutcome::Attached;
                             result.requested_size = latest.requested_size;
                         }
                         Err(error) => {
                             let transient =
                                 is_remote_timeout(&error) || is_remote_transport_failure(&error);
-                            let mut failures = resize_failures.lock().unwrap();
+                            let mut failures = resize_failures
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
                             let previous = failures
                                 .get(&id)
                                 .filter(|failure| failure.desired == (cols, rows))
@@ -271,7 +287,7 @@ fn settle_failed_attach(
     id: SurfaceId,
     error: String,
 ) {
-    let mut failures = attach_failures.lock().unwrap();
+    let mut failures = attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let state = next_surface_sync_failure(failures.get(&id).copied(), true, false);
     failures.insert(id, state);
     drop(failures);
@@ -322,12 +338,15 @@ impl RemoteSurfaceAttachExecutor {
                     loop {
                         let (job, background) = {
                             let (queue, ready) = &*worker_shared;
-                            let mut queue = queue.lock().unwrap();
+                            let mut queue =
+                                queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                             while !queue.stopped && queue.visible.is_empty() && {
                                 queue.background.is_empty()
                                     || queue.background_running >= queue.background_limit
                             } {
-                                queue = ready.wait(queue).unwrap();
+                                queue = ready
+                                    .wait(queue)
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                             }
                             if queue.stopped {
                                 return;
@@ -347,7 +366,8 @@ impl RemoteSurfaceAttachExecutor {
                         }
                         if background {
                             let (queue, ready) = &*worker_shared;
-                            let mut queue = queue.lock().unwrap();
+                            let mut queue =
+                                queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                             queue.background_running = queue.background_running.saturating_sub(1);
                             ready.notify_all();
                         }
@@ -362,7 +382,7 @@ impl RemoteSurfaceAttachExecutor {
         }
         {
             let (queue, ready) = &*shared;
-            let mut queue = queue.lock().unwrap();
+            let mut queue = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             queue.background_limit = remote_attach_background_limit(worker_count);
             ready.notify_all();
         }
@@ -379,7 +399,7 @@ impl RemoteSurfaceAttachExecutor {
     ) -> RemoteSurfaceAttachAdmission {
         debug_assert!(self.worker_count > 0);
         let (queue, ready) = &*self.shared;
-        let mut queue = queue.lock().unwrap();
+        let mut queue = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if queue.stopped {
             return RemoteSurfaceAttachAdmission::Rejected(job);
         }
@@ -407,18 +427,22 @@ impl RemoteSurfaceAttachExecutor {
 
     pub(super) fn promote(&self, surface: SurfaceId) {
         let (queue, ready) = &*self.shared;
-        let mut queue = queue.lock().unwrap();
-        let Some(index) = queue.background.iter().position(|job| job.id == surface) else {
+        let mut queue = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(job) = queue
+            .background
+            .iter()
+            .position(|job| job.id == surface)
+            .and_then(|index| queue.background.remove(index))
+        else {
             return;
         };
-        let job = queue.background.remove(index).expect("the located attach job must exist");
         queue.visible.push_back(job);
         ready.notify_one();
     }
 
     pub(super) fn shutdown(&self) {
         let (queue, ready) = &*self.shared;
-        let mut queue = queue.lock().unwrap();
+        let mut queue = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         queue.stopped = true;
         queue.visible.clear();
         queue.background.clear();

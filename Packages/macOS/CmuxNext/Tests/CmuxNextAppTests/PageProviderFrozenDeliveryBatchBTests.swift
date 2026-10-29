@@ -12,7 +12,7 @@ import Testing
 @testable import CmuxNextApp
 
 /// Each stream of the Settings, Mobile Pairing, update surface and Debug Settings providers names
-/// what ``PageRouter`` keeps of it while the page is hidden or frozen (p13-webui-025). A stream
+/// what ``PageRouter`` keeps of it while the page is hidden or frozen. A stream
 /// whose event is the whole state keeps the newest (`.latest`); `cmux.settings.changed` names only
 /// the keys that changed since the last event, a delta, so a drop must reach the page as a gap
 /// (`.resync`, which the page answers by re-reading every row and clearing every refusal), never

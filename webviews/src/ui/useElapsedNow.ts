@@ -1,5 +1,5 @@
 // The time a running elapsed label ("Working for 42s", "Thinking 3m") reads from the page clock
-// (p14-energy-061, pageClock.ts).
+// (pageClock.ts).
 //
 // Under a minute the label counts seconds and re-renders on each second. From one minute on it shows
 // whole minutes and re-renders once a minute, so a page of running clocks wakes once a minute, not

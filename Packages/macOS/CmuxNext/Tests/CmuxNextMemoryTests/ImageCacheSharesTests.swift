@@ -2,8 +2,8 @@ import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
-/// The content cache's picture stores take shares of `SubsystemBudget` with `memoryImageCaches` on
-/// (p07-memory-058): at 16 GB at least the literals they replaced (previews 32 MB, page thumbnails 16 MB,
+/// The content cache's picture stores take shares of `SubsystemBudget` with `memoryImageCaches` on:
+/// at 16 GB at least the literals they replaced (previews 32 MB, page thumbnails 16 MB,
 /// hibernation pictures 64 MB), within the image budget with the tab strip thumbnails' 48 MB. With the
 /// feature off every Mac keeps the fixed sizes.
 struct ImageCacheSharesTests {
@@ -39,7 +39,7 @@ struct ImageCacheSharesTests {
         #expect(shares.hibernationSnapshotBytes == 64 << 20)
     }
 
-    /// `purgeableImageCaches` (p07-memory-107) picks where the pictures' pages come from: purgeable virtual
+    /// `purgeableImageCaches` picks where the pictures' pages come from: purgeable virtual
     /// memory when on, resident heap pages when off (the default, so the sizes and the report stay as before).
     @Test func thePurgeableFeaturePicksThePicturesPages() throws {
         let budget = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)

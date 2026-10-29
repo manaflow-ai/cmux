@@ -95,7 +95,7 @@ extension ControlSocketServer {
         }
     }
 
-    /// Binds the control socket at `path` and listens, without accepting (p08-startup-019). The app
+    /// Binds the control socket at `path` and listens, without accepting. The app
     /// calls it on a lane, so the owner check, the bind and the compatibility link never run on the
     /// main thread; the server adopts the listener once its methods are registered (``start(adopting:)``).
     ///

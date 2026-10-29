@@ -70,6 +70,18 @@ pub(crate) mod fs {
         })
     }
 
+    /// `cmux_unix_socket::bind_private`: a socket bound owner-only from the
+    /// moment it exists (a directory create, a bind, a chmod and a rename).
+    #[cfg(unix)]
+    #[track_caller]
+    pub(crate) fn bind_private_socket(
+        path: impl AsRef<Path>,
+    ) -> io::Result<std::os::unix::net::UnixListener> {
+        scoped_blocking_call("fs::bind_private_socket", BlockingKind::Fs, || {
+            cmux_unix_socket::bind_private(path.as_ref())
+        })
+    }
+
     #[track_caller]
     #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
     pub(crate) fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {

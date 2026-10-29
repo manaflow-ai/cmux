@@ -1,4 +1,4 @@
-//! p09-observability-099: a panic in an `__agent-host` process must never be
+//! A panic in an `__agent-host` process must never be
 //! lost. The host runs detached with no stdio, so the controller names the
 //! home's `agent-host-panics.jsonl` and the host appends each panic there;
 //! the cmux-next app sends new lines to Sentry.

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 use crate::localization::TraceMessages;
 
 mod bundle;
@@ -179,8 +180,7 @@ impl Options {
         };
         let mut options = Options { values: Vec::new(), flags: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = args[index].as_str();
+        while let Some(arg) = args.get(index).map(String::as_str) {
             index += 1;
             let Some(flag) = arg.strip_prefix("--") else { return Err(unexpected(arg)) };
             let (name, inline) = match flag.split_once('=') {
@@ -350,13 +350,11 @@ impl RecordWait for SignalWait {
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
         // supervise-allow: this CLI run's signal watcher; a panic drops `signalled`, so the wait below falls back to the clock.
-        std::thread::Builder::new()
-            .name("cmux-trace-wait".into())
-            .spawn(move || {
-                crate::wait_for_shutdown_signal_peek();
-                let _ = signalled.send(());
-            })
-            .ok();
+        cmux_threads::spawn("cmux-trace-wait", cmux_threads::ThreadQos::Utility, move || {
+            crate::wait_for_shutdown_signal_peek();
+            let _ = signalled.send(());
+        })
+        .ok();
         // wakeup-allow: cli-only `cmux trace`'s recording window, once; a shutdown signal ends it first
         match crate::blocking::sync::recv_timeout(&signal, duration) {
             Ok(()) if crate::shutdown_requested() => Waited::Interrupted,
@@ -517,7 +515,7 @@ pub(super) fn execute(
         Verb::Status => call(app, "trace.status", json!({}), STATUS_TIMEOUT)?,
         Verb::Export(plan) => {
             let value = export(&plan, exporter)?;
-            let path = value["perfetto"].as_str().unwrap_or_default();
+            let path = value.field("perfetto").as_str().unwrap_or_default();
             let text = messages.perfetto_written.replace("{path}", path);
             return Ok((value, text));
         }
@@ -558,18 +556,18 @@ pub(super) fn record(
         "not_copied": collected.not_copied,
     });
     for (key, value) in collected.bundle.manifest_fields() {
-        manifest[key] = value;
+        manifest.insert(key, value);
     }
     write_file(&plan.out.join(MANIFEST_FILE), &manifest_bytes(&manifest))?;
     let perfetto = plan.out.join(PERFETTO_FILE);
     if !exporter.available() {
-        manifest["export"] = json!("unavailable");
+        manifest.insert("export", json!("unavailable"));
     } else if let Err(error) = exporter.export(&collected.bundle, &perfetto) {
-        manifest["export_error"] = json!(error);
+        manifest.insert("export_error", json!(error));
     } else {
-        manifest["perfetto"] = json!(perfetto.display().to_string());
+        manifest.insert("perfetto", json!(perfetto.display().to_string()));
     }
-    manifest["out"] = json!(plan.out.display().to_string());
+    manifest.insert("out", json!(plan.out.display().to_string()));
     Ok(manifest)
 }
 

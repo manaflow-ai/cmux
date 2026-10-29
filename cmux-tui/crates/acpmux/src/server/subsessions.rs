@@ -26,6 +26,7 @@
 use super::{Conn, str_param};
 use crate::hub::subsessions::{LimitsActor, StartRequest};
 use crate::hub::{Hub, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -143,7 +144,7 @@ async fn handle(
         };
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
-            started["placed"] = json!(placed);
+            started.set("placed", json!(placed));
         }
         return Ok(started);
     }

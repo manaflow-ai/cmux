@@ -18,6 +18,7 @@ use serde_json::json;
 
 use crate::Actor;
 use crate::mux::*;
+use crate::panic_free::JsonFields;
 use crate::state::closed_history::{Reopened, note_created};
 use crate::state::commit::state_not_found;
 use crate::state::prelude::*;
@@ -183,7 +184,7 @@ impl Mux {
             // Every tab of the workspaces this reopen made, its first
             // terminal and its screens' included, so a failed restore closes
             // them whole (the last tab closes its workspace).
-            let made = reopened.workspaces[known..].to_vec();
+            let made = reopened.workspaces.iter().skip(known).cloned().collect::<Vec<_>>();
             for workspace in made {
                 let tabs = self
                     .with_state(|state| workspace_surfaces(state, &workspace))
@@ -198,7 +199,8 @@ impl Mux {
         }
         for group in record["tab_groups"].as_array().into_iter().flatten() {
             let mut group = group.clone();
-            let tabs = group["tab_ids"]
+            let tabs = group
+                .field("tab_ids")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -207,7 +209,7 @@ impl Mux {
             if tabs.is_empty() {
                 continue;
             }
-            group["tab_ids"] = json!(tabs);
+            group.insert("tab_ids", json!(tabs));
             self.reopen_tab_group(actor, &group, true, reopened)?;
         }
         Ok(())

@@ -52,10 +52,14 @@ pub(super) fn start(
     }
     // The thread updates the shared chat index: a panic in it is fatal. It ends when the
     // watcher drops (its channel closes), so shutdown does not wait for it.
-    let thread =
-        supervisor.supervise_thread(THREAD, Fatal, ShutdownBehavior::Continue, move |_stop| {
-            run(&rx, &service)
-        });
+    let thread = crate::supervised::thread(
+        supervisor,
+        THREAD,
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move |_stop| run(&rx, &service),
+    );
     if let Err(e) = thread {
         errors.push(format!("the chat watcher thread cannot start: {e}"));
         return (None, errors);

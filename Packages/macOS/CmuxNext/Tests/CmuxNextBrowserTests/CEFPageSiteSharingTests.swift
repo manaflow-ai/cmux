@@ -58,7 +58,7 @@ import Testing
         #expect(Self.sharingSwitches(arguments) == ["cmux-page-scheme-process-per-site=cmux.agent:8,cmux.cloud:8,cmux.history:8"])
     }
 
-    /// The fork train (p13-webui-086, manaflow-ai/cef `cp/p13-webui-086`) gives p13-webui-011, the switch's
+    /// The fork train (manaflow-ai/cef `cp/p13-webui-086`) gives p13-webui-011, the switch's
     /// reader, API 42: a fork at that number must get the switch.
     @Test func theTrainsForkGetsTheSwitch() {
         let arguments = Self.arguments(forkAPI: 42, caps: CEFPageSchemes.siteCaps(Self.table))

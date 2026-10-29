@@ -73,10 +73,13 @@ impl HistorySearch {
         };
         #[cfg(test)]
         let worker_releases = signals.releases.clone();
-        let worker =
-            supervised::spawn("history-search", Fatal, ShutdownBehavior::Continue, move || {
-                index_loop(writer, feeds, pace, &signals)
-            })?;
+        let worker = supervised::spawn_at(
+            "history-search",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || index_loop(writer, feeds, pace, &signals),
+        )?;
         Ok(Self {
             reader: Mutex::new(reader),
             stop,

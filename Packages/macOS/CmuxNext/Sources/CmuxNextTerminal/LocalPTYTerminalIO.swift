@@ -202,7 +202,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     public func inputDrain() -> TerminalInputDrain {
         TerminalInputDrain(queue: writeQueue) { [self] record, _ in
             switch record {
-            case .bytes(let data):
+            case .bytes(let data), .keyBytes(let data, _):
                 guard !closed.load(ordering: .acquiring) else { break }
                 input.append(data)
                 input.flush(to: masterFD, source: writeSource)
@@ -273,7 +273,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     /// ``GhosttyLaunchProbe/terminfoInstalled``) says `xterm-ghostty` is
     /// installed in a system terminfo directory; `COLORTERM`, `TERM_PROGRAM=ghostty`
     /// and its version. `TERMINFO` is not set. It reads no file, so a shell can be
-    /// spawned from the main thread (p02-threads-006).
+    /// spawned from the main thread.
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
         version: String? = GhosttyRuntime.version,

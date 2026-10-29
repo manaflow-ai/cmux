@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "Packages/macOS/CmuxNext/Sources"
-HELPER = SOURCES / "CmuxNextCompat/NSApplication+TerminateFromRunLoop.swift"
+HELPER = SOURCES / "CmuxNextCompatAppKit/NSApplication+TerminateFromRunLoop.swift"
 PERFORM = re.compile(r"RunLoop\.main\.perform\b|DispatchQueue\.main\.async\b")
 TERMINATE = re.compile(r"\b(NSApp|NSApplication\.shared)\.terminate\(")
 # Lines after a perform that still count as its block.

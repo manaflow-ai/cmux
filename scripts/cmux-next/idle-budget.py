@@ -925,7 +925,7 @@ def threads_from_sample(text):
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Hidden main wakes (p14-energy-095): who wakes the main thread while no window can be seen
+# Hidden main wakes: who wakes the main thread while no window can be seen
 
 # CFRunLoop's callout trampolines (CoreFoundation CFRunLoop.c), the frame below __CFRunLoopRun that says why the main
 # thread is awake. A timer, a source, a main-queue drain or a block wakes the run loop; observers run on every wake
@@ -2851,7 +2851,7 @@ SCROLL_PAGE = ("<!doctype html><meta charset='utf-8'><title>scroll</title>"
                "fetch('/loaded/scroll',{method:'POST'}).then(ask)</script>")
 
 
-# The tab sessions' pages (D17, p14-energy-048): tab_pages' static page (it POSTs /loaded/<key> and /vis/<key>/<state>
+# The tab sessions' pages (D17): tab_pages' static page (it POSTs /loaded/<key> and /vis/<key>/<state>
 # at load and on every visibilitychange, nothing else) plus a visibility probe. PROBE_DELAY_MS after the page reports
 # `hidden` (a timer of the hidden page, so Chromium has throttled it by then and the freeze grace of
 # FREEZE_HIDDEN_TABS_S has not ended), it counts for PROBE_MS its rAF callbacks and the fires of a setTimeout(0)
@@ -3200,7 +3200,7 @@ def build_stress(app, static=False):
 
 
 # ---------------------------------------------------------------------------------------------------------
-# The agent sessions and busy-hidden (p14-energy-103, D14)
+# The agent sessions and busy-hidden (D14)
 
 # The app runs its own acpmux home whose default harness is the ACP fake agent, as readiness-soak.py runs it: no
 # network and no credential, but the same agent hosts and session pool a real harness gets.
@@ -3597,7 +3597,7 @@ def saver_launch(on):
 
 
 
-# The power sessions (p14-energy-096): one shown static Chromium tab and nothing else, in cmux and in the reference
+# The power sessions: one shown static Chromium tab and nothing else, in cmux and in the reference
 # browser, every owner of the window's power attributed; settled past Chromium's two minutes of post-load work.
 ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
 POWER_SESSION, CHROME_POWER_SESSION = "power-visible", "chrome-power-visible"

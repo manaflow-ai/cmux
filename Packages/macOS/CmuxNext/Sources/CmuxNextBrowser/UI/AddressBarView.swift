@@ -536,7 +536,7 @@ public final class AddressBarView: NSView {
 
     /// The I-beam over the text area, the arrow beside the chip and the
     /// badges (`OmnibarPointer`), read from the text area when the pointer
-    /// enters the bar (its `.cursorUpdate` area, p04-input-090). A move
+    /// enters the bar (its `.cursorUpdate` area). A move
     /// across the text area's edge is the row's (`ArrowCursorView`'s move
     /// tracker sets the same rule on every move), so a resize of the bar, as
     /// on every frame of a divider drag beside a browser pane, rebuilds none

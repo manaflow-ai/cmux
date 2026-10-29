@@ -375,6 +375,10 @@ class MatchTest(unittest.TestCase):
 
 @unittest.skipUnless(CORPUS.is_dir(), "no tests/oracle/corpus/tla")
 class CorpusTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        gen_tla.corpus_store.ensure(CORPUS.parent, [gen_tla.SUITE])  # the suite is a pinned artifact, not in git
+
     def test_every_case_passes_the_case_checks_and_has_expected_states(self):
         rules = case_checks.Rules(json.loads(SCHEMA.read_text(encoding="utf-8")))
         specs = gen_tla.load_actionmap()

@@ -3,7 +3,7 @@ public import CmuxNextInputCore
 public import Foundation
 public import WebKit
 
-/// A WebKit page's presented stage, in DEV and bench builds (p04-input-099). WebKit draws a page's response to an
+/// A WebKit page's presented stage, in DEV and bench builds. WebKit draws a page's response to an
 /// input in a frame of its own web process, after the app's commit, and tells the app nothing about it, so a
 /// ``CmuxNextInputCore/InputTarget/webkitPage`` slot has no presented time of its own.
 ///
@@ -39,7 +39,7 @@ public final class WebPageInputTiming {
         case pointerDown = 1
         case pointerUp = 2
 
-        /// The slot kind this event's input opened (p04-input-005: one slot per key down, button down and up).
+        /// The slot kind this event's input opened (one slot per key down, button down and up).
         public var kind: InputEventKind {
             switch self {
             case .keyDown: .keyPress

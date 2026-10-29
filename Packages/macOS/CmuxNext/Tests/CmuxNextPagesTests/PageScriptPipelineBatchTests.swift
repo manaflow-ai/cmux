@@ -4,10 +4,11 @@ import CmuxNextCompat
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Frame delivery (p06-scheduler-222): on frames, the router's envelopes reach the page as one
+/// Frame delivery: on frames, the router's envelopes reach the page as one
 /// script per frame; a hidden page takes none until it shows, then the latest state of each stream
 /// in one script; a page message's reply keeps its turn (the envelopes before it go at once, the
 /// ones after it wait for it).
@@ -373,7 +374,7 @@ struct PageScriptPipelineBatchTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let hosting = FakeChromiumHosting()
         let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting, deadlines: .testing()))
         defer { view.close() }
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value

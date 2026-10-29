@@ -10,6 +10,7 @@ import CmuxNextErrorJournal
 import CmuxNextInput
 import CmuxNextInputDiagnostics
 import CmuxNextPages
+import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -75,7 +76,7 @@ enum DebugDriverControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
-            // What this launch runs of the shipping configuration idle-budget measures (p14-energy-100).
+            // What this launch runs of the shipping configuration idle-budget measures.
             ShippingModeReport { @MainActor [weak services] in
                 guard let services else { return nil }
                 let hangReports = await AppProcessRoot.shared.hangReports?.shippingModeState(setting: services.settings?.snapshot.hangReports)
@@ -171,6 +172,11 @@ enum DebugDriverControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
+            // A list's composited frames read off main, around a stall (ScrollFrameProbe).
+            .async("debug.scroll_frames") { [weak services] call in
+                guard let services else { return .null }
+                return await scrollFrames(call.params, services)
+            }.withDeadline(.fixed(.seconds(15))),
             // Instant new tab: spares, opening times, the field (new-tab.md 2.3); new terminal stages (cx-6so.58).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
@@ -279,11 +285,14 @@ enum DebugDriverControl {
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)])
             },
+            // `started_ns`, `ended_ns`: CLOCK_UPTIME_RAW around the stall, the clock `debug.scroll_frames` stamps frames with.
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
+                let started = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)
                 while ContinuousClock.now < end {}
-                return .value(["stalled_ms": .number(Double(milliseconds))])
+                return .value(["stalled_ms": .number(Double(milliseconds)), "started_ns": .number(Double(started)),
+                               "ended_ns": .number(Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)))])
             },
         ])
         // Sidebar fixtures and the sidebar focus ring live in CmuxNextSidebar behind DEBUG only, so a bench
@@ -310,6 +319,23 @@ enum DebugDriverControl {
             },
         ])
         #endif
+    }
+
+    /// `debug.scroll_frames {target: sidebar|palette, duration_ms, scale, scroll_to}`: ``ScrollFrameProbe`` on the
+    /// active window's workspace list or the open palette's results.
+    @MainActor private static func scrollFrames(
+        _ params: [String: CmuxNextSettings.JSONValue], _ services: AppServices
+    ) async -> CmuxNextSettings.JSONValue {
+        let probe: ScrollFrameProbe?
+        if params["target"]?.stringValue == "palette" {
+            let palette = services.palette
+            probe = palette.visiblePanel.flatMap { panel in palette.debugResultsScrollView.map { ScrollFrameProbe(window: panel, list: $0) } }
+        } else {
+            probe = services.windows.active.flatMap { c in c.window.map { ScrollFrameProbe(window: $0, list: c.sidebar.container.sidebarView.debugListScrollView) } }
+        }
+        let report = await probe?.run(scrollTo: params["scroll_to"]?.doubleValue, duration: params["duration_ms"]?.doubleValue ?? 1500,
+                                      scale: params["scale"]?.doubleValue ?? 0.5, work: services.work)
+        return report.flatMap { CmuxNextSettings.JSONValue(foundation: $0) } ?? .object(["error": .string("no such list on screen")])
     }
 }
 #endif

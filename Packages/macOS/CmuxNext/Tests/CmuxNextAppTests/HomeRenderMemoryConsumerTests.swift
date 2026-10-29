@@ -6,7 +6,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The Home render caches as memory consumers (p07-memory-080): one lossless consumer per live
+/// The Home render caches as memory consumers: one lossless consumer per live
 /// controller with an equal share of the group's budget, scaled by the limit; a release trims to it,
 /// limit 0 keeps only what the rows on screen show, the measurements stay, a hidden transcript holds
 /// no image, and rows draw again afterwards.

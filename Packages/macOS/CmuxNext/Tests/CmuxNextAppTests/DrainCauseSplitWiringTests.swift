@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextFeatures
 import Testing
 
-/// The production wiring of `drainCauseSplit` (p06-scheduler-223): on, the local store's drain applies the
+/// The production wiring of `drainCauseSplit`: on, the local store's drain applies the
 /// automation tail in budgeted tasks of the app's main work scheduler; off, it has no tail scheduler and every
 /// frame drain applies its whole batch (the drain itself: DrainCauseSplitTests). On by default in DEV and NIGHTLY
 /// for the optimized dogfood's measurement window (plans/cmux-next/feature-switch-policy.md rule 2).

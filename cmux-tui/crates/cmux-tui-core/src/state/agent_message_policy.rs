@@ -16,6 +16,7 @@ use cmux_threads::checked::fs as files;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::workspace_registry::Actor;
 
@@ -126,7 +127,7 @@ pub(crate) fn refused_by(
 ) -> anyhow::Error {
     let mut details = json!({"operation": operation, "reason": reason});
     if extra.as_object().is_some_and(|extra| !extra.is_empty()) {
-        details["extra"] = extra;
+        details.insert("extra", extra);
     }
     anyhow::Error::new(ResourceError::new("operation.failed", message, details, false))
 }

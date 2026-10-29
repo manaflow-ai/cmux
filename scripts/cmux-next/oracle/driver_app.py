@@ -126,9 +126,9 @@ for _path in (str(HERE), str(SCRIPTS)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-import resource_counts  # noqa: E402 - sibling of this file (p15-oracle-217), invariant I15's daemon reading
-import switches  # noqa: E402 - sibling: the switch arms this launch applies and reads back (p15-oracle-049)
-import webfixture  # noqa: E402 - the sibling loopback server (p15-oracle-222), stdlib only
+import resource_counts  # noqa: E402 - sibling of this file, invariant I15's daemon reading
+import switches  # noqa: E402 - sibling: the switch arms this launch applies and reads back
+import webfixture  # noqa: E402 - the sibling loopback server, stdlib only
 from invariants import SIDE_CHANNELS, TRACE_SCHEMA  # noqa: E402 - the trace invariants.py checks (I11-I15)
 
 FACETS = ("topology", "daemon", "focus", "layout", "sidebar", "tabs", "overlays", "settings", "intents", "windows",
@@ -143,7 +143,7 @@ RECORDER, TURNS = "debug.oracle.recorder", "debug.oracle.turns"
 # symbolicated when read).
 HANGS_AFTER_LIMIT, RUNS_AFTER_LIMIT = 32, 64
 SWITCH_HITS = "debug.oracle.switch_hits"
-# The app's reader of its frozen switch arms: the switches facet's `arms` (p15-oracle-180).
+# The app's reader of its frozen switch arms: the switches facet's `arms`.
 APP_ARMS_READER = "snapshot.switches"
 # OracleSettleControl.defaultSettleMilliseconds and maxSettleMilliseconds; OracleWaitCondition.maxMilliseconds.
 DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MAX_WAIT_MS = 5_000, 300_000, 30_000
@@ -1591,7 +1591,7 @@ class AppSession:
 
 def open_session(session_ctx: Dict[str, Any]) -> Any:
     if session_ctx.get("facets") == "v0":
-        # facets_v0.py capture: the push base has no debug.oracle.* methods, so v0 reads its own (p15-oracle-006).
+        # facets_v0.py capture: the push base has no debug.oracle.* methods, so v0 reads its own.
         import driver_app_v0
 
         return driver_app_v0.open_session(session_ctx)

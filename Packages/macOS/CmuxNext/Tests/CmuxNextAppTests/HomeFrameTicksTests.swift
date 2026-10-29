@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import MessagesLabHome
 import Testing
 
-/// Home's FrameTick runs on the pane window's FrameScheduler (p14-energy-050): one `.motion` batch
+/// Home's FrameTick runs on the pane window's FrameScheduler: one `.motion` batch
 /// client per transcript that ticks while work waits and leaves the scheduler on the frame with none,
 /// so Home makes no display link of its own.
 @MainActor @Suite struct HomeFrameTicksTests {

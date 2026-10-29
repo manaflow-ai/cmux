@@ -68,7 +68,7 @@ enum InputObservationBuilder {
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `focus` facet (p15-oracle-034, schemas/oracle/snapshot-v1.schema.json `focus`): the same
+/// The oracle's `focus` facet (schemas/oracle/snapshot-v1.schema.json `focus`): the same
 /// `observe` the input monitor checks, so the facet and the W invariants see one state and there is no
 /// second reader of AppKit or Ghostty focus. Chromium's interactive UI tests read focus the same way, from
 /// the FocusManager that owns it (ui/views/focus/focus_manager.h, `GetFocusedView`), never a test-side tracker.

@@ -38,17 +38,17 @@ public import Foundation
 ///   instead of building one on the key's turn (p06-scheduler.md, risk 6). While cmux pages use
 ///   Chromium (`pagesSpare`, the `pagesSpareWindow` feature), the warm start's spare step also
 ///   makes the pages profile (`CEFEngine.beginPagesProfile`), and the step after the default
-///   profile's spare comes up builds the pages spare, so a cmux page's key joins a live window too
-///   (p13-webui-016). One spare per kind; each take asks for the next. When pages leave Chromium
+///   profile's spare comes up builds the pages spare, so a cmux page's key joins a live window too.
+///  One spare per kind; each take asks for the next. When pages leave Chromium
 ///   (`pagesSpareChanged`), the untaken pages spare closes.
 /// - A step that comes while a menu tracks waits for the menu to close, and is posted again then.
 /// - Spare windows follow memory pressure through one memory consumer (``SpareMemoryConsumer``,
 ///   Chrome's spare rule): at warning or critical none is made or given back
 ///   (`ChromiumWarmupEngine.holdSpareWindows`), a queued spare step is taken back, and the untaken
 ///   spares stay, as Chrome keeps its spare renderer; critical closes them too
-///   (`closeUntakenSpareWindows`, p13-webui-047). Back at normal an idle task makes one again.
+///   (`closeUntakenSpareWindows`). Back at normal an idle task makes one again.
 ///   `CefInitialize` itself is not held: it builds no spare.
-/// - With the Chromium Host (``Placement/host(spareWindows:)``, p01-process-086) the start holds the
+/// - With the Chromium Host (``Placement/host(spareWindows:)``) the start holds the
 ///   main thread only for its shim calls, so `CefInitialize` is an idle step that waits for neither
 ///   the input quiet nor a long slot. The spare window step follows it as in process: content makes
 ///   its spare RenderProcessHost only after a navigation took a process
@@ -294,8 +294,8 @@ public final class ChromiumWarmup {
     }
 
     /// Starts Chromium now, with no idle wait: with the Chromium Host its start holds the main thread only for
-    /// the shim calls (the attach and the start's disk reads run off main; placed by ``ChromiumHostLaunchSlot``,
-    /// p08-startup-046). Once per process, as ``chromiumLikely(_:)``; the first spare window, where the placement keeps
+    /// the shim calls (the attach and the start's disk reads run off main; placed by ``ChromiumHostLaunchSlot``).
+    /// Once per process, as ``chromiumLikely(_:)``; the first spare window, where the placement keeps
     /// one, is still an idle step.
     public func startWithoutIdleWait(_ reason: Reason) {
         guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
@@ -414,7 +414,7 @@ public final class ChromiumWarmup {
 
     /// The `CefInitialize` step: it runs in this idle task's own turn (the slot that may overrun,
     /// after the input quiet), not in a later continuation that no scheduler picked
-    /// (`ChromiumWarmupEngine.initializeLoaded`, p08-startup-018). The step is posted only once the
+    /// (`ChromiumWarmupEngine.initializeLoaded`). The step is posted only once the
     /// load ended (``chromiumLikely(_:)``), so no await is left. Chromium that a tab started
     /// meanwhile goes on to the spare.
     private func initialize() {

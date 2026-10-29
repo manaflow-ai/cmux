@@ -1,7 +1,7 @@
 import AppKit
 public import CmuxNextDictation
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextInput
 import CmuxNextWakeups
 

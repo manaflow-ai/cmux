@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixtures, not shipped UI.
-// p13-webui-038: the page lifecycle may let a hidden New Tab page go. A chip pick there starts a chat
+// The page lifecycle may let a hidden New Tab page go. A chip pick there starts a chat
 // behind the page that no prompt went to yet; only the page knows it, so `pane.wakeState` reports it
 // (`pendingChat`, from `holdsDeferred`) and the host keeps the page instead of losing the pick.
 import { expect, test } from "bun:test";

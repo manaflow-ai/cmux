@@ -1158,6 +1158,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
         allowed_origins: Vec::new(),
         allowed_hosts: Vec::new(),
         token_rotated: 0,
+        allow_insecure_network: false,
     });
     next.defaults.insert(
         "deepseek".into(),

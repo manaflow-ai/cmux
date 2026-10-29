@@ -11,7 +11,7 @@ extension FeatureList {
     }
 
     /// The values of the daemons' features (process `daemon` or `both`) in registry order: what the app's
-    /// `client-hello` sends, because the daemon outlives the app (p12-perf-process-150). The daemon turns off a
+    /// `client-hello` sends, because the daemon outlives the app. The daemon turns off a
     /// verified app's `daemon` kill switch at once and reports every other difference as pending, as Chromium's
     /// child processes keep the feature state they started with (`FeatureList::InitFromSharedMemory`).
     public var daemonValues: [DaemonValue] {

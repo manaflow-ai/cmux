@@ -3,7 +3,7 @@ import AppKit
 import CoreGraphics
 import CoreText
 
-/// cmux (p10-stability-055): a type that is not `Sendable` but whose values the transcript's
+/// cmux: a type that is not `Sendable` but whose values the transcript's
 /// measure and render threads may share: Core Graphics images, Core Text lines, immutable
 /// strings and attributed strings, the port's `UIImage` (all its stored properties are lets),
 /// and values made only of them. Each is immutable once made and safe to read from any thread
@@ -14,7 +14,7 @@ import CoreText
 /// (`SidebarShareable`).
 protocol HomeShareable {}
 
-/// cmux (p10-stability-055): a ``HomeShareable`` value inside a checked `Sendable` type or lock
+/// cmux: a ``HomeShareable`` value inside a checked `Sendable` type or lock
 /// state. The module's one unchecked conformance for shared SDK objects; the caches, layouts and
 /// stores that hold such values are checked `Sendable` (crash ratchet: MessagesLabHome unchecked).
 // crash-allow: Value is HomeShareable, immutable once made and safe to read from any thread (see HomeShareable)

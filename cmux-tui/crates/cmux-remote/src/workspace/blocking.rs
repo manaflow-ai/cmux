@@ -38,10 +38,13 @@ struct JobRegistration {
     lifecycle: Arc<BlockingLifecycle>,
 }
 
+/// Fields drop in declaration order: stateful results can own rollback
+/// guards, so the result goes before the registration and the slot permit,
+/// before another job acquires this slot and observes the guarded state.
 struct CompletedBlockingJob<T> {
-    result: Option<Result<T, RpcError>>,
-    permit: Option<OwnedSemaphorePermit>,
-    registration: Option<JobRegistration>,
+    result: Result<T, RpcError>,
+    registration: JobRegistration,
+    permit: OwnedSemaphorePermit,
 }
 
 impl<T> CompletedBlockingJob<T> {
@@ -50,24 +53,14 @@ impl<T> CompletedBlockingJob<T> {
         permit: OwnedSemaphorePermit,
         registration: JobRegistration,
     ) -> Self {
-        Self { result: Some(result), permit: Some(permit), registration: Some(registration) }
+        Self { result, registration, permit }
     }
 
-    fn into_result(mut self) -> Result<T, RpcError> {
-        let result = self.result.take().expect("blocking job result remains present");
-        drop(self.registration.take());
-        drop(self.permit.take());
+    fn into_result(self) -> Result<T, RpcError> {
+        let Self { result, registration, permit } = self;
+        drop(registration);
+        drop(permit);
         result
-    }
-}
-
-impl<T> Drop for CompletedBlockingJob<T> {
-    fn drop(&mut self) {
-        // Stateful results can own rollback guards. Release those before
-        // another job acquires this slot and observes the guarded state.
-        drop(self.result.take());
-        drop(self.registration.take());
-        drop(self.permit.take());
     }
 }
 

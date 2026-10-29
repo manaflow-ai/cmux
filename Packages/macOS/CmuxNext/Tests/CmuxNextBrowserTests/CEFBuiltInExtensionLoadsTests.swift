@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p13-webui-055: the built-in uBlock Origin went on `--load-extension`, so Chromium loaded it into
+/// The built-in uBlock Origin went on `--load-extension`, so Chromium loaded it into
 /// every profile at start and Home with no browser tab ran its background page in an extension
 /// renderer. With the default-off feature `chromiumAdBlockerAtFirstTab`, on a fork with
 /// `cmux_ext_load_command_line_async`, it stays off the command line and loads into each persistent

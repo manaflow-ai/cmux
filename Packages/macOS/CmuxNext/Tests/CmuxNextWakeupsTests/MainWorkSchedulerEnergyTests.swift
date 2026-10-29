@@ -1,8 +1,8 @@
 import CmuxNextWakeups
 import Testing
 
-/// The app's one main scheduler owns the one Energy Saver policy and the one main wake queue on it
-/// (p14-energy-024), so every owner that already has the scheduler reaches both without a shared instance.
+/// The app's one main scheduler owns the one Energy Saver policy and the one main wake queue on it,
+/// so every owner that already has the scheduler reaches both without a shared instance.
 @MainActor
 struct MainWorkSchedulerEnergyTests {
     @Test func theWakeQueueFollowsTheSchedulersPolicy() {

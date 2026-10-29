@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Sourced by `scripts/cmux-next/build-app-ffi.sh --linux` (p15-oracle-003),
+# Sourced by `scripts/cmux-next/build-app-ffi.sh --linux`,
 # which defines repo_root, lib_name, header_entries, write_headers and
 # c_abi_symbols.
 # shellcheck disable=SC2154 # repo_root and lib_name come from build-app-ffi.sh

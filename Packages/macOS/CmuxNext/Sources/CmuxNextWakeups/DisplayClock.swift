@@ -42,7 +42,7 @@ public import QuartzCore
 /// ```swift
 /// // The composition root builds the app's clock and installs it:
 /// let displays = DisplayClock()
-/// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
+/// let mainWork = MainWorkScheduler(budget: budget, displays: displays, wakeUps: mainWakeUps)
 /// FrameScheduler.install(displays: displays, energy: mainWork.energy)
 /// displays.hub = features.isEnabled(.vsyncHub) ? VSyncHub() : nil // at launch
 ///

@@ -52,6 +52,10 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock stops its timer while the page "
+    "is hidden and reads the minute once on show (p13-webui-035); reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "its retry waits count only shown time "
+    "(startPageTimeout) and a hidden page's first round waits once (p13-webui-069); no read on show itself",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "
     "when the page hides (unsentDraftThrottle.ts); a write, reads no data",
     (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "
@@ -61,6 +65,11 @@ ALLOWED_LISTENERS = {
     "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/chips/ReplyMedia.tsx", "visibilitychange"): "stops a muted hover preview when the "
     "agent page hides; it only cancels local media and reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock rests while the page is "
+    "hidden (p13-webui-035) and on show reads the minute once; reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "a bare #N's pull request rounds rest "
+    "while the page is hidden (p13-webui-069): the lifecycle only picks the first wait, and a show "
+    "waits a period (`onResume: \"wait\"`), so a switch reads nothing",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",

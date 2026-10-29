@@ -28,7 +28,7 @@ public struct AppSymbolMap: Sendable {
     /// or it holds no slice with this executable's UUID. A file read and an
     /// inflate: call it off the main thread, once per symbolication job (the
     /// hang recorder's symbol queue, a crash record), never from a static
-    /// initializer that blocks whichever thread reads it first (p02-threads-122).
+    /// initializer that blocks whichever thread reads it first.
     public static func loadMain() -> AppSymbolMap? {
         guard let uuid = Self.executableImage()?.uuid,
               let url = Bundle.main.url(forResource: "cmux-symbols", withExtension: "bin"),

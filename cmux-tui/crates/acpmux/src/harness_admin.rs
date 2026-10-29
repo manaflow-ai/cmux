@@ -28,6 +28,7 @@ use crate::byo_endpoint;
 use crate::cli::harness::{self, AddRequest, DoctorReport, StepStatus};
 use crate::config::profiles::{self, ProfileSources};
 use crate::config::{Config, ProfileSource};
+use crate::no_panic::JsonExt;
 use crate::registry::{self, Launch, Registry};
 
 /// Why an operation was refused. `reason()` is the stable code the daemon
@@ -668,7 +669,7 @@ pub fn doctor_value(report: &DoctorReport) -> Value {
                 "detail": s.detail,
             });
             if let Some(fix) = &s.fix {
-                step["fix"] = json!(fix);
+                step.set("fix", json!(fix));
             }
             step
         })
@@ -698,13 +699,13 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
                 "installed": matches!(launch, Launch::Installed { .. }),
             });
             if let Some(d) = &agent.description {
-                row["description"] = json!(d);
+                row.set("description", json!(d));
             }
             if let Some(w) = &agent.website {
-                row["website"] = json!(w);
+                row.set("website", json!(w));
             }
             if let Some(h) = registry::harness_id(&agent.id) {
-                row["harnessId"] = json!(h);
+                row.set("harnessId", json!(h));
             }
             row
         })

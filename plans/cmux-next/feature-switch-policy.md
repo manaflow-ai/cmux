@@ -73,8 +73,9 @@ name is not a claim: write it as "not measured".
    before its bench, so that the optimized dogfood build can measure it (Chrome's Canary field trial). This does
    not move the date of rule 3: the 7 days still count from the day the switch landed.
 3. **Off and removed 7 days after it landed.** Any switch with no named owner (perf claim or not), a perf claim
-   with no passing bench, or a switch that is not a perf claim with no passing behavior test (a unit test that
-   reads the switch or the code it gates), 7 days after it landed (for switches that landed before 2026-10-28:
+   with no passing bench, or any switch with no passing behavior test (a unit test that reads the switch or the
+   code it gates; cmux-ad's decision for switches that are not perf claims, the lead's addition for perf claims),
+   7 days after it landed (for switches that landed before 2026-10-28:
    on 2026-11-04), goes off on every channel and is removed: the JSON file, the generated handle and the new code
    path, which only ran when the switch was on. An owner keeps a switch past the date only with a passing bench
    (or, for a switch that is not a perf claim, a passing behavior test) in the branch that keeps it. A switch that

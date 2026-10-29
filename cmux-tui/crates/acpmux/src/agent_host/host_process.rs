@@ -57,10 +57,11 @@ fn install_panic_log(path: std::path::PathBuf) {
         reason = "debug-build test trigger for the agent host panic log; release builds have no seam"
     )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
-        let _ = std::thread::Builder::new()
-            .name(TEST_PANIC_THREAD.into())
+        // supervise-allow: debug-only trigger whose unsupervised panic line is what tests/agent_host_panic_log.rs checks.
+        let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
             // crash-allow: debug-only test trigger for the agent host panic log
-            .spawn(|| panic!("acpmux agent host test panic"));
+            panic!("acpmux agent host test panic")
+        });
     }
 }
 

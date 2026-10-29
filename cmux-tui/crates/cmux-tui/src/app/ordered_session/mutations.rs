@@ -79,8 +79,10 @@ impl OrderedSession {
         let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         // supervise-allow: one background tree refresh; RemoteRefreshClaim releases the claim on its end, a panic included.
-        let spawn =
-            std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
+        let spawn = cmux_threads::spawn(
+            "remote-tree-refresh",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let result = session.refresh_tree();
                 drop(claim);
                 match result {
@@ -99,7 +101,8 @@ impl OrderedSession {
                         });
                     }
                 }
-            });
+            },
+        );
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
             self.inner.invalidate_remote_tree();
@@ -130,8 +133,10 @@ impl OrderedSession {
         let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         // supervise-allow: one background tree refresh; RemoteRefreshClaim releases the claim on its end, a panic included.
-        let spawn =
-            std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
+        let spawn = cmux_threads::spawn(
+            "remote-tree-refresh",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let result = session.refresh_tree_background().map_err(|error| error.to_string());
                 drop(claim);
                 let _ = events.send(AppEvent::RemoteTreeUpdated {
@@ -139,7 +144,8 @@ impl OrderedSession {
                     destination_generation,
                     result,
                 });
-            });
+            },
+        );
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
             let _ = self.events.send(AppEvent::RemoteTreeUpdated {
@@ -275,9 +281,15 @@ impl OrderedSession {
                             && let Some(creation) =
                                 error.downcast_ref::<AmbiguousCreation>().cloned()
                         {
-                            ambiguous_creations.lock().unwrap().push_back(
-                                PendingAmbiguousCreation { creation, semantic_intent, kind, label },
-                            );
+                            ambiguous_creations
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .push_back(PendingAmbiguousCreation {
+                                    creation,
+                                    semantic_intent,
+                                    kind,
+                                    label,
+                                });
                             session.invalidate_remote_tree();
                             pending.defer(SessionMutationOutcome::CreationResponseAmbiguous(
                                 error.to_string(),
@@ -335,7 +347,8 @@ impl OrderedSession {
 
     pub(in crate::app) fn reconcile_ambiguous_creations(&self) -> usize {
         let retryable = {
-            let mut pending = self.ambiguous_creations.lock().unwrap();
+            let mut pending =
+                self.ambiguous_creations.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             pending.drain(..).collect::<Vec<_>>()
         };
         let count = retryable.len();

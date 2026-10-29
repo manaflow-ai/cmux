@@ -10,7 +10,7 @@ public nonisolated enum CEFPagesTabError: Error {
 }
 
 /// A cmux page's Chromium tab (`ChromiumPageHost`): every page shares the pages profile (``beginPagesProfile()``).
-/// The page tabs of one cmux pane share that pane's page window (p13-webui-063), keyed apart from any browser pane's
+/// The page tabs of one cmux pane share that pane's page window, keyed apart from any browser pane's
 /// window; a page with no pane has a window of its own.
 extension CEFEngine {
     /// The configuration of a new cmux page tab: the pages profile, and `pane`'s page window, or a pane of its own

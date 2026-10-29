@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CoreGraphics
 import Testing
 
-/// idle-budget's shipping measurement mode (p14-energy-100) launches without no-activate, so the app
+/// idle-budget's shipping measurement mode launches without no-activate, so the app
 /// can activate, and with `CMUX_NEXT_ISOLATED_LAUNCH=1`: its windows still open at the bench's fixed
 /// frame, so every host draws the same pixels.
 @Suite struct TestWindowPlacementIsolationTests {

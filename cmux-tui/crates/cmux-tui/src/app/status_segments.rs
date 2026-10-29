@@ -32,23 +32,27 @@ pub(super) struct StatusTemplateValues<'a> {
 pub(super) fn expand_status_tokens(template: &str, values: &StatusTemplateValues<'_>) -> String {
     let mut result = String::with_capacity(template.len() + 16);
     let mut rest = template;
-    while let Some(start) = rest.find('{') {
-        result.push_str(&rest[..start]);
-        let candidate = &rest[start..];
-        let Some(end) = candidate.find('}') else {
-            result.push_str(candidate);
+    while let Some((before, after)) = rest.split_once('{') {
+        result.push_str(before);
+        let Some((name, tail)) = after.split_once('}') else {
+            result.push('{');
+            result.push_str(after);
             return result;
         };
-        match &candidate[1..end] {
+        match name {
             "session" => result.push_str(values.session),
             "workspace" => result.push_str(values.workspace),
             "screen" => result.push_str(values.screen),
             "screens" => result.push_str(values.screens),
             "title" => result.push_str(values.title),
             "user" => result.push_str(values.user),
-            _ => result.push_str(&candidate[..=end]),
+            _ => {
+                result.push('{');
+                result.push_str(name);
+                result.push('}');
+            }
         }
-        rest = &candidate[end + 1..];
+        rest = tail;
     }
     result.push_str(rest);
     result
@@ -78,7 +82,7 @@ impl StatusWorkerStop {
 
     pub(super) fn raise(&self) {
         self.raised.store(true, Ordering::Release);
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.condvar.notify_all();
     }
 
@@ -89,13 +93,16 @@ impl StatusWorkerStop {
     /// Wait until raised or the duration elapses; returns whether raised.
     pub(super) fn wait_timeout(&self, duration: Duration) -> bool {
         let deadline = Instant::now() + duration;
-        let mut guard = self.lock.lock().unwrap();
+        let mut guard = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !self.is_raised() {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            let (next, _) = self.condvar.wait_timeout(guard, remaining).unwrap();
+            let (next, _) = self
+                .condvar
+                .wait_timeout(guard, remaining)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard = next;
         }
         self.is_raised()
@@ -146,7 +153,7 @@ pub(super) fn run_status_segment_loop(worker: StatusSegmentWorker) {
             return;
         }
         let changed = {
-            let mut map = outputs.lock().unwrap();
+            let mut map = outputs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if map.get(&index) != Some(&output) {
                 map.insert(index, output);
                 true

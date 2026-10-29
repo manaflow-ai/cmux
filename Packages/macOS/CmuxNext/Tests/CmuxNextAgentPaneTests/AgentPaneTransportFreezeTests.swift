@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// p13-webui-080: a frozen chat with no turn running closes its acpmux connection, so acpmux holds no
+/// A frozen chat with no turn running closes its acpmux connection, so acpmux holds no
 /// socket for it. The thaw hands the page every frame that arrived before the close, then the close, in
 /// one call; the page's one reconnect opens a new connection, on which acpmux replays the chat.
 @Suite(.serialized)

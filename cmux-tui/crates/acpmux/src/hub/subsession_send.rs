@@ -5,6 +5,7 @@
 
 use super::subsessions::refused;
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl Hub {
     /// `_acpmux/subsession/send`: a prompt from `caller` to a descendant or
@@ -189,7 +190,7 @@ pub(super) fn doing(summary: &Value) -> Value {
             return json!("Waiting for the user to answer a question, in the app");
         }
         (Some(_), _) => return json!("Waiting for the user to allow a tool, in the app"),
-        (None, _) if summary["lane"]["state"] == "input" => {
+        (None, _) if summary.field("lane").field("state") == "input" => {
             return json!("Waiting for the user to answer it");
         }
         (None, _) => {}

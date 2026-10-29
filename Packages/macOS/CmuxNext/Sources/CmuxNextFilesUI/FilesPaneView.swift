@@ -196,10 +196,10 @@ public final class FilesPaneView: NSView {
             self.available = (folder, bytes)
             self.status.stringValue = self.statusText()
         }
-        let mainWork = mainWork
-        // task-owner: one volume read off main; ends when the status line shows it
+        let mainWork = mainWork, info = model.info
+        // task-owner: one volume read on the model's lanes; ends when the status line shows it
         Task { @concurrent in
-            let bytes = await FileInfoReader().availableCapacity(of: folder)
+            let bytes = await info.availableCapacity(of: folder)
             // node-free: one status label write of the folder the pane rendered last; a hidden pane re-renders on show anyway
             mainWork.postFromAnyThread(.visible, owner: "FilesPane.available") { land(bytes) }
         }

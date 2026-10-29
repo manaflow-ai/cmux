@@ -40,7 +40,7 @@ nonisolated enum ChildWindowPageFallback {
     }
 
     /// Whether the page window over `host` hides while its pane shows a render-server move with the
-    /// `pageSpringResizeOnce` feature (p03-rendering-036, `RestingPlacement.showsRenderMove`): a page in its own
+    /// `pageSpringResizeOnce` feature (`RestingPlacement.showsRenderMove`): a page in its own
     /// window is placed from the pane's frame, which a render-server spring sets at rest in its first turn, so it
     /// would show at the rest place for the whole spring. It hides through an occlusion hole over all of the host
     /// (`ChildWindowPageGeometry.occlusionRects()`, the fork's way to keep a page from showing) in the turn the spring starts,
@@ -62,7 +62,7 @@ extension CEFHostView: ChildWindowContent {
     var drawsInChildWindow: Bool { !layerHosting.drawsWithViews || pageWindowWidgets.isShowingPageWindow }
 }
 
-/// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on a Chromium
+/// The per-widget fallback of an attached page: the widgets the fork shows on a Chromium
 /// window's page window (``CEFNativeWidgetRoute/pageWindow``: autofill, print preview) order that window in,
 /// transparent, ignoring the mouse and over the host view, for as long as one is open. Chrome hangs those on
 /// the Browser's widget; the page's pixels, input and the rest of its native UI stay in the attached view.

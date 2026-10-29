@@ -7,6 +7,7 @@
 //! names it.
 
 use super::{EventFilter, Hub, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -80,9 +81,9 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
     if size < header + 8 || size > bytes.len() || (size - header - 8) % 4 != 0 {
         return None;
     }
-    let brands: Vec<&[u8]> = std::iter::once(&bytes[header..header + 4])
-        .chain(bytes[header + 8..size].chunks_exact(4))
-        .collect();
+    let major = bytes.get(header..header + 4)?;
+    let compatible = bytes.get(header + 8..size)?;
+    let brands: Vec<&[u8]> = std::iter::once(major).chain(compatible.chunks_exact(4)).collect();
     let has =
         |names: &[&[u8; 4]]| brands.iter().any(|brand| names.iter().any(|name| *brand == *name));
     if has(&[b"avif", b"avis"]) {
@@ -115,14 +116,14 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
     if let Some(name) = block.get("name").and_then(Value::as_str) {
-        named["name"] = json!(name);
+        named.set("name", json!(name));
     }
     Some((bytes, named))
 }
 
 /// The id an `image` block's bytes are kept under; `None` for any other block.
 pub(super) fn id_of(block: &Value) -> Option<String> {
-    decode(block).and_then(|(_, named)| named["id"].as_str().map(str::to_owned))
+    decode(block).and_then(|(_, named)| named.field("id").as_str().map(str::to_owned))
 }
 
 /// What `keep` would record of `blocks`' images, without keeping them (a queued prompt's row,
@@ -139,7 +140,7 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
         .iter()
         .filter_map(decode)
         .filter_map(|(bytes, named)| {
-            let id = named["id"].as_str()?;
+            let id = named.field("id").as_str()?;
             let path = dir().join(id);
             if !cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
                 let written = cmux_blocking::fs::create_dir_all(dir()).and_then(|()| {
@@ -188,17 +189,17 @@ pub(super) fn inline_parts(
                         )
                     {
                         let mut part = display_part.clone();
-                        part["text"] = Value::String(text.to_owned());
+                        part.set("text", Value::String(text.to_owned()));
                         if part.get("kind").and_then(Value::as_str) == Some("pasted")
                             && part.get("name").is_none()
                         {
-                            part["name"] = Value::String("Pasted text".into());
+                            part.set("name", Value::String("Pasted text".into()));
                         }
                         return Some(part);
                     }
                     let mut part = json!({"kind": "text", "text": text});
                     if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
-                        part["pasted"] = Value::Bool(true);
+                        part.set("pasted", Value::Bool(true));
                     }
                     Some(part)
                 }
@@ -207,9 +208,9 @@ pub(super) fn inline_parts(
                     let id = named.get("id").and_then(Value::as_str)?;
                     let persisted = kept_images.contains(id);
                     let mut part = named;
-                    part["kind"] = Value::String("image".into());
+                    part.set("kind", Value::String("image".into()));
                     if !persisted {
-                        part["persisted"] = Value::Bool(false);
+                        part.set("persisted", Value::Bool(false));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -221,13 +222,13 @@ pub(super) fn inline_parts(
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(fallback);
                     let mut part = json!({"kind": kind, "name": name});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
-                        part["mimeType"] = Value::String(mime_type.into());
+                        part.set("mimeType", Value::String(mime_type.into()));
                     }
                     if let Some(size) = block_size(block) {
-                        part["size"] = json!(size);
+                        part.set("size", json!(size));
                     }
                     if let Some(page_count) = block.get("pageCount").and_then(Value::as_u64) {
-                        part["pageCount"] = json!(page_count);
+                        part.set("pageCount", json!(page_count));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -242,7 +243,7 @@ pub(super) fn inline_parts(
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(uri);
                     let mut part = json!({"kind": "file", "name": name, "uri": uri});
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
-                        part["mimeType"] = Value::String(mime_type.into());
+                        part.set("mimeType", Value::String(mime_type.into()));
                     }
                     if let Some(display_part) = display_part {
                         copy_display_fields(&mut part, display_part);
@@ -375,7 +376,7 @@ impl Hub {
     ) {
         let images = keep(blocks);
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let ordered = inline_parts(
             blocks,
@@ -383,7 +384,7 @@ impl Hub {
             display_parts,
         );
         if !ordered.is_empty() {
-            msg["inlineParts"] = Value::Array(ordered);
+            msg.set("inlineParts", Value::Array(ordered));
         }
         super::session::mark_pasted(&mut msg, blocks);
         self.append(session, "mux", "user_message", msg);

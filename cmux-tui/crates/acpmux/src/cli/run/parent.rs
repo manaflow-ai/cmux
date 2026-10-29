@@ -8,6 +8,8 @@
 
 use super::launch::Launch;
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::StrExt;
 use std::sync::Arc;
 
 /// Flags a sub-session start takes no part of, and why.
@@ -34,21 +36,21 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
     let mut p = json!({"parent": parent, "prompt": prompt});
     if let Some(spec) = &args.model {
         let (harness, model) = orchestrate::split_target(spec);
-        p["harness"] = json!(harness);
+        p.set("harness", json!(harness));
         if let Some(model) = model {
-            p["model"] = json!(model);
+            p.set("model", json!(model));
         }
     }
     if let Some(e) = &args.effort {
-        p["effort"] = json!(e);
+        p.set("effort", json!(e));
     }
     if let Some(n) = &args.name {
-        p["name"] = json!(n);
+        p.set("name", json!(n));
     }
     // No --cwd: the parent's folder, not this shell's.
     if let Some(cwd) = &args.cwd {
         let abs = if cwd.is_absolute() { cwd.clone() } else { std::env::current_dir()?.join(cwd) };
-        p["cwd"] = json!(abs);
+        p.set("cwd", json!(abs));
     }
     Ok(p)
 }
@@ -69,24 +71,24 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
     let started = client
         .request(method::MUX_SUBSESSION_START, start_params(&args, &parent, &prompt)?)
         .await?;
-    let id = started["sessionId"].as_str().unwrap_or_default().to_owned();
-    let name = started["name"].as_str().unwrap_or(&id).to_owned();
+    let id = started.field("sessionId").as_str().unwrap_or_default().to_owned();
+    let name = started.field("name").as_str().unwrap_or(&id).to_owned();
     if args.detach {
         if json_out {
             print_json(&started);
         } else {
-            println!("started {name} ({}) under {parent}", &id[..8.min(id.len())]);
+            println!("started {name} ({}) under {parent}", id.head(8));
         }
         return Ok(());
     }
     let row = wait_turn(&client, &id, args.timeout).await?;
     // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
     let reply = last_replies(&client, &id, 1).await?.pop().map(|r| crate::secret_scan::mask(&r));
-    let last = &row["lastTurn"];
+    let last = row.field("lastTurn");
     let (state, error) = turn_end(last);
     if json_out {
         print_json(&json!({
-            "sessionId": id, "name": name, "parent": parent, "harness": started["harness"],
+            "sessionId": id, "name": name, "parent": parent, "harness": started.field("harness"),
             "state": state,
             "result": {"state": state, "turnId": last["turnId"], "stopReason": last["stopReason"],
                        "reply": reply, "error": error},
@@ -123,17 +125,17 @@ fn turn_end(last: &Value) -> (&'static str, Option<String>) {
 async fn wait_turn(client: &Arc<Client>, id: &str, timeout: Option<u64>) -> Result<Value> {
     let mut params = json!({"sessions": [id], "until": ["ready", "closed"]});
     if let Some(secs) = timeout {
-        params["timeoutMs"] = json!(secs.saturating_mul(1000));
+        params.set("timeoutMs", json!(secs.saturating_mul(1000)));
     }
     let v = client.request(method::MUX_WAIT, params).await?;
-    if v["timedOut"].as_bool().unwrap_or(false) {
+    if v.field("timedOut").as_bool().unwrap_or(false) {
         return Err(errors::AppError::timeout(format!(
             "the child {id} still runs; read it later with `acpmux wait {id}` and `acpmux last {id}`"
         ))
         .with_session(id)
         .into());
     }
-    Ok(v["sessions"][0].clone())
+    Ok(v.field("sessions").item(0).clone())
 }
 
 #[cfg(test)]

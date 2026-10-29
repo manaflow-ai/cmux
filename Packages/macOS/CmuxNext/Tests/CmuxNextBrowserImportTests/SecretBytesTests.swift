@@ -1,7 +1,7 @@
 import CmuxNextBrowserImport
 import Testing
 
-/// `SecretBytes` keeps its count and the reads in progress behind one lock (p10-stability-058, no
+/// `SecretBytes` keeps its count and the reads in progress behind one lock (no
 /// `@unchecked Sendable`): `zero()` empties the bytes at once for new reads and zeroes the memory only
 /// once no read is running. Run under TSan too.
 @Suite struct SecretBytesTests {

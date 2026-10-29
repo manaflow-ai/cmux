@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The invariants facet (p15-oracle-033): the check's violation ids, the window problems and the check count in
+/// The invariants facet: the check's violation ids, the window problems and the check count in
 /// the schema's shape, read in the snapshot's main-actor turn; with no monitor it is not-comparable with its task,
 /// never an empty pass. Run: `swift test --filter OracleInvariantsFacetTests`.
 @MainActor

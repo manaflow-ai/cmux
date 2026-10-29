@@ -1,6 +1,5 @@
 import CmuxNextCompat
 import Foundation
-import QuartzCore
 import Testing
 
 /// Runs one pass of the main run loop in `mode` without waiting (a 0 s timeout).
@@ -127,23 +126,5 @@ private final class CallbackLog {
         runMainRunLoopPass(tracking.mode)
         #expect(log.events == ["tracking"])
         withExtendedLifetime(observer) {}
-    }
-}
-
-@Suite struct CATransactionMainCompletionTests {
-    /// With no animation the completion runs once the transaction commits (CATransaction.h),
-    /// on the main thread.
-    @Test(.timeLimit(.minutes(1))) func theCompletionRunsOnMainAfterTheCommit() async {
-        let log = CallbackLog()
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            CATransaction.begin()
-            CATransaction.setMainCompletion {
-                log.record("completion")
-                done.resume()
-            }
-            log.record("commit")
-            CATransaction.commit()
-        }
-        #expect(log.events == ["commit", "completion"])
     }
 }

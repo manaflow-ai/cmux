@@ -32,8 +32,8 @@ pub trait TraceControl {
 /// The process's own tracer (`cmux_trace`). The first start maps the
 /// recording ring on the one-shot `cmux-holder-trace-map` thread, which
 /// wakes the loop when it is done; the start then runs in memory. The map
-/// thread runs at QOS_CLASS_UTILITY (`run_at_map_qos`), never at the
-/// loop's echo class.
+/// thread starts through cmux_threads at Utility (QOS_CLASS_UTILITY on
+/// macOS), never at the loop's echo class.
 pub struct ProcessTrace {
     /// Set by the map thread once the recording ring is mapped.
     mapped: Arc<AtomicBool>,
@@ -90,15 +90,16 @@ impl TraceControl for ProcessTrace {
         if !self.mapping {
             let (mapped, wake, map) = (self.mapped.clone(), self.wake, self.map);
             // supervise-allow: one-shot map of the trace ring; a panic leaves the ring unmapped, so this trace request stays waiting and the holder's terminals are not touched.
-            std::thread::Builder::new()
-                .name("cmux-holder-trace-map".into())
-                .spawn(move || {
-                    run_at_map_qos();
+            cmux_threads::spawn(
+                "cmux-holder-trace-map",
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     map();
                     mapped.store(true, Ordering::Release);
                     wake();
-                })
-                .map_err(|error| format!("map the recording ring: {error}"))?;
+                },
+            )
+            .map_err(|error| format!("map the recording ring: {error}"))?;
             self.mapping = true;
         }
         self.waiting = Some(request.categories);
@@ -124,19 +125,6 @@ impl TraceControl for ProcessTrace {
 fn map_ring() {
     let _ = cmux_trace::prepare_recording();
 }
-
-/// The map thread's class: QOS_CLASS_UTILITY, as mapping and faulting in
-/// the ring is not echo work. A macOS thread starts at its creator's class,
-/// and the loop that starts this one runs at QOS_CLASS_USER_INTERACTIVE
-/// (`run_at_echo_qos`). Linux: the thread keeps the loop's nice value.
-#[cfg(target_vendor = "apple")]
-fn run_at_map_qos() {
-    // SAFETY: sets the calling thread's own QoS class; no pointer arguments.
-    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
-}
-
-#[cfg(not(target_vendor = "apple"))]
-fn run_at_map_qos() {}
 
 impl Holder {
     /// Send granted TRACE_START and TRACE_STOP frames to `trace` instead of
@@ -229,7 +217,7 @@ mod tests {
         assert_eq!(failed, cmux_trace::TraceError::NotInitialized.to_string());
     }
 
-    /// p02-threads-207: the loop runs at USER_INTERACTIVE, and the map
+    /// The loop runs at USER_INTERACTIVE, and the map
     /// thread it starts runs at UTILITY, not at the class it inherits.
     #[test]
     fn the_map_thread_runs_at_utility_below_the_loop() {

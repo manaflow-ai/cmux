@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// ``BlockingSiteLedger`` (p12-perf-process-226): each report carries the main thread's blocking calls since the
+/// ``BlockingSiteLedger``: each report carries the main thread's blocking calls since the
 /// last queued one, by hashed site id, and a call is sent once (Chrome's snapshot deltas).
 struct BlockingSiteLedgerTests {
     /// The detector's cumulative sites and reset count, as a test sets them.

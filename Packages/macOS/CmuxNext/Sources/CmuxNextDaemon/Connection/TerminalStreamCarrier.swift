@@ -1,4 +1,4 @@
-/// The ready control transport terminal views stream on, with its daemon's identity (p05-ipc-095).
+/// The ready control transport terminal views stream on, with its daemon's identity.
 struct TerminalStreamCarrier: Sendable {
     let transport: LineTransport
     let identity: DaemonIdentity

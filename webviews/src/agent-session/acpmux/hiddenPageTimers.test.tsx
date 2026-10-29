@@ -1,5 +1,5 @@
 // The New Tab page, the run boards and the pull request chip run no timer while the page is hidden
-// (p13-webui-035, MQ4 batch B). Chrome throttles a hidden page's timers
+// (MQ4 batch B). Chrome throttles a hidden page's timers
 // (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc); a page of
 // ours stops them (usePageInterval / startPageInterval, pages/shared/pageLifecycle.ts). A clock
 // (the stopwatch, the Now Playing line) reads the time again when the page shows, so its text is

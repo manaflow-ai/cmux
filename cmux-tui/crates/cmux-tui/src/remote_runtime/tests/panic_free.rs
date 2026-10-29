@@ -1,4 +1,4 @@
-//! Shutdown failure reporting without a panic path (p10-stability-129).
+//! Shutdown failure reporting without a panic path.
 
 use super::*;
 

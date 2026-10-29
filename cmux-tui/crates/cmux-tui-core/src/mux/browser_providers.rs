@@ -282,9 +282,15 @@ impl Mux {
         // (`server/request_wait.rs`).
         let started = if provider_bootstrap {
             let name = format!("browser-surface-{id}-bootstrap");
-            supervised::spawn(name, Fatal, ShutdownBehavior::Continue, run)
-                .map(drop)
-                .map_err(|error| format!("could not start browser bootstrap: {error}"))
+            supervised::spawn_at(
+                name,
+                cmux_threads::ThreadQos::UserInitiated,
+                Fatal,
+                ShutdownBehavior::Continue,
+                run,
+            )
+            .map(drop)
+            .map_err(|error| format!("could not start browser bootstrap: {error}"))
         } else {
             self.post_request_wait(run)
                 .map_err(|_| "could not start browser bootstrap: shutting down".to_owned())

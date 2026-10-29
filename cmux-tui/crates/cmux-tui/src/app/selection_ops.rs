@@ -180,11 +180,9 @@ impl App {
         let repeated = previous.as_ref().is_some_and(|previous| {
             Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
         });
-        let (mut count, mut tracked_anchor) = if repeated {
-            let previous = previous.expect("repeated selection click has prior state");
-            (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
-        } else {
-            (1, None)
+        let (mut count, mut tracked_anchor) = match previous.filter(|_| repeated) {
+            Some(previous) => (previous.count.saturating_add(1).min(3), previous.tracked_anchor),
+            None => (1, None),
         };
 
         if let Some(row) = u32::try_from(cell.1).ok()

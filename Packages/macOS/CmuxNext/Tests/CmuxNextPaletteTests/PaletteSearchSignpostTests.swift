@@ -6,7 +6,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// The palette's side of `key.palette_search` (p09-observability-040, perf-hot `palette-key`): a typed query is one
+/// The palette's side of `key.palette_search` (perf-hot `palette-key`): a typed query is one
 /// slice in `search` and one when its rows land, whose end holds the rows shown; nothing is written while the key
 /// category is off.
 @MainActor @Suite(.paletteRanker, .serialized)

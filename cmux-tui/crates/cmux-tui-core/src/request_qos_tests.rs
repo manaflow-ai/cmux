@@ -206,7 +206,7 @@ fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
     creator.expect("spawn the creator").join().expect("the creator returns")
 }
 
-/// A request's one-shot helper (p05-ipc-080) starts at the dispatcher's
+/// A request's one-shot helper starts at the dispatcher's
 /// class, never the class it would inherit from its creator, and with the
 /// feature on runs at the class of the request's cause; with it off it
 /// keeps its declared class. Where the process cannot reach a class (Linux

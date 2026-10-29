@@ -24,6 +24,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
  "cmux-unix-socket",
@@ -822,6 +823,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",
@@ -1163,6 +1165,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "serde_json",
  "tungstenite",
 ]

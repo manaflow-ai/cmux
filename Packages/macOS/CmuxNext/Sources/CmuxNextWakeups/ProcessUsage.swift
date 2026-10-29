@@ -157,7 +157,7 @@ public struct ProcessUsage: Sendable, Equatable {
     }
 }
 
-// MARK: - Renderers per tab (p14-energy-124)
+// MARK: - Renderers per tab
 
 extension ProcessUsage {
     /// One Chromium tab renderer: its pid and its `--renderer-client-id` (Chromium's RenderProcessHost id),

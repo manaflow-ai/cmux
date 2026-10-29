@@ -23,6 +23,7 @@
 //!
 //! Linux only: a Cloud machine is a Linux machine.
 
+use crate::json_fields::JsonFields;
 use std::os::unix::fs::MetadataExt as _;
 use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
@@ -242,7 +243,7 @@ fn check(args: &Args) -> Result<Staged, String> {
     let socket = socket().ok_or("no daemon socket in this terminal")?;
     let identity =
         super::super::machine_gate::identify(&socket).ok_or("the daemon socket did not answer")?;
-    if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
+    if identity.field("pid").as_i64() != Some(i64::from(args.daemon_pid)) {
         return Err("the daemon pid is not the one serving this machine".into());
     }
     Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino() })
@@ -281,7 +282,7 @@ fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
     // supervisor starts the restored binary.
     if let Some(pid) = socket()
         .and_then(|socket| super::super::machine_gate::identify(&socket))
-        .and_then(|identity| identity["pid"].as_i64())
+        .and_then(|identity| identity.field("pid").as_i64())
         .and_then(|pid| i32::try_from(pid).ok())
     {
         // SAFETY: as above.
@@ -315,7 +316,7 @@ fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
 
 fn answering(socket: &Path, wanted: &impl Fn(&str) -> bool, old_pid: i32) -> Option<i64> {
     let identity = super::super::machine_gate::identify(socket)?;
-    let pid = identity["pid"].as_i64()?;
+    let pid = identity.field("pid").as_i64()?;
     let build = super::super::machine_gate::build_id(&identity)?;
     (pid != i64::from(old_pid) && wanted(build)).then_some(pid)
 }

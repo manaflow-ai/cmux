@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::agents::{self, AgentFailure};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) const NAME: &str = "agents_events";
 
@@ -100,7 +101,9 @@ pub(super) fn call<B: Backend>(backend: &B, arguments: &Map<String, Value>) -> V
 /// The `cmux agents events` words these arguments name, and the session.
 fn words(arguments: &Map<String, Value>) -> Result<(Vec<String>, Option<String>), String> {
     let schema = input_schema();
-    if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none()) {
+    if let Some(name) =
+        arguments.keys().find(|name| schema.field("properties").get(*name).is_none())
+    {
         return Err(format!("{NAME} has no argument {name:?}"));
     }
     let text = |name: &str| match arguments.get(name) {

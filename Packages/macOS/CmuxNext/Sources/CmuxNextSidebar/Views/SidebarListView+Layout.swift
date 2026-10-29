@@ -145,7 +145,7 @@ extension SidebarListViewComponents {
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -realizedOverscan)
     }
-    /// How far past each clip edge the list realizes rows: none while the launch holds the offscreen rows (p08-startup-064).
+    /// How far past each clip edge the list realizes rows: none while the launch holds the offscreen rows.
     var realizedOverscan: CGFloat { launchRows.holdsOffscreenRows ? 0 : SidebarStyle.overscan }
     func apply(_ layout: SidebarLayout, animated: Bool) {
         let previousHoverSuppression = suppressHoverEffects

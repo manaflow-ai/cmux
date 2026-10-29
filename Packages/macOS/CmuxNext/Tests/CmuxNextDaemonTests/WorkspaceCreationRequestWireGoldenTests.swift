@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Workspace and
-/// Requests/Creation (p05-ipc-039): the line each one sends today, compared as JSON (key order does
+/// Requests/Creation: the line each one sends today, compared as JSON (key order does
 /// not count). The migration to the generated `<Name>Request` types (CmuxNextWireGen RequestEmitter)
 /// must send the same lines, with the ids the client mints (workspace key, terminal id, pane, tab
 /// and split ids, mutation id) passed through as given.

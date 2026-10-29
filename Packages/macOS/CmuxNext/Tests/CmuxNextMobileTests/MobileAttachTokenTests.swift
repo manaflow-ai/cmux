@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p10-stability-063: the attach ticket's token comes from the system's secure generator without lending a pointer
+/// The attach ticket's token comes from the system's secure generator without lending a pointer
 /// (strict memory safety): 32 random bytes, base64url without padding, fresh on every call.
 @Suite struct MobileAttachTokenTests {
     @Test func tokenIsThirtyTwoBytesOfBase64URL() {

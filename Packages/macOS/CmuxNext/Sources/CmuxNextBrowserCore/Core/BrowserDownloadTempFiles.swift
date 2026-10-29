@@ -68,6 +68,14 @@ public final class BrowserDownloadTempFiles {
     /// download that starts before the launch cleanup keeps the earlier
     /// leftovers in the record.
     private actor Store {
+        /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.browser.download-temp-files`): its record reads and writes block a thread of
+        /// its own, never a cooperative pool thread (the HomeCache pattern).
+        // executor: com.cmuxterm.next.browser.download-temp-files
+        private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.browser.download-temp-files", qos: .utility)
+
+        /// Runs the actor on ``queue``.
+        nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
         private let recordURL: URL
         private var paths: Set<String>?
         /// The paths this run added: the cleanup never deletes them.

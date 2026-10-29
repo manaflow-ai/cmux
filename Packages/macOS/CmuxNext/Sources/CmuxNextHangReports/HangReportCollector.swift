@@ -15,7 +15,7 @@ import Foundation
 ///
 /// A hang of ``blackBoxHangMs`` or more (at its end in ``noteStall(durationNanos:cpuNanos:addresses:startup:)``, or still
 /// running in ``noteHang(durationNanos:addresses:task:startup:)``), or a key frame over ``blackBoxKeyFrameMicros``, takes the
-/// merged black box once per report (schema 3's `blackbox[]`, p09-observability-063): the trigger is one more check
+/// merged black box once per report (schema 3's `blackbox[]`): the trigger is one more check
 /// under the lock, and the rings are read by `captureBlackBox` off the main thread.
 ///
 /// ```swift
@@ -206,7 +206,7 @@ public final class HangReportCollector: Sendable {
         keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
     }
 
-    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread; task p01-process-084): the host
+    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread): the host
     /// measured it and sends no stack (its stack is in the host's own dump at 10 s), so it is kept frameless, as a
     /// watched thread's hang named ``hostUIThread``, in the thread hang slots: it never pushes the app's own main
     /// thread hang out, and it counts in none of the app's histograms. Nothing when the wire schema has none.

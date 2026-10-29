@@ -46,7 +46,7 @@ where
 /// [`spawn`] for a per-terminal echo thread that follows `desired`, the
 /// terminal's class: it starts at [`ECHO_PATH_QOS`] and applies a change
 /// itself with [`cmux_threads::apply_pending_qos`] after each wake (a hidden
-/// terminal's threads run at utility, p02-threads-236).
+/// terminal's threads run at utility).
 pub fn spawn_following<F, T>(
     name: impl Into<String>,
     desired: cmux_threads::DesiredQos,

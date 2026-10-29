@@ -4,7 +4,7 @@ import CmuxNextPalette
 import CmuxNextWakeups
 import Testing
 
-/// Energy Saver's session actions (p14-energy-025): "Turn Off Energy Saver for Now" and "Turn On Energy
+/// Energy Saver's session actions: "Turn Off Energy Saver for Now" and "Turn On Energy
 /// Saver Again" change the policy in the input's turn, start no work, are offered only when they can do
 /// something, and say why not otherwise.
 @MainActor

@@ -2362,6 +2362,115 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "startup_marks": {
+     "type": {
+      "kind": "ref",
+      "name": "DaemonStartupMarks"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "startup-marks-v1",
+     "constraints": [
+      "The serving daemon's startup timeline: each step's first time, measured from its main; null when no daemon serves the mux. Only with identify {startup_marks: true}."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "DaemonStartupMarks": {
+   "kind": "object",
+   "fields": {
+    "main_start_unix_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below."
+    },
+    "config_loaded": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read."
+    },
+    "owner_prepared": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran."
+    },
+    "socket_bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner."
+    },
+    "mux_restored": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted."
+    },
+    "owner_event_loop": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs."
+    },
+    "websocket_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked)."
+    },
+    "launch_snapshot_writer_started": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done."
+    },
+    "lifecycle_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed."
+    },
+    "first_identify_served": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step."
     }
    },
    "additional_properties": false
@@ -13439,6 +13548,19 @@
       "since": 12,
       "constraints": [
        "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
+     },
+     "startup_marks": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "startup-marks-v1",
+      "constraints": [
+       "Adds startup_marks to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },

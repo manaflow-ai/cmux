@@ -32,8 +32,11 @@ impl Mux {
                 // Retries back off from 100 ms, also after an immediate first try.
                 delay = delay.max(Duration::from_millis(50));
                 // A failed read proves nothing about the host: retry.
-                let Ok(terminal) =
-                    mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                let Ok(terminal) = mux
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .terminal_record(&terminal_id)
                 else {
                     delay = (delay * 2).min(Duration::from_secs(5));
                     return Retry::After(delay);

@@ -1,7 +1,7 @@
 import CmuxNextFeatures
 import Testing
 
-/// p05-ipc-094: terminal views attach as streams on the control connection by default in DEV and NIGHTLY (so in
+/// Terminal views attach as streams on the control connection by default in DEV and NIGHTLY (so in
 /// dogfood builds), and `CMUX_DISABLE_FEATURES=terminalStreams` keeps one connection per view
 /// (plans/cmux-next/app-daemon-connection-DESIGN.md section 6). Release stays off until the spec's optimized-build
 /// benches pass and NIGHTLY has run it for 7 days (plans/cmux-next/feature-switch-policy.md rule 5).

@@ -37,7 +37,7 @@ private func threadAllocations(_ body: () -> Void) -> Int? {
     return CrashKeyMallocTally.allocations.load(ordering: .relaxed)
 }
 
-/// The app's crash keys (p10-stability-207, Chrome's crash_key.h): preallocated words written and read with
+/// The app's crash keys (Chrome's crash_key.h): preallocated words written and read with
 /// atomics. The crash path and the hang reporter read them, so neither a write nor a read may allocate or lock.
 @Suite(.serialized) struct CrashKeySlotsTests {
     @Test func settingScopingAndReadingKeysMakesNoAllocation() throws {

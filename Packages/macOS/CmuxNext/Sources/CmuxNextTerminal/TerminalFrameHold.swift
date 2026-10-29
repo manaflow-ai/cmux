@@ -10,7 +10,11 @@ import IOSurface
 /// stays painted over the fresh one until the fresh one presents a frame drawn after the replay
 /// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
 /// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
-/// content is parsed and drawn.
+/// content is parsed and drawn, however long its attach takes: a relaunch whose daemon restores
+/// hundreds of terminals can answer an attach seconds late, and an empty surface with a cursor box
+/// is never better than the last content (Chrome keeps a tab's last frame up until the new content
+/// paints). A link that fails says so in the status banner over that frame. The quit saves what the pane
+/// shows, so a pane still held saves its held frame, not the empty surface under it (``heldFrame``).
 ///
 /// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
 /// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
@@ -19,11 +23,10 @@ final class TerminalFrameHold {
     /// The longest the old frame stays once the content it waits for is queued: a surface that
     /// never draws shows as it is after this.
     static let limit: Duration = .milliseconds(500)
-    /// The longest a last frame waits for its session's first content (a failed or slow attach):
-    /// after it, the pane shows the surface as it is.
-    static let contentLimit: Duration = .seconds(3)
 
     private let view = HeldFrameView()
+    /// The frame the view shows while a hold is on screen.
+    private var held: HeldFrame?
     private weak var surface: TerminalSurfaceView?
     /// Once the replay is parsed: the fresh surface's frame then, and the ticks seen since. A frame
     /// captured before the parse can still present on the next tick, so only a change seen two
@@ -32,7 +35,7 @@ final class TerminalFrameHold {
     /// A last-frame hold whose surface has no content queued yet: it waits for ``contentQueued()``.
     private var awaitingContent = false
     private var generation = 0
-    /// The hold's limits (``limit``, ``contentLimit``): a pane shows the held frame until then, so a `visible` task.
+    /// The hold's limit once content is queued (``limit``): a pane shows the held frame until then, so a `visible` task.
     private let deadline: MainDeadline
     /// Where the parsed replay's refresh is posted.
     private let mainWork: MainWorkScheduler
@@ -53,11 +56,29 @@ final class TerminalFrameHold {
     /// Whether a held frame is on screen.
     var isHolding: Bool { view.superview != nil }
 
+    /// The frame on screen while a hold shows one, as the pane shows it; nil while nothing is held.
+    var heldFrame: HeldFrame? { isHolding ? held : nil }
+
+    /// A held frame's pixels: a renderer's presented IOSurface (a surface swapped out, an evicted terminal's last
+    /// frame) or a decoded picture (a terminal's frame from the last quit).
+    enum HeldFrame {
+        case surface(IOSurface)
+        case image(CGImage)
+
+        /// The layer contents that show it.
+        var contents: Any {
+            switch self {
+            case .surface(let surface): surface
+            case .image(let image): image
+            }
+        }
+    }
+
     /// Paints `old`'s last frame (or the frame this hold already shows) over `fresh` in `host`
     /// until `fresh` presents a frame drawn after the output queued on its lane so far.
     func begin(old: TerminalSurfaceView, fresh: TerminalSurfaceView, in host: NSView) {
         // A swap during a hold keeps the held frame: the surface it replaces may only show a blank one.
-        let held: Any? = (isHolding ? view.shown : nil) ?? old.presentedFrame
+        let held = heldFrame ?? old.presentedFrame.map(HeldFrame.surface)
         end()
         // Only a swap on screen: a reveal unsuspends before its geometry claim brings the replay.
         guard WindowDrawPolicy.inputs(for: fresh, suspended: fresh.isRenderingSuspended).draws,
@@ -68,16 +89,12 @@ final class TerminalFrameHold {
 
     /// Paints `frame` (an evicted terminal's last frame, an IOSurface; or its frame from the last
     /// quit, a CGImage) over `fresh`, a new session's first surface, until the first content
-    /// queued on its lane (``contentQueued()``) is parsed and drawn.
-    func begin(lastFrame frame: Any, over fresh: TerminalSurfaceView, in host: NSView) {
+    /// queued on its lane (``contentQueued()``) is parsed and drawn. No timer ends it before that:
+    /// the empty surface under it is never what the pane should show.
+    func begin(lastFrame frame: HeldFrame, over fresh: TerminalSurfaceView, in host: NSView) {
         end()
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true
-        let generation = generation
-        deadline.schedule(after: Self.contentLimit) { [weak self] in
-            guard let self, self.generation == generation, self.awaitingContent else { return }
-            self.end()
-        }
     }
 
     /// The session queued its first content on the surface's lane: a last-frame hold now waits
@@ -88,10 +105,11 @@ final class TerminalFrameHold {
         waitForDraw()
     }
 
-    private func show(_ held: Any, over fresh: TerminalSurfaceView, like source: CALayer?, in host: NSView) {
+    private func show(_ held: HeldFrame, over fresh: TerminalSurfaceView, like source: CALayer?, in host: NSView) {
         generation &+= 1
         surface = fresh
-        view.show(held, like: source, frame: fresh.frame)
+        self.held = held
+        view.show(held.contents, like: source, frame: fresh.frame)
         // Above the surface, so above the leaf its renderer presents into (a sublayer of the
         // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
@@ -126,6 +144,7 @@ final class TerminalFrameHold {
         deadline.cancel()
         view.removeFromSuperview()
         view.clear()
+        held = nil
         surface = nil
         parsed = nil
         awaitingContent = false
@@ -164,9 +183,6 @@ private final class HeldFrameView: NSView {
         autoresizingMask = [.width, .height]
     }
 
-    /// The frame shown, if any.
-    var shown: Any? { contents }
-
     func clear() {
         contents = nil
         layer?.contents = nil
@@ -184,4 +200,11 @@ private final class HeldFrameView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// A pane's shown frame handed from a terminal session to the one that replaces it on the same tab
+/// (``TerminalSession/carriedFrame()``, ``TerminalSession/holdCarriedFrame(_:)``).
+@MainActor
+public struct TerminalCarriedFrame {
+    let frame: TerminalFrameHold.HeldFrame
 }

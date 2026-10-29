@@ -250,7 +250,7 @@ fn end_all_terminals_ends_placed_and_detached_terminals() {
 /// surface-options guard of an `if let` scrutinee, which in edition 2024
 /// lives through the `then` block, and the block's `host_panic_log()` locked
 /// the same mutex again: the request thread deadlocked, so `cmux-tui server
-/// stop --end-terminals` never got an answer (p09-observability-081).
+/// stop --end-terminals` never got an answer.
 #[test]
 fn end_all_terminals_with_a_terminal_host_root_returns() {
     let root = std::env::temp_dir().join(format!("cmux-end-all-root-{}", std::process::id()));

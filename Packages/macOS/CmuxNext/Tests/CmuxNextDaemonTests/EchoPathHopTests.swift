@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The hops of a daemon event from the socket to the main actor (p02-threads-133). Before: the
+/// The hops of a daemon event from the socket to the main actor. Before: the
 /// reader thread yielded each event into `DaemonConnection.events`, and the store's pump task, a
 /// user-initiated job on the Swift cooperative pool, moved it into the inbox, so the echo of a
 /// person's action waited behind any pool work. Now the store takes the events on the reader

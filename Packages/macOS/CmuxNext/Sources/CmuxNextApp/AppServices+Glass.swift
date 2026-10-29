@@ -14,7 +14,7 @@ extension AppServices {
         glassWatch = watch
     }
 
-    /// The launch's glass mode, set before any window builds so the first frame draws it (p08-startup-029).
+    /// The launch's glass mode, set before any window builds so the first frame draws it.
     func seedGlass() {
         themeStore.setGlassMode(GlassLensMode.current(store: .shared, reduceTransparency: .shared,
                                                       lowPowerMode: energyMonitor.lowPowerMode.isEnabled))

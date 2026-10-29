@@ -1,4 +1,4 @@
-//! A request's cause and QoS class, entered together (p06-scheduler-035).
+//! A request's cause and QoS class, entered together.
 //!
 //! Every place that runs a request on a thread enters a [`CauseScope`]: the
 //! connection reader, the dispatcher and its workers, an `origin` claim that
@@ -103,7 +103,7 @@ impl RequestQos {
     /// class of a person's reader), and with the feature on runs at the
     /// class of the request's cause, as Chromium posts a task with the
     /// priority of the work it serves (base/task/task_traits.h). It runs
-    /// under the process's supervisor (p10-stability-112) with the
+    /// under the process's supervisor with the
     /// platform's default stack.
     pub(crate) fn spawn_helper<F, T>(
         self,

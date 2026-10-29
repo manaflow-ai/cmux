@@ -39,9 +39,10 @@ pub(crate) enum WatchKind {
     LineOut,
     /// One input write of `mux-pty-input` to a local terminal.
     PtyInput,
-    /// One frame a `mux-attach-out` thread encodes for its viewer.
+    /// One item a byte or browser view's drain sends (the scope keeps the
+    /// name of the thread that once ran it).
     AttachOut,
-    /// One frame a `mux-render-attach-out` thread encodes for its viewer.
+    /// One item a render view's drain sends.
     RenderAttachOut,
     /// One item a snapshot viewer's drain builds and queues (a READY, a
     /// history or images chunk, output, a digest): it runs on a worker the
@@ -177,8 +178,8 @@ impl EchoWatch {
         if self.shared.stopping.load(Ordering::Relaxed) {
             return None;
         }
-        let (index, word) = self.shared.claim(kind, 0, 0)?;
-        Some(RequestScope::new(&self.shared, index, word))
+        let (_, slot, word) = self.shared.claim(kind, 0, 0)?;
+        Some(RequestScope::new(&self.shared, slot, word))
     }
 
     /// [`Self::item`] for a `mux-pty-input` write.
@@ -218,7 +219,7 @@ pub(crate) fn process_enter(kind: WatchKind, method: u32) -> u32 {
     if shared.stopping.load(Ordering::Relaxed) {
         return 0;
     }
-    shared.claim(kind, 0, method).map_or(0, |(index, _)| u32::try_from(index + 1).unwrap_or(0))
+    shared.claim(kind, 0, method).map_or(0, |(index, _, _)| u32::try_from(index + 1).unwrap_or(0))
 }
 
 /// End the scope [`process_enter`] returned `token` for. Each token is
@@ -238,10 +239,16 @@ pub(crate) fn process_exit(token: u32) {
 /// written to the hang log (tests/owner_panic.rs).
 #[cfg(debug_assertions)]
 pub(crate) fn spawn_owner_hang_test() {
-    let _ = supervised::spawn("owner-hang-test", Fatal, ShutdownBehavior::Continue, || {
-        let _token = process_enter(WatchKind::OwnerTest, 0);
-        loop {
-            std::thread::park();
-        }
-    });
+    let _ = supervised::spawn_at(
+        "owner-hang-test",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || {
+            let _token = process_enter(WatchKind::OwnerTest, 0);
+            loop {
+                std::thread::park();
+            }
+        },
+    );
 }

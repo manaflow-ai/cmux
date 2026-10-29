@@ -8,7 +8,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextApp/{Bookmarks,History} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-316,
+/// The CmuxNextApp/{Bookmarks,History} sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// rule 9): closed history retention reads only the machines whose closed list revision moved (all when the limits
 /// change), Chromium bookmark sync runs in idle time after its settle and drops a stale one, a superseded home switch's
 /// steps do nothing, a hidden tab's bookmarks bar reloads once on show, and the home daemon follower (a migrated

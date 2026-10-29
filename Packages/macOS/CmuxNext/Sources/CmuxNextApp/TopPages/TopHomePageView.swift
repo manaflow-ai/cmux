@@ -100,7 +100,7 @@ final class TopHomePageView: NSView {
             showDefaultConversation(home)
         }
         // At launch Home starts right after the first frame (its list shows the last launch's until then),
-        // and the team and Chiefs read, a Cloud read, waits for that frame too (p08-startup-027).
+        // and the team and Chiefs read, a Cloud read, waits for that frame too.
         services.home.launchFeeds?.need()
         // task-owner: BackgroundWork (quit skips it); one read of the team and Chiefs, awaited off main (recipe R-hop)
         services.work.task(.userVisible) { [feeds = services.home.launchFeeds, directory = services.home.directory] in

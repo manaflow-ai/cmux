@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// p06-scheduler-046: the cards over a page (`PageFloatingOverlays`) follow only their page's
+/// The cards over a page (`PageFloatingOverlays`) follow only their page's
 /// window's page updates (`ChildPageGeometryRegistry`). Before, every card observed the page
 /// update request of every window; now it registers with its page's window, moves to the new
 /// window's registry when the page changes window, and leaves when its last card goes.

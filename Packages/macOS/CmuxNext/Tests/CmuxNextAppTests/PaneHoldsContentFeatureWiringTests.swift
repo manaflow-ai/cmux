@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// p12-perf-process-102: a pane host the layout makes asks its root's ``LayoutRootView/holdsContentInMotion``
+/// A pane host the layout makes asks its root's ``LayoutRootView/holdsContentInMotion``
 /// (the app's feature `paneHoldsContentInMotion` with Debug `motion.pane.holdContent` as its local override) at
 /// each spring's start, and never the shared tunable store.
 @MainActor

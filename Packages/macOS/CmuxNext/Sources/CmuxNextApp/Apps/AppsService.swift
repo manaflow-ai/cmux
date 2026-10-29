@@ -219,7 +219,7 @@ extension AppsService: InternalPageProvider {
         webStorePages.removeValue(forKey: key)?.close()
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). Installs,
     /// updates and grants run on the daemon's app supervisor, not in the page, so nothing the page
