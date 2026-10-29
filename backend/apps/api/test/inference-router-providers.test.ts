@@ -18,7 +18,8 @@ const HOSTS: Record<string, string> = {
   "ai-gateway.vercel.sh": "vercel",
   "relay.test": "vercel-relay",
   "cmux-test.services.ai.azure.com": "azure",
-  "own.test": "custom"
+  "own.test": "custom",
+  "api.openai.com": "openai"
 }
 
 interface Seen {
@@ -52,6 +53,7 @@ const allKeys = (extra: Record<string, string> = {}) =>
     INFERENCE_AZURE_KEY: "k-az",
     INFERENCE_CUSTOM_URL: "https://own.test/v1/chat/completions",
     INFERENCE_CUSTOM_KEY: "k-own",
+    INFERENCE_OPENAI_KEY: "k-oa",
     ...extra
   }) as any
 
@@ -111,6 +113,19 @@ describe("inference router providers (Vercel first, OpenRouter, Cloudflare, Azur
     expect(r.status).toBe(200)
     expect(seen[0]!.url).toBe("https://own.test/v1/chat/completions")
     expect(seen[0]!.headers.get("authorization")).toBe("Bearer k-own")
+  })
+
+  it("serves an OpenAI model through OpenAI's own API first, with max_completion_tokens", async () => {
+    const { t } = await paidPerson("router-openai")
+    const seen = record(() => ok())
+    const r = await call(t, allKeys({ INFERENCE_PRIMARY_PROVIDER: "openai" }), "openai/gpt-5.4-mini")
+    expect(r.status).toBe(200)
+    expect(seen.map((s) => s.provider)).toEqual(["openai"])
+    expect(seen[0]!.url).toBe("https://api.openai.com/v1/chat/completions")
+    expect(seen[0]!.headers.get("authorization")).toBe("Bearer k-oa")
+    expect(seen[0]!.body.model).toBe("gpt-5.4-mini")
+    expect(seen[0]!.body.max_completion_tokens).toBe(32)
+    expect(seen[0]!.body.max_tokens).toBeUndefined()
   })
 
   it("the model allowlist refuses every other model with a clear error", async () => {
