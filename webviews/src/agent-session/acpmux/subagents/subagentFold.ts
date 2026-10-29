@@ -680,7 +680,6 @@ export class SubagentFold {
     // before a resume makes new chunks stream again.
     if (last && previous && previous.state !== "running" && agent.state === "running") last.settled = true;
     if (agent.state !== "running") {
-      if (last) last.settled = true;
       this.pendingReplySummaries.delete(agent.id);
       this.replyMessageIds.delete(agent.id);
     }

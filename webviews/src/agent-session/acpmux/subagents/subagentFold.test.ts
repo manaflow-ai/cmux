@@ -80,6 +80,18 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("late chunks of the same child reply remain joined across completion", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, { ...say("https://github.com/acme/app/pull/4"), messageId: "reply" }, { subagent: "a" });
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
+  feed(fold, { ...say("1"), messageId: "reply" }, { subagent: "a" });
+  expect(fold.views().a!.map((row) => row.text)).toEqual(["https://github.com/acme/app/pull/41"]);
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://github.com/acme/app/pull/41",
+  ]);
+});
+
 test("resuming a child preserves late completed reply Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
