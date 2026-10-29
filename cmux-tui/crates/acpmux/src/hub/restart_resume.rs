@@ -29,7 +29,7 @@ use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{HashSet, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Longest quote of one cut prompt or steer, in characters.
@@ -41,45 +41,81 @@ const MAX_TOOL_FIELD_CHARS: usize = 200;
 const MAX_TOOL_SCAN_BYTES: usize = 4096;
 /// Maximum unfinished calls listed in a restart prompt.
 const MAX_UNFINISHED_TOOLS: usize = 32;
-const MAX_OMITTED_TOOL_IDS: usize = 64;
+// One additional unfinished call proves that the rendered list has omissions.
+const TOOL_PAGE_SIZE: usize = MAX_UNFINISHED_TOOLS + 1;
 
+/// Fold one bounded page of complete tool histories. A digest orders identities, not
+/// events: each page sees every update for its retained IDs, including terminal replays.
 #[derive(Default)]
-struct OmittedTools {
-    ids: HashSet<[u8; 32]>,
-    overflow: HashSet<[u8; 32]>,
-    // Overflow IDs beyond the bounded digest set. Keep only a count: retaining their
-    // identities would make restart recovery's memory use proportional to journal size.
-    unknown: usize,
-    // Terminal IDs are retained briefly so replayed terminal updates are idempotent
-    // without making recovery memory proportional to the journal.
-    retired: VecDeque<[u8; 32]>,
+struct ToolPage {
+    after: Option<[u8; 32]>,
+    calls: BTreeMap<[u8; 32], Option<UnfinishedTool>>,
 }
 
-impl OmittedTools {
-    fn len(&self) -> usize {
-        self.ids.len() + self.unknown
-    }
-    fn contains(&self, id: &[u8; 32]) -> bool {
-        self.ids.contains(id) || self.overflow.contains(id)
-    }
-    fn remove(&mut self, id: &[u8; 32]) {
-        if self.ids.remove(id) || self.overflow.remove(id) {
-            self.retire(*id);
+impl ToolPage {
+    fn note(&mut self, update: &Value) {
+        let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
+        else {
+            return;
+        };
+        let digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
+        if self.after.is_some_and(|after| digest <= after) {
+            return;
+        }
+        if !self.calls.contains_key(&digest) {
+            if self.calls.len() == TOOL_PAGE_SIZE {
+                // The threshold only decreases during this pass. A rejected/evicted
+                // identity cannot re-enter, so no retained history loses its start.
+                if self.calls.last_key_value().is_some_and(|(last, _)| digest > *last) {
+                    return;
+                }
+                self.calls.pop_last();
+            }
+            let name = update
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())
+                .or_else(|| update.get("kind").and_then(Value::as_str))
+                .unwrap_or("tool");
+            self.calls.insert(
+                digest,
+                Some(UnfinishedTool {
+                    name: bounded_text(name),
+                    id: bounded_text(id),
+                    input: None,
+                }),
+            );
+        }
+        let Some(call) = self.calls.get_mut(&digest) else { return };
+        if matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
+            // Terminal is absorbing for a turn's tool identity: a replayed start or
+            // late metadata update must not resurrect completed work.
+            *call = None;
+        } else if let Some(call) = call {
+            enrich_tool(call, update);
         }
     }
-    fn retire(&mut self, id: [u8; 32]) {
-        if self.retired.len() == MAX_OMITTED_TOOL_IDS {
-            self.retired.pop_front();
+}
+
+/// Bounded-memory pagination through tool identities. Stop once the display is full
+/// and one more unfinished call proves omission. Mostly-completed large turns require
+/// extra scans, but only of the interrupted turn's tool payloads, never old turns.
+fn collect_unfinished(mut scan: impl FnMut(&mut ToolPage)) -> (Vec<UnfinishedTool>, usize) {
+    let mut open = Vec::new();
+    let mut after = None;
+    loop {
+        let mut page = ToolPage { after, calls: BTreeMap::new() };
+        scan(&mut page);
+        let count = page.calls.len();
+        after = page.calls.last_key_value().map(|(id, _)| *id);
+        for call in page.calls.into_values().flatten() {
+            if open.len() == MAX_UNFINISHED_TOOLS {
+                return (open, 1);
+            }
+            open.push(call);
         }
-        self.retired.push_back(id);
-    }
-    fn insert(&mut self, id: [u8; 32]) {
-        if self.ids.len() < MAX_OMITTED_TOOL_IDS {
-            self.ids.insert(id);
-        } else if self.overflow.len() < MAX_OMITTED_TOOL_IDS {
-            self.overflow.insert(id);
-        } else {
-            self.unknown = self.unknown.saturating_add(1);
+        if count < TOOL_PAGE_SIZE {
+            return (open, 0);
         }
     }
 }
@@ -89,9 +125,6 @@ impl OmittedTools {
 struct UnfinishedTool {
     name: String,
     id: String,
-    // Match the complete ID without retaining an arbitrarily large string or conflating
-    // two IDs with the same displayed prefix.
-    id_digest: [u8; 32],
     input: Option<String>,
 }
 
@@ -103,12 +136,13 @@ fn tool_update<'a>(record: &'a EventRecord, own_session_id: Option<&str>) -> Opt
         .pointer("/params/_meta/acpmux/subagent")
         .or_else(|| record.msg.pointer("/_meta/acpmux/subagent"));
     let update_session_id = record.msg.pointer("/params/sessionId").and_then(Value::as_str);
-    // The hub's annotation may appear on a root-owned update that mentions a child.
-    // A differing sessionId is the reliable child attribution; keep the marker-only
-    // fallback for old records that have no session id.
-    if marked_subagent.is_some()
-        && (own_session_id.is_none() || update_session_id != own_session_id)
-    {
+    // Prefer harness session identity over arbitrary metadata. Root updates may
+    // mention a child in _meta; actual child updates retain their own sessionId.
+    let child = match (own_session_id, update_session_id) {
+        (Some(own), Some(sender)) => own != sender,
+        _ => marked_subagent.is_some(),
+    };
+    if child {
         return None;
     }
     record.msg.pointer("/params/update").filter(|update| {
@@ -164,9 +198,12 @@ impl<'a> MaskedInput<'a> {
 impl serde::Serialize for MaskedInput<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::{SerializeMap, SerializeSeq};
+        if self.sensitive {
+            return serializer.serialize_str("[secret]");
+        }
         match self.value {
             Value::String(text) => {
-                let masked = if self.sensitive { "[secret]".to_owned() } else { masked_scan(text) };
+                let masked = masked_scan(text);
                 serializer.serialize_str(&masked)
             }
             Value::Array(values) => {
@@ -187,55 +224,18 @@ impl serde::Serialize for MaskedInput<'_> {
                 }
                 map.end()
             }
-            // Sensitive fields must not leak even when their value is not a string.
-            // Preserve JSON shape only for non-sensitive scalars.
-            Value::Null | Value::Bool(_) | Value::Number(_) if self.sensitive => {
-                serializer.serialize_str("[secret]")
-            }
             value => serde::Serialize::serialize(value, serializer),
         }
     }
 }
 
 fn sensitive_key(key: &str) -> bool {
-    // Match the credential classes used by secret_scan, case-insensitively. Scan
-    // the whole key without retaining an attacker-sized key or building one.
-    let needles = [
-        "apikey",
-        "secret",
-        "token",
-        "password",
-        "pass",
-        "credential",
-        "privatekey",
-        "accesskey",
-        "key",
-        "authorization",
-        "auth",
-        "cookie",
-    ];
-    let mut window = VecDeque::with_capacity(16);
-    for ch in key.chars().flat_map(char::to_lowercase).filter(|c| c.is_alphanumeric()) {
-        window.push_back(ch);
-        if window.len() > 16 {
-            window.pop_front();
-        }
-        if needles.iter().any(|needle| {
-            needle.len() <= window.len()
-                && window
-                    .iter()
-                    .rev()
-                    .take(needle.len())
-                    .copied()
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .eq(needle.chars())
-        }) {
-            return true;
-        }
+    // Oversize keys are opaque: redact the entire associated value. This bounds
+    // both CPU and allocation even when the sensitive suffix is far beyond the preview.
+    if key.len() > MAX_TOOL_FIELD_CHARS {
+        return true;
     }
-    false
+    crate::secret_scan::sensitive_field_name(key)
 }
 
 struct BoundedJsonWriter<'a> {
@@ -302,69 +302,16 @@ fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
     }
 }
 
-/// Retain display metadata for at most 32 calls. Overflow keeps only fixed-size ID digests,
-/// removed by terminal updates, so the omission notice describes calls still in flight.
-fn note_unfinished_tool(
-    open: &mut Vec<UnfinishedTool>,
-    omitted: &mut OmittedTools,
-    update: &Value,
-) {
-    let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
-    else {
-        return;
-    };
-    let id_digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
-    match update.get("status").and_then(Value::as_str) {
-        Some("completed" | "failed") => {
-            let was_open = open.iter().any(|tool| tool.id_digest == id_digest);
-            open.retain(|tool| tool.id_digest != id_digest);
-            if !was_open {
-                omitted.remove(&id_digest);
-            }
-        }
-        None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call_update") => {
-            if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
-                enrich_tool(existing, update);
-            }
-        }
-        _ => {
-            if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
-                enrich_tool(existing, update);
-            } else if omitted.contains(&id_digest) {
-                // Its metadata was omitted already; repeated updates are not new calls.
-            } else if open.len() < MAX_UNFINISHED_TOOLS {
-                let name = update
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .filter(|name| !name.is_empty())
-                    .or_else(|| {
-                        update.get("kind").and_then(Value::as_str).filter(|name| !name.is_empty())
-                    })
-                    .unwrap_or("tool");
-                open.push(UnfinishedTool {
-                    name: bounded_text(name),
-                    id: bounded_text(id),
-                    id_digest,
-                    input: input_prefix(update),
-                });
-            } else {
-                omitted.insert(id_digest);
-            }
-        }
-    }
-}
-
 /// Collects tool calls in the cut turn for the journal-fold regression test.
 #[cfg(test)]
 fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
-    let mut open = Vec::<UnfinishedTool>::new();
-    let mut omitted = OmittedTools::default();
-    for record in records {
-        if let Some(update) = tool_update(record, None) {
-            note_unfinished_tool(&mut open, &mut omitted, update);
+    collect_unfinished(|page| {
+        for record in records {
+            if let Some(update) = tool_update(record, None) {
+                page.note(update);
+            }
         }
-    }
-    (open, omitted.len())
+    })
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -425,8 +372,8 @@ impl Hub {
         let mut started = false;
         let mut control_ended = false;
         let mut floor_cancelled = false;
-        let mut unfinished = Vec::new();
-        let mut omitted_tools = OmittedTools::default();
+        let mut tool_start = None;
+        let mut tool_end = None;
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
@@ -439,7 +386,6 @@ impl Hub {
                 | "remote_control_restored"
                 | "remote_floor_cancel"
                 | "turn_result" => true,
-                "tool_call" | "tool_call_update" => started,
                 _ => false,
             };
             if !needs_record {
@@ -451,6 +397,7 @@ impl Hub {
             match e.kind.as_str() {
                 "turn_started" if is_turn => {
                     started = true;
+                    tool_start = Some(e.seq);
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
@@ -470,24 +417,37 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
-                "tool_call"
-                | "tool_call_update"
-                | "tool_call.replay"
-                | "tool_call_update.replay"
-                    if started =>
-                {
-                    if let Some(update) =
-                        tool_update(&e, session.meta().agent_session_id.as_deref())
-                    {
-                        note_unfinished_tool(&mut unfinished, &mut omitted_tools, update);
-                    }
+                "turn_result" if is_turn => {
+                    tool_end = Some(e.seq);
+                    return false;
                 }
-                "turn_result" if is_turn => return false,
                 _ => {}
             }
             true
         });
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
+        let own_session_id = session.meta().agent_session_id;
+        let (unfinished, omitted_tools) = collect_unfinished(|page| {
+            let _ = self.store.scan_heads(&session.id, &mut |head| {
+                if tool_end.is_some_and(|end| head.seq >= end) {
+                    return false;
+                }
+                if !tool_start.is_some_and(|start| head.seq > start)
+                    || !matches!(
+                        head.kind.strip_suffix(".replay").unwrap_or(head.kind),
+                        "tool_call" | "tool_call_update"
+                    )
+                {
+                    return true;
+                }
+                if let Some(record) = head.record()
+                    && let Some(update) = tool_update(&record, own_session_id.as_deref())
+                {
+                    page.note(update);
+                }
+                true
+            });
+        });
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
         if attempt > MAX_ATTEMPTS {
@@ -519,7 +479,7 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts, &unfinished, omitted_tools.len());
+        let text = continue_text(&prompts, &unfinished, omitted_tools);
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
@@ -630,40 +590,8 @@ mod tests {
         assert!(!text.contains("Finished (id: call-2)"), "{text}");
     }
 
-    #[test]
-    fn an_omitted_unfinished_tool_is_still_reported_after_retained_calls_finish() {
-        let mut open = (0..MAX_UNFINISHED_TOOLS)
-            .map(|n| UnfinishedTool {
-                name: format!("tool-{n}"),
-                id: format!("call-{n}"),
-                id_digest: Sha256::digest(format!("call-{n}").as_bytes()).into(),
-                input: None,
-            })
-            .collect::<Vec<_>>();
-        let mut omitted = OmittedTools::default();
-        note_unfinished_tool(
-            &mut open,
-            &mut omitted,
-            &json!({"toolCallId": "call-overflow", "title": "overflow", "status": "in_progress"}),
-        );
-        assert_eq!(omitted.len(), 1);
-        for n in 0..MAX_UNFINISHED_TOOLS {
-            note_unfinished_tool(
-                &mut open,
-                &mut omitted,
-                &json!({"toolCallId": format!("call-{n}"), "status": "completed"}),
-            );
-        }
-        assert!(open.is_empty());
-        let text = continue_text(&[], &open, omitted.len());
-        assert!(text.contains("Tool calls started but not finished:"), "{text}");
-        assert!(text.contains("additional unfinished tool calls omitted"), "{text}");
-    }
-
-    #[test]
-    fn completed_overflow_tools_leave_no_unfinished_warning() {
-        let mut records = Vec::new();
-        let update = |id: usize, status: &str| EventRecord {
+    fn tool_record(id: usize, status: &str) -> EventRecord {
+        EventRecord {
             seq: 1,
             at: 1,
             dir: "in".into(),
@@ -671,26 +599,57 @@ mod tests {
             msg: json!({"params": {"update": {"sessionUpdate": "tool_call_update",
                 "toolCallId": format!("call-{id}"), "status": status}}}),
             host_seq: None,
-        };
-        for n in 0..MAX_UNFINISHED_TOOLS + 2 {
-            records.push(update(n, "in_progress"));
         }
-        // Repeated updates must not count the same overflow call more than once.
-        records.push(update(MAX_UNFINISHED_TOOLS, "in_progress"));
-        for n in 0..MAX_UNFINISHED_TOOLS {
-            records.push(update(n, "completed"));
+    }
+
+    #[test]
+    fn overflow_completion_replays_are_exact_beyond_the_old_cap() {
+        let mut records = Vec::new();
+        for id in 0..200 {
+            records.push(tool_record(id, "in_progress"));
+            records.push(tool_record(id, "in_progress"));
         }
-        // Even with a free display slot, an overflow update remains the same tracked call.
-        records.push(update(MAX_UNFINISHED_TOOLS, "in_progress"));
-        records.push(update(MAX_UNFINISHED_TOOLS, "completed"));
+        let (tools, omitted) = unfinished_tools(&records);
+        assert_eq!(tools.len(), MAX_UNFINISHED_TOOLS);
+        assert_eq!(omitted, 1);
+        for id in 0..199 {
+            records.push(tool_record(id, "completed"));
+            records.push(tool_record(id, "completed"));
+            // History can replay an already completed call's old nonterminal update.
+            records.push(tool_record(id, "in_progress"));
+        }
+        records.push(tool_record(999, "completed")); // unrelated terminal identity
+        let (tools, omitted) = unfinished_tools(&records);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].id, "call-199");
+        assert_eq!(omitted, 0);
+        records.push(tool_record(199, "failed"));
         let (tools, omitted) = unfinished_tools(&records);
         assert!(tools.is_empty());
-        assert_eq!(omitted, 1);
-        assert!(continue_text(&[], &tools, omitted).contains("unfinished tool calls omitted"));
-        records.push(update(MAX_UNFINISHED_TOOLS + 1, "failed"));
-        let (tools, omitted) = unfinished_tools(&records);
-        assert_eq!(omitted, 0, "completed overflow must not leave a permanent warning");
+        assert_eq!(omitted, 0);
         assert!(!continue_text(&[], &tools, omitted).contains("Tool calls started"));
+    }
+
+    #[test]
+    fn every_page_remains_bounded_and_preserves_late_tool_metadata() {
+        let mut records: Vec<_> = (0..200).map(|id| tool_record(id, "in_progress")).collect();
+        for id in 0..199 {
+            records.push(tool_record(id, "completed"));
+        }
+        let mut metadata = tool_record(199, "in_progress");
+        metadata.msg["params"]["update"]["title"] = json!("Last live tool");
+        metadata.msg["params"]["update"]["rawInput"] = json!({"command": "cargo check"});
+        records.push(metadata);
+        let (tools, omitted) = collect_unfinished(|page| {
+            for record in &records {
+                page.note(tool_update(record, None).unwrap());
+                assert!(page.calls.len() <= TOOL_PAGE_SIZE);
+            }
+        });
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "Last live tool");
+        assert_eq!(tools[0].input.as_deref(), Some("{\"command\":\"cargo check\"}"));
+        assert_eq!(omitted, 0);
     }
 
     #[test]
@@ -786,6 +745,37 @@ mod tests {
     }
 
     #[test]
+    fn structured_secret_keys_follow_the_assignment_scanner() {
+        for key in [
+            "apiKey",
+            "api_key",
+            "api-key",
+            "SECRET",
+            "accessToken",
+            "passwd",
+            "password",
+            "credentials",
+            "private_key",
+            "privateKey",
+            "access_key",
+        ] {
+            let assignment = format!("{key}=open_sesame42");
+            assert_ne!(crate::secret_scan::mask(&assignment), assignment, "{key}");
+            for value in [json!("x"), json!(7), json!(false), json!([{"inside": "x"}])] {
+                let input = json!({"rawInput": {key: value}});
+                let prefix = input_prefix(&input).unwrap();
+                assert!(prefix.contains("[secret]"), "{key}: {prefix}");
+            }
+        }
+        for key in ["authorization", "AUTH", "cookie", "key"] {
+            assert!(sensitive_key(key), "{key}");
+        }
+        // Entire key inspection must not be needed to decide that an oversized key
+        // is opaque, including when no sensitive word appears in its prefix.
+        assert!(sensitive_key(&"x".repeat(MAX_TOOL_FIELD_CHARS + 1)));
+    }
+
+    #[test]
     fn child_tool_updates_are_ignored_and_metadata_is_bounded() {
         let child = EventRecord {
             seq: 1,
@@ -797,36 +787,20 @@ mod tests {
         };
         assert!(tool_update(&child, None).is_none());
 
-        let mut open = Vec::new();
-        let mut omitted = OmittedTools::default();
+        let mut page = ToolPage::default();
         let huge = "x".repeat(MAX_TOOL_FIELD_CHARS + 100);
-        note_unfinished_tool(
-            &mut open,
-            &mut omitted,
-            &json!({"toolCallId": huge, "title": huge, "status": "in_progress", "rawInput": {"body": "x".repeat(10_000)}}),
-        );
-        assert_eq!(open[0].id.chars().count(), MAX_TOOL_FIELD_CHARS);
-        assert_eq!(open[0].name.chars().count(), MAX_TOOL_FIELD_CHARS);
-        assert!(open[0].input.as_ref().unwrap().len() <= MAX_TOOL_INPUT_CHARS);
-        // Same displayed prefix, but a different full ID must remain a different call.
-        note_unfinished_tool(
-            &mut open,
-            &mut omitted,
-            &json!({"toolCallId": format!("{huge}2"), "status": "in_progress"}),
-        );
-        assert_eq!(open.len(), 2);
-        note_unfinished_tool(
-            &mut open,
-            &mut omitted,
-            &json!({"toolCallId": huge, "status": "completed"}),
-        );
-        assert_eq!(open.len(), 1);
-        note_unfinished_tool(
-            &mut open,
-            &mut omitted,
-            &json!({"toolCallId": format!("{huge}2"), "status": "failed"}),
-        );
-        assert!(open.is_empty());
+        page.note(&json!({"toolCallId": huge, "title": huge, "status": "in_progress",
+            "rawInput": {"body": "x".repeat(10_000)}}));
+        let open = page.calls.values().flatten().next().unwrap();
+        assert_eq!(open.id.chars().count(), MAX_TOOL_FIELD_CHARS);
+        assert_eq!(open.name.chars().count(), MAX_TOOL_FIELD_CHARS);
+        assert!(open.input.as_ref().unwrap().len() <= MAX_TOOL_INPUT_CHARS);
+        page.note(&json!({"toolCallId": format!("{huge}2"), "status": "in_progress"}));
+        assert_eq!(page.calls.values().flatten().count(), 2);
+        page.note(&json!({"toolCallId": huge, "status": "completed"}));
+        assert_eq!(page.calls.values().flatten().count(), 1);
+        page.note(&json!({"toolCallId": format!("{huge}2"), "status": "failed"}));
+        assert_eq!(page.calls.values().flatten().count(), 0);
     }
 
     #[test]
@@ -842,6 +816,9 @@ mod tests {
         };
         assert!(tool_update(&record, Some("root")).is_some());
         assert!(tool_update(&record, Some("other")).is_none());
+        let mut child = record;
+        child.msg["params"]["_meta"] = Value::Null;
+        assert!(tool_update(&child, Some("other")).is_none());
     }
 
     #[test]
