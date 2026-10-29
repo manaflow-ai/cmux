@@ -49,6 +49,13 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// More keys for an action than its override (`{"any": [...]}` in
+    /// cmux.json): each one key or a two-key chord, all running it too. The
+    /// override stays the key menus show; replacing it clears these.
+    public internal(set) var alternateShortcuts: [ActionID: [[Shortcut]]] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// App and keybindings.json entries, after the defaults and cmux.json (`KeyBindingLoader`).
     public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
 

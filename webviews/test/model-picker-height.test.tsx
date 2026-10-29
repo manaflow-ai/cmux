@@ -85,7 +85,7 @@ afterAll(() => {
 });
 
 // The open picker's height is bounded, never pinned (d9ce210e, Lawrence 2026-10-13): at most the
-// chip's room and 480 px, at least 220 px and the height it measured when it opened, so a narrowing
+// chip's room, at least 220 px when room permits and the height it measured when it opened, so a narrowing
 // search does not shrink it and a menu that opened before its models never collapses to its search field.
 const px = (value: string) => Number.parseFloat(value);
 const bounds = (menu: HTMLElement) => ({
@@ -97,8 +97,7 @@ const bounds = (menu: HTMLElement) => ({
 test("the model picker keeps its measured height while filtering in one opening, within its bounds", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
-  const { MODEL_PICKER_MAX_HEIGHT, MODEL_PICKER_MIN_HEIGHT } =
-    await import("../src/agent-session/acpmux/modelPickerLayout");
+  const { MODEL_PICKER_MIN_HEIGHT } = await import("../src/agent-session/acpmux/modelPickerLayout");
   const catalog = [
     {
       id: "claude",
@@ -131,13 +130,13 @@ test("the model picker keeps its measured height while filtering in one opening,
     });
   };
 
-  // Opened at 300 px: at least that, never more than the room or 480 px, and no fixed height.
+  // Opened at 300 px: at least that, never more than the room, and no fixed height.
   menuHeight = 300;
   await toggle();
   const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
   const opened = bounds(menu);
   expect(opened.pinned).toBe("");
-  expect(opened.max).toBeLessThanOrEqual(MODEL_PICKER_MAX_HEIGHT);
+  expect(opened.max).toBeGreaterThan(0);
   expect(opened.min).toBe(Math.min(opened.max, 300));
 
   // A narrowing search measures shorter; the bounds hold steady.
@@ -165,4 +164,10 @@ test("the model picker keeps its measured height while filtering in one opening,
   const early = bounds(host.querySelector<HTMLElement>(".acpmux-mp")!);
   expect(early.pinned).toBe("");
   expect(early.min).toBe(Math.min(early.max, MODEL_PICKER_MIN_HEIGHT));
+});
+
+test("picker grows to the measured room and shrinks to a short viewport", async () => {
+  const { pickerHeightBounds } = await import("../src/agent-session/acpmux/modelPickerLayout");
+  expect(pickerHeightBounds(900, 300)).toEqual({ maxHeight: 900, minHeight: 300 });
+  expect(pickerHeightBounds(150, 300)).toEqual({ maxHeight: 150, minHeight: 150 });
 });

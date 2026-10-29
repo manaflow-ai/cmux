@@ -4,9 +4,14 @@
 /* The button is the header's panel toggle (header/PanelToggle.tsx, header.css .acpmux-header-tool). */
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
-.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 300px;min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
+.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 .acpmux-main[data-summary=inline]{min-width:0}
+/* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
+   tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */
+.acpmux-shell{--acpmux-summary-column-width:300px;--acpmux-summary-push:0px}
+.acpmux-shell[data-tab-row]>.acpmux-summary-card[data-placement=inline]{margin-top:var(--acpmux-tab-row-height);max-height:calc(100% - var(--acpmux-tab-row-height))}
+.acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]){--acpmux-summary-push:var(--acpmux-summary-column-width)}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
@@ -127,9 +132,9 @@
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-dock__compact{display:flex;align-items:center}
-.acpmux-pr-dock__list{display:contents}
+.acpmux-pr-dock__list{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
 /* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
-.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{display:flex;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
+.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{flex-direction:row;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
 /* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
 html[data-pr-dock-layout="below"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0}
 html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
@@ -142,6 +147,7 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"] .acpmux-
 .acpmux-pr-dock__count:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-pr-dock[data-mode="collapsed"]{flex-direction:row;flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none}
 .acpmux-pr-dock[data-mode="collapsed"]::-webkit-scrollbar{display:none}
+.acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__list{flex-direction:row;flex-wrap:nowrap;min-width:max-content;max-width:none}
 .acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__chip{flex:0 0 auto}
 .acpmux-pr-dock__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
 .acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none}
@@ -156,7 +162,7 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"] .acpmux-
 .acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-status-merged)}
 .acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-status-failure)}
 .acpmux-pr-dock__dismiss{flex:none}
-.acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px 0 0;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */

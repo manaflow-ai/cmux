@@ -89,8 +89,10 @@ final class HostPressureIndicatorView: NSView {
         let side = TitlebarBandButton.side
         button.frame = CGRect(x: 0, y: 0, width: side, height: bounds.height)
         let label = loadLabel.intrinsicContentSize
-        loadLabel.frame = CGRect(x: side + Metrics.space1, y: ((bounds.height - label.height) / 2).rounded(),
-                                 width: ceil(label.width), height: label.height)
+        // The text starts `space1` after the glyph; the frame adds the label's padding around it
+        // (a frame the size of the text alone clipped the last digit).
+        loadLabel.frame = loadLabel.frame(forAlignmentRect: CGRect(x: side + Metrics.space1, y: ((bounds.height - label.height) / 2).rounded(),
+                                                                   width: ceil(label.width), height: label.height))
     }
 
     override func viewDidMoveToWindow() {

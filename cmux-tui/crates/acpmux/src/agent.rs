@@ -218,6 +218,9 @@ enum Writer {
     },
     /// A hosted agent: its host, proven by its start nonce's live lock.
     Hosted(crate::agent_host::HostRecord),
+    /// A host of this session (of every session: `None`) an adoption could not resolve
+    /// (`agent_host::unresolved`).
+    Unresolved(Option<String>),
 }
 
 impl std::fmt::Debug for Fence {
@@ -253,6 +256,27 @@ impl Fence {
 
     fn now(&self) -> u8 {
         *self.0.step.borrow()
+    }
+
+    /// A fenced line a previous daemon handed to `host`, held again at adoption
+    /// (`link::adopt_receipt`): its host has it, so only its receipt or its host's end settles
+    /// it, and a cut ends that host (`Self::cut_or_end`).
+    pub fn held_by_host(host: crate::agent_host::HostRecord) -> Self {
+        Self::taken_by(Writer::Hosted(host))
+    }
+
+    /// What a host of `session` (of every session: `None`) an adoption could not resolve may
+    /// still write (`agent_host::unresolved`): only a cut settles it, once that proves no such
+    /// host lives (fail closed).
+    pub fn unresolved(session: Option<String>) -> Self {
+        Self::taken_by(Writer::Unresolved(session))
+    }
+
+    fn taken_by(writer: Writer) -> Self {
+        let fence = Self::default();
+        let _ = fence.0.writer.set(writer);
+        fence.begin();
+        fence
     }
 
     /// The writer takes it: false when it was cut, and it is dropped.
@@ -342,6 +366,19 @@ impl Fence {
                 }
                 ended
             }
+            Some(Writer::Unresolved(session)) => {
+                let running = self.0.ending.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let mut ending = running.unwrap_or_else(|| end_unresolved(session.clone()));
+                let Ok(ended) = tokio::time::timeout(budget * 4, &mut ending).await else {
+                    *self.0.ending.lock().unwrap_or_else(|e| e.into_inner()) = Some(ending);
+                    return false;
+                };
+                let ended = ended.unwrap_or(false);
+                if ended {
+                    self.failed();
+                }
+                ended
+            }
             None => false,
         }
     }
@@ -391,6 +428,13 @@ async fn end_direct(
 
 /// Ends the host behind `record` (`Fence::cut_or_end`) by its start nonce: proven by its live
 /// lock (`terminate_unadoptable`), with its harness. Its caller bounds the wait.
+/// [`crate::agent_host::unresolved::end_unresolved`], off the runtime.
+fn end_unresolved(session: Option<String>) -> tokio::task::JoinHandle<bool> {
+    tokio::task::spawn_blocking(move || {
+        crate::agent_host::unresolved::end_unresolved(session.as_deref())
+    })
+}
+
 fn end_hosted(record: crate::agent_host::HostRecord) -> tokio::task::JoinHandle<bool> {
     tokio::task::spawn_blocking(move || {
         for dir in crate::agent_host::live_lock_dirs(&record) {
@@ -502,6 +546,38 @@ async fn pause_input(seam: &InputSeam, line: &str, writing: bool) {
     }
 }
 
+/// How acpmux started a harness: its argv, the part of its environment that decides which MCP
+/// configs it reads and which program a name runs, and its folder (`hub/idle_census.rs`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Launch {
+    pub args: Vec<String>,
+    pub env: std::collections::BTreeMap<String, String>,
+    pub cwd: std::path::PathBuf,
+}
+
+impl Launch {
+    const ENV: [&str; 4] = ["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+    /// From a spawn's program, args, full environment and folder.
+    pub fn new(
+        program: &str,
+        args: &[String],
+        env: &[(String, String)],
+        cwd: &std::path::Path,
+    ) -> Self {
+        let args = std::iter::once(program.to_owned()).chain(args.iter().cloned()).collect();
+        let env = env.iter().filter(|(k, _)| Self::ENV.contains(&k.as_str())).cloned().collect();
+        Launch { args, env, cwd: cwd.to_path_buf() }
+    }
+
+    /// From the command a direct child runs.
+    fn of(cmd: &tokio::process::Command, cwd: &std::path::Path) -> Self {
+        let std = cmd.as_std();
+        let args: Vec<String> = std.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        Self::new(&std.get_program().to_string_lossy(), &args, &command_env(cmd), cwd)
+    }
+}
+
 pub struct ChildAgent {
     pub name: String,
     /// Shared with the fences its writer takes (`Writer::Direct`, a weak reference).
@@ -529,6 +605,12 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// The `mcpServers` acpmux gave it at its session/new or load (`spawn.rs` `acp_params`), for
+    /// the idle census (`hub/idle_census.rs`). None for an agent adopted from another daemon.
+    pub given_servers: std::sync::Mutex<Option<Value>>,
+    /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
+    /// it started), for the idle census. None for a harness another daemon started.
+    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -619,6 +701,12 @@ impl ChildAgent {
             order: Mutex::new(()),
         });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::hub::LaunchServers::read(
+            &Launch::of(&cmd, cwd),
+            crate::config::derive_family(name, profile),
+        )
+        .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
@@ -658,6 +746,8 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(Some(launch)),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -1668,6 +1758,8 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),

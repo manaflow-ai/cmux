@@ -25,6 +25,7 @@ impl Hub {
             effort,
             adopt,
             remote,
+            vm_boundary,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -66,8 +67,7 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // `${model}` in argv or env: the model is a spawn parameter, not a
-        // set_model call.
+        // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
         // What a new chat starts on when nothing pins it (start_defaults.rs):
@@ -152,6 +152,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.tools
@@ -230,6 +231,8 @@ impl Hub {
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -241,6 +244,7 @@ impl Hub {
             {
                 self.sessions.lock().unwrap().remove(&id);
                 self.child_tags.forget(&id);
+                self.events.changed();
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -458,7 +462,9 @@ impl Hub {
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started.
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         let _spawning = session.spawn_lock.lock().await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
@@ -466,7 +472,14 @@ impl Hub {
             return Err(stopped_while_starting());
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
-        let child = Box::pin(self.reach_or_start(session, profile, stops, &off)).await?;
+        let wake = self.wake_began(session);
+        let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
+            Ok(child) => child,
+            Err(e) => {
+                self.wake_ended(session, wake, Some(&e));
+                return Err(e);
+            }
+        };
         // Stopped while this agent started (no other start can run while this one holds the
         // spawn lock): the stop found no agent to end yet, or the start went on after it. The
         // agent is ended here and the session stays closed.
@@ -484,8 +497,11 @@ impl Hub {
             // As `kill` left it: a start above may have cleared it.
             session.closing.store(true, Ordering::SeqCst);
             self.append(session, "mux", "stopped_while_starting", json!({}));
-            return Err(stopped_while_starting());
+            let e = stopped_while_starting();
+            self.wake_ended(session, wake, Some(&e));
+            return Err(e);
         }
+        self.wake_ended(session, wake, None);
         Ok(child)
     }
 
@@ -531,6 +547,7 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        self.refuse_cleared_host(session).await?;
         // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
         // ends here and is never reached again; the start below asks, or refuses a pinned profile.
         // A host whose end failed may still run in it: the chat is refused until it ends (review 51).
@@ -727,18 +744,26 @@ impl Hub {
             && let Some(sid) = existing_sid.take()
         {
             tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
-            self.append(
-                session,
-                "mux",
-                "resume_failed",
-                json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
-            );
+            // A chat woken from hibernation had no turn when it hibernated (`idle.rs` keeps one
+            // with turns but none stored awake), so it has nothing to restore: it starts fresh
+            // with no row and no restored transcript. (The prompt waking it is counted already.)
+            let untouched = self.waking(session);
+            if !untouched {
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
+                );
+            }
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = None;
+                m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
             }
-            session.rehydrate.store(true, Ordering::SeqCst);
+            if !untouched {
+                session.rehydrate.store(true, Ordering::SeqCst);
+            }
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;
@@ -965,7 +990,7 @@ impl Hub {
                 } else {
                     "new"
                 };
-                m.agent_session_id = sid.clone();
+                m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
@@ -982,7 +1007,12 @@ impl Hub {
                     session.fork_from.lock().unwrap().take();
                 }
                 if level != "new" {
-                    self.append(session, "mux", "resumed", json!({"level": level}));
+                    self.append(
+                        session,
+                        "mux",
+                        "resumed",
+                        self.wake_marked(session, json!({"level": level})),
+                    );
                 }
             }
             // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
@@ -1019,7 +1049,12 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
-                        self.append(session, "mux", "resumed", json!({"level": "exact"}));
+                        self.append(
+                            session,
+                            "mux",
+                            "resumed",
+                            self.wake_marked(session, json!({"level": "exact"})),
+                        );
                         true
                     }
                     Err(e) => {
@@ -1054,12 +1089,17 @@ impl Hub {
                 .to_owned();
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = Some(sid);
+                m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
-                self.append(session, "mux", "resumed", json!({"level": "rehydrate"}));
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "rehydrate"})),
+                );
             }
         }
         if saved.agent_session_id.is_some() {

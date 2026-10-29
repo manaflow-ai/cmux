@@ -39,6 +39,7 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_red_excuse  # noqa: E402
+import gh_pages  # noqa: E402
 import merge_main_resolver as mmr  # noqa: E402
 import next_batch_groups as groups  # noqa: E402
 
@@ -96,6 +97,7 @@ HEAVY_CHECKS = frozenset({
     "cmux app scheme compile (Debug)",
     "cmux-next daemon tests",
     "cmux-next generated files",
+    "cmux-next generated files (shared build)",
     "wait for the same-tree cmux-tui",
 })
 # One job, many static checks. Its last step lists each red one; the queue
@@ -257,11 +259,12 @@ class GitHub:
         branch (main), and feat-cmux-next-only workflows like this one are not
         there; the id works for every registered workflow."""
         if not self.workflow_ids:
-            listed = self.gh("api", "--paginate", f"repos/{self.repo}/actions/workflows?per_page=100",
-                             "--jq", ".workflows[] | [.id, .path] | @tsv").stdout
-            for line in listed.splitlines():
-                workflow_id, _, path = line.partition("\t")
-                self.workflow_ids[path.rsplit("/", 1)[-1]] = int(workflow_id)
+            # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an
+            # unbounded paginating call.
+            listed = gh_pages.items(lambda url: json.loads(self.gh("api", url).stdout),
+                                    f"repos/{self.repo}/actions/workflows")
+            for workflow in listed:
+                self.workflow_ids[workflow["path"].rsplit("/", 1)[-1]] = int(workflow["id"])
         return str(self.workflow_ids.get(name, name))
 
     def runs(self, workflow: str, query: str) -> list[dict]:
@@ -1323,10 +1326,23 @@ class Controller:
         if job is None:
             return {name}
         log = self.job_log(job_id)
-        if log is None:
+        if log is None or not log.strip():
+            # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
+            # own (fails closed). Any other job keeps its bare name, as before.
+            if (base_red_excuse.test_reds.is_test_red(base_red_excuse.test_reds.Result(), name)
+                    or name in base_red_excuse.NO_VERDICT_JOBS):
+                return {f"{name}: log unreadable (job {job_id}, never a base red)"}
             return {name}
+        if base_red_excuse.no_verdict(log) is not None:
+            # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
+            return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
         steps, tests, errors = base_red_excuse.signature(job, log)
-        crashes = base_red_excuse.crash_signals(log)
+        # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
+        # this job's id, no base failure can match it, whatever the base shows.
+        own = base_red_excuse.test_reds.read(log)
+        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+            return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
+        crashes = base_red_excuse.crash_signals(log)  # a non-test job's (a test job's crash returned above)
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.

@@ -30,15 +30,17 @@ public nonisolated enum AgentPaneReply {
     /// provider handles), and of the receipt only the fields the chat shows (``pageReceipt(_:)``).
     public static func sandbox(_ run: () async throws -> [String: Any], code: (any Error) -> String) async -> [String: Any] {
         do {
-            let snapshot = try await run()
-            guard let receipt = snapshot["receipt"] as? [String: Any] else {
-                return failure(code: "bad_response", message: "bad_response")
-            }
-            return success(["receipt": pageReceipt(receipt)])
+            return sandbox(snapshot: try await run())
         } catch {
             let typed = pageCode(code(error))
             return failure(code: typed, message: typed)
         }
+    }
+
+    /// A Run's final snapshot as the page's reply: `{receipt}`, or `bad_response` with none.
+    public static func sandbox(snapshot: [String: Any]) -> [String: Any] {
+        guard let receipt = snapshot["receipt"] as? [String: Any] else { return failure(code: "bad_response", message: "bad_response") }
+        return success(["receipt": pageReceipt(receipt)])
     }
 
     /// The receipt's fields the chat shows (SandboxRunView), each of its own type; the rest (the

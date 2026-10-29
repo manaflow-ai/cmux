@@ -44,6 +44,20 @@ struct SidebarRowsMoveOnRenderServerTests {
 
     private static func sizeSprings(_ view: NSView) -> Int { springs(view, "bounds.size") }
 
+    @Test
+    func recyclingAParkedRowStopsItsListSpring() {
+        let list = SidebarListView(model: SidebarModel())
+        let view = SidebarRowView(key: .workspace(WorkspaceID("recycled")))
+        list.addSubview(view)
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        view.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+
+        #expect(Self.positionSprings(view) == 1)
+        list.recycle(view)
+        #expect(Self.positionSprings(view) == 0)
+    }
+
     /// The rows and group lines that still carry a row move's spring.
     private static func springing(_ list: SidebarListView) -> [String] {
         list.subviews.filter { $0 is SidebarRowView || $0 is GroupLineView }.compactMap { view in
@@ -106,10 +120,14 @@ struct SidebarRowsMoveOnRenderServerTests {
             if case .workspace = key { (key, view, view.frame.minY - clip.bounds.minY) } else { nil }
         }
 
-        model.sections = Self.sections([0] + Array(1...30))
+        // The new row goes right under the first one, which stays in place. An insert above the first shown row keeps
+        // what the user sees still (`ListViewport.anchored`, close-focus.md V5): the list scrolls by the new row's height
+        // and no row moves on screen (the run read "pushed 0 rows down"). In the app Home stands above the list, so a new
+        // row at the list's top lands under a row that holds still, as here.
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
 
-        // The rows the insert pushed down on screen (the list's top holds still, so all of them).
+        // The rows the insert pushed down on screen: every shown row under the first one.
         var moved = 0
         for (key, view, wasOnScreen) in shown {
             let row = try #require(list.displayed.row(for: key))
@@ -120,9 +138,12 @@ struct SidebarRowsMoveOnRenderServerTests {
             #expect(view.frame == slot, "\(key) is at \(view.frame), its slot is \(slot)")
             #expect(Self.positionSprings(view) >= 1, "\(key) did not move on the render server")
         }
-        #expect(moved > 3, "the insert at the top pushed \(moved) rows down (of \(shown.count) shown)")
+        #expect(moved > 3, "the insert near the top pushed \(moved) rows down (of \(shown.count) shown)")
+        let firstKey = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
+        let first = try #require(shown.first { $0.0 == firstKey }, "the first row is not shown")
+        #expect(abs(first.1.frame.minY - clip.bounds.minY - first.2) <= 0.5, "the first row moved: the insert is not under a still row")
         let added = try #require(Self.sections([0]).first?.workspaces.first?.id)
-        let opening = try #require(list.rowViews[.workspace(added)], "the new row at the top has no view")
+        let opening = try #require(list.rowViews[.workspace(added)], "the new row near the top has no view")
         let slot = try #require(list.displayed.row(for: opening.key).map(list.frame(for:)))
         #expect(opening.frame == slot, "the new row is at \(opening.frame), its slot is \(slot)")
         #expect(Self.sizeSprings(opening) >= 1, "the new row did not open its slot on the render server")
@@ -137,13 +158,15 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aSecondInsertStacksOnTheFirstMove() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        let key = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
+        // Both inserts go under the first row, which holds still (as `anInsertAtTheTopMovesTheRowsBelowOnTheRenderServer`):
+        // above it, the list keeps what the user sees still and no row moves. Workspace 2 is pushed by both.
+        let key = SidebarRowKey.workspace(try #require(Self.sections([2]).first?.workspaces.first?.id))
         let view = try #require(list.rowViews[key])
 
-        model.sections = Self.sections([0] + Array(1...30))
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(Self.positionSprings(view) == 1)
-        model.sections = Self.sections([999, 0] + Array(1...30))
+        model.sections = Self.sections([1, 999, 0] + Array(2...30))
         list.reload(animated: true)
 
         #expect(list.rowViews[key] === view)
@@ -159,7 +182,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aMoveTheDisplaySleepsThroughEndsAtTheSlots() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        model.sections = Self.sections([0] + Array(1...30))
+        // Under the first row, so the rows below move (above it, the list holds what the user sees still).
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(list.rowViews.values.contains { Self.positionSprings($0) > 0 })
 

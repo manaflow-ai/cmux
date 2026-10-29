@@ -37,13 +37,11 @@ extension UpdaterService {
         // answers instead (never a check with no visible feedback).
         showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
         openChangelog = { [weak services] in
-            guard services?.settings?.snapshot.previewFeatures == true else { return false }
             return services.map { ChangelogPageTab.open($0) } ?? false
         }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
         openChangelogSpan = { [weak services] from, to in
-            guard services?.settings?.snapshot.previewFeatures == true else { return false }
             return services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false
         }
         openReleaseNotesURL = { [weak services] url in
@@ -51,8 +49,8 @@ extension UpdaterService {
             SidebarCardFeed.openUpdateLink(url, services: services)
             return true
         }
-        // What's New is a preview surface; keep its card hidden until settings explicitly enable Labs.
-        whatsNew.isItemEnabled = services.settings?.snapshot.previewFeatures == true && services.settings?.snapshot.updates.showWhatsNew != false
+        // What's New shows after every update unless `updates.showWhatsNew` is turned off (user 13935: no Labs gate).
+        whatsNew.isItemEnabled = services.settings?.snapshot.updates.showWhatsNew != false
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         // The Updated card's change list when the update record has none (2026-10-20).
@@ -104,11 +102,11 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips, previewFeatures) in ObservationStream({
+            for await (updates, announcements, tips, _) in ObservationStream({
                 (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips, settings.snapshot.previewFeatures)
             }) {
                 self?.apply(updates)
-                let whatsNewEnabled = updates.showWhatsNew && previewFeatures
+                let whatsNewEnabled = updates.showWhatsNew
                 if self?.whatsNew.isItemEnabled != whatsNewEnabled { self?.whatsNew.isItemEnabled = whatsNewEnabled }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch

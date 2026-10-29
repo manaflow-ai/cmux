@@ -15,32 +15,11 @@ protocol ComputerUseHelperLaunching: AnyObject {
     /// Launches a new instance of `app` (never activated); its pid, or nil.
     func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t?
     func terminate(_ pid: pid_t)
-}
-
-/// LaunchServices launches: the helper is its own app, so macOS attributes
-/// its Accessibility and Screen Recording to its Developer ID identity, not
-/// to cmux.
-@MainActor
-final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
-    func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t? {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.createsNewApplicationInstance = true
-        configuration.promptsUserIfNeeded = false
-        configuration.addsToRecentItems = false
-        configuration.arguments = arguments
-        configuration.environment = environment
-        return await withCheckedContinuation { continuation in
-            NSWorkspace.shared.openApplication(at: app, configuration: configuration) { running, error in
-                if let error { helperLogger.error("cmux Computer Use helper did not start: \(error.localizedDescription, privacy: .public)") }
-                continuation.resume(returning: running?.processIdentifier)
-            }
-        }
-    }
-
-    func terminate(_ pid: pid_t) {
-        NSRunningApplication(processIdentifier: pid)?.terminate()
-    }
+    /// Whether the process `pid` still exists (signal 0, nothing is sent).
+    func isRunning(_ pid: pid_t) -> Bool
+    /// Calls `onExit` once, on the main actor, when `pid` exits; the returned
+    /// closure cancels the watch (`ComputerUseHelperExitWatch`).
+    func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void
 }
 
 /// The cmux Computer Use helper this app runs while Computer Use is on.
@@ -52,20 +31,33 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// children). The acpmux daemon this app spawns gets the socket and the
 /// agent token as CMUX_NEXT_CUA_SOCKET and CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN
 /// in its spawn environment (`childEnvironment`); the host token stays in
-/// this app. This process's own environment is never written: libghostty
+/// this app. The agent token lives for this app launch, not for one helper
+/// start, and the endpoint is published while Computer Use is off too: an
+/// agent's computer use server gets them once, when its chat starts, so a
+/// chat started before the person turned Computer Use on (or before a helper
+/// restart) still reaches the helper afterwards. With no helper running the
+/// token opens nothing. This process's own environment is never written: libghostty
 /// keeps a slice of `environ` from launch, so a setenv or unsetenv after
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
 /// starts, and the helper is stopped when Computer Use turns off and when the app quits.
+/// A helper that exits by itself (macOS "Quit & Reopen" after a privacy
+/// grant, a crash) starts again within a budget, then is `.failed`.
 /// `state` is observable: Computer Use Setup follows it.
 @MainActor
 @Observable
 public final class ComputerUseHelperDaemon {
     public enum State: Equatable {
         case off
-        /// On, but no Developer ID signed helper is installed (or it did not start).
+        /// On, but no Developer ID signed helper is installed. The agent is
+        /// told this build has none, so only that case is `.unavailable`.
         case unavailable
         case running(pid_t)
+        /// On, but the helper could not start (its copy, the scope lock, the
+        /// launch or its running check failed) or kept exiting by itself
+        /// (`helperExited(_:)`). Restart Helper, or Computer Use off and on,
+        /// starts it again.
+        case failed
     }
 
     /// The app's helper. One per process.
@@ -78,12 +70,25 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let candidates: @Sendable () -> [URL]
     @ObservationIgnored private let launcher: any ComputerUseHelperLaunching
     @ObservationIgnored private let manifestReader: CuaHelperManifestReader
+    @ObservationIgnored private let staging: ComputerUseHelperStaging
     @ObservationIgnored private let ownerPID: pid_t
     @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    /// Gets the published endpoint each time it changes after launch (a
+    /// replaced agent token, the endpoint published or withdrawn), except
+    /// while the app quits. The App gives it to its running acpmux at once:
+    /// acpmux reads it only when a pane looks up its daemon, and connected
+    /// panes do not look again.
+    @ObservationIgnored public var onEndpointChange: (@MainActor ([String: String]) -> Void)?
+    /// The agent token of this app launch: every helper start serves it.
+    /// Replaced only when a launched helper fails its running check.
+    @ObservationIgnored private var launchAgentToken = ComputerUseHelperDaemon.makeToken()
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
-    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var requestedEnabled = false
+    @ObservationIgnored private var quitting = false
+    @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private let restarts: ComputerUseHelperRestarts
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
 
@@ -91,24 +96,34 @@ public final class ComputerUseHelperDaemon {
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
          launcher: any ComputerUseHelperLaunching = WorkspaceHelperLauncher(),
          manifestReader: CuaHelperManifestReader = .shared,
+         staging: ComputerUseHelperStaging = .legacy(),
          ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory(),
+         clock: any Clock<Duration> = ContinuousClock(),
          upstream: ComputerUseHelperV2? = nil) {
         self.upstream = upstream ?? ComputerUseHelperV2()
+        self.restarts = ComputerUseHelperRestarts(clock: clock)
         self.identity = identity
         self.candidates = candidates
         self.launcher = launcher
         self.manifestReader = manifestReader
+        self.staging = staging
         self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
+        // Published from launch with the default driver, before settings
+        // load: an agent pane that connects first must not enroll an empty
+        // endpoint. The first settings value withdraws it under the helper v2
+        // or DisabledFeatures.
+        publish(true)
     }
 
     /// What a child this app spawns for agents (acpmux) gets in its spawn
-    /// environment while the helper runs: the socket and the agent token,
-    /// never the host token. Empty while off. Any thread may read it
-    /// (spawn paths run off the main actor); only this daemon writes it.
+    /// environment: the socket and the agent token, never the host token.
+    /// Set while the legacy driver is chosen, on or off; empty under the
+    /// helper v2 or DisabledFeatures. Any thread may read it (spawn paths
+    /// run off the main actor); only this daemon writes it.
     public nonisolated var childEnvironment: [String: String] {
         published.withLock { $0 }
     }
@@ -151,74 +166,196 @@ public final class ComputerUseHelperDaemon {
     /// Applies one settings value: stops the helper that is off first, then
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
+        guard !quitting, !Task.isCancelled else { return }
         let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
+        publish(!disabledByPolicy && settings.driver == .legacy)
         if route.legacy {
             await upstream.apply(enabled: false)
+            guard !quitting, !Task.isCancelled else { return }
             await apply(enabled: true)
         } else {
             await apply(enabled: false)
+            guard !quitting, !Task.isCancelled else { return }
             await upstream.apply(enabled: route.upstream)
         }
     }
 
     /// Computer Use on: starts the signed helper (once); off: stops it.
     func apply(enabled: Bool) async {
-        generation &+= 1
-        let current = generation
-        guard enabled else { return stop() }
+        await request(enabled: enabled).value
+    }
+
+    /// Settings changes join one transition, including a launch still in flight.
+    func request(enabled: Bool) -> Task<Void, Never> {
+        requestedEnabled = enabled && !quitting
+        if let transition { return transition }
+        let task = Task { [self] in
+            await settle()
+            transition = nil
+        }
+        transition = task
+        return task
+    }
+
+    /// Applies the wanted state once. A stop is synchronous, so the wanted
+    /// state cannot change during it; a start awaits, and a settings change
+    /// that arrived meanwhile gets one more pass. It ends when the setting
+    /// stops changing.
+    private func settle() async {
+        let wanted = requestedEnabled
+        if wanted { await start() } else { stop() }
+        if wanted != requestedEnabled { await settle() }
+    }
+
+    private func start() async {
         if case .running = state { return }
         let resolution = await Self.resolve(identity, candidates)
-        guard current == generation else { return }
+        guard requestedEnabled else { return }
         guard case .signed(let helper) = resolution else {
             helperLogger.notice("Computer Use is on, but no Developer ID signed cmux Computer Use helper is installed")
             state = .unavailable
             return
         }
-        // The helper's parent is launchd (LaunchServices), so it outlives a
-        // crash of this app unless it watches this pid. Older helpers may
-        // reject an unknown flag: pass it only when the manifest lists it.
-        let capabilities = await manifestReader.capabilities(of: helper)
-        guard current == generation, !Task.isCancelled else { return }
-        let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
-        guard prepareDirectories() else {
-            state = .unavailable
+        let runningCheck = await staging.runningCheck(for: helper)
+        guard requestedEnabled else { return }
+        guard let runningCheck else {
+            helperLogger.error("cmux Computer Use helper: cannot read the code requirement")
+            state = .failed
             return
         }
-        let agent = Self.makeToken()
+        // Launch a verified copy outside this app: nested in it, macOS checks
+        // the helper's Screen Recording as this app (ComputerUseHelperStaging).
+        let staged = await staging.stage(helper)
+        guard requestedEnabled else { return }
+        guard let staged else {
+            helperLogger.error("Computer Use is on, but the cmux Computer Use helper copy could not be made or verified")
+            state = .failed
+            return
+        }
+        // The helper's parent is launchd (LaunchServices), so it outlives a
+        // crash of this app unless it watches this pid. Older helpers exit on
+        // an unknown flag: each optional flag goes only when the manifest lists it.
+        let capabilities = await manifestReader.capabilities(of: staged)
+        guard requestedEnabled else { return }
+        let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
+        let motion = capabilities.contains(CuaHelperManifestReader.motionCapability)
+        // The launcher holds the scope lock and prepares its directories (ComputerUseHelperScope).
+        let agent = launchAgentToken
         let host = Self.makeToken()
-        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
+        let pid = await launcher.launch(staged, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner, motion: motion),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
-        guard current == generation else {
+        guard requestedEnabled else {
             if let pid { launcher.terminate(pid) }
             return
         }
         guard let pid else {
-            state = .unavailable
+            helperLogger.error("cmux Computer Use helper did not launch (scope lock held, or LaunchServices failed)")
+            state = .failed
+            return
+        }
+        let trusted = await staging.acceptsRunningProcess(pid, check: runningCheck)
+        if !trusted { replaceAgentToken() }
+        guard requestedEnabled else {
+            launcher.terminate(pid)
+            return
+        }
+        guard trusted else {
+            launcher.terminate(pid)
+            state = .failed
+            helperLogger.error("cmux Computer Use helper pid \(pid, privacy: .public) failed its signature check")
             return
         }
         agentToken = agent
         hostToken = host
         state = .running(pid)
-        helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
-        let exported = Self.childEnvironment(socketPath: socketPath, agentToken: agent)
-        published.withLock { $0 = exported }
+        restarts.watch(launcher.watchExit(of: pid) { [weak self] in self?.helperExited(pid) })
+        helperLogger.notice("cmux Computer Use helper started from \(staged.path, privacy: .public)")
     }
 
-    /// Stops the helper this app started (exact pid) and withdraws the child environment.
+    /// The helper exited and this app did not stop it. Its tokens go as on a
+    /// stop, and the setup reads again (state leaves `.running`). While
+    /// Computer Use is on it starts again, so after "Quit & Reopen" the new
+    /// helper reads the new grant; an exit loop ends in `.failed`, where the
+    /// setup offers Restart Helper.
+    private func helperExited(_ pid: pid_t) {
+        guard case .running(let running) = state, running == pid else { return }
+        agentToken = nil
+        hostToken = nil
+        guard requestedEnabled, !quitting else {
+            state = .off
+            return
+        }
+        guard restarts.takeRestart() else {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) exited again within a minute; not starting it again")
+            state = .failed
+            return
+        }
+        helperLogger.notice("cmux Computer Use helper pid=\(pid, privacy: .public) exited; starting it again")
+        state = .off
+        // The start joins the settings transition, which owns its task.
+        _ = request(enabled: true)
+    }
+
+    /// The helper's state after checking that a `.running` helper's process
+    /// still exists. A reader whose request found no listener calls this: a
+    /// helper that is gone while the state still says `.running` (its exit
+    /// event never came) is handled as the exit it was, so it starts again
+    /// (`.off` while the restart runs, `.failed` past the restart budget)
+    /// instead of every request saying the helper did not answer.
+    public func confirmRunning() -> State {
+        if case .running(let pid) = state, !launcher.isRunning(pid) {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) is gone, but no exit event came")
+            helperExited(pid)
+        }
+        return state
+    }
+
+    /// Restarts the legacy helper. The caller checks the current setting and policy.
+    public func restartLegacy() async {
+        stop()
+        await apply(enabled: true)
+    }
+
+    /// Stops the helper this app started (exact pid). The endpoint stays
+    /// published: a later start serves the same socket and agent token. Its
+    /// exit watch ends first, so this exit starts nothing.
     func stop() {
+        restarts.stopped()
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
         hostToken = nil
-        published.withLock { $0 = [:] }
+    }
+
+    /// A process that failed its running check got the agent token in its
+    /// environment at launch. A new token replaces it, so the next helper
+    /// does not serve it; a published endpoint moves to the new token, and
+    /// `onEndpointChange` gives it to the running acpmux.
+    private func replaceAgentToken() {
+        launchAgentToken = Self.makeToken()
+        let isPublished = published.withLock { !$0.isEmpty }
+        if isPublished { publish(true) }
+    }
+
+    /// Publishes this launch's endpoint to the children this app spawns, or withdraws it.
+    private func publish(_ endpoint: Bool) {
+        let exported = endpoint ? Self.childEnvironment(socketPath: socketPath, agentToken: launchAgentToken) : [:]
+        let changed = published.withLock { current -> Bool in
+            guard current != exported else { return false }
+            current = exported
+            return true
+        }
+        if changed, !quitting { onEndpointChange?(exported) }
     }
 
     /// App quit: no further starts, and the helper stops.
     public func applicationWillTerminate() {
         observation?.cancel()
         observation = nil
-        generation &+= 1
+        quitting = true
+        requestedEnabled = false
         stop()
+        publish(false)
         upstream.terminateForQuit()
     }
 
@@ -226,8 +363,15 @@ public final class ComputerUseHelperDaemon {
     /// (argv is visible to every local user; tokens go in the environment).
     /// The helper removes an agent's cursor only when its session ends, so
     /// the idle fade is what clears it after a run (cx-ujus); 0 disables it.
-    public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
+    /// The cursor glides in a fixed 150 ms and waits 30 ms after a click.
+    /// The helper's default is speed-based: a run's first click took 3.3 to
+    /// 3.6 s as the cursor crossed to the app's display, later clicks 0.2 to
+    /// 0.9 s each. `--glide-ms` and `--dwell-ms` set the motion every new
+    /// session cursor starts with; `motion` is false for a helper whose
+    /// manifest does not list them (`serve.motion`), which keeps its own.
+    public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil, motion: Bool = false) -> [String] {
         ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000"]
+            + (motion ? ["--glide-ms", "150", "--dwell-ms", "30"] : [])
             + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
 
@@ -250,6 +394,12 @@ public final class ComputerUseHelperDaemon {
     @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity,
                                                 _ candidates: @Sendable () -> [URL]) async -> CuaHelperIdentity.Resolution {
         identity.resolve(running: nil, installed: candidates())
+    }
+
+    /// The verified copy of the helper this app build launches, when it is
+    /// in place (the "drag this app" tile names it). Off the main actor.
+    public nonisolated static func stagedHelper() async -> URL? {
+        await ComputerUseHelperStaging.legacy().existingCopy(named: CuaHelperIdentity.appName)
     }
 
     public nonisolated static var isDevBuild: Bool {
@@ -277,8 +427,14 @@ public final class ComputerUseHelperDaemon {
     }
 
     nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Application Support/cmux/cmux-cua/runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+        cuaRoot(home: FileManager.default.homeDirectoryForCurrentUser)
+            .appending(path: "runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+    }
+
+    /// The cmux-cua folder every build shares with classic cmux; each build's
+    /// own items in it are named by its scope.
+    nonisolated static func cuaRoot(home: URL) -> URL {
+        home.appending(path: "Library/Application Support/cmux/cmux-cua", directoryHint: .isDirectory)
     }
 
     /// A stable 16-hex scope for a bundle id (FNV-1a).
@@ -292,22 +448,6 @@ public final class ComputerUseHelperDaemon {
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return bytes.map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// The socket directory and its parent (cmux-cua under the user's temp directory)
-    /// and the helper's state directory: each must be a real directory owned
-    /// by this user and is set to 0700. A symlink or another user's directory
-    /// there could hand the helper's socket to someone else, so nothing starts.
-    private func prepareDirectories() -> Bool {
-        let socketDirectory = URL(fileURLWithPath: socketPath).deletingLastPathComponent()
-        for directory in [socketDirectory.deletingLastPathComponent(), socketDirectory, stateDirectory] {
-            guard Self.makePrivateDirectory(directory.path) else {
-                helperLogger.error("cmux Computer Use helper: \(directory.path, privacy: .public) is not a private directory of this user")
-                return false
-            }
-        }
-        unlink(socketPath)
-        return true
     }
 
     /// Creates `path` (0700; missing parents get the default mode) or takes

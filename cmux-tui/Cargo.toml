@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-tailnet",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-chat-index",
@@ -182,6 +183,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
