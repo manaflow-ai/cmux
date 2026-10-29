@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui/react/tabs";
+import { StableLabel } from "../../../ui/StableLabel";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
@@ -205,7 +206,10 @@ function HarnessRow({
             disabled={doctor?.running}
             onClick={() => void run({ action: "doctor", id: row.id })}
           >
-            {doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
+            <StableLabel
+              label={doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
+              alternatives={[t("settingsPage.agents.check"), t("settingsPage.agents.checking")]}
+            />
           </button>
         )}
         {manages && row.removable && (
@@ -485,7 +489,10 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
           setBusy(false);
         }}
       >
-        {added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
+        <StableLabel
+          label={added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
+          alternatives={[t("settingsPage.agents.addButton"), t("settingsPage.agents.added")]}
+        />
       </button>
     </div>
   );

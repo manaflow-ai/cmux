@@ -438,6 +438,7 @@ mark {
 }
 
 .number {
+  font-variant-numeric: tabular-nums;
   width: 64px;
   text-align: right;
 }
@@ -445,6 +446,7 @@ mark {
 /* A number field as wide as the text it shows (its value, else its default label): the hidden
    copy in the same grid cell sets the column width; at least the old 64 px. */
 .number-sizer {
+  font-variant-numeric: tabular-nums;
   display: inline-grid;
   min-width: 64px;
 }
@@ -798,6 +800,7 @@ mark {
 }
 
 .time {
+  font-variant-numeric: tabular-nums;
   width: 96px;
 }
 
@@ -1805,4 +1808,12 @@ mark {
   color: var(--muted-text);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
 }
