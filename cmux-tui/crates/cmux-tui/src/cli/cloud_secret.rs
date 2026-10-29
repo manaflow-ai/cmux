@@ -240,7 +240,8 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
     let fail = |message: String| message;
     let load_index = || -> Result<_, String> {
         let path = index_path().ok_or_else(|| fail("HOME is not set".into()))?;
-        let lock = IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
+        let lock =
+            IndexLock::take(&path).map_err(|e| fail(format!("cannot lock the index: {e}")))?;
         let secrets = read_index(&path)?;
         Ok((path, lock, secrets))
     };
