@@ -56,6 +56,35 @@ jobs:
           WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
+      # The webview test shards split their files by recorded duration
+      # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the
+      # whole run: a shard that read the cache itself could get a newer
+      # manifest than its siblings, split differently, and skip or repeat files.
+      - name: Restore the webview test duration manifest
+        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-durations/manifest.json
+          key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: webviews-test-durations-
+
+      - name: Hand the duration manifest to the shards
+        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        run: |
+          manifest="$RUNNER_TEMP/webviews-durations/manifest.json"
+          mkdir -p "$(dirname "$manifest")"
+          [ -s "$manifest" ] || printf '{}\n' > "$manifest"
+          echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
+
+      - name: Upload the duration manifest
+        if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-test-durations
+          path: ${{ runner.temp }}/webviews-durations/manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
   web-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
@@ -425,6 +454,14 @@ jobs:
         continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
+      # The run's one manifest, from web-subarea-scope. No fallback: a shard
+      # that split without it would disagree with its siblings.
+      - name: Download the duration manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-test-durations
+          path: ${{ runner.temp }}/webviews-durations
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
@@ -445,6 +482,8 @@ jobs:
           CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
+          CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           # Room for one alone retry of the slowest file after a short one: at the
           # runner's 120 s default, #27045's shard 1 spent 60 s retrying
@@ -456,7 +495,7 @@ jobs:
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
-          cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py \
+          cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
@@ -471,6 +510,17 @@ jobs:
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
           retention-days: 14
+
+      # Every event: push runs on feat-cmux-next keep the manifest fresh for everyone.
+      - name: Upload this shard's durations
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-test-durations-shard${{ matrix.shard }}
+          overwrite: true
+          path: ${{ runner.temp }}/webviews-durations-out/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
@@ -702,6 +752,47 @@ jobs:
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
+
+      # The next run's shard split: this run's per-file seconds, averaged with
+      # the manifest it split by. Never fails the check: a missing manifest
+      # only means the next run splits by path hash. A pull request's entry is
+      # scoped to its own ref; fork pull requests write none.
+      - name: Checkout the shard helper
+        id: durations-checkout
+        if: ${{ needs.react-apps-check-shard.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/webviews_test_shards.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download the run's durations
+        id: durations-download
+        if: ${{ steps.durations-checkout.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: webviews-test-durations*
+          path: ${{ runner.temp }}/durations
+
+      - name: Merge the duration manifest
+        id: durations-merge
+        if: ${{ steps.durations-download.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          shards=("$RUNNER_TEMP"/durations/webviews-test-durations-shard*/shard*.json)
+          [ -e "${shards[0]}" ] || { echo "no shard recorded durations"; exit 1; }
+          python3 scripts/ci/webviews_test_shards.py merge "$RUNNER_TEMP/webviews-durations/manifest.json" \
+            "$RUNNER_TEMP/durations/webviews-test-durations/manifest.json" "${shards[@]}"
+
+      - name: Save the duration manifest
+        if: ${{ steps.durations-merge.outcome == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/webviews-durations/manifest.json
+          key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
 
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
