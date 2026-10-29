@@ -961,6 +961,18 @@ where
             Ok(c) => return Ok(c),
             Err(e) => e,
         };
+        if unit_started(&ready) {
+            let deadline = tokio::time::Instant::now() + START_BUDGET;
+            loop {
+                if let Ok(c) = connect().await {
+                    return Ok(c);
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(not_ready(path, &ready, &error));
+                }
+                tokio::time::sleep(HANDOVER_RETRY).await;
+            }
+        }
         if !lock_held(&ready) {
             return Err(not_ready(path, &ready, &error));
         }
@@ -985,6 +997,18 @@ fn lock_held(ready: &str) -> bool {
         .ok()
         .and_then(|v| v.get("lockHeld").and_then(Value::as_bool))
         == Some(true)
+}
+
+fn unit_started(ready: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        return ready.trim() == UNIT_STARTED_LINE;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = ready;
+        false
+    }
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
@@ -1031,6 +1055,12 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
                 tracing::warn!("{line}");
             }
         }
+    }
+    #[cfg(target_os = "linux")]
+    if key.is_none()
+        && let Some(ready) = start_from_user_unit().await
+    {
+        return Ok(ready);
     }
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
@@ -1128,6 +1158,64 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
 
+#[cfg(target_os = "linux")]
+fn cgroup_is_in_sessions_scope(contents: &str) -> bool {
+    contents.lines().filter_map(|line| line.split_once("::").map(|(_, path)| path)).any(|path| {
+        path.split('/').any(|component| component == crate::session_scope::SESSIONS_SLICE)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_started_in_session_scope() -> bool {
+    std::fs::read_to_string("/proc/self/cgroup")
+        .is_ok_and(|contents| cgroup_is_in_sessions_scope(&contents))
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    if daemon_started_in_session_scope()
+        && let Some(runner) = crate::session_scope::scope_runner()
+        && crate::session_scope::can_make_scope(&runner)
+    {
+        let mut command = std::process::Command::new(runner);
+        command.args([
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--no-block",
+            "--description=acpmux daemon",
+            "--",
+        ]);
+        command.arg(&this.exe).args(&this.prefix).args(["daemon", "run", "--ready-fd"]);
+        return command;
+    }
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
+#[cfg(not(target_os = "linux"))]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
+#[cfg(target_os = "linux")]
+const UNIT_STARTED_LINE: &str = "{\"unitStarted\":true}";
+
+#[cfg(target_os = "linux")]
+async fn start_from_user_unit() -> Option<String> {
+    if !daemon_started_in_session_scope() || !uses_shared_home() {
+        return None;
+    }
+    let status = tokio::process::Command::new("systemctl")
+        .args(["--user", "start", "acpmux.service"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .ok()?;
+    status.success().then(|| UNIT_STARTED_LINE.to_owned())
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
@@ -1154,7 +1242,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
+    let mut cmd = daemon_command(&this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1235,5 +1323,26 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod scope_tests {
+    use super::cgroup_is_in_sessions_scope;
+
+    #[test]
+    fn daemon_scope_escape_matches_only_an_exact_session_slice_component() {
+        assert!(cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/acpmuxsessions.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/acpmuxsessions.slice.backup/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "1:name=systemd:/user.slice/acpmuxsessions.slice/run-a.scope\n"
+        ));
     }
 }
