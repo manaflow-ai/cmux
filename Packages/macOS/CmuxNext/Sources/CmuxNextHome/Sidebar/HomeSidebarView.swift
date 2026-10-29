@@ -47,15 +47,18 @@ public final class HomeSidebarView: NSView {
     /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then compose.
     let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.newMessage,
                                    identifier: "cmux.home.sidebar.compose")
-    /// All or Unread: one click, the filled glyph while only unread conversations show
-    /// (Home offers no other filter, so no menu).
-    let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease.circle", onSymbol: "line.3.horizontal.decrease.circle.fill",
-                                        label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread")
+    /// All or Unread: one click, Messages' filter glyph on its glass circle (`filterGlass`), lit
+    /// while only unread conversations show (Home offers no other filter, so no menu).
+    let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease", onSymbol: "line.3.horizontal.decrease",
+                                        label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
+    /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
+    /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
-    /// The search field's capsule: a quiet fill and the composer's hairline rim, stepped toward
-    /// the text while the field edits (the composer's focus, #22114), never AppKit's blue ring.
+    /// The search field's glass capsule (Messages' search field, the user 2026-10-28); a hairline
+    /// rim shows while the field edits (the composer's focus, #22114), never AppKit's blue ring.
     let searchCapsule = HomeSearchCapsule()
     /// The header's frames at the last layout (tests, `debug.home.sidebar_fixture`).
     public private(set) var header = HomeSidebarHeaderLayout(width: 320, searchOpen: false)
@@ -303,6 +306,7 @@ public final class HomeSidebarView: NSView {
         chatCompose.contextMenu = { [weak self] in self?.composeMenu() }
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
+        host.addSubview(filterGlass)
         for button in [unreadToggle, compose] { host.addSubview(button) }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
@@ -310,8 +314,25 @@ public final class HomeSidebarView: NSView {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
+    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    private var windowControls: CGRect?
+
+    /// Re-reads the traffic lights after the list moved in its window without a resize of its
+    /// header (the window's sidebar opened or closed beside the Home page); relays out the header
+    /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
+    func updateWindowControlsAvoidance() {
+        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        // The header's layout also places the list under it (its height may change). Laid out
+        // now, not at the next display pass: an occluded window gets none until it shows, and
+        // the next frame on screen would still have the search field under the lights.
+        list.headerView.needsLayout = true
+        list.headerView.layoutSubtreeIfNeeded()
+    }
+
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen)
+        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        windowControls = controls
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls)
         header = h
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
@@ -327,14 +348,18 @@ public final class HomeSidebarView: NSView {
             list.searchField.alphaValue = 0
             list.searchField.setAccessibilityElement(false)
         } else {
-            list.searchField.frame = CGRect(x: h.search.minX + 4, y: h.search.midY - fieldHeight / 2,
-                                            width: max(0, h.search.width - 8), height: fieldHeight)
+            // Messages' magnifier sits about 13 pt inside the capsule (the field's own icon 5 pt in).
+            list.searchField.frame = CGRect(x: h.search.minX + 8, y: h.search.midY - fieldHeight / 2,
+                                            width: max(0, h.search.width - 16), height: fieldHeight)
             list.searchField.alphaValue = 1
             list.searchField.setAccessibilityElement(true)
         }
         unreadToggle.frame = h.filter
         compose.frame = h.compose
         unreadToggle.isHidden = h.compact
+        filterGlass.frame = h.filter
+        filterGlass.cornerRadius = h.filter.height / 2
+        filterGlass.isHidden = h.compact
         // Compose is the chat's (`chatCompose`) at every width.
         compose.isHidden = true
         return h.listTop
@@ -347,18 +372,18 @@ public final class HomeSidebarView: NSView {
         list.headerView.needsLayout = true
     }
 
-    /// The capsule's fill and rim, and the field's text, placeholder and caret, in the theme scope:
-    /// the composer's tokens (styles.css `--acpmux-composer-bg` 13 % of the text at 72 %, the rim
-    /// `--acpmux-composer-edge` 18 %, focused 22 % further toward the text) on one device pixel.
+    /// The capsule's focus rim, and the field's text, placeholder and caret, in the theme scope.
+    /// The glass is the capsule's whole look at rest (no fill, no rim); while the field edits a
+    /// one-pixel rim of the text at 36 % (the composer's focused edge, `--acpmux-composer-edge`
+    /// 18 % stepped 22 % toward the text, doubled to read on glass) marks the focus.
     func applySearchColors() {
         let field = list.searchField
         let editing = field.isEditing
         performWithTheme {
             let text = Palette.textPrimary
-            searchCapsule.layer?.backgroundColor = text.withAlphaComponent(0.13 * 0.72).cgColor
-            let rim: CGFloat = editing ? 0.18 + (1 - 0.18) * 0.22 : 0.18
-            searchCapsule.layer?.borderColor = text.withAlphaComponent(rim).cgColor
-            searchCapsule.layer?.borderWidth = 1 / max(1, window?.backingScaleFactor ?? 2)
+            searchCapsule.layer?.backgroundColor = nil
+            searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
+            searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
             field.textColor = text
             field.placeholderAttributedString = NSAttributedString(string: CmuxSidebarView.searchTitle, attributes: [
                 .foregroundColor: Palette.textSecondary,
@@ -406,6 +431,13 @@ public final class HomeSidebarView: NSView {
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle].map(\.debugState)
+        // The header as it stood before this call lays anything out, and the traffic lights it
+        // used then and sees now (a stale header under the lights shows here).
+        func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
+        let stale: [String: Any] = ["search": rect(header.search), "used": rect(windowControls),
+                                    "sees": rect(list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)),
+                                    "headerInWindow": rect(list.headerView.convert(list.headerView.bounds, to: nil)),
+                                    "lights": rect(window.flatMap { WindowTitlebar.trafficLightsFrame(in: $0) })]
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -426,6 +458,7 @@ public final class HomeSidebarView: NSView {
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
+                "beforeLayout": stale,
                 "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
     }
     #endif
@@ -445,6 +478,8 @@ public final class HomeSidebarView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        // A new window has its own traffic lights (or none, in full screen).
+        updateWindowControlsAvoidance()
     }
 
     public override func layout() {
@@ -460,11 +495,34 @@ public final class HomeSidebarView: NSView {
 
 }
 
-/// The search field's capsule: a click on its rim, outside the field, still gives the field the keyboard.
+/// The search field's glass capsule (Messages' search field): Liquid Glass on macOS 26 and later,
+/// the frosted material before. A click on it, outside the field, still gives the field the keyboard.
 final class HomeSearchCapsule: NSView {
     var onClick: () -> Void = {}
+    /// The capsule's glass, edge to edge, its corners half its height.
+    let glass = GlassPanelView(style: .regular)
+
+    init() {
+        super.init(frame: .zero)
+        addSubview(glass)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
     override var mouseDownCanMoveWindow: Bool { false }
     override func mouseDown(with event: NSEvent) { onClick() }
+    /// The glass takes no clicks of its own: they reach the capsule.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        return self
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        glass.frame = bounds
+        glass.cornerRadius = bounds.height / 2
+    }
 }
 
 /// Empty header space that is titlebar: it drags the window, and a double-click runs the user's titlebar action.

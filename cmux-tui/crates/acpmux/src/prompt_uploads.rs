@@ -342,7 +342,7 @@ mod tests {
         let (id, peer) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
         let link = |path: String| json!({"type": "resource_link", "_meta": {"acpmux": {"uploadPath": path}}});
         let blocks = [
-            link(format!("/home/me/.acpmux/uploads/chat/{id}/a.png")),
+            link(format!("/home/me/state/uploads/chat/{id}/a.png")),
             link(format!("C:\\Users\\me\\acpmux\\uploads\\chat\\{}\\b.png", peer.simple())),
             link("a.png".to_owned()),
         ];

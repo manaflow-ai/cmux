@@ -8,11 +8,15 @@ import UserNotificationsUI
 /// "Expanded view"). It has no link to the Mac: what it sends goes to the
 /// App Group outbox, and the app (opened by `performNotificationDefaultAction`)
 /// sends it over that Mac's link, asking Face ID for an answer or an Allow.
+///
+/// Replying is the system's own text field at the bottom (the category's
+/// Reply action), which sends in the background. As in Messages, "+" in the
+/// view attaches photos and files: they are staged for this notification and
+/// the app sends them with the Reply. No Reply button stands beside the field.
 final class NotificationViewController: UIViewController, @MainActor UNNotificationContentExtension {
     private let model = NotificationContentModel()
     private var host: UIHostingController<NotificationContentView>?
     private var loading: Task<Void, Never>?
-
     override func viewDidLoad() {
         super.viewDidLoad()
         let host = UIHostingController(rootView: NotificationContentView(model: model))
@@ -55,7 +59,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         }
         model.actionable = actionable
         // The push shows at once; the App Group's outbox and snapshot join it once resolved.
-        model.load(payload: payload, group: nil)
+        model.load(payload: payload, group: nil, date: notification.date, requestID: notification.request.identifier)
         // The App Group (outbox, chat snapshot) and the shared Require Face ID
         // choice are read off the main thread. A build signed without the
         // App Group shows the push alone and offers "Open in app" only.
@@ -67,11 +71,12 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
             }.value
             guard let self, !Task.isCancelled else { return }
             if group != nil { self.model.load(payload: payload, group: group) }
-            // The notification's own buttons: a question's options, the permission's offers.
-            // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
-            if let payload, actionable {
-                let actions = PushActions(requireFaceID: preference).extensionActions(for: payload)
-                if !actions.isEmpty { self.extensionContext?.notificationActions = actions }
+            // The notification's own buttons: a question's options, the permission's offers; never
+            // a Reply button next to the system's reply field. With previews off the static buttons
+            // stay (review L1); Require Face ID opens the app (L2).
+            if let payload, actionable,
+               let actions = PushActions(requireFaceID: preference).extensionActions(for: payload, replyField: true) {
+                self.extensionContext?.notificationActions = actions
             }
         }
     }

@@ -297,6 +297,14 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.environment.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.environment.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.file.pull": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -509,6 +517,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.members": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.search": {
       "scope": "conversation:read",
       "class": "read"
@@ -707,6 +719,30 @@
     },
     "github.issue.comment": {
       "scope": "github:external",
+      "class": "mutation"
+    },
+    "group.add_workspace": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.archive": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.create": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.get": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.rename": {
+      "scope": "group:write",
       "class": "mutation"
     },
     "home.search": {
@@ -1037,6 +1073,14 @@
       "scope": "participants:write",
       "class": "mutation"
     },
+    "participants.set_role": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.unban": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
     "project.add": {
       "scope": "project:write",
       "class": "mutation"
@@ -1268,6 +1312,10 @@
     "search_app.search": {
       "scope": "search_app:read",
       "class": "read"
+    },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
     },
     "session.get": {
       "scope": "session:read",
@@ -1765,6 +1813,22 @@
       "scope": "window_record:write",
       "class": "mutation"
     },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
     "workspace_group.create": {
       "scope": "workspace_group:write",
       "class": "mutation"
@@ -1884,6 +1948,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.archive",
+    "chief.delete",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -1892,6 +1957,9 @@
     "client.sizing.release",
     "client.sizing.set",
     "cloud.billing.checkout",
+    "cloud.environment.boot",
+    "cloud.environment.build",
+    "cloud.environment.delete",
     "cloud.fs.remove",
     "cloud.machine.create",
     "cloud.machine.delete",
@@ -1914,6 +1982,8 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "grant.create",
+    "grant.revoke",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -1926,9 +1996,12 @@
     "history.visit.remove",
     "history.visit.summaries",
     "history.visit.title",
+    "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
+    "host.replica.purge",
     "install.list",
     "install.register",
     "install.rename",
@@ -1940,17 +2013,20 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "invite.accept_verified",
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
+    "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
     "participants.remove",
     "request.cancel",
+    "request.dismiss",
     "screen.close",
     "server.pair.approve",
     "server.pair.preview",
