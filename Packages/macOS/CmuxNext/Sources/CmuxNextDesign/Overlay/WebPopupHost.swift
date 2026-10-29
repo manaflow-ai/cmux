@@ -105,6 +105,7 @@ public final class WebPopupHost {
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
+        if model.declaration == nil, declarationShowDepth != 0 || declarationHost?.activeID != nil { return ["shown": false] }
         presentationGeneration += 1
         let generation = presentationGeneration
         if let declaration = model.declaration {
@@ -123,7 +124,6 @@ public final class WebPopupHost {
             return host.show(declaration)
         }
         // An old overflow effect cannot displace an active declarative native popup.
-        guard declarationShowDepth == 0, declarationHost?.activeID == nil else { return ["shown": false] }
         guard let webView, let window = webView.window, window.isVisible else { return ["shown": false] }
         self.model = model
         let popup = self.popup ?? makePopup()
