@@ -422,7 +422,7 @@ def preparing_evidence(app, out):
     """Why the pairing page stays "preparing" (steps 59c5f9eb, c9c9b027, 2026-10-28: a SecurityAgent
     prompt in the console session 2 s after launch, hostd never started, no code in 302 s): which
     thread waits in a Keychain or Authorization call, and from which frame. A 3 s `sample` of the app
-    and of its cmux-mobile-host and helper children (at most 4), the Security framework's and
+    and of its own children (at most 4, cmux-mobile-host first), the Security framework's and
     SecurityAgent's unified log and the app's own subsystem for the last 3 minutes, and the Keychain
     search list and default keychain (preference reads, no keychain is opened). Each read is bounded
     and best effort; tokens are redacted. Returns the summary's words."""
@@ -434,7 +434,7 @@ def preparing_evidence(app, out):
         if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
             pid, ppid, comm = int(parts[0]), int(parts[1]), parts[2]
             name = os.path.basename(comm)
-            if name == "cmux-mobile-host" or (ppid == app.pid and pid != app.pid):
+            if ppid == app.pid and pid != app.pid:  # the app's own children only, hostd first
                 kids.append((name != "cmux-mobile-host", pid, name))
             if name == "SecurityAgent":
                 agents.append(pid)
