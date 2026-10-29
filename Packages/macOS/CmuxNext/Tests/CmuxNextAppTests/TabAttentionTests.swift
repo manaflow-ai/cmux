@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextRemote
 import CmuxNextSidebar
+import CmuxNextWakeups
 @testable import CmuxNextDaemon
 import Foundation
 import Observation
