@@ -241,6 +241,7 @@ def main():
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
         # Signed in, hostd online, iPhone connections on: the page shows the code. A page still
         # without one at 60 s is sampled once (where the app waits), then the wait goes on.
+        waited = time.monotonic()
         qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {})
         if not qr and expects_code:
             try:  # evidence only: a failure here never replaces the run's own verdict
@@ -252,7 +253,8 @@ def main():
                      f"{time.monotonic() - t0:.0f} s; {why}")
             except OSError:
                 pass
-            qr = (wait_for(lambda: status().get("qr"), 240, every=2) or {})
+            # The same 300 s deadline as one wait: the evidence's own time is not added to it.
+            qr = (wait_for(lambda: status().get("qr"), max(0.0, 300 - (time.monotonic() - waited)), every=2) or {})
         url = qr.get("url")
         note(f"- Mac pairing page: state {last.get('state')}, Mac {last.get('macName')!r}, "
              f"{'code ' + redact(url) if url else 'NO pairing code (FAIL: this ref shows one)' if expects_code else 'NO pairing code (a ref without it: pairing skipped)'} "
@@ -402,7 +404,9 @@ def forget_keychain(bundle):
 
 
 def run_bounded(argv, timeout):
-    """An evidence read: its output and errors, or why it gave none; never raises, never waits past `timeout`."""
+    """An evidence read: its output and errors, or why it gave none; never raises, never waits past `timeout`.
+    A tool that writes a report file of its own (`sample` writes one to /tmp) is pointed at /dev/stdout,
+    so everything it reports reaches disk only through redact()."""
     try:
         r = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout,
                            stdin=subprocess.DEVNULL)
@@ -439,7 +443,7 @@ def preparing_evidence(app, out):
             if name == "SecurityAgent":
                 agents.append(pid)
     for _, pid, name in [(False, app.pid, "app")] + sorted(kids)[:4]:
-        text = run_bounded(["/usr/bin/sample", str(pid), "3"], 60)
+        text = run_bounded(["/usr/bin/sample", str(pid), "3", "-file", "/dev/stdout"], 60)
         files.append(save_redacted(out, f"preparing-sample-{re.sub(r'[^A-Za-z0-9.-]', '_', name)}-{pid}.txt", text, 3000))
         hits = sorted({m.group(1) for m in re.finditer(
             r"\b(SecItem\w+|SecKeychain\w+|SecTrust\w+|Authorization\w+|SecAccess\w+|LAContext\w*|"
@@ -480,7 +484,7 @@ def no_answer_evidence(app, ls_env, tag, sock, out):
     facts = (f"running {app.poll() is None}, account {pwd.getpwuid(os.getuid()).pw_name}, console user "
              f"{console.group(1) if console else 'none'}, launchd {run(['/bin/launchctl', 'managername'], 10).strip()}, "
              f"socket {'present' if os.path.exists(sock) else 'absent'}")
-    files = [save("mac-app-sample.txt", run(["/usr/bin/sample", str(app.pid), "3"], 60), 2000),
+    files = [save("mac-app-sample.txt", run(["/usr/bin/sample", str(app.pid), "3", "-file", "/dev/stdout"], 60), 2000),
              save("mac-app-unified.log", run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact",
                                               "--predicate", f"processID == {app.pid}"], 60))]
     debug_log = ls_env.get("CMUX_DEBUG_LOG") or f"/tmp/cmux-debug-{tag}.log"
