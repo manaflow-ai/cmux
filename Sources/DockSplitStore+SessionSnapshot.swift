@@ -6,6 +6,10 @@ import Darwin
 import Foundation
 
 extension DockSplitStore {
+    /// Builds this Dock's session snapshot.
+    ///
+    /// Keeps at most `SessionPersistencePolicy.maxPanelsPerWorkspace` panels and
+    /// records any past it as `omittedPanelCount`.
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
@@ -47,8 +51,9 @@ extension DockSplitStore {
                         panelIds: terminalPanelIds
                     )
         }
-        let builtPanelSnapshots = orderedPanelIds
-            .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        let panelCap = SessionPanelCap(maxPanels: SessionPersistencePolicy.maxPanelsPerWorkspace)
+            .cap(orderedPanelIds)
+        let builtPanelSnapshots = panelCap.retainedPanelIds
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
                 // when the panel moves between containers. The panel UUID is persisted,
@@ -108,7 +113,8 @@ extension DockSplitStore {
             panels: panelSnapshots,
             sourceWorkspaceIdsByPanelId: sourceWorkspaceIdsByPanelId.isEmpty
                 ? nil
-                : sourceWorkspaceIdsByPanelId
+                : sourceWorkspaceIdsByPanelId,
+            omittedPanelCount: panelCap.omittedCount > 0 ? panelCap.omittedCount : nil
         )
     }
 

@@ -12,4 +12,8 @@ struct SessionSplitContainerSnapshot: Codable, Sendable {
     /// Original workspace ownership for panels transferred into this container.
     /// Absent for panels created directly in the container and for legacy snapshots.
     var sourceWorkspaceIdsByPanelId: [UUID: UUID]? = nil
+    /// Panels past `SessionPersistencePolicy.maxPanelsPerWorkspace` that this
+    /// Dock snapshot left out. Nil when every panel fit, and on snapshots
+    /// written before the field existed, so older files still decode.
+    var omittedPanelCount: Int? = nil
 }
