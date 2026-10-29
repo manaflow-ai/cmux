@@ -34,8 +34,8 @@ extension CEFLayerHosting {
         /// the fork follows the host view in the switch's turn.
         let setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)?
         /// The fork's keep-frame-while-hidden call: drops the frame a hidden page
-        /// window kept for its next show (the app's ``CEFHiddenFrames`` decides
-        /// when). Nil: Chromium's own frame eviction decides.
+        /// window kept for its next show (the app calls it when the page hides).
+        /// Nil: Chromium's own frame eviction decides.
         let evictFrame: ((_ browser: Int32) -> Bool)?
         /// The fork's copy of a hidden page window's last frame into a new IOSurface the app owns:
         /// made on the fork's GPU thread, delivered once on the main thread (nil when

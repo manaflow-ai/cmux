@@ -66,7 +66,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "memoryDiscardSidebarSections",
         "memoryFileHomeCaches",
         "memoryHiddenAppRelease",
-        "memoryHiddenFrameLRU",
         "memoryHomeLabCaches",
         "memoryImageCaches",
         "memoryKittyShare",

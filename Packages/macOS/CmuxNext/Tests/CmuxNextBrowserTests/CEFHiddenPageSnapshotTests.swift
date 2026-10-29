@@ -55,23 +55,7 @@ import Testing
         }
     }
 
-    /// The app-wide list: holds each hidden page's eviction until the test culls it.
-    final class FakeFrames: CEFHiddenFrames {
-        private var evictions: [ObjectIdentifier: @MainActor () -> Void] = [:]
-        func addFrame(_ owner: ObjectIdentifier, locked: Bool, evict: @escaping @MainActor () -> Void) {
-            evictions[owner] = locked ? nil : evict
-        }
-        func removeFrame(_ owner: ObjectIdentifier) { evictions[owner] = nil }
-        /// The grace of every hidden page ends.
-        func evictAll() {
-            let due = evictions
-            evictions = [:]
-            for evict in due.values { evict() }
-        }
-    }
-
     let fake = FakeFork()
-    let frames = FakeFrames()
     let turn = CEFLayerHostingTests.Turn()
     let commit = CEFLayerHostingTests.Turn()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -93,7 +77,6 @@ import Testing
                                       resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
                                       afterCommit: { commit.add($0) })
         hosting.view = view
-        hosting.switchCommit.hiddenFrames = frames
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         turn.end()
         commit.end()
@@ -129,7 +112,6 @@ import Testing
     /// Hidden, past its grace, with `surface` copied: the state every show test starts from.
     func evicted(_ hosting: CEFLayerHosting, with surface: IOSurface?) {
         hide(hosting)
-        frames.evictAll()
         fake.finishCopy(surface)
         fake.clear()
     }
@@ -138,8 +120,7 @@ import Testing
         let hosting = makeHostedPage()
         let page = try #require(hosting.page)
         hide(hosting)
-        #expect(page.contextID == 7, "within the grace the page keeps its layer host")
-        frames.evictAll()
+        #expect(page.contextID == 7, "the page keeps its layer host until the copy is back")
         #expect(hosting.hiddenSnapshot.phase == .capturing)
         #expect(fake.calls == ["visibility 3 hidden", "copy 3"], "the renderer keeps its frame until the copy is back")
         let surface = try frameCopy()
@@ -197,7 +178,6 @@ import Testing
         let hosting = makeHostedPage()
         let page = try #require(hosting.page)
         hide(hosting)
-        frames.evictAll()
         show(hosting)
         #expect(hosting.hiddenSnapshot.phase == .live)
         let late = try frameCopy()
@@ -212,7 +192,6 @@ import Testing
         let hosting = makeHostedPage()
         let page = try #require(hosting.page)
         hide(hosting)
-        frames.evictAll()
         #expect(page.contextID == 0)
         #expect(page.snapshotCover == nil)
         #expect(hosting.hiddenSnapshot.phase == .evicted)
@@ -254,7 +233,6 @@ import Testing
         show(hosting)
         commit.end()
         hide(hosting)
-        frames.evictAll()
         #expect(hosting.hiddenSnapshot.phase == .evicted)
         #expect(page.contextID == 0)
         #expect(page.snapshotCover?.snapshot === surface)
@@ -289,7 +267,6 @@ import Testing
         let hosting = makeHostedPage()
         let page = try #require(hosting.page)
         hide(hosting)
-        frames.evictAll()
         show(hosting)
         #expect(hosting.hiddenSnapshot.phase == .live, "the show dropped the copy")
         hide(hosting)
@@ -317,7 +294,6 @@ import Testing
         show(hosting)
         commit.end()
         hide(hosting)
-        frames.evictAll()
         #expect(snapshot.phase == .evicted)
         #expect(hosting.page?.contextID == 0)
         #expect(purgeableState(surface) == 0, "non-volatile while the read runs")

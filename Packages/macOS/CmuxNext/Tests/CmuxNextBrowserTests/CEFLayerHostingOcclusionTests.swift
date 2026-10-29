@@ -10,9 +10,6 @@ import Testing
 @MainActor
 @Suite struct CEFLayerHostingOcclusionTests {
     let fake = CEFSwitchCommitTests.FakeFork()
-    /// The app-wide list of kept frames (held here: a page holds it weakly). An occluded page's frame waits
-    /// in it unlocked like a hidden page's, so the next show is instant.
-    let frames = CEFSwitchCommitTests.FakeFrames()
     let turn = CEFLayerHostingTests.Turn()
     let commit = CEFLayerHostingTests.Turn()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -26,8 +23,7 @@ import Testing
         window.contentView?.addSubview(view)
     }
 
-    /// A hosted page window for browser 3 using the list, made visible by its first pass, its calls and the
-    /// list's log cleared.
+    /// A hosted page window for browser 3, made visible by its first pass, its calls cleared.
     func makeHostedPage() -> CEFLayerHosting {
         let turn = turn, commit = commit
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
@@ -35,12 +31,10 @@ import Testing
                                       resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
                                       afterCommit: { commit.add($0) })
         hosting.view = view
-        hosting.switchCommit.hiddenFrames = frames
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         turn.end()
         commit.end()
         fake.clear()
-        frames.clearLog()
         return hosting
     }
 
@@ -53,27 +47,15 @@ import Testing
         family.set(occluded: true)
         #expect(fake.calls.isEmpty, "no fork call in the flip's turn")
         commit.end()
-        #expect(fake.calls == ["visibility 3 occluded"])
-        #expect(frames.log == ["keep"], "the occluded page's frame waits in the list, unlocked")
-        #expect(hosting.switchCommit.isFrameKept)
+        #expect(fake.calls == ["visibility 3 occluded", "evict 3"], "past its grace like a hidden page: the fork lets the frame go")
+        #expect(hosting.switchCommit.isPastGrace)
         #expect(hosting.pageVisibility == .occluded)
 
         fake.clear()
         family.set(occluded: false)
         commit.end()
-        #expect(fake.calls == ["visibility 3 visible"], "the kept frame shows at once: no eviction")
-        #expect(frames.log == ["keep", "lock"])
+        #expect(fake.calls == ["visibility 3 visible"])
         #expect(!hosting.switchCommit.isFrameEvicted)
-    }
-
-    /// The list culls an occluded page's frame like a hidden one's: past its grace, the fork lets it go.
-    @Test func theListEvictsAnOccludedPagesFrame() {
-        let hosting = makeHostedPage()
-        WindowOcclusionFamily.of(window).set(occluded: true)
-        commit.end()
-        frames.evictAll()
-        #expect(fake.calls == ["visibility 3 occluded", "evict 3"])
-        #expect(hosting.switchCommit.isPastGrace)
     }
 
     /// A hidden page stays hidden whatever its window does: hidden wins over occluded.

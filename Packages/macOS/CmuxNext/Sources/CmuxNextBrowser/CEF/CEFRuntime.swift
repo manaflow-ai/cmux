@@ -102,8 +102,6 @@ final class CEFRuntime {
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost? { didSet { windowRequests.policyMayHaveChanged() } }
-    /// The app-wide list of hidden pages' kept frames (`HiddenFrameLRU`), given to each hosted page window.
-    weak var hiddenFrames: (any CEFHiddenFrames)?
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.

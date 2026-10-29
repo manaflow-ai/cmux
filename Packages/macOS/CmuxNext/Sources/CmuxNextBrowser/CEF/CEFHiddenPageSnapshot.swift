@@ -5,9 +5,8 @@ import IOSurface
 
 /// A hosted page hidden past its grace: one volatile snapshot, no layer host.
 ///
-/// The grace is the app-wide hidden frame list's (``CEFHiddenFrames``, `HiddenFrameLRU`): while it keeps a
-/// hidden page's frame, the page keeps its `CALayerHost` and a show is its kept frame. When the list drops
-/// it, the fork copies the page's last frame into a new IOSurface on its GPU thread; when the copy is back
+/// A page is past its grace as soon as the fork takes its hide (``CEFSwitchCommit``; no list keeps its frame
+/// longer). The fork copies the page's last frame into a new IOSurface on its GPU thread; when the copy is back
 /// on the main thread the app marks it volatile, the page drops its `CALayerHost`, puts the snapshot in its
 /// place and lets the renderer evict its frame. Volatile pages are outside the process's footprint: under
 /// memory pressure the system takes them without asking, and the next show finds the snapshot purged and
@@ -199,7 +198,7 @@ final class CEFHiddenPageSnapshot {
 }
 
 extension CEFLayerHosting {
-    /// The app-wide list dropped this hidden page's kept frame (``CEFSwitchCommit/pastGrace``): the fork
+    /// The fork took this page's hide (``CEFSwitchCommit/pastGrace``): the fork
     /// copies its last frame on its GPU thread, then the layer host goes and the renderer evicts.
     func hiddenPastGrace(browser: Int32, fork: Fork) {
         guard let page else { return switchCommit.evictFrame(browser: browser, fork: fork) }

@@ -25,8 +25,8 @@ package protocol HiddenWorkspaceDetachHost: AnyObject {
 /// deadline turn.
 ///
 /// Hide-only is the default (plans/cmux-next/chrome-parity/p03-rendering.md R6): the switch hides the
-/// outgoing workspace in its turn, its content is evicted as its own step (terminal frames volatile,
-/// ``HiddenFrameLRU``), and a switch back moves no view into the window. Chrome hides a background tab's
+/// outgoing workspace in its turn, its content is evicted as its own step (terminal frames volatile),
+/// and a switch back moves no view into the window. Chrome hides a background tab's
 /// view and evicts its frame (`content/browser/renderer_host/delegated_frame_host.cc` `WasHidden`,
 /// `components/viz/client/frame_eviction_manager.cc`); it never takes the view out of the window. This
 /// arm stays only if activation-perf.py STRESS shows it frees memory with switch-in p95 < 8.3 ms.

@@ -5,8 +5,8 @@ import Testing
 /// A hosted page shows and hides in the switch's own transaction. The switch's turn
 /// only shows or hides the view (the page's layer goes with it); the fork hears the page's visibility,
 /// the shown tab's activation and the input window's place once, after that commit. A hidden page's
-/// frame waits in the app-wide hidden frame list, never per pane. Without Chromium: a fake fork, and
-/// the end of the turn and the commit run when the test says.
+/// frame goes when the fork takes the hide. Without Chromium: a fake fork, and the end of the turn and
+/// the commit run when the test says.
 @MainActor
 @Suite struct CEFSwitchCommitTests {
     /// The fork side: every call in order, as `name browser`.
@@ -44,30 +44,7 @@ import Testing
         }
     }
 
-    /// The app-wide list: what each page added (locked or not) and removed, and the evictions it holds.
-    final class FakeFrames: CEFHiddenFrames {
-        private(set) var log: [String] = []
-        private var evictions: [ObjectIdentifier: @MainActor () -> Void] = [:]
-        func clearLog() { log = [] }
-        func addFrame(_ owner: ObjectIdentifier, locked: Bool, evict: @escaping @MainActor () -> Void) {
-            log.append(locked ? "lock" : "keep")
-            evictions[owner] = locked ? nil : evict
-        }
-        func removeFrame(_ owner: ObjectIdentifier) {
-            log.append("remove")
-            evictions[owner] = nil
-        }
-        /// Culls every unlocked frame (one page here, so the order does not matter).
-        func evictAll() {
-            let due = evictions
-            evictions = [:]
-            for evict in due.values { evict() }
-        }
-    }
-
     let fake = FakeFork()
-    /// The app-wide list every page here uses (held here: a page holds it weakly).
-    let frames = FakeFrames()
     let turn = CEFLayerHostingTests.Turn()
     let commit = CEFLayerHostingTests.Turn()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -82,20 +59,18 @@ import Testing
     }
 
     /// A hosted page window for browser 3, every creation step run (the first pass made it visible), its
-    /// calls and the list's log cleared.
-    func makeHostedPage(withList: Bool = true, isEnabled: @escaping () -> Bool = { true }) -> CEFLayerHosting {
+    /// calls cleared.
+    func makeHostedPage(isEnabled: @escaping () -> Bool = { true }) -> CEFLayerHosting {
         let turn = turn, commit = commit
         let hosting = CEFLayerHosting(isEnabled: isEnabled, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
                                       afterCommit: { commit.add($0) })
         hosting.view = view
-        if withList { hosting.switchCommit.hiddenFrames = frames }
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)
         turn.end()
         commit.end()
         fake.clear()
-        frames.clearLog()
         return hosting
     }
 
@@ -127,15 +102,15 @@ import Testing
         turn.end()
         #expect(fake.calls.isEmpty, "no fork call in the switch's turn")
         commit.end()
-        #expect(fake.calls == ["visibility 3 hidden"])
-        // Switch back: shown in the switch's frame (its kept frame), the fork told after the commit.
+        #expect(fake.calls == ["visibility 3 hidden", "evict 3"])
+        // Switch back: shown in the switch's frame, the fork told after the commit.
         fake.clear()
         view.isHidden = false
         hosting.visibilityMayHaveChanged()
         #expect(fake.calls.isEmpty)
         commit.end()
         #expect(fake.calls == ["visibility 3 visible"])
-        #expect(hosting.switchCommit.forkCalls == before + 2)
+        #expect(hosting.switchCommit.forkCalls == before + 3)
     }
 
     @Test func aTurnThatHidesAndShowsThePageAgainMakesNoCall() {
@@ -154,7 +129,7 @@ import Testing
         view.removeFromSuperview()
         hosting.windowDidChange()
         commit.end()
-        #expect(fake.calls == ["visibility 3 hidden"])
+        #expect(fake.calls == ["visibility 3 hidden", "evict 3"])
     }
 
     /// A tab switch in a hosted pane: the activation waits for the commit, the last show of the turn
@@ -228,64 +203,33 @@ import Testing
         fake.acceptsVisibility = true
         hosting.visibilityMayHaveChanged()
         commit.end()
-        #expect(fake.calls == ["visibility 3 hidden", "visibility 3 hidden"])
+        #expect(fake.calls == ["visibility 3 hidden", "visibility 3 hidden", "evict 3"])
         #expect(hosting.switchCommit.applied == .hidden)
     }
 
-    /// Chrome's `DelegatedFrameHost` locks its frame while shown and unlocks it when hidden; the app-wide
-    /// list evicts unlocked frames. The page keeps its frame until then, so the next show is instant.
-    @Test func aHiddenPagesFrameWaitsInTheListUntilItEvictsIt() {
+    @Test func aHiddenPagesFrameGoesAtOnceAndAShowMakesNoEviction() {
         let hosting = makeHostedPage()
         view.isHidden = true
         hosting.visibilityMayHaveChanged()
         commit.end()
-        #expect(frames.log == ["keep"])
-        #expect(hosting.switchCommit.isFrameKept)
-        #expect(fake.calls == ["visibility 3 hidden"])
-        frames.evictAll()
         #expect(fake.calls == ["visibility 3 hidden", "evict 3"])
-        #expect(!hosting.switchCommit.isFrameKept)
-        // A second eviction of the same frame makes no call.
-        frames.evictAll()
+        #expect(hosting.switchCommit.isPastGrace)
         view.isHidden = false
         hosting.visibilityMayHaveChanged()
         commit.end()
-        #expect(frames.log == ["keep", "lock"])
         #expect(fake.calls == ["visibility 3 hidden", "evict 3", "visibility 3 visible"])
+        #expect(!hosting.switchCommit.isPastGrace)
     }
 
-    @Test func aShownPagesFrameIsNeverEvicted() {
-        let hosting = makeHostedPage()
-        view.isHidden = true
-        hosting.visibilityMayHaveChanged()
-        commit.end()
-        view.isHidden = false
-        hosting.visibilityMayHaveChanged()
-        commit.end()
-        frames.evictAll()
-        #expect(!fake.calls.contains("evict 3"))
-    }
-
-    @Test func withNoListAHiddenPagesFrameGoesAtOnce() {
-        let hosting = makeHostedPage(withList: false)
-        view.isHidden = true
-        hosting.visibilityMayHaveChanged()
-        commit.end()
-        #expect(fake.calls == ["visibility 3 hidden", "evict 3"])
-    }
-
-    @Test func aPageThatStopsBeingHostedLeavesTheList() {
+    @Test func aPageThatStopsBeingHostedGoesBackToItsWindowsOrder() {
         let hosting = makeHostedPage()
         view.isHidden = true
         hosting.visibilityMayHaveChanged()
         commit.end()
         hosting.stop()
-        #expect(frames.log == ["keep", "remove"])
-        #expect(fake.calls == ["visibility 3 hidden", "hosting 3 false", "visibility 3 window"],
+        #expect(fake.calls == ["visibility 3 hidden", "evict 3", "hosting 3 false", "visibility 3 window"],
                 "the fork keeps a value across hosting off and on, so the page window's order decides again")
         #expect(hosting.switchCommit.applied == .window)
-        frames.evictAll()
-        #expect(!fake.calls.contains("evict 3"))
     }
 
     /// The fork keeps the embedder visibility across hosting off and on: a page hidden, un-hosted, hosted
@@ -306,7 +250,7 @@ import Testing
         view.isHidden = false
         hosting.pageShown(browser: 3)
         commit.end()
-        #expect(fake.calls == ["visibility 3 hidden", "hosting 3 false", "visibility 3 window",
+        #expect(fake.calls == ["visibility 3 hidden", "evict 3", "hosting 3 false", "visibility 3 window",
                                "hosting 3 true", "visibility 3 visible"])
         #expect(fake.stored[3] == .visible)
         #expect(hosting.switchCommit.applied == .visible)

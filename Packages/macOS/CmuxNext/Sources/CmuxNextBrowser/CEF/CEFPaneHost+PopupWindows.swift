@@ -94,7 +94,6 @@ extension CEFPaneHost {
         } else {
             // The attached window is this view's page window from now on: attached or hosted in the panel's
             // view as a pane's page is, where the fork does it for popup windows (`CEFLayerHosting.Widget.popupWindow`).
-            hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
             hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(runtime: runtime))
         }
         hostView.postGeometryChange()

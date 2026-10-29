@@ -386,7 +386,6 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
         // In host mode the page shows in `hostedPageView`, from the context the host gives; the
         // fork's layer hosting of a page window over `hostView` is in process only.
         hostView.layerHosting.pageWindowCreated(

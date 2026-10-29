@@ -280,7 +280,7 @@ pin and lists the commits it brings (depot_tools `roll_dep.py`).
 |---|---|
 | The switch hides a workspace root (`isHidden`) in its own turn; it does not detach it. Content is evicted as a separate step. Detach occurs only after the grace, as budgeted idle work, and only if a measurement shows that it pays. | `content/browser/renderer_host/render_widget_host_view_mac.mm` (`WasOccluded`, `Hide`): the view is hidden and the `NSView` stays attached; `content/browser/renderer_host/delegated_frame_host.cc` (`EvictDelegatedFrame`): the frame is evicted as a separate step. |
 | One `WindowOcclusionFamily` for each window. It adds the same-size window check, because the system occlusion state fails for windows of similar size. Every reader subscribes to it. | `content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.h` (crbug.com/883031). |
-| One app-wide `HiddenFrameLRU` for page frames and terminal last frames: locks for visible frames, a soft limit from physical memory, a 5 min cull, a purge on memory pressure. | `components/viz/client/frame_eviction_manager.h`. |
+| (removed 2026-10-29, principled audit DELETE p03-11) One app-wide `HiddenFrameLRU` for page frames and terminal last frames. Terminal last frames are volatile purgeable IOSurfaces under the warm-set bound instead. | `components/viz/client/frame_eviction_manager.h`. |
 | App web pages stop infinite CSS animations and `requestAnimationFrame` loops when hidden or occluded. | `content/browser/renderer_host/render_widget_host_impl.cc` (`WasHidden`) and `cc/scheduler/scheduler.cc`: a hidden renderer stops its BeginFrames and produces no frames. |
 
 ### R7 Measurement
@@ -323,7 +323,7 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
      or 27 fork, light and 10 visible pages). Not run yet; the feature's defaults stay off until these two rows hold
      the numbers.
    - Limits: a hidden page stops BeginFrames through embedder visibility (task 058) and
-     `WindowOcclusionFamily`; its frame goes into `HiddenFrameLRU` (task 099; pages use it from task 054). So the
+     `WindowOcclusionFamily`; its frame goes when the fork takes the hide (`CEFHiddenPageSnapshot`). So the
      cost grows with visible pages, not with open pages.
 3. **No blocking resize wait.** Chrome pumps the UI thread up to 500 ms in pre-commit
    (`ca_transaction_observer.h`, `kUIPaintTimeout`). cmux uses the fence port instead: the render server waits
@@ -364,7 +364,7 @@ spec section 5.
 | DC9 | Resize never blocks main | `cef-resize-sync-bench.py` |
 | DC10 | Switch with Chromium: input to commit p95 < 8.3 ms | `cef-layer-ab.py` |
 | DC11 | Each forced sync layout has `// sync-layout:` | rg, guardrails.py |
-| DC12 | Hidden workspaces hold 0 render bytes outside `HiddenFrameLRU` | `bench_memory.py` |
+| DC12 | Hidden workspaces hold 0 non-volatile render bytes | `bench_memory.py` |
 | DC13 | 0 per-frame window-server calls from cmux in motion | `RenderStats` |
 | DC14 | `action.presented_estimate` p95 error <= 1 frame | `perf-signposts.py` |
 | DC15 | Launch, split and a hosted page on macOS 14 and 15 (behavior only) | `os-matrix.sh` |

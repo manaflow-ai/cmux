@@ -144,20 +144,6 @@ extension AppServices {
                          groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
     }
 
-    /// The one list of hidden frames with `memoryHiddenFrameLRU`: every evicted terminal's last
-    /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
-    /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
-    /// background deadline, never in the turn that culled them. Nil while off.
-    func makeHiddenFrameLRU() -> HiddenFrameLRU? {
-        guard features.isEnabled(.memoryHiddenFrameLRU) else { return nil }
-        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
-        return HiddenFrameLRU(
-            softLimit: HiddenFrameLRU.softLimit(physicalMiB: budget.physicalMiB),
-            deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
-            evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
-            memory: memoryCoordinator)
-    }
-
     /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`,
     /// on one background deadline; nil while off: hidden workspaces stay in their window.
     func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
