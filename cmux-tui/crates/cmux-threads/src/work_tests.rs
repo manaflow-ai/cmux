@@ -367,6 +367,19 @@ fn idle_workers_exit_and_leave_no_thread_and_no_wakeup() {
     }
 }
 
+/// Waits until the workers of `lane` above keep_alive have exited and the
+/// kept one is settled in its wait, then returns the lane's wakeups. Settled
+/// is a level: one worker left and no worker in a timed wait (the kept one
+/// may still be in the timed wait it started above keep_alive; its timeout
+/// wakes it once more, then it waits with no timeout).
+fn settled_keep_alive_wakeups(work: &Work, lane: Lane) -> u64 {
+    until("the workers above keep_alive to exit and the kept one to settle", || {
+        let stats = lane_stats(work, lane);
+        stats.workers == 1 && stats.timed_waits == 0
+    });
+    lane_stats(work, lane).wakeups
+}
+
 #[test]
 fn the_last_waiter_above_keep_alive_waits_with_no_timeout() {
     let timeout = Duration::from_millis(30);
@@ -375,8 +388,7 @@ fn the_last_waiter_above_keep_alive_waits_with_no_timeout() {
         started_gates(&work, 3, Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown);
     assert_eq!(lane_stats(&work, Lane::Files).workers, 3);
     drop(releases);
-    until("the workers above keep_alive to exit", || lane_stats(&work, Lane::Files).workers == 1);
-    let wakeups = lane_stats(&work, Lane::Files).wakeups;
+    let wakeups = settled_keep_alive_wakeups(&work, Lane::Files);
     std::thread::sleep(timeout * 5);
     let stats = lane_stats(&work, Lane::Files);
     assert_eq!((stats.workers, stats.idle_workers, stats.wakeups), (1, 1, wakeups));
@@ -386,6 +398,35 @@ fn the_last_waiter_above_keep_alive_waits_with_no_timeout() {
         Ok(1)
     );
     assert_eq!(lane_stats(&work, Lane::Files).workers, 1);
+}
+
+// The race behind trains 331 and 332 (3 wakeups for 2): the kept worker is
+// the one whose idle wait started last. When the other two have exited, it is
+// still in its timed wait; its timeout wakes it once more before it waits with
+// no timeout. Here that worker goes idle half an idle timeout after the
+// others, so the race the trains hit by chance happens every run: a test that
+// reads the wakeups as soon as one worker is left reads them too early.
+#[test]
+fn the_last_waiter_above_keep_alive_a_late_idle_worker_settles_before_the_count() {
+    let timeout = Duration::from_millis(600);
+    let work = work("t-keep-late", 1, timeout, 1);
+    let mut releases =
+        started_gates(&work, 3, Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown);
+    let late = releases.pop().unwrap();
+    drop(releases);
+    until("two workers idle", || lane_stats(&work, Lane::Files).idle_workers == 2);
+    // Setup only (not a correctness wait): the third worker starts its idle
+    // wait well inside the others' timeout, so it outlives them.
+    std::thread::sleep(timeout / 2);
+    drop(late);
+    let wakeups = settled_keep_alive_wakeups(&work, Lane::Files);
+    std::thread::sleep(timeout * 2);
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(
+        (stats.workers, stats.idle_workers, stats.wakeups),
+        (1, 1, wakeups),
+        "the kept worker woke after the count was read"
+    );
 }
 
 #[test]
