@@ -73,7 +73,10 @@ pub(super) struct Part {
 }
 
 /// The sender of a prompt that is another agent's message, `None` for the person's. `declared`:
-/// `_meta.acpmux.fromAgent`, or the name of the session a connection proved it runs in.
+/// `_meta.acpmux.fromAgent`, or the name of the session a connection proved it runs in. With
+/// none, its provenance says: a message another session sent (`session_message`, also when a
+/// paused agent pair releases it, `agent_pairs.rs`) or a lane's task result card (`tasks.rs`) is
+/// that session's, by its name.
 pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -> Option<String> {
     if let Some(name) = declared {
         return Some(name.to_owned());
@@ -82,7 +85,13 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
     let kind = p.get("kind").and_then(Value::as_str);
     if !matches!(
         kind,
-        Some("agent_message" | super::subsessions::PROVENANCE_KIND | super::lane_reports::KIND)
+        Some(
+            "agent_message"
+                | "session_message"
+                | "task_result"
+                | super::subsessions::PROVENANCE_KIND
+                | super::lane_reports::KIND
+        )
     ) {
         return None;
     }
