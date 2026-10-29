@@ -119,10 +119,9 @@ impl SubagentTree {
                     }
                 }
                 Some("usage_update") => {
-                    preview.tokens = update
-                        .get("totalTokens")
-                        .and_then(Value::as_u64)
-                        .or_else(|| update.get("used").and_then(Value::as_u64));
+                    // Claude's `used` is context-window occupancy, not token usage.
+                    // Only `totalTokens` is a cumulative token total suitable for display.
+                    preview.tokens = update.get("totalTokens").and_then(Value::as_u64);
                 }
                 Some("agent_thought_chunk" | "config_option_update" | "session_info_update") => {}
                 _ => preview.streaming = false,
