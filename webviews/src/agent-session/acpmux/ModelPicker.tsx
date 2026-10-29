@@ -183,6 +183,8 @@ function searchModels(
   );
 }
 
+// Catalog models can be backed by a lazy native catalog getter. The closed chip needs only
+// harness metadata; materialize a group's models when a menu actually asks for them.
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
   const profiles: HarnessChoice[] = catalog
     .filter((entry) => entry.folder)
@@ -190,7 +192,9 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
-      models: entry.models,
+      get models() {
+        return entry.models;
+      },
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
       pickable: entry.pickable !== false,
@@ -198,45 +202,42 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       mark: knownMark(entry.icon, entry.family, entry.id),
     }));
   // Terminal and unknown harnesses are routing entries, not installed choices.
-  const entries: HarnessChoice[] = catalog
-    .filter((entry) => !entry.folder && entry.pickable !== false)
-    .map((entry) => ({
-      id: entry.id,
-      ids: [entry.id],
-      name: entry.name,
-      models: entry.models,
-      unavailable: entry.unavailable,
-      acpmuxHarness: entry.id,
-      pickable: entry.pickable !== false,
-      ...(entry.top ? { top: entry.top } : {}),
-    }));
   const result: HarnessChoice[] = [];
-  const byName = new Map<string, HarnessChoice>();
-  for (const entry of entries) {
+  const byName = new Map<string, { choice: HarnessChoice; sources: ModelPickerProps["catalog"] }>();
+  for (const entry of catalog) {
+    if (entry.folder || entry.pickable === false) continue;
     const name = agentName(entry.id, entry.name);
     const existing = byName.get(name);
     if (!existing) {
-      const next = {
+      const sources = [entry];
+      let models: HarnessChoice["models"] | undefined;
+      const next: HarnessChoice = {
         id: entry.id,
         ids: [entry.id],
         name,
-        models: [...entry.models],
+        get models() {
+          if (!models) {
+            models = [...sources[0]!.models];
+            for (const source of sources.slice(1)) {
+              const known = new Set(models.map((model) => model.id));
+              for (const model of source.models) if (!known.has(model.id)) models.push(model);
+            }
+          }
+          return models;
+        },
         unavailable: entry.unavailable,
-        acpmuxHarness: entry.acpmuxHarness,
-        pickable: entry.pickable,
+        acpmuxHarness: entry.id,
+        pickable: true,
         ...(entry.top ? { top: entry.top } : {}),
       };
       result.push(next);
-      byName.set(name, next);
+      byName.set(name, { choice: next, sources });
       continue;
     }
-    existing.ids.push(entry.id);
-    if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
-    existing.pickable ||= entry.pickable;
-    const known = new Set(existing.models.map((model) => model.id));
-    for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
-    existing.unavailable ??= entry.unavailable;
-    existing.top ??= entry.top;
+    existing.sources.push(entry);
+    existing.choice.ids.push(entry.id);
+    existing.choice.unavailable ??= entry.unavailable;
+    existing.choice.top ??= entry.top;
   }
   return [...result, ...profiles];
 }
@@ -494,13 +495,17 @@ export function ModelPicker(props: ModelPickerProps) {
     ? undefined
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
   // A typed query searches every harness; without one, the rail's tab picks the list.
-  const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
+  const vocabulary = useMemo(
+    () => (open || quickOpen ? effortWords(harnesses.flatMap((entry) => entry.models)) : new Set<string>()),
+    [harnesses, open, quickOpen],
+  );
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
+    if (!open) return owner;
     if (searching) {
       const searchable = harnesses.filter(
         (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
@@ -516,7 +521,7 @@ export function ModelPicker(props: ModelPickerProps) {
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [open, favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
@@ -524,7 +529,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const addRowId = `${menuId}-add-harness`;
   const onAddRow = active === addRow && (visible.length > 0 || addChosen);
   const olderCount =
-    searching || starredView || (selected && loginFor(selected) !== undefined)
+    !open || searching || starredView || (selected && loginFor(selected) !== undefined)
       ? 0
       : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
@@ -817,7 +822,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    if (!quickOpen || !quick || (harnessFixed && !fork) || current?.folder) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     const startable = (fork ? allHarnesses : harnesses).filter(
@@ -865,6 +870,7 @@ export function ModelPicker(props: ModelPickerProps) {
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
+    quickOpen,
     quick,
     harnessFixed,
     fork,
@@ -1149,7 +1155,7 @@ export function ModelPicker(props: ModelPickerProps) {
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
-                current && loginFor(current) === undefined
+                quickOpen && current && loginFor(current) === undefined
                   ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
                       quickRow("", model),
                     )
