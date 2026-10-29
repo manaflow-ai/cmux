@@ -37,7 +37,9 @@ function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }) {
 }
 
 function timeout(ms: number): Error {
-  const error = new Error(`page.goto: Timeout ${ms}ms exceeded.\nCall log:\n  - navigating to "http://127.0.0.1:1/gallery/frame.html"`);
+  const error = new Error(
+    `page.goto: Timeout ${ms}ms exceeded.\nCall log:\n  - navigating to "http://127.0.0.1:1/gallery/frame.html"`,
+  );
   error.name = "TimeoutError";
   return error;
 }
@@ -46,7 +48,11 @@ const STALE_IMPORT =
   "agent-pane.chat-width#default failed to mount:\nTypeError: Failed to fetch dynamically imported module: http://127.0.0.1:35565/gallery/src/agent-session/acpmux/main.tsx";
 
 test("a stale optimized import and a goto that never commits each load again on a fresh page", async () => {
-  const { browser, pages } = fakeBrowser([{ ready: "error", text: STALE_IMPORT }, { goto: timeout(30_000) }, { ready: "1" }]);
+  const { browser, pages } = fakeBrowser([
+    { ready: "error", text: STALE_IMPORT },
+    { goto: timeout(30_000) },
+    { ready: "1" },
+  ]);
   await warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser });
   expect(pages.length).toBe(3);
   expect(pages.every((page) => page.closed)).toBe(true);
@@ -54,7 +60,9 @@ test("a stale optimized import and a goto that never commits each load again on 
 });
 
 test("a stage that fails to mount for its own reason fails the warm-up at once", async () => {
-  const { browser, pages } = fakeBrowser([{ ready: "error", text: "agent-pane.chat-width failed to mount:\nTypeError: x is undefined" }]);
+  const { browser, pages } = fakeBrowser([
+    { ready: "error", text: "agent-pane.chat-width failed to mount:\nTypeError: x is undefined" },
+  ]);
   await expect(warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser })).rejects.toThrow(
     "TypeError: x is undefined",
   );
@@ -63,7 +71,9 @@ test("a stage that fails to mount for its own reason fails the warm-up at once",
 });
 
 test("a refused connection is no reload and fails the warm-up at once", async () => {
-  const { browser, pages } = fakeBrowser([{ goto: new Error("page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:1/") }]);
+  const { browser, pages } = fakeBrowser([
+    { goto: new Error("page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:1/") },
+  ]);
   await expect(warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser })).rejects.toThrow(
     "ERR_CONNECTION_REFUSED",
   );
@@ -84,5 +94,7 @@ test("optimizerRace and stalled name only the optimizer's own failures", () => {
   expect(optimizerRace(null)).toBe(false);
   expect(stalled(timeout(84_902))).toBe(true);
   expect(stalled(new Error("TimeoutError: goto: Timeout 84902ms exceeded."))).toBe(false); // name is Error
-  expect(stalled(Object.assign(new Error("waitForFunction: Timeout 30000ms exceeded."), { name: "TimeoutError" }))).toBe(false);
+  expect(
+    stalled(Object.assign(new Error("waitForFunction: Timeout 30000ms exceeded."), { name: "TimeoutError" })),
+  ).toBe(false);
 });
