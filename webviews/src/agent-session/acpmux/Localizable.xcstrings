@@ -21354,6 +21354,138 @@
         }
       }
     },
+    "dictation.recordingElsewhere": {
+      "comment": "Agent pane: notice when a dictation recording too long to go inline stays on this Mac because the chat runs on another computer; the prompt gets the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الدردشة على كمبيوتر آخر، لذا يبقى التسجيل الصوتي الطويل على هذا الـ Mac وتتضمن المطالبة النص المكتوب فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj razgovor radi na drugom računaru, pa dugi glasovni snimak ostaje na ovom Macu, a upit dobija samo transkript."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat kører på en anden computer, så den lange lydoptagelse bliver på denne Mac, og prompten får kun transskriptionen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat läuft auf einem anderen Computer, daher bleibt die lange Sprachaufnahme auf diesem Mac und der Prompt erhält nur das Transkript."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat runs on another computer, so the long voice recording stays on this Mac and the prompt gets the transcript only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat se ejecuta en otro ordenador, así que la grabación de voz larga se queda en este Mac y el prompt solo recibe la transcripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation s’exécute sur un autre ordinateur : le long enregistrement vocal reste sur ce Mac et l’invite ne reçoit que la transcription."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è in esecuzione su un altro computer, quindi la lunga registrazione vocale resta su questo Mac e il prompt riceve solo la trascrizione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットは別のコンピュータで実行されているため、長い音声録音はこの Mac に残り、プロンプトには文字起こしのみが含まれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះដំណើរការលើកុំព្យូទ័រផ្សេង ដូច្នេះការថតសំឡេងវែងនៅលើ Mac នេះ ហើយប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រតិចារិកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 다른 컴퓨터에서 실행되므로 긴 음성 녹음은 이 Mac에 남고 프롬프트에는 녹취록만 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten kjører på en annen datamaskin, så det lange lydopptaket blir på denne Macen, og ledeteksten får bare transkripsjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat działa na innym komputerze, więc długie nagranie głosowe zostaje na tym Macu, a prompt otrzymuje tylko transkrypcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat é executado em outro computador, então a gravação de voz longa fica neste Mac e o prompt recebe apenas a transcrição."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат работает на другом компьютере, поэтому длинная голосовая запись остаётся на этом Mac, а в запрос попадает только расшифровка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ทำงานบนคอมพิวเตอร์เครื่องอื่น การบันทึกเสียงที่ยาวจึงอยู่บน Mac เครื่องนี้ และพรอมต์จะได้รับเฉพาะข้อความถอดเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet başka bir bilgisayarda çalışıyor; bu yüzden uzun ses kaydı bu Mac’te kalır ve istem yalnızca dökümü alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат працює на іншому комп’ютері, тому довгий голосовий запис залишається на цьому Mac, а запит отримує лише розшифровку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này chạy trên máy tính khác, nên bản ghi âm dài vẫn ở trên máy Mac này và lời nhắc chỉ nhận bản chép lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台电脑上运行，因此较长的语音录音保留在这台 Mac 上，提示只包含转写文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在另一台電腦上執行，因此較長的語音錄音保留在這台 Mac 上，提示只包含逐字稿。"
+          }
+        }
+      }
+    },
     "dictation.recordingNarrowband": {
       "comment": "Agent pane: notice when a dictation session's audio is left out because the microphone records below 16 kHz",
       "extractionState": "manual",
@@ -21482,6 +21614,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此麥克風的錄音低於 16 kHz，因此提示只包含轉寫文字。"
+          }
+        }
+      }
+    },
+    "dictation.recordingOtherChat": {
+      "comment": "Agent pane: notice when a dictation recording finished after the pane moved to another chat; it is not attached to the chat now shown",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إنشاء هذا التسجيل الصوتي في دردشة أخرى، لذا لم يُرفق هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj glasovni snimak napravljen je u drugom razgovoru, pa nije priložen ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne stemmeoptagelse blev lavet i en anden chat, så den blev ikke vedhæftet her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Sprachaufnahme wurde in einem anderen Chat gemacht und wurde daher hier nicht angehängt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This voice recording was made in another chat, so it wasn't attached here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta grabación de voz se hizo en otro chat, así que no se adjuntó aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet enregistrement vocal a été fait dans une autre discussion : il n’a pas été joint ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa registrazione vocale è stata fatta in un'altra chat, quindi non è stata allegata qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この音声録音は別のチャットで作成されたため、ここには添付されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការថតសំឡេងនេះត្រូវបានធ្វើនៅក្នុងការជជែកផ្សេង ដូច្នេះវាមិនត្រូវបានភ្ជាប់នៅទីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 음성 녹음은 다른 채팅에서 만들어져 여기에 첨부되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette taleopptaket ble laget i en annen chat, så det ble ikke lagt ved her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To nagranie głosowe powstało w innym czacie, więc nie zostało tu załączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta gravação de voz foi feita em outro chat, então não foi anexada aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта голосовая запись сделана в другом чате, поэтому она не прикреплена здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่อัดไว้นี้ถูกสร้างในแชตอื่น จึงไม่ได้แนบไว้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ses kaydı başka bir sohbette yapıldı, bu yüzden buraya eklenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей голосовий запис зроблено в іншому чаті, тому його не прикріплено тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản ghi âm này được tạo trong một cuộc trò chuyện khác, nên không được đính kèm ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此语音录音是在另一个聊天中录制的，因此未附加到这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此語音錄音是在另一個聊天中錄製的，因此未附加到這裡。"
+          }
+        }
+      }
+    },
+    "dictation.recordingNotSaved": {
+      "comment": "Agent pane: notice when a dictation session's audio is lost because this Mac could not save the recording (a full disk, a folder it cannot write); the prompt gets the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر حفظ التسجيل الصوتي على هذا الـ Mac، لذا تتضمن المطالبة النص المكتوب فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovni snimak nije mogao biti sačuvan na ovom Macu, pa upit dobija samo transkript."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmeoptagelsen kunne ikke gemmes på denne Mac, så prompten får kun transskriptionen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Sprachaufnahme konnte auf diesem Mac nicht gespeichert werden, daher enthält der Prompt nur das Transkript."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The voice recording couldn't be saved on this Mac, so the prompt gets the transcript only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo guardar la grabación de voz en este Mac, así que el prompt solo lleva la transcripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistrement vocal n’a pas pu être enregistré sur ce Mac : le prompt ne contient que la transcription."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato possibile salvare la registrazione vocale su questo Mac, quindi il prompt riceve solo la trascrizione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音声録音をこの Mac に保存できなかったため、プロンプトには文字起こしのみが入ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរក្សាទុកការថតសំឡេងនៅលើ Mac នេះបានទេ ដូច្នេះប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រែសម្រួលប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 녹음을 이 Mac에 저장할 수 없어 프롬프트에는 받아쓴 텍스트만 들어갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taleopptaket kunne ikke lagres på denne Macen, så ledeteksten får bare transkripsjonen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się zapisać nagrania głosowego na tym Macu, więc prompt otrzyma tylko transkrypcję."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível salvar a gravação de voz neste Mac, então o prompt recebe só a transcrição."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось сохранить голосовую запись на этом Mac, поэтому в запрос попадёт только расшифровка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถบันทึกเสียงที่อัดไว้ลงใน Mac เครื่องนี้ได้ พรอมต์จึงได้เฉพาะข้อความถอดเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses kaydı bu Mac'e kaydedilemedi, bu yüzden isteme yalnızca döküm gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зберегти голосовий запис на цьому Mac, тому запит отримає лише розшифровку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể lưu bản ghi âm trên máy Mac này, nên lời nhắc chỉ nhận bản chép lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在这台 Mac 上保存语音录音，因此提示只包含转写文字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在這台 Mac 上儲存語音錄音，因此提示只包含轉寫文字。"
           }
         }
       }
