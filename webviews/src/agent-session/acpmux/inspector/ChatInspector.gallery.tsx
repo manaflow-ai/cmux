@@ -281,8 +281,7 @@ const summary = {
   ],
 };
 
-// Icon-bearing section heads belong to the Environment rows' text column. The ordinary
-// section titles intentionally start at the icon column instead.
+// Every section title shares the Environment rows' text column, with or without an icon.
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
   const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
@@ -293,10 +292,9 @@ const checkTopBlockAlignment: Play = async (ctx) => {
     if (Math.abs(title.left - labelLeft) > 0.5)
       throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
   }
-  const iconLeft = rect('[data-section="environment"] .acpmux-chat-inspector-row > svg').left;
   const heading = rect('[data-section="changes"] .acpmux-chat-inspector-section__title');
-  if (Math.abs(heading.left - iconLeft) > 0.5)
-    throw new Error("The heading-only Changes section moved from the icon column");
+  if (Math.abs(heading.left - labelLeft) > 0.5)
+    throw new Error("The Changes heading moved from the shared text column");
 };
 
 const full: Props = {

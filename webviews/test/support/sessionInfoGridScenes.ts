@@ -25,8 +25,10 @@ const text = (name: string, selector: string, nested = false) =>
   );
 const trail = (name: string, selector: string): GridLine => ({
   name: `${name}: trail cx`,
-  actual: point(":scope", "right"),
-  origin: point(selector, "cx"),
+  actual: point(selector, "cx"),
+  origin: point(":scope", "right"),
+  inward: true,
+  all: true,
   expected: token("sidebar-trail-center"),
 });
 const p = ".acpmux-chat-inspector";
@@ -51,6 +53,8 @@ export const sessionInfoGridScenes: GridScene[] = [
     trail("section headings", `${p}-section__fold`),
     lead("context rows", `${p}-context__swatch`),
     text("context rows", `${section("context")} ${p}-row__name`),
+    lead("subagents", ".acpmux-lineage__icon"),
+    text("subagents", ".acpmux-summary-agent__name"),
     lead("PR rows", `${p}-pr__icon`),
     text("PR rows", `${p}-pr__title`),
     trail("PR rows", `${p}-pr__more`),

@@ -96,6 +96,16 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
               () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
             );
             lines = await page.evaluate(measureGridLines, scene);
+            if (process.env.CMUX_GRID_CAPTURE_DIR && scene.surface === "session-info") {
+              const directory = path.resolve(process.env.CMUX_GRID_CAPTURE_DIR);
+              await mkdir(directory, { recursive: true });
+              // Capture the real gallery DOM, expanded and tall enough to show every section.
+              await page.setViewportSize({ width, height: 2400 });
+              await page.screenshot({
+                path: path.join(directory, `${scene.variant}-${scheme}-${width}.png`),
+                fullPage: true,
+              });
+            }
           } catch (error) {
             fixtureErrors.push({ surface: scene.surface, width, scheme, error: String(error) });
             throw error;
