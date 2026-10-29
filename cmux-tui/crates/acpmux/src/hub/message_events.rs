@@ -228,7 +228,10 @@ fn append_or_repair(
     message: &MessageContext,
     target_scope: Option<&str>,
 ) {
-    let Some(session) = resolve_exact(hub, session_id) else { return };
+    let Some(session) = resolve_exact(hub, session_id) else {
+        append_once_loaded(hub, session_id, message, target_scope);
+        return;
+    };
     if !hub.append_message_event_scoped(
         &session,
         message.sender.clone(),
@@ -239,6 +242,29 @@ fn append_or_repair(
     ) {
         schedule_projection_repair(hub, session_id, message, target_scope);
     }
+}
+
+/// A session not installed yet while the saved sessions still load (a lazy `session/load` of
+/// the receiver recovers its messages before the load reaches their sender): its copy is
+/// appended once it is read on demand, or once the load ends. A session still unknown then is
+/// gone, and keeps no copy.
+fn append_once_loaded(
+    hub: &Arc<Hub>,
+    session_id: &str,
+    message: &MessageContext,
+    target_scope: Option<&str>,
+) {
+    if hub.store_loaded() || tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    let (hub, id, message) = (hub.clone(), session_id.to_owned(), message.clone());
+    let target_scope = target_scope.map(str::to_owned);
+    tokio::spawn(async move {
+        hub.session_meta(&id).await;
+        if resolve_exact(&hub, &id).is_some() {
+            append_or_repair(&hub, &id, &message, target_scope.as_deref());
+        }
+    });
 }
 
 fn schedule_projection_repair(
@@ -681,5 +707,67 @@ mod message_recovery_tests {
             .expect("stored copy")
             .seq;
         assert_eq!(heard, vec![stored], "only the stored copy is published");
+    }
+
+    /// A lazy load of the receiver recovers its message before the store's load installs the
+    /// sender: the sender's copy is appended once the sender is read, not dropped.
+    #[tokio::test]
+    async fn recovery_before_the_sender_loads_still_records_its_copy() {
+        let dir =
+            std::env::temp_dir().join(format!("message-late-sender-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "approve-all"
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Local;
+        let original = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
+        let sender = original
+            .new_session(NewRequest {
+                name: Some("sender".into()),
+                cwd: Some(std::env::temp_dir()),
+                policy: Some(PermissionPolicy::ApproveAll),
+                ..NewRequest::default()
+            })
+            .await
+            .expect("sender");
+        let sender_id = sender.id.clone();
+        original.detach_child(&sender).await;
+        original.store.flush().unwrap();
+        // The restarted daemon has not read its saved sessions yet.
+        let restarted = Hub::new_loading(
+            config.clone(),
+            crate::store::open(&config.store, &dir).unwrap(),
+            crate::mailbox::Mailbox::open(dir.join("mailbox")).unwrap(),
+        );
+        assert!(resolve_exact(&restarted, &sender_id).is_none());
+        let message = MessageContext {
+            sender: json!({"name": "sender", "sessionId": sender_id, "host": "local"}),
+            sender_session: sender_id.clone(),
+            text: "late".into(),
+            message_id: "late-delivery-1".into(),
+            at: 1234,
+            record_sender_copy: true,
+        };
+        let mut events = restarted.subscribe();
+        append_or_repair(&restarted, &sender_id, &message, Some("receiver-1"));
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let event = events.recv().await.expect("hub event");
+                if event.session_id == sender_id
+                    && event.record.kind == "_acpmux/message"
+                    && event.record.msg["messageId"] == "late-delivery-1"
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("the sender's copy is appended once it loads");
+        assert_eq!(message_count(&restarted, &sender_id), 1);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
