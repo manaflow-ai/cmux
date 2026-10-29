@@ -8957,25 +8957,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بدء محادثة من سجل JSON أو نصي"
+            "value": "ابدأ محادثة جديدة يكون هذا النص هو طلبها الأول"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokreni razgovor iz JSON ili tekstualnog transkripta"
+            "value": "Započnite novi razgovor s ovim transkriptom kao prvim upitom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start en chat fra en JSON- eller tekstudskrift"
+            "value": "Start en ny samtale med denne transskription som den første prompt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat aus einem JSON- oder Text-Transkript starten"
+            "value": "Starte einen neuen Chat mit diesem Transkript als erster Eingabe"
           }
         },
         "en": {
@@ -8987,97 +8987,97 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar un chat a partir de una transcripción JSON o de texto"
+            "value": "Inicia un chat nuevo con esta transcripción como primer mensaje"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Démarrer un chat à partir d’une transcription JSON ou texte"
+            "value": "Démarrer une nouvelle conversation avec cette transcription comme premier message"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avvia una chat da una trascrizione JSON o di testo"
+            "value": "Avvia una nuova chat con questa trascrizione come primo messaggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "JSON またはテキストのトランスクリプトからチャットを開始"
+            "value": "この会話記録を最初のプロンプトとして新しいチャットを開始"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាប់ផ្ដើមការជជែកពីប្រតិចារឹក JSON ឬអត្ថបទ"
+            "value": "ចាប់ផ្តើមការជជែកថ្មីដោយប្រើប្រតិចារឹកនេះជាសំណើដំបូង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "JSON 또는 텍스트 기록에서 채팅 시작"
+            "value": "이 대화 기록을 첫 프롬프트로 사용하여 새 채팅 시작"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start en chat fra en JSON- eller tekstutskrift"
+            "value": "Start en ny samtale med denne transkripsjonen som første ledetekst"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rozpocznij czat z transkrypcji JSON lub tekstowej"
+            "value": "Rozpocznij nowy czat z tym zapisem jako pierwszym poleceniem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar um chat a partir de uma transcrição JSON ou de texto"
+            "value": "Iniciar um novo chat com esta transcrição como primeiro prompt"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Начать чат из расшифровки JSON или текста"
+            "value": "Начать новый чат с этой записью разговора в качестве первого запроса"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่มแชตจากบันทึกการสนทนาแบบ JSON หรือข้อความ"
+            "value": "เริ่มแชตใหม่โดยใช้บันทึกนี้เป็นพรอมต์แรก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "JSON veya metin dökümünden sohbet başlat"
+            "value": "Bu dökümü ilk istem olarak kullanarak yeni bir sohbet başlat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Почати чат із розшифровки JSON або тексту"
+            "value": "Почати новий чат із цим записом розмови як першим запитом"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bắt đầu cuộc trò chuyện từ bản ghi JSON hoặc văn bản"
+            "value": "Bắt đầu cuộc trò chuyện mới với bản ghi này làm lời nhắc đầu tiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 JSON 或文本记录开始聊天"
+            "value": "以此对话记录作为第一个提示，开始新聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從 JSON 或文字記錄開始聊天"
+            "value": "以此對話記錄作為第一個提示，開始新聊天"
           }
         }
       }

@@ -983,10 +983,6 @@ export function Composer({
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
-    if (!prompt && attachments.length === 0) {
-      plusDraft.current = undefined;
-      return false;
-    }
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     if (command?.kind === "cliOnly") {
       setAttachError(t(command.key, { command: command.name }));
@@ -1053,6 +1049,10 @@ export function Composer({
     }
     // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    if (!prompt && attachments.length === 0) {
+      plusDraft.current = undefined;
+      return false;
+    }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();

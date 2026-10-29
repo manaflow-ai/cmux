@@ -33,6 +33,8 @@ const keys = [
   "localStorage",
   "KeyboardEvent",
   "InputEvent",
+  "createImageBitmap",
+  "OffscreenCanvas",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -65,6 +67,22 @@ beforeAll(() => {
     localStorage: window.localStorage,
     KeyboardEvent: window.KeyboardEvent,
     InputEvent: window.InputEvent,
+    createImageBitmap: async (source: Blob) => {
+      await source.arrayBuffer();
+      return { width: 640, height: 480, close() {} };
+    },
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([PNG], { type });
+      }
+    },
   });
   host = window.document.getElementById("root")!;
 });
@@ -88,6 +106,34 @@ function Chips() {
 }
 
 type Sent = { text: string; steer?: boolean };
+
+const PNG = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0,
+  0,
+  0,
+  0x0d,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0,
+  0,
+  2,
+  0x80,
+  0,
+  0,
+  1,
+  0xe0,
+  ...Array(504).fill(7),
+]);
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
 async function composer(
@@ -300,6 +346,31 @@ test("active-chat /import opens synchronously despite a pending file and consume
   });
   await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
   expect(page.sentAttachments).toEqual([[]]);
+});
+
+test("an attachment-only Return waits for a pending image and sends it when ready", async () => {
+  const page = await composer(chat(), "");
+  const file = new File([PNG], "pending.png", { type: "image/png" });
+  const bytes = await file.arrayBuffer();
+  let resolve!: (bytes: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", {
+    value: () =>
+      new Promise<ArrayBuffer>((done) => {
+        resolve = done;
+      }),
+  });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  expect(page.field.textContent).toBe("");
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toEqual([]);
+  await act(async () => resolve(bytes));
+  expect(page.sent).toEqual([{ text: "", steer: false }]);
+  expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
 
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {

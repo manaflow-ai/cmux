@@ -2033,7 +2033,7 @@ export default agentPaneEntry({
       },
     },
     "slash-menu-cmux-descriptions": {
-      note: "Play: type /; cmux-owned rows describe their actual actions: import starts a chat from a transcript and fork opens a new chat.",
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
@@ -2043,8 +2043,11 @@ export default agentPaneEntry({
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
         await ctx.waitFor(() => !!row("import") && !!row("fork"));
-        if (!row("import")?.querySelector(".acpmux-slash-description")?.textContent?.includes("Start a chat"))
-          throw new Error("/import description does not describe starting a chat");
+        if (
+          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
+          "Start a new chat with this transcript as its first prompt"
+        )
+          throw new Error("/import description does not explain the transcript's first prompt");
         if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
           throw new Error("/fork description does not describe its new chat");
       },
