@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -57,11 +57,11 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
     let private = match std::fs::symlink_metadata(&path) {
         Ok(_) => read_key(&path)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let mut bytes = [0u8; 32];
-            getrandom::fill(&mut bytes).map_err(|error| anyhow!("generate node key: {error}"))?;
-            // `write_atomic` creates the file 0600 and avoids exposing a
-            // partially written key if the process stops during creation.
-            crate::config::write_atomic(&path, &bytes)
+            let mut bytes = Zeroizing::new([0u8; 32]);
+            getrandom::fill(&mut *bytes).map_err(|error| anyhow!("generate node key: {error}"))?;
+            // A fully synced temporary file is hard-linked into place. Unlike
+            // rename, hard-link refuses to replace a key another process won.
+            create_key_if_absent(&path, &bytes)
                 .with_context(|| format!("write node key in {}", state_dir.display()))?;
             read_key(&path)?
         }
@@ -74,14 +74,38 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
 
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let mut file = crate::config::private_state_file(path)?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).with_context(|| format!("read node key in {}", path.display()))?;
-    if bytes.len() != 32 {
+    let mut key = Zeroizing::new([0u8; 32]);
+    file.read_exact(&mut *key).with_context(|| format!("read node key in {}", path.display()))?;
+    let mut trailing = [0u8; 1];
+    if file.read(&mut trailing)? != 0 {
         return Err(anyhow!("node key has invalid length"));
     }
-    let mut key = Zeroizing::new([0u8; 32]);
-    key.copy_from_slice(&bytes);
     Ok(key)
+}
+
+fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new();
+        file.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            file.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = file.open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        match std::fs::hard_link(&temporary, path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(error) => Err(error),
+        }
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
 }
 
 #[cfg(test)]
@@ -122,5 +146,18 @@ mod tests {
         let error = load_or_create_at(dir.path()).unwrap_err().to_string();
         assert_eq!(error, "node key has invalid length");
         assert!(!error.contains("too short"));
+    }
+
+    #[test]
+    fn concurrent_first_use_keeps_one_public_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = std::iter::repeat_with(|| dir.path().to_owned()).take(8);
+        let keys = std::thread::scope(|scope| {
+            paths
+                .map(|path| scope.spawn(move || load_or_create_at(&path).unwrap().public_key))
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
     }
 }
