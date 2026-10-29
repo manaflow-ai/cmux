@@ -341,6 +341,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         hibernated_ms: 0,
         claude_profile: None,
         last_turn: None,
+        harness_failures: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
         session_env: Default::default(),
@@ -364,5 +365,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subsession_limits: Default::default(),
         lineage: None,
         subagent_retry_open: false,
+        turn_cap_ms: None,
+        turn_cap_noticed: None,
     }
 }
