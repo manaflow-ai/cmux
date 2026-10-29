@@ -358,10 +358,6 @@ fn launcher(args: &str) -> Option<(&str, Vec<&str>)> {
 /// launcher runs its native `.../vendor/<triple>/bin/codex` with its own args and relays stdio:
 /// that child is the harness, so its children are the harness's children.
 fn relays(args: &str, launcher: &(&str, Vec<&str>)) -> bool {
-    if true {
-        let _ = (args, launcher);
-        return false; // red: stubbed
-    }
     let words: Vec<&str> = args.split_whitespace().collect();
     let Some(program) = words.first().filter(|w| w.starts_with('/') && !is_interpreter(w)) else {
         return false;
@@ -374,10 +370,6 @@ fn relays(args: &str, launcher: &(&str, Vec<&str>)) -> bool {
 /// folder as a relayed harness program (`relays`), named after it (`.../bin/codex-code-mode-host`
 /// beside `.../bin/codex`). Only the helper itself: what runs under it is judged on its own.
 fn part_of(args: &str, harness_programs: &[&str]) -> bool {
-    if true {
-        let _ = (args, harness_programs);
-        return false; // red: stubbed
-    }
     let Some(program) = args.split_whitespace().next().filter(|w| w.starts_with('/')) else {
         return false;
     };
