@@ -263,6 +263,50 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(21...105))
     }
 
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterLocalPreviewLoads(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let url = try #require(URL(string: "https://example.com/article"))
+        var original = backend.makeMessage(seq: 25, sender: "lc")
+        original.text = url.absoluteString
+        original.linkPreview = ConversationLinkPreview(url: url, state: .tapToLoad)
+        backend.setHistoryMessage(original)
+        backend.linkPreviews[url] = ConversationLinkPreview(url: url, title: "Loaded locally")
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        var changed = original
+        changed.text = unsent ? "" : "Updated article \(url.absoluteString)"
+        if unsent {
+            changed.unsentAt = Date(timeIntervalSince1970: 2000)
+            changed.linkPreview = nil
+        }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // Local presentation enrichment is not a newer server revision.
+        // It must not suppress the edit/unsend in the held history reply.
+        store.loadLinkPreview(messageID: "m25")
+        try await waitUntil { store.message(id: "m25")?.linkPreview?.state == .loaded }
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        if !unsent {
+            // The unchanged URL keeps the enriched card while server text wins.
+            #expect(result.linkPreview?.title == "Loaded locally")
+            #expect(result.linkPreview?.state == .loaded)
+        }
+    }
+
     @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30)
