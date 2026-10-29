@@ -291,7 +291,10 @@ impl Hub {
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
-            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
+            // Boxed: the steer's future stays out of this one, which every prompt's caller holds
+            // on its stack (a debug build's test thread has little room).
+            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                .await;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
