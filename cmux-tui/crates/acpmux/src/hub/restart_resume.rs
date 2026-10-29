@@ -30,7 +30,7 @@ use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 /// Longest quote of one cut prompt or steer, in characters.
 const MAX_QUOTE_CHARS: usize = 4_000;
@@ -267,6 +267,56 @@ fn bounded_text(value: &str) -> String {
         .collect()
 }
 
+/// Unlike the generic prose scanner, a decoded tool input has explicit assignment
+/// syntax. Redact a quoted assignment's entire shell word, including whitespace, escaped quotes
+/// and concatenated quoted/unquoted fragments. An unfinished quote consumes the rest
+/// of the bounded preview rather than exposing a partial credential.
+fn mask_input_assignments(text: &str) -> String {
+    static ASSIGNMENT: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r#"\b([a-zA-Z0-9_-]+)["']?\s*[=:]\s*"#)
+            .expect("constant assignment pattern") // crash-allow: constant pattern
+    });
+    let mut masked = String::with_capacity(text.len());
+    let mut copied = 0;
+    for captures in ASSIGNMENT.captures_iter(text) {
+        let Some(assignment) = captures.get(0) else { continue };
+        if assignment.start() < copied || !sensitive_key(&captures[1]) {
+            continue;
+        }
+        let mut end = assignment.end();
+        let bytes = text.as_bytes();
+        // Leave unquoted prose/header handling to the existing scanner (for example
+        // Authorization: Bearer TOKEN needs the scheme and token scanned together).
+        if !matches!(bytes.get(end), Some(b'"' | b'\'')) {
+            continue;
+        }
+        let mut quote = None;
+        while end < bytes.len() {
+            let byte = bytes[end];
+            if byte == b'\\' && end + 1 < bytes.len() {
+                // Consume an escaped quote as content, not the end of its value.
+                end += 2;
+                continue;
+            }
+            if let Some(delimiter) = quote {
+                if byte == delimiter {
+                    quote = None;
+                }
+            } else if matches!(byte, b'\"' | b'\'') {
+                quote = Some(byte);
+            } else if byte.is_ascii_whitespace() || matches!(byte, b',' | b';' | b'}' | b']') {
+                break;
+            }
+            end += 1;
+        }
+        masked.push_str(&text[copied..assignment.end()]);
+        masked.push_str("[secret]");
+        copied = end;
+    }
+    masked.push_str(&text[copied..]);
+    masked
+}
+
 fn masked_scan(value: &str) -> String {
     let end = value
         .char_indices()
@@ -275,7 +325,8 @@ fn masked_scan(value: &str) -> String {
         .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
         .last()
         .unwrap_or(0);
-    safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_SCAN_BYTES)
+    let masked = mask_input_assignments(&value[..end]);
+    safe_tool_text(&masked, end < value.len(), MAX_TOOL_SCAN_BYTES)
 }
 
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
@@ -700,6 +751,49 @@ mod tests {
             assert!(!masked.contains(&password), "quoted assignment leaked into restart input");
             assert!(masked.contains("[secret]"), "{masked}");
             assert!(masked.contains("./deploy"), "{masked}");
+        }
+    }
+
+    #[test]
+    fn restart_inputs_mask_whole_quoted_assignment_values() {
+        for command in [
+            r#"PASSWORD="correct horse battery staple" ./deploy"#,
+            r#"PASSWORD="open sesame" ./deploy"#,
+            r#"PASSWORD='open sesame' ./deploy"#,
+            r#"PASSWORD="open \"sesame\" again" ./deploy"#,
+            r#"PASSWORD="open\\ sesame" ./deploy"#,
+            r#"PASSWORD='open '\''sesame' ./deploy"#,
+            r#"PASSWORD="open sesame"' extra words' ./deploy"#,
+            r#"PASSWORD="open sesame"suffix ./deploy"#,
+            r#"PASSWORD="x" API_KEY='y z' ./deploy"#,
+        ] {
+            let expected = if command.contains("API_KEY") {
+                r#""PASSWORD=[secret] API_KEY=[secret] ./deploy""#
+            } else {
+                r#""PASSWORD=[secret] ./deploy""#
+            };
+            assert_eq!(input_prefix(&json!({"rawInput": command})).unwrap(), expected);
+            let nested = input_prefix(&json!({"rawInput": {"command": command}})).unwrap();
+            assert_eq!(nested, format!("{{\"command\":{expected}}}"));
+            let array = input_prefix(&json!({"rawInput": [command]})).unwrap();
+            assert_eq!(array, format!("[{expected}]"));
+        }
+        // A harmless quoted argument remains useful context.
+        let plain = r#"echo "correct horse battery staple""#;
+        assert_eq!(mask_input_assignments(plain), plain);
+    }
+
+    #[test]
+    fn restart_inputs_mask_unclosed_and_scan_boundary_quoted_assignments() {
+        for command in [
+            "PASSWORD=\"open sesame".to_owned(),
+            format!("PASSWORD=\"{}\" ./deploy", "open sesame ".repeat(MAX_TOOL_SCAN_BYTES)),
+            format!("PASSWORD=\"{}\" ./deploy", "世 界 ".repeat(MAX_TOOL_SCAN_BYTES)),
+        ] {
+            let prefix = input_prefix(&json!({"rawInput": command})).unwrap();
+            for secret_fragment in ["open", "sesame", "世", "界"] {
+                assert!(!prefix.contains(secret_fragment), "quoted secret leaked: {prefix}");
+            }
         }
     }
 
