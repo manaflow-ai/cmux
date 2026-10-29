@@ -383,7 +383,13 @@ struct SessionPriorityCoordinatorState: Equatable {
         return record.state
     }
 
-    /// The state a status read reports for a pane: its record's.
+    /// The state a status read reports for a pane: its record's, once a reconcile decided it.
+    ///
+    /// A pane not decided since the feature was last turned on has no record (or only the last
+    /// attempt a session end kept), and a reconcile may not come before its first turn end. Its
+    /// recorded launch already says whether cmux leaves it alone (`--effort`, a launch or
+    /// workspace `CLAUDE_CODE_EFFORT_LEVEL`), so that is reported, and the workspace shows no
+    /// target before any turn (ruling R37). The screen and the transcript are not read here.
     func reportedPaneState(
         panelId: UUID,
         workspaceMarkedManual: Bool,
@@ -391,7 +397,17 @@ struct SessionPriorityCoordinatorState: Equatable {
         launchEnvironment: [String: String],
         workspaceEnvironment: [String: String]
     ) -> SessionPriorityPaneState {
-        records[panelId]?.state ?? .upToDate
+        if let record = records[panelId], record.sessionId != nil || record.state != .upToDate {
+            return record.state
+        }
+        let signal = SessionPriorityManualSignals.detect(
+            userFlag: workspaceMarkedManual,
+            launchArguments: launchArguments,
+            launchEnvironment: launchEnvironment,
+            workspaceEnvironment: workspaceEnvironment,
+            screenText: nil
+        )
+        return signal.map { .manual($0) } ?? .upToDate
     }
 
     /// Forgets panes that no longer exist.
