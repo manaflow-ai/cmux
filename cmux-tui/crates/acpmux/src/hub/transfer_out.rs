@@ -99,6 +99,18 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// The `moving` mark of a chat that moved away (`SessionMeta::moved_to`), restored at load: no
+/// move has that id, so it is never committed, aborted or watched again.
+pub(super) const MOVED_AWAY: &str = "moved-away";
+
+/// What a chat that moved away answers a start: where it went.
+pub(super) fn moved_error(to: &Value) -> RpcError {
+    let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
+    let id = to["sessionId"].as_str().map(|s| format!(" as {s}")).unwrap_or_default();
+    transfer_error("moved", format!("this chat moved{host}{id}; it runs there, never here"))
+        .with_data(json!({"movedTo": to}))
+}
+
 impl Hub {
     /// `_acpmux/transfer_*`, for the local socket and peers only: a bundle holds the whole chat.
     pub async fn transfer_request(
@@ -143,8 +155,10 @@ impl Hub {
         interrupt: bool,
         to: Option<&str>,
     ) -> Result<Value, RpcError> {
-        if session.status() == SessionStatus::Closed {
-            return Err(transfer_error("closed", "this chat is closed"));
+        // A stopped chat moves (its bundle is its whole history); one that moved away never
+        // does again.
+        if let Some(to) = session.meta().moved_to {
+            return Err(moved_error(&to));
         }
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
@@ -289,8 +303,9 @@ impl Hub {
         to: Value,
     ) -> Result<Value, RpcError> {
         Self::moving_as(session, transfer_id)?;
-        // Committed already (by the source's own watch, or a retried commit).
-        if session.status() == SessionStatus::Closed {
+        // Committed already (by the source's own watch, or a retried commit). A stopped chat
+        // is closed before its move, so the mark is where it went, not its status.
+        if session.meta().moved_to.is_some() {
             return Ok(
                 json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}),
             );
@@ -299,10 +314,11 @@ impl Hub {
             self.remove_queued(session, &q.prompt_id);
         }
         {
-            // The chat's draft and bookmarks live on the target now.
+            // The chat's draft and bookmarks live on the target now, and the chat with them.
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.composer_draft = None;
             meta.bookmarks.clear();
+            meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
@@ -333,7 +349,7 @@ impl Hub {
         reason: Option<&str>,
     ) -> Result<Value, RpcError> {
         Self::moving_as(session, transfer_id)?;
-        if session.status() == SessionStatus::Closed {
+        if session.meta().moved_to.is_some() {
             return Err(transfer_error(
                 "closed",
                 "the move committed; the chat lives on the target",

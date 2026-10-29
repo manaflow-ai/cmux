@@ -592,6 +592,9 @@ impl Hub {
     /// A stopped session reopens for a request that came after its last stop (`ensure_child`);
     /// one stopped since refuses the start.
     pub(super) fn reopen_to_start(&self, session: &Session, stops: u64) -> Result<(), RpcError> {
+        if let Some(to) = session.meta().moved_to {
+            return Err(super::transfer_out::moved_error(&to));
+        }
         if session.status() == SessionStatus::Closed && !self.reopen(session, stops) {
             return Err(stopped_while_starting());
         }

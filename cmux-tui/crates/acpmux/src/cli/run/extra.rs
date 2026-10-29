@@ -272,6 +272,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::MoveSessions { sessions, host, all_idle, interrupt, leave_dirty, dry_run } => {
+            let args = super::session_move::MoveArgs {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                dry_run,
+            };
+            super::session_move::run(args, json_out).await
+        }
         Command::Transfer { session, to, cwd, name, interrupt } => {
             super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
         }

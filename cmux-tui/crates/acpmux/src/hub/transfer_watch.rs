@@ -97,6 +97,35 @@ impl Hub {
         self.transfer_lease_changed.notify_waiters();
     }
 
+    /// A move of a stopped chat that a restart cut: its bundle (`transfers/<id>/<chat>`) is
+    /// still there, so it neither committed nor aborted. The chat is frozen again under that
+    /// move, for its client to finish or its watch to end.
+    fn refreeze_stopped_moves(&self) {
+        let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+        for entry in entries.flatten() {
+            let transfer_id = entry.file_name().to_string_lossy().into_owned();
+            // A receive (`in-…`) or a forget mark is not a move out.
+            if !super::transfer::is_plain_id(&transfer_id)
+                || transfer_id.to_ascii_lowercase().starts_with("in-")
+                || transfer_id.starts_with("forgot-")
+            {
+                continue;
+            }
+            let Ok(inner) = std::fs::read_dir(entry.path()) else { continue };
+            for chat in inner.flatten().filter(|e| e.path().is_dir()) {
+                let id = chat.file_name().to_string_lossy().into_owned();
+                let Some(session) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned()
+                else {
+                    continue;
+                };
+                let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+                if moving.is_none() && session.meta().moved_to.is_none() {
+                    *moving = Some(transfer_id.clone());
+                }
+            }
+        }
+    }
+
     /// Watches the move `transfer_id` of `session` until it ends.
     pub(super) fn watch_transfer(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
         if tokio::runtime::Handle::try_current().is_err() {
@@ -106,8 +135,11 @@ impl Hub {
         tokio::spawn(async move { hub.transfer_watch(&session, &transfer_id).await });
     }
 
-    /// Every move a chat here is in, once the daemon starts.
+    /// Every move a chat here is in, once the daemon starts. A stopped chat's move is not in
+    /// its queue's restore (a closed chat's log is not read at load), so it is found by its
+    /// bundle under `transfers/` and frozen again here.
     pub(super) fn watch_transfers(self: &Arc<Self>) {
+        self.refreeze_stopped_moves();
         for session in self.sessions() {
             if let Some(transfer_id) = session.moving() {
                 self.watch_transfer(&session, &transfer_id);
@@ -117,9 +149,9 @@ impl Hub {
 
     async fn transfer_watch(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
         let dir = transfers_dir().join(transfer_id);
-        // A commit closes the chat (its `moving` stays); an abort clears `moving`.
-        while session.moving().as_deref() == Some(transfer_id)
-            && session.status() != SessionStatus::Closed
+        // A commit marks where the chat went (its `moving` stays); an abort clears `moving`. A
+        // stopped chat is closed for its whole move, so its status says nothing here.
+        while session.moving().as_deref() == Some(transfer_id) && session.meta().moved_to.is_none()
         {
             // Enabled before the lease is read, so a change after the read is not missed.
             let changed = self.transfer_lease_changed.notified();

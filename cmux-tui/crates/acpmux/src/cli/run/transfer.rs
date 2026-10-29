@@ -24,7 +24,37 @@ pub(super) async fn run(
     let id = resolve_id(&src, session).await?;
     // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
     let socket = std::path::absolute(to)?;
-    let begin_params = json!({"sessionId": id, "interrupt": interrupt, "to": {"socket": socket}});
+    let to_meta = json!({"socket": to});
+    let moved =
+        move_chat(&src, &dst, &id, Some(&socket), cwd, name, interrupt, to_meta).await?;
+    if json_out {
+        print_json(&moved);
+    } else {
+        println!("moved {} to {}", moved["name"].as_str().unwrap_or(&id), to.display());
+    }
+    Ok(())
+}
+
+/// Moves the chat `id` from `src` to `dst`, both clients of the daemons' local sockets, and
+/// commits it on `src` with `to_meta` (plus the chat's id there) as where it went. `watch`
+/// names `dst`'s socket for the source to ask if this client goes away midway; a target the
+/// source cannot reach (a forwarded socket, `session_move.rs`) is not named, and such a move
+/// whose client goes away after the bundle was read stays frozen rather than guessing.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn move_chat(
+    src: &Client,
+    dst: &Client,
+    id: &str,
+    watch: Option<&std::path::Path>,
+    cwd: Option<String>,
+    name: Option<String>,
+    interrupt: bool,
+    to_meta: Value,
+) -> Result<Value> {
+    let mut begin_params = json!({"sessionId": id, "interrupt": interrupt});
+    if let Some(socket) = watch {
+        begin_params.set("to", json!({"socket": socket}));
+    }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
     let abort = async || {
@@ -40,11 +70,11 @@ pub(super) async fn run(
             return Err(e);
         }
     };
-    let moved = match copy(&src, &dst, &begin, &receive["receiveId"], cwd, name).await {
+    let moved = match copy(src, dst, &begin, &receive["receiveId"], cwd, name).await {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
-        Err(e) => match landed(&dst, &id, &transfer_id).await {
+        Err(e) => match landed(dst, &id, &transfer_id).await {
             Some(true) => dst.request(method::MUX_INFO, json!({"sessionId": id})).await?,
             Some(false) => {
                 abort().await;
@@ -58,18 +88,14 @@ pub(super) async fn run(
             }
         },
     };
-    let to_meta = json!({"sessionId": moved["sessionId"], "socket": to});
+    let mut to_meta = to_meta;
+    to_meta.set("sessionId", moved["sessionId"].clone());
     src.request(
         "_acpmux/transfer_commit",
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta}),
     )
     .await?;
-    if json_out {
-        print_json(&moved);
-    } else {
-        println!("moved {} to {}", moved["name"].as_str().unwrap_or(&id), to.display());
-    }
-    Ok(())
+    Ok(moved)
 }
 
 /// Whether the target took this move (its log has the `transferred_in` of `transfer_id`); `None`

@@ -226,3 +226,31 @@ fn a_reading_without_live_agents_leaves_the_lane_cap_out_never_counts_zero() {
     assert_eq!(host(&v, "light")["room"], 11.0, "{v:#}");
     assert_eq!(host(&v, "light")["live"], Value::Null, "{v:#}");
 }
+
+#[test]
+fn a_reserved_host_takes_no_work_until_its_reservation_lapses_even_when_it_has_the_most_room() {
+    let mut reg = registry();
+    reg["reservations"] = json!([{"id": "r1", "owner": "lawrencecchen", "hosts": ["big-box"],
+        "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z", "why": "his"}]);
+    let hosts = [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(16.0, 8, 1.0, 200.0, 0))];
+    let during = crate::server::machine_health::rfc3339_ms("2026-10-30T00:00:00Z").unwrap();
+    let v = place_at(&hosts, Some(&reg), Work::Agent, during);
+    assert_eq!(v["pick"], "small", "the alias holds big: {v:#}");
+    let big = host(&v, "big");
+    assert_eq!(big["ok"], false);
+    assert_eq!(big["load"], false, "a reservation is not load: it never takes the overflow");
+    let why = big["reserved"].as_str().unwrap();
+    assert!(why.contains("reserved for lawrencecchen until 2026-10-30T20:50:00Z (r1)"), "{why}");
+    // With every other host full, the work still never lands on the reserved one.
+    let full = [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(4.0, 8, 7.9, 200.0, 0))];
+    let v = place_at(&full, Some(&reg), Work::Agent, during);
+    assert_eq!(v["pick"], "small", "overloaded, but not onto big: {v:#}");
+    // Lapsed (or not begun): big takes work again.
+    let after = crate::server::machine_health::rfc3339_ms("2026-10-31T00:00:00Z").unwrap();
+    assert_eq!(place_at(&hosts, Some(&reg), Work::Agent, after)["pick"], "big");
+    let before = crate::server::machine_health::rfc3339_ms("2026-10-29T00:00:00Z").unwrap();
+    assert_eq!(place_at(&hosts, Some(&reg), Work::Agent, before)["pick"], "big");
+    // An until that cannot be read holds the host (fail closed).
+    reg["reservations"][0]["until"] = json!("soon");
+    assert_eq!(place_at(&hosts, Some(&reg), Work::Agent, after)["pick"], "small");
+}

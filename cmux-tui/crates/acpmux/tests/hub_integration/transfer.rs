@@ -354,3 +354,51 @@ async fn a_failed_durable_import_leaves_no_recovery_marker_so_a_retry_runs_on_th
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// One move, `begin` to `commit`, as `acpmux session move` makes it: `to` is where it went.
+async fn move_whole(src: &mut TestClient, dst: &mut TestClient, id: &str, to: Value) -> Value {
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(src, dst, &begin, &receive_id).await;
+    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    src.request(
+        "_acpmux/transfer_commit",
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": to}),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_stopped_chat_moves_and_never_runs_or_moves_on_the_source_again() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let s = src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    // `acpmux session stop`: closed, and resumable until it moves.
+    src.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    wait_status(&mut src, &id, "closed").await;
+
+    let to = json!({"host": "gcp-1", "sessionId": id, "cwd": "/home/cmux/Projects"});
+    let committed = move_whole(&mut src, &mut dst, &id, to.clone()).await;
+    assert_eq!(committed["committed"], true, "{committed}");
+    assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi"], "its history moved");
+    let there = dst.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(there["movedTo"].is_null(), "the copy it moved to is the live one: {there}");
+
+    // Here it says where it went, and refuses a prompt (which would reopen a stopped chat),
+    // another move and a second commit's side effects: one writer, there.
+    let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(left["movedTo"], to, "{left}");
+    assert_eq!(left["moving"], false, "moved, not moving: {left}");
+    let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
+    assert!(refused.is_err(), "a moved chat takes no prompt: {refused:?}");
+    let again = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    assert!(again.as_ref().is_err_and(|e| e.contains("transfer.moved")), "{again:?}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["hi"], "nothing ran here");
+    assert!(records(&mut src, &id, "reopened").await.is_empty(), "never reopened here");
+}

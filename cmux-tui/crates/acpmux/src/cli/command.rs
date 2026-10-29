@@ -496,6 +496,15 @@ pub enum Command {
         name: Option<String>,
     },
     #[command(hide = true)]
+    MoveSessions {
+        sessions: Vec<String>,
+        host: String,
+        all_idle: bool,
+        interrupt: bool,
+        leave_dirty: bool,
+        dry_run: bool,
+    },
+    #[command(hide = true)]
     Transfer {
         session: String,
         #[arg(long)]
@@ -836,6 +845,31 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// Move chats to another machine's daemon (an ssh peer), with their history, queue and
+    /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
+    /// worktree, a plain folder under the home maps to the same path under the peer's home. The
+    /// chat here never runs again, and `resolve` and agent links lead to its new place.
+    Move {
+        /// The chats to move (ids or names); none with --all-idle.
+        #[arg(required_unless_present = "all_idle")]
+        sessions: Vec<String>,
+        /// The peer to move them to, or `auto`: the placement's pick among the peers (never a
+        /// reserved one), one host per checkout.
+        #[arg(long)]
+        host: String,
+        /// Every open chat here that is between turns.
+        #[arg(long, conflicts_with = "sessions")]
+        all_idle: bool,
+        /// Stop a running turn instead of refusing the move.
+        #[arg(long)]
+        interrupt: bool,
+        /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
+        #[arg(long)]
+        leave_dirty: bool,
+        /// Say where each chat would go and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1159,6 +1193,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
+            }
+            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, dry_run } => {
+                Command::MoveSessions { sessions, host, all_idle, interrupt, leave_dirty, dry_run }
             }
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }

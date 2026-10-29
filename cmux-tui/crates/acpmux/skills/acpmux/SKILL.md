@@ -236,11 +236,14 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
   `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
   on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
-- **Moving a session.** `acpmux session export HOST/NAME` fetches the bundle to
-  `~/.acpmux/bundles/`, and `acpmux session import DIR` restores it on this machine. No command
-  moves a session from one peer to another yet. To continue the work on another machine, start
-  a session there with `--host` and a `--prompt-file` that says where the work stands (branch,
-  PR, next step).
+- **Moving a session.** `acpmux session move SESSION... --host PEER` (or `--host auto`, the
+  placement's pick, never a reserved host; `--all-idle` for every idle chat here) moves chats from
+  this machine to an ssh peer with their history, queue and draft. A chat's worktree branch is
+  pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
+  `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
+  would go. The copy left here never runs again and `resolve` points at the new one.
+  `acpmux session export HOST/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
+  `acpmux session import DIR` restores a copy on this machine.
 - **What the host allows.** Some machines are not for builds or long jobs. When the task or the
   session's first message names what a host must not run, honour it, and pick another host
   from `host status`.

@@ -248,6 +248,12 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
+    /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
+    /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
+    /// and `resolve` follows it there (`hub/locate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<Value>,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).

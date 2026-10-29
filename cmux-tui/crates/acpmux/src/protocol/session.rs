@@ -107,6 +107,12 @@ pub struct SessionSummary {
     pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// Moved to another daemon (`acpmux session move`): where it runs now,
+    /// `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub moved_to: Option<Value>,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
     pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.

@@ -300,11 +300,65 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     w
 }
 
+/// Why `name` takes no new work at `now_ms`: the `reservations` entry of fleet-registry.json
+/// holding it (`{id, owner, hosts, from, until, why}`, active while from <= now <= until, so it
+/// lapses by itself), as `reserved for OWNER until UNTIL (ID)`. A host is matched by its registry
+/// name or alias. An entry whose times cannot be read holds its hosts (fail closed), as
+/// leo-workspace's `fleet_reservations.py` does for every other reader of the list.
+pub fn reserved(registry: Option<&Value>, name: &str, now_ms: u64) -> Option<String> {
+    let registry = registry?;
+    let entries = registry.get("reservations")?.as_array()?;
+    let want = canonical(name);
+    // Every name the host answers to in the registry, and the name asked for.
+    let mut names = vec![want.clone()];
+    if let Some(hosts) = lane_hosts(Some(registry))
+        && let Some((all, _)) = hosts.iter().find(|(n, _)| n.contains(&want))
+    {
+        names.extend(all.iter().cloned());
+    }
+    let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
+    for e in entries {
+        let holds = e
+            .get("hosts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|h| names.contains(&canonical(h)));
+        if !holds {
+            continue;
+        }
+        let (from, until) = (e.get("from"), e.get("until"));
+        let from_ms = from.map(time);
+        let until_ms = until.map(time);
+        let unreadable = matches!(from_ms, Some(None)) || matches!(until_ms, Some(None));
+        let started = from_ms.flatten().is_none_or(|f| f <= now_ms);
+        let lasting = until_ms.flatten().is_none_or(|u| now_ms <= u);
+        if unreadable || (started && lasting) {
+            let owner = e.get("owner").and_then(Value::as_str).unwrap_or("someone");
+            let until = until.and_then(Value::as_str).unwrap_or("released by hand");
+            let id = e.get("id").and_then(Value::as_str).unwrap_or("a reservation");
+            return Some(format!("reserved for {owner} until {until} ({id})"));
+        }
+    }
+    None
+}
+
 /// The pick and every host's verdict, as `_acpmux/place` returns them:
 /// `{"pick": NAME|null, "local": bool, "overloaded": bool (no host had room and the pick
 /// takes it anyway), "why": TEXT, "work": "agent"|"build",
 /// "hosts": [{name, local, ok, room, rank, live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
+    place_at(candidates, registry, work, crate::store::now_ms())
+}
+
+/// [`place`] at `now_ms` (Unix ms), for the reservations it reads.
+pub fn place_at(
+    candidates: &[Candidate],
+    registry: Option<&Value>,
+    work: Work,
+    now_ms: u64,
+) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
         let Some(hosts) = &hosts else { return Some(Lanes::default()) };
@@ -312,6 +366,16 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     };
     let mut weighed: Vec<Weighed> =
         candidates.iter().map(|c| weigh(c, lanes_of(&c.name))).collect();
+    // A host reserved for someone takes no new work, even when no other host has room.
+    let mut held: Vec<Option<String>> = Vec::with_capacity(weighed.len());
+    for w in weighed.iter_mut() {
+        let why = reserved(registry, &w.name, now_ms);
+        if let Some(why) = &why {
+            w.refused = Some(why.clone());
+            w.load = false;
+        }
+        held.push(why);
+    }
     if work == Work::Build {
         // A build host counts only with a reading that shows room: one whose
         // numbers are unknown never turns a fallback host with room away.
@@ -365,7 +429,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         "overloaded": overloaded && pick.is_some(),
         "why": why,
         "work": work.as_str(),
-        "hosts": weighed.iter().map(|w| json!({
+        "hosts": weighed.iter().zip(&held).map(|(w, held)| json!({
             "name": w.name,
             "local": w.local,
             "ok": w.refused.is_none(),
@@ -374,6 +438,9 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "live": w.live,
             "why": w.why,
             "refused": w.refused,
+            // Refused only for room, load or swap: it may still take work (`overloaded`).
+            "load": w.load,
+            "reserved": held,
         })).collect::<Vec<_>>(),
     })
 }

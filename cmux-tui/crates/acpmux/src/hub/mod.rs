@@ -1022,6 +1022,9 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
+        // policy change refuses it as while it moved (`queue::moving_error`).
+        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1043,7 +1046,7 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             team_information: Default::default(),
             queue_moved: Notify::new(),
-            moving: StdMutex::new(None),
+            moving: StdMutex::new(moving),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),

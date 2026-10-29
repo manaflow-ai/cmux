@@ -56,6 +56,7 @@ impl Hub {
         if found.is_empty() {
             return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown)));
         }
+        let found = follow_moves(found, &summaries, &own);
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
             "session": matches.first(),
@@ -171,6 +172,35 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
     found
 }
 
+/// `found`, with each chat that moved away (`movedTo`) after where it went: the copy it moved to
+/// (on the host the move names, with the id it has there) joins the matches when it is listed,
+/// and every moved-away copy ranks after every live one. A link written while the chat ran here
+/// (a PR footer naming this host) so leads to where it runs now; a moved-away copy whose
+/// target is not listed stays, its card saying where it went.
+fn follow_moves<'a>(found: Vec<&'a Value>, summaries: &'a [Value], own: &str) -> Vec<&'a Value> {
+    let mut out: Vec<&Value> = Vec::new();
+    for s in found {
+        let to = &s["movedTo"];
+        if let Some(id) = to["sessionId"].as_str() {
+            let host = to["host"].as_str().unwrap_or(own);
+            let there = summaries.iter().find(|t| {
+                t["sessionId"].as_str() == Some(id) && host_of(t, own).eq_ignore_ascii_case(host)
+            });
+            if let Some(there) = there
+                && !out.iter().any(|o| std::ptr::eq(*o, there))
+            {
+                out.push(there);
+            }
+        }
+        if !out.iter().any(|o| std::ptr::eq(*o, s)) {
+            out.push(s);
+        }
+    }
+    // Stable: the order within live and within moved-away copies stays.
+    out.sort_by_key(|s| s["movedTo"].is_object());
+    out
+}
+
 /// The sessions `key` names: ids take precedence over names. A bare name includes every
 /// host, so a local chat cannot hide a peer's chat with the same name from control callers.
 /// Qualified names select their host; bead ids still find the sessions that carry them.
@@ -259,6 +289,7 @@ fn card(s: &Value, own: Option<&str>) -> Value {
         "beads": crate::beads::of_tags(&s["tags"]),
         "peerState": s["peerState"],
         "stale": s["stale"],
+        "movedTo": s["movedTo"],
         "link": link_of(s, host),
     })
 }
@@ -341,6 +372,31 @@ mod tests {
         assert!(!masked.to_string().contains("ghp_"), "{masked}");
         assert_eq!(masked["session"]["lastMessage"]["text"], "used [GitHub Personal Access Token]");
         assert_eq!(masked["session"]["name"], "deploy");
+    }
+
+    #[test]
+    fn a_link_to_a_moved_chat_leads_to_where_it_runs_now() {
+        // m1 ran on big-red and moved to gcp-1, keeping its ids (`transfer_in.rs`).
+        let rows = vec![
+            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "fix", "family": "codex",
+                   "harness": "codex", "status": "closed",
+                   "movedTo": {"host": "gcp-1", "sessionId": "m1", "cwd": "/home/cmux/w"}}),
+            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "gcp-1/fix",
+                   "family": "codex", "harness": "codex", "peer": "gcp-1", "status": "idle"}),
+        ];
+        let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=big-red");
+        let found = follow_moves(by_link(&rows, &footer, "big-red"), &rows, "big-red");
+        assert_eq!(found[0]["peer"], "gcp-1", "the live copy first: {found:?}");
+        assert!(found[1]["movedTo"].is_object());
+        // By id or name too, and the target joins even when only the moved copy matched.
+        let found = follow_moves(by_key(&rows, "big-red/fix", "big-red"), &rows, "big-red");
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0]["peer"], "gcp-1");
+        // A target not listed (its peer is gone): the moved copy answers, saying where it went.
+        let alone = &rows[..1];
+        let found = follow_moves(by_key(alone, "m1", "big-red"), alone, "big-red");
+        assert_eq!(found.len(), 1);
+        assert_eq!(card(found[0], Some("big-red"))["movedTo"]["host"], "gcp-1");
     }
 
     #[test]

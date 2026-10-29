@@ -1077,8 +1077,13 @@ An offline peer's row gives its link state and the next command (`acpmux host do
 A peer on an older build that lacks the method shows as reachable, and names
 `acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
 its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
-(`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
-`session export HOST/name` and `session import DIR` bring a session here.
+(`~/.cmux/worktrees/<project>/<name>` there). `session export HOST/name` and `session import DIR`
+bring a copy of a session here; `session move SESSION... --host PEER|auto` moves chats from this
+machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktree branch is pushed
+and checked out there as a fresh worktree (a plain folder under the home maps to the same path
+under the peer's home), the chat is moved with its history, queue and draft through the peer
+daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
