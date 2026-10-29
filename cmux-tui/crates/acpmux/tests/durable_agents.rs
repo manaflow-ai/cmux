@@ -1912,6 +1912,42 @@ async fn an_imported_chat_s_name_after_a_crash_is_not_undone_by_the_replay() {
     );
 }
 
+/// An answered `_acpmux/markUnread` comes back after a crash that came before the session record
+/// was written: the unread mark is rebuilt from the log's `status` record with its `read` field
+/// (`hub/meta_replay.rs`), as the other settings are. `ACPMUX_TEST_META_WRITE_DELAY_MS` holds
+/// every session record write; the test waits for the log record (what the restart reads).
+#[tokio::test]
+async fn an_answered_mark_unread_survives_a_crash_before_the_session_record_is_saved() {
+    let mut daemon = Daemon::new("unread-slow", "approve-all");
+    let session = new_session(&daemon).await;
+    let record = daemon.home.join("sessions").join(&session).join("session.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !record.exists() {
+        assert!(Instant::now() < deadline, "no session record at {}", record.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_TEST_META_WRITE_DELAY_MS".into(), "5000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/markUnread", json!({"sessionId": session})).await;
+    daemon.wait_event(&session, "the unread status record", |e| {
+        e["kind"] == "status" && e["msg"]["read"] == false
+    });
+    daemon.sigkill();
+    drop(rpc);
+    daemon.env.retain(|(k, _)| k != "ACPMUX_TEST_META_WRITE_DELAY_MS");
+    daemon.start();
+
+    let all = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
+    let entry = all["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(entry["unread"], json!(true), "an answered mark unread was lost: {entry:#}");
+}
+
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
 /// its turn started, runs once after the restart: a client that resends it gets its real
 /// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
