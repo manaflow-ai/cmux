@@ -681,12 +681,16 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 - A machine is idle only when nobody typed through an attached client for the whole timeout (an
   app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
   a turn or a pending permission, no terminal running a command (anything but a shell at its
-  prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
   inbound connection on its private address, and CPU use since the previous probe below
   `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
-  stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
-  is unknown, and unknown never pauses.
+  stored observation without a CPU sample gives no CPU verdict. A `/proc/<pid>/stat`, `cmdline`
+  or daemon `fd` entry that cannot be read or parsed makes terminals, ssh or inbound connections
+  unknown; only a process that exited mid-read is skipped. Anything the probe cannot read is
+  unknown, and unknown never pauses.
 - Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
   paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
   through exec outside acpmux. Run such work in a terminal (a foreground command keeps the

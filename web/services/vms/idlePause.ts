@@ -310,7 +310,9 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
  * - the acpmux session list the shell part wrote to $CMUX_IDLE_ACPMUX
  *   (`NONE` when acpmux is not running, `ERR` when it could not be read);
  * - /proc: each pseudo-terminal's foreground process group (a group with
- *   anything but a shell in it is a running command), sshd session processes,
+ *   anything but a shell in it, or a shell given -c or a script, is a running
+ *   command; a process that exited mid-read is skipped, any other unreadable
+ *   process makes the count unknown), sshd session processes,
  *   and established TCP connections into a listening port, counted when they
  *   reach the machine's private address ($CMUX_IDLE_PRIVATE_ADDRESSES) or sshd,
  *   except the daemon's own port ($CMUX_IDLE_DAEMON_PORT: the app's link, whose
@@ -396,40 +398,87 @@ def acpmux():
             latest = u
     return {"busy_sessions": busy, "last_updated_at_ms": latest}
 
+# A process that exited between the listing and the read. Anything else that
+# cannot be read could hide work, so it makes the answer unknown (None).
+VANISHED = (FileNotFoundError, ProcessLookupError)
+
 def processes():
     out = {}
-    for name in os.listdir(proc):
+    try:
+        names = os.listdir(proc)
+    except Exception:
+        return None
+    for name in names:
         if not name.isdigit():
             continue
         try:
             with open(os.path.join(proc, name, "stat"), "rb") as f:
                 data = f.read().decode("utf-8", "replace")
+        except VANISHED:
+            continue
+        except Exception:
+            return None
+        try:
             comm = data[data.index("(") + 1:data.rindex(")")]
             fields = data[data.rindex(")") + 2:].split()
             out[int(name)] = (comm, int(fields[2]), int(fields[4]), int(fields[5]))
         except Exception:
-            pass
+            return None
     return out
 
+def cmdline(pid):
+    """The process's arguments; None when it exited. Other read failures raise."""
+    try:
+        with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
+            raw = f.read()
+    except VANISHED:
+        return None
+    return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+
+def shell_runs_command(pid):
+    # A shell that is itself the command: -c (alone or in a cluster like -lc),
+    # or a script argument (a non-flag argument after the shell's name). A
+    # login or interactive shell (-bash, bash, zsh -l, bash -i) is a prompt.
+    for arg in (cmdline(pid) or [])[1:]:
+        if arg.startswith("--"):
+            continue
+        if arg.startswith("-") or arg.startswith("+"):
+            if "c" in arg[1:]:
+                return True
+            continue
+        return True
+    return False
+
 def busy_terminals(procs):
+    if procs is None:
+        return None
     groups, foreground = {}, {}
-    for comm, pgrp, tty, tpgid in procs.values():
-        groups.setdefault(pgrp, []).append(comm)
+    for pid, (comm, pgrp, tty, tpgid) in procs.items():
+        groups.setdefault(pgrp, []).append((pid, comm))
         major = (tty >> 8) & 0xfff
         if 136 <= major <= 143 and tpgid > 0:
             foreground[tty] = tpgid
-    return sum(1 for pgrp in foreground.values() if any(c not in SHELLS for c in groups.get(pgrp, [])))
+    n = 0
+    try:
+        for pgrp in foreground.values():
+            members = groups.get(pgrp, [])
+            if any(c not in SHELLS for _, c in members) or any(shell_runs_command(pid) for pid, _ in members):
+                n += 1
+    except Exception:
+        return None
+    return n
 
 def ssh_sessions(procs):
+    if procs is None:
+        return None
     n = 0
-    for pid in procs:
-        try:
-            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
-                cmd = f.read().split(b"\0")[0].decode("utf-8", "replace")
-        except Exception:
-            continue
-        if cmd.startswith("sshd") and "@" in cmd:
-            n += 1
+    try:
+        for pid in procs:
+            args = cmdline(pid)
+            if args and args[0].startswith("sshd") and "@" in args[0]:
+                n += 1
+    except Exception:
+        return None
     return n
 
 def address(hexaddr):
@@ -439,6 +488,8 @@ def address(hexaddr):
     return ipaddress.ip_address(b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4)))
 
 def daemon_socket_inodes(procs):
+    if procs is None:
+        return None
     inodes = set()
     for pid, (comm, _, _, _) in procs.items():
         if comm != "cmux-tui":
@@ -446,13 +497,17 @@ def daemon_socket_inodes(procs):
         fd_dir = os.path.join(proc, str(pid), "fd")
         try:
             names = os.listdir(fd_dir)
-        except Exception:
+        except VANISHED:
             continue
+        except Exception:
+            return None
         for fd in names:
             try:
                 target = os.readlink(os.path.join(fd_dir, fd))
-            except Exception:
+            except VANISHED:
                 continue
+            except Exception:
+                return None
             if target.startswith("socket:[") and target.endswith("]"):
                 inodes.add(target[8:-1])
     return inodes
@@ -482,6 +537,9 @@ def inbound_connections(procs):
     listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     daemon_inodes = daemon_socket_inodes(procs)
+    if daemon_inodes is None:
+        # A daemon whose open sockets cannot be listed could be carrying a forwarded port.
+        return None
     n = 0
     for local, port, state, rport, inode in rows:
         if state != "01":
