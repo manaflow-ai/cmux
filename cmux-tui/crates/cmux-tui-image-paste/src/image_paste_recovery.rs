@@ -53,7 +53,9 @@ impl ImagePasteRecovery {
                     }
                     if let Some((deadline, file)) =
                         ImagePasteFile::recover_one(entry.path(), self.clock.now())
-                        && (deadline > Instant::now() || !file.remove_owned())
+                        && (deadline > Instant::now()
+                            || !file.claim_for_removal()
+                            || !file.remove_owned())
                     {
                         self.scanning_count = self.scanning_count.saturating_add(1);
                     }

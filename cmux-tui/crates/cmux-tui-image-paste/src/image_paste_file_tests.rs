@@ -102,35 +102,16 @@ fn cloud_image_paste_receipt_rewrite_removes_only_an_owned_leftover() {
     // A crash between writing the next receipt and renaming it leaves an
     // owned copy at the private write name; the next rewrite replaces it.
     fs::copy(directory.join(".receipt"), directory.join(".receipt-next")).unwrap();
-    file.set_expiry(1_000, 0).unwrap();
-    assert_eq!(receipt().expires, 1_000);
+    file.set_expiry(42).unwrap();
+    assert_eq!(receipt().expires, 42);
     assert!(!directory.join(".receipt-next").exists());
     // A file at that name without this upload's token is never removed.
     fs::write(directory.join(".receipt-next"), "user file").unwrap();
-    assert!(file.set_expiry(1_001, 0).is_err());
-    assert_eq!(receipt().expires, 1_000);
+    assert!(file.set_expiry(43).is_err());
+    assert_eq!(receipt().expires, 42);
     assert!(file.remove_owned());
     assert_eq!(fs::read_to_string(directory.join(".receipt-next")).unwrap(), "user file");
     fs::remove_file(directory.join(".receipt-next")).unwrap();
     fs::remove_dir(&directory).unwrap();
     file.cleanup = false;
-}
-
-#[test]
-fn cloud_image_paste_receipt_near_expiry_is_never_moved() {
-    let mut file = ImagePasteFile::create("png").unwrap();
-    let directory = file.directory().to_owned();
-    let receipt = || -> Receipt {
-        serde_json::from_reader(File::open(directory.join(".receipt")).unwrap()).unwrap()
-    };
-    file.set_expiry(500, 0).unwrap();
-    // 299 s before expiry: a sweep may already hold it as expired soon, so
-    // the receipt is not revived, and nothing on disk changes.
-    let refused = file.set_expiry(900, 500 - RECEIPT_REVIVE_MARGIN + 1).unwrap_err();
-    assert_eq!(refused.kind(), std::io::ErrorKind::TimedOut);
-    assert_eq!(receipt().expires, 500);
-    assert!(!directory.join(".receipt-next").exists());
-    // Exactly the margin ahead still moves.
-    file.set_expiry(900, 500 - RECEIPT_REVIVE_MARGIN).unwrap();
-    assert_eq!(receipt().expires, 900);
 }

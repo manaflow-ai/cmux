@@ -420,57 +420,50 @@ fn cloud_image_paste_receipt_refresh_is_throttled() {
     assert!(!path.parent().unwrap().exists());
 }
 
-/// Daemon A's wall clock runs past its receipt's expiry while its in-memory
-/// deadline does not (a suspended machine). Daemon B's sweep reads the expired
-/// receipt and holds a handle to remove the upload. A must not revive that
-/// receipt and keep accepting chunks, or B's removal would unlink a live
-/// upload: A ends the upload instead.
+/// The receipt is only a crash fallback; a live upload is protected by its
+/// owner's lock. Daemon A's wall clock jumps far past its receipt's expiry (a
+/// stepped clock, or a machine that slept), and daemon B sweeps with that
+/// clock and also holds a stale recovery handle taken while the receipt read
+/// as expired. B removes nothing while A owns the upload, A finishes and
+/// pastes, and once A is gone (a crash) the leftover is removed as before.
 #[test]
-fn cloud_image_paste_an_expired_receipt_is_never_revived() {
+fn cloud_image_paste_a_live_upload_survives_an_expired_receipt() {
     let shared = SharedStorage::new();
     let clock = WallClock::manual(1_000_000);
     let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
-    daemon_a.begin(owner(), ID, "image/png", LARGE).unwrap();
+    let image = [PNG, &[0x5a; 4]].concat();
+    daemon_a.begin(owner(), ID, "image/png", image.len()).unwrap();
     let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
-    chunk(&daemon_a, 0, PNG);
-    clock.advance((UPLOAD_TTL + IMAGE_TTL).as_secs() + 1);
+    chunk(&daemon_a, 0, &image[..PNG.len()]);
+    clock.advance(10 * (UPLOAD_TTL + IMAGE_TTL).as_secs());
     let (deadline, stale) =
         ImagePasteFile::recover_one(path.parent().unwrap().to_owned(), clock.now()).unwrap();
-    assert!(deadline <= Instant::now(), "daemon B should see the receipt as expired");
-    let refused = daemon_a
-        .append(&owner(), ID, PNG.len(), &base64::engine::general_purpose::STANDARD.encode(PNG))
-        .unwrap_err();
-    assert_eq!(refused.to_string(), "image-upload-expired");
-    // A ended the upload (its bytes are gone) rather than reviving the receipt
-    // and growing a file B is about to remove.
-    assert!(daemon_a.shared.state.lock().unwrap().uploads.is_empty());
-    assert!(!path.exists());
-    assert!(stale.remove_owned());
+    assert!(deadline <= Instant::now(), "B should read A's receipt as expired");
+    assert!(!stale.claim_for_removal(), "B claimed a file A still owns");
+    shared.sweep(&clock);
+    assert!(path.exists(), "B's sweep removed A's live upload");
+    // A refreshes the receipt; B's stale handle still cannot claim the file.
+    chunk(&daemon_a, PNG.len(), &image[PNG.len()..]);
+    assert!(!stale.claim_for_removal(), "B claimed a file A still owns after a refresh");
     drop(stale);
-    assert!(!path.parent().unwrap().exists());
-    let late = daemon_a.commit(&owner(), ID, |_| Ok(())).unwrap_err();
-    assert_eq!(late.to_string(), "image-upload-expired");
-}
-
-/// A commit whose receipt has (nearly) expired on the wall clock is refused
-/// rather than reviving the receipt another daemon's sweep may hold.
-#[test]
-fn cloud_image_paste_commit_never_revives_a_nearly_expired_receipt() {
-    let shared = SharedStorage::new();
-    let clock = WallClock::manual(1_000_000);
-    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
-    daemon_a.begin(owner(), ID, "image/png", PNG.len()).unwrap();
-    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
-    chunk(&daemon_a, 0, PNG);
-    clock.advance((UPLOAD_TTL + IMAGE_TTL).as_secs() - 299);
-    let mut pasted = false;
-    let refused = daemon_a
-        .commit(&owner(), ID, |_| {
-            pasted = true;
+    let mut pasted = String::new();
+    daemon_a
+        .commit(&owner(), ID, |text| {
+            pasted = text.into();
             Ok(())
         })
-        .unwrap_err();
-    assert_eq!(refused.to_string(), "image-upload-expired");
-    assert!(!pasted);
+        .unwrap();
+    assert_eq!(pasted, format!("'{}'", path.display()));
+    assert_eq!(fs::read(&path).unwrap(), image);
+    // Model A's crash: its descriptors close (releasing the lock) but nothing
+    // is unlinked. Past the retention its receipt records, B removes it.
+    let upload = daemon_a.shared.state.lock().unwrap().uploads.remove(&(1, ID.into())).unwrap();
+    upload.file.abandon_for_test();
+    drop(daemon_a);
+    shared.sweep(&clock);
+    assert!(path.exists(), "recovery removed a committed image before its retention ended");
+    clock.advance(IMAGE_TTL.as_secs() + 1);
+    shared.sweep(&clock);
+    assert!(!path.exists(), "recovery kept a crashed daemon's image past its retention");
     assert!(!path.parent().unwrap().exists());
 }

@@ -72,16 +72,6 @@ pub(crate) struct ImagePasteFile {
 /// `.receipt`; only a crash between the two can leave it behind.
 const NEXT_RECEIPT: &CStr = c".receipt-next";
 
-/// A receipt that has expired, or will within this many seconds, is never
-/// moved later. A recovery sweep in another daemon that shares the storage may
-/// already hold it as expired and be about to remove the upload; reviving it
-/// then would let that sweep unlink a live upload. A live upload refreshes its
-/// receipt long before this (the store keeps it at least 570 s ahead), so only
-/// an upload whose wall clock ran on without it (a suspended machine, a
-/// stalled daemon) is refused. The margin also absorbs a wall clock stepped
-/// back between that sweep's read and this check.
-const RECEIPT_REVIVE_MARGIN: u64 = 300;
-
 impl ImagePasteFile {
     #[cfg(test)]
     pub(crate) fn create(extension: &str) -> std::io::Result<Self> {
@@ -131,6 +121,15 @@ impl ImagePasteFile {
             }
             // openat returned a new descriptor owned only by this File.
             let file = unsafe { File::from_raw_fd(fd) };
+            // The live lease: held while this daemon owns the upload, released
+            // by the kernel when it exits or crashes. No sweep in any daemon
+            // removes a file it cannot lock, whatever its receipt says.
+            if !try_lock(&file) {
+                unsafe {
+                    libc::unlinkat(directory_handle.as_raw_fd(), name.as_ptr(), 0);
+                }
+                return Err(std::io::Error::other("temporary image lock unavailable"));
+            }
             let directory_metadata = directory_handle.metadata()?;
             let file_metadata = file.metadata()?;
             let receipt_name = CString::new(".receipt").unwrap();
@@ -197,12 +196,7 @@ impl ImagePasteFile {
     /// new receipt is written and synced under a private name, then renamed
     /// over `.receipt`, so a sweep reads the old receipt or the new one and
     /// never a torn one. Only the small receipt is rewritten, never image bytes.
-    /// A receipt within RECEIPT_REVIVE_MARGIN of expiring at `now` is refused
-    /// with `TimedOut`: a sweep may already have claimed it.
-    pub(crate) fn set_expiry(&mut self, expires: u64, now: u64) -> std::io::Result<()> {
-        if self.record.expires < now.saturating_add(RECEIPT_REVIVE_MARGIN) {
-            return Err(std::io::ErrorKind::TimedOut.into());
-        }
+    pub(crate) fn set_expiry(&mut self, expires: u64) -> std::io::Result<()> {
         let (receipt_name, next_name) = (c".receipt", NEXT_RECEIPT);
         if !self.entry_matches(receipt_name, &self.receipt) {
             return Err(std::io::Error::other("temporary image receipt was replaced"));
@@ -436,7 +430,25 @@ impl ImagePasteFile {
     }
 }
 
+/// Takes the file's exclusive advisory lock without waiting. A daemon holds it
+/// on every upload it owns (from creation until the upload is dropped); the
+/// kernel releases it when that daemon's descriptor closes, a crash included.
+fn try_lock(file: &File) -> bool {
+    // The descriptor is live for the duration of this call.
+    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+}
+
 impl ImagePasteFile {
+    /// Claims a recovered file for removal. False while another daemon (or
+    /// another handle) still owns the upload, so a sweep never removes a live
+    /// upload even when its receipt reads as expired: a stale handle, a wall
+    /// clock stepped forward or back, or a receipt refresh racing the sweep.
+    /// Taking the lock also keeps the owner from coming back while this
+    /// handle removes the file, since only the creator ever holds it.
+    pub(crate) fn claim_for_removal(&self) -> bool {
+        try_lock(&self.file)
+    }
+
     pub(crate) fn remove_owned(&self) -> bool {
         // Retain the receipt on failure so a later recovery sweep can retry.
         let quarantine = CString::new(".cleanup-image").unwrap();
