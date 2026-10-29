@@ -398,6 +398,7 @@ impl Hub {
                 .cloned()
                 .unwrap_or(Value::Null),
             model: current_model(&m),
+            effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),

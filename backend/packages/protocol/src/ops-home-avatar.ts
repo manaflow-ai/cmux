@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { ConversationId, ParticipantId } from "./ops-home-schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Participant avatars (capability participant-avatars-v1 on the local owner; the same ops on the
@@ -12,7 +13,7 @@ import { ConversationId, ParticipantId } from "./ops-home-schemas.ts"
 export const MAX_AVATAR_BYTES = 1024 * 1024
 export const AvatarMediaType = Schema.Literals(["image/png", "image/jpeg", "image/gif", "image/webp"])
 export const AvatarRef = Schema.Struct({
-  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sha256: Schema.String.check(isPattern(/^[0-9a-f]{64}$/)),
   media_type: AvatarMediaType,
   bytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(MAX_AVATAR_BYTES))
 }).annotate({ identifier: "AvatarRef", description: "A stored avatar: its SHA-256, its media type (from the bytes) and its size." })

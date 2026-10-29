@@ -299,6 +299,27 @@ fn claim_hello_stall() -> bool {
     false
 }
 
+/// Debug builds only: `ACPMUX_TEST_HOST_QUERY_STALL_DIR` in the harness's
+/// environment (a profile's `env`; the host clears its own) names a directory
+/// of `stall-*` marker files too. A host that removes one as a `Query` comes
+/// leaves that query unanswered, as a host whose answer sits behind a backlog
+/// nobody reads, so the daemon's integration tests can drive the query's
+/// timeout; each marker stalls one query. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
+    #[cfg(debug_assertions)]
+    if let Some((_, dir)) =
+        harness_env.iter().find(|(k, _)| k == "ACPMUX_TEST_HOST_QUERY_STALL_DIR")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
 impl Started {
     async fn serve(self, spec: SpawnSpec) -> Result<()> {
         let Started { record, listener, mut child, _live } = self;
@@ -954,6 +975,15 @@ impl State {
                 c.resumed = true;
             }
             ControllerFrame::Line { msg, receipt } => {
+                // Logged before any line of it is queued, so a log that has one of its lines has
+                // this too, and a next daemon knows the line is fenced (`QUEUED_METHOD`).
+                if let Some(receipt) = receipt {
+                    let note = serde_json::json!({"receipt": receipt});
+                    self.push(Entry::Tap {
+                        dir: TapDir::Out,
+                        msg: Message::notification(super::QUEUED_METHOD, note).to_value(),
+                    });
+                }
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
@@ -992,6 +1022,7 @@ impl State {
                     let _ = c.tx.send(HostFrame::TerminateAck);
                 }
             }
+            ControllerFrame::Query { .. } if claim_query_stall(&self.spec.env) => {}
             ControllerFrame::Query { id } => {
                 let (claude_session_id, modes, config_options) = match self.translator.clone() {
                     Some(tr) => (

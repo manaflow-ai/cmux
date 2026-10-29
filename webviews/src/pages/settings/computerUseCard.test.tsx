@@ -71,3 +71,38 @@ test("the buttons run the shared actions; a policy lock hides the card", async (
   expect(card(page.container)).toBeNull();
   page.unmount();
 });
+
+test("a failed helper has one Restart Helper action and recovers on a host update", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: "cmux Computer Use" },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  expect(element.textContent).toContain("The cmux Computer Use helper did not respond.");
+  const buttons = element.querySelectorAll("button");
+  expect(buttons.length).toBe(1);
+  expect(buttons[0]!.textContent).toBe("Restart Helper");
+  await act(async () => buttons[0]!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" &&
+        (entry.params as { action: string }).action === "palette.computerUse.restart",
+    ),
+  ).toBe(true);
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    }),
+  );
+  await settle();
+  expect(grants(card(page.container)!)).toEqual(["true", "true"]);
+  expect(card(page.container)!.textContent).not.toContain("Restart Helper");
+  page.unmount();
+});

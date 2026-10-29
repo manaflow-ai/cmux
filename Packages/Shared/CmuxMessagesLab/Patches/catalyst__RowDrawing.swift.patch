@@ -35,6 +35,15 @@
          return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
      }
  
+@@ -174,7 +176,7 @@
+         guard case let .part(p) = spec.kind, p.outgoing else { return false }
+         switch p.part {
+         case .text: return true
+-        case let .attachment(a): return !["image", "video"].contains(a.kind)
++        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
+         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
+         default: return false
+         }
 @@ -196,9 +198,9 @@
              }
          case let .notice(s):
@@ -138,16 +147,19 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -456,7 +469,7 @@
+@@ -455,8 +468,10 @@
+             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
++            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
++            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
 +            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +576,72 @@
+@@ -563,103 +578,85 @@
          }
      }
  
@@ -222,7 +234,9 @@
 -    /// baseline 13.75 pt under the outline's bottom; no stub. Media and card roots take the same side,
 -    /// tail and label (not measured: the take has a text root).
 +    /// cmux: the preview of my own root at the right edge (the side of its root, not of the reply), with
-+    /// "N Replies" right-aligned at 6 pt left of the edge, baseline 13.75 pt under the quote; no stub.
++    /// "N Replies" 10 pt semibold, right-aligned 10.5 pt left of the edge (its ink ends 11 pt in), baseline 14 pt
++    /// under a text quote (macOS 27 Messages, 2x reference of 2026-10-28); no stub. The Chief's reply under it draws
++    /// the arc from its own cell (`RowSpec.connectorAnchorY`).
      static func drawOutgoingThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, rightEdge: CGFloat) {
          let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
 +        drawQuoteBubble(ctx, pv, box: box)
@@ -230,7 +244,7 @@
 +            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
 +            let s = Strings.replies(pv.count)
 +            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
-+            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
++            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - (pv.isText ? 10.5 : 6) - w, baseline: box.maxY + (pv.isText ? 14 : 12.75), in: ctx, // cmux: themed link tint
 +                          kern: RowDraw.captionKern)
 +        }
 +    }
@@ -242,15 +256,26 @@
 +    /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
 +    /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
 +    static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-+        let out = pv.outgoing
-+        let fill = out ? Fixture.outgoing : Fixture.incoming
-+        let ink = out ? Fixture.outgoingText : Fixture.incomingText
-+        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
++        var out = pv.outgoing
++        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
++        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
++        let fill = out ? Fixture.quoteOutline : Fixture.incoming
++        // cmux (2026-10-27, Lawrence's 5:54 PM reference; 2026-10-28, macOS 27 Messages at 2x): my root is outlined
++        // 1 pt in Messages' dim quote blue with its blue text, a small tail on its side; the Chief's root keeps its gray fill.
++        let ink = out ? Fixture.quoteText : Fixture.incomingText
++        let shape = pv.outline(in: out ? box.insetBy(dx: 0.5, dy: 0.5) : box)
 +        ctx.saveGState()
-+        ctx.setAlpha(ThreadPreview.quoteOpacity)
-+        ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2), auxiliaryInfo: nil)
-+        fill.setFill()
-+        shape.fill()
++        ctx.setAlpha(out ? 1 : ThreadPreview.quoteOpacity)
++        // The tail hangs 4 pt under the quote.
++        ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2).union(box.offsetBy(dx: 0, dy: 6)), auxiliaryInfo: nil)
++        if out {
++            fill.setStroke()
++            shape.lineWidth = 1
++            shape.stroke()
++        } else {
++            fill.setFill()
++            shape.fill()
++        }
          if pv.isThumbnail, case let .attachment(a) = pv.part {
              ctx.saveGState()
 -            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
@@ -274,7 +299,7 @@
              for (i, line) in pv.textLines.enumerated() {
 -                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5,
 -                              baseline: box.minY + 16 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
-+                TextDraw.line(line, font: ThreadPreview.textFont, color: ink, x: box.minX + ThreadPreview.textPadX / 2,
++                TextDraw.line(line, font: ThreadPreview.textFont, color: ink, x: box.minX + ThreadPreview.textLeft,
 +                              baseline: box.minY + first + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
              }
          } else {
@@ -291,28 +316,28 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +650,11 @@
+@@ -668,16 +665,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
 -            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
 -            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
--        }
++            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
++            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+         }
 -        if pv.count >= 2 {
 -            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
 -            let s = Strings.replies(pv.count)
 -            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
 -            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
 -                          kern: RowDraw.captionKern)
-+            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-+            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
-         }
+-        }
 +        ctx.endTransparencyLayer()
 +        ctx.restoreGState()
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -1146,7 +1123,11 @@
+@@ -1146,7 +1138,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -325,7 +350,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1142,9 @@
+@@ -1161,18 +1157,9 @@
      }
  }
  
