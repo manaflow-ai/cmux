@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -10,6 +11,16 @@ import Glibc
 public let WorkstreamDefaultRingCapacity = 2_000
 public let WorkstreamDefaultInitialLoadLimit = 300
 public let WorkstreamDefaultHistoryPageSize = 300
+public let WorkstreamDefaultStartupBudgetNanoseconds: UInt64 = 2_000_000_000
+/// Bounds one user-triggered walk through malformed or duplicate history. A
+/// later request can continue from the durable byte cursor without allowing a
+/// single UI action to scan an unbounded append-only file.
+public let WorkstreamDefaultHistoryPageWalkLimit = 16
+
+nonisolated private let workstreamPersistenceLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "WorkstreamPersistence"
+)
 
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
@@ -24,11 +35,20 @@ public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
+    /// Non-fatal startup evidence for diagnosing bounded persistence loads.
+    private(set) var lastPersistenceDiagnostic: WorkstreamPersistence.StartupDiagnostics?
+    /// A persistence error never prevents the live transport from starting,
+    /// but remains observable instead of being silently treated as empty state.
+    private(set) var lastPersistenceError: PersistenceFailure?
 
-    /// Monotonic change counter bumped on every item mutation (ingest,
-    /// resolve, expire, history load). Remote mirrors of the feed (the iOS
-    /// Feed tab) compare list responses against this revision to discard
-    /// stale snapshots, the same contract the notification feed uses.
+    enum PersistenceFailure: Equatable { case startupRead }
+
+    /// Monotonic generation bumped on every item mutation (ingest, resolve,
+    /// expire, history load). It starts from the journal's byte-count
+    /// generation, which every append advances, and a durable high-water
+    /// sidecar covers bumps that append nothing. Remote mirrors of the feed
+    /// (the iOS Feed tab) compare list responses against this revision to
+    /// discard stale snapshots, the same contract the notification feed uses.
     public private(set) var revision: Int = 0
     /// Fires on the main actor after each revision bump so the app layer can
     /// broadcast a revision-only invalidation to subscribed phones.
@@ -47,8 +67,11 @@ public final class WorkstreamStore {
     private let ringCapacity: Int
     private let initialLoadLimit: Int
     private let historyPageSize: Int
+    private let historyPageWalkLimit: Int
+    private let startupBudgetNanoseconds: UInt64?
+    private let startupHardBudgetNanoseconds: UInt64?
     private let clock: @Sendable () -> Date
-    private let titleProvider: (WorkstreamEvent) -> String?
+    let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
     let workstreamIDNormalizer: @Sendable (String, String) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
@@ -75,6 +98,11 @@ public final class WorkstreamStore {
     ///     is the raw producer identity, including registered agents not yet
     ///     represented by ``WorkstreamSource``.
     ///   - titleProvider: App boundary hook for localized display titles.
+    ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
+    ///     for the bounded startup persistence pass.
+    ///   - startupHardBudgetNanoseconds: Optional wall-clock cutoff for startup
+    ///     persistence work. When reached, the store retains the bounded latest
+    ///     rows and publishes their cursor for a later explicit history page.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -85,13 +113,19 @@ public final class WorkstreamStore {
         workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in
             rawValue
         },
-        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
+        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds,
+        startupHardBudgetNanoseconds: UInt64? = nil,
+        historyPageWalkLimit: Int = WorkstreamDefaultHistoryPageWalkLimit
     ) {
         self.transport = transport
         self.persistence = persistence
         self.ringCapacity = ringCapacity
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
+        self.historyPageWalkLimit = max(1, historyPageWalkLimit)
+        self.startupBudgetNanoseconds = startupBudgetNanoseconds
+        self.startupHardBudgetNanoseconds = startupHardBudgetNanoseconds
         self.clock = clock
         self.titleProvider = titleProvider
         self.workstreamIDNormalizer = workstreamIDNormalizer
@@ -118,18 +152,39 @@ public final class WorkstreamStore {
 
     private func performStart() async {
         if let persistence {
-            revision = (try? await persistence.loadRevision()) ?? 0
-            if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
-                items = loaded.map(normalizedWorkstreamItem)
-                if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                    hasMorePersistedItems = page.hasMoreBefore
-                    oldestLoadedPersistenceOffset = page.startOffset
-                } else {
-                    hasMorePersistedItems = false
-                    oldestLoadedPersistenceOffset = nil
+            do {
+                let snapshot = try await persistence.loadStartupSnapshot(
+                    limit: min(initialLoadLimit, ringCapacity),
+                    budgetNanoseconds: startupBudgetNanoseconds,
+                    hardBudgetNanoseconds: startupHardBudgetNanoseconds
+                )
+                lastPersistenceDiagnostic = snapshot.diagnostics
+                if snapshot.diagnostics.exceededBudget {
+                    workstreamPersistenceLogger.warning(
+                        "startup persistence exceeded diagnostic threshold elapsed_ns=\(snapshot.diagnostics.elapsedNanoseconds) file_bytes=\(snapshot.diagnostics.fileBytes)"
+                    )
                 }
+                revision = max(revision, snapshot.revision)
+                let restored = snapshot.items.map(normalizedWorkstreamItem)
+                let liveIDs = Set(items.map(\.id))
+                let restoredItems = restored.filter { !liveIDs.contains($0.id) }
+                items = (restoredItems + items).suffix(ringCapacity).map { $0 }
+                hasMorePersistedItems = snapshot.page.hasMoreBefore
+                oldestLoadedPersistenceOffset = snapshot.page.startOffset
                 rebuildContextIndex()
                 bumpRevision()
+            } catch {
+                lastPersistenceError = .startupRead
+                if let persistedRevision = try? await persistence.loadRevision() {
+                    revision = max(revision, persistedRevision)
+                }
+                // A failed startup load is still a state transition for
+                // remote mirrors: force a fresh feed.list instead of leaving
+                // phones with a cached snapshot and no invalidation event.
+                bumpRevision()
+                workstreamPersistenceLogger.error(
+                    "startup persistence failed error=\(String(describing: error), privacy: .private(mask: .hash)) revision=\(self.revision)"
+                )
             }
         }
         do {
@@ -155,26 +210,53 @@ public final class WorkstreamStore {
         isLoadingOlderItems = true
         defer { isLoadingOlderItems = false }
 
-        guard let page = try? await persistence.loadPage(
-            endingBefore: oldestLoadedPersistenceOffset,
-            limit: historyPageSize
-        ), !page.items.isEmpty else {
-            hasMorePersistedItems = false
-            return
-        }
+        var cursor = oldestLoadedPersistenceOffset
+        var pageWalks = 0
+        while true {
+            pageWalks += 1
+            guard let page = try? await persistence.loadPage(
+                endingBefore: cursor,
+                limit: historyPageSize
+            ) else {
+                hasMorePersistedItems = false
+                return
+            }
 
-        let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.map(normalizedWorkstreamItem).filter {
-            !existingIds.contains($0.id)
-        }
-        if !olderItems.isEmpty {
-            items.insert(contentsOf: olderItems, at: 0)
-        }
-        self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
-        hasMorePersistedItems = page.hasMoreBefore
-        rebuildContextIndex()
-        if !olderItems.isEmpty {
-            bumpRevision()
+            let existingIds = Set(items.map(\.id))
+            let olderItems = page.latestItems
+                .map(normalizedWorkstreamItem)
+                .filter { !existingIds.contains($0.id) }
+            if !olderItems.isEmpty {
+                items.insert(contentsOf: olderItems, at: 0)
+                self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
+                hasMorePersistedItems = page.hasMoreBefore
+                rebuildContextIndex()
+                bumpRevision()
+                return
+            }
+
+            guard page.hasMoreBefore,
+                  let nextCursor = page.startOffset,
+                  nextCursor < cursor else {
+                self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
+                hasMorePersistedItems = false
+                return
+            }
+
+            // A page containing only malformed or already-loaded rows still
+            // has a valid byte cursor. Walk past it so one bad page cannot
+            // permanently hide older recoverable history.
+            cursor = nextCursor
+            self.oldestLoadedPersistenceOffset = nextCursor
+
+            if pageWalks >= historyPageWalkLimit {
+                // Keep the cursor and `hasMorePersistedItems` intact so a
+                // subsequent explicit request can continue. This prevents a
+                // corrupt or duplicate-heavy tail from monopolizing the
+                // caller while preserving access to older valid rows.
+                hasMorePersistedItems = page.hasMoreBefore
+                return
+            }
         }
     }
 
@@ -261,21 +343,61 @@ public final class WorkstreamStore {
     // MARK: - Private helpers
 
     private func bumpRevision() {
-        revision += 1
+        revision = revision == Int.max ? Int.max : revision + 1
         onRevisionChange?(revision)
+        persistRevision()
     }
 
     /// The latest append in the ordered write chain. Each append waits for
     /// the one before it, so the log replays mutations in the order the store
     /// applied them (latest version of an item wins on restart).
     private var persistenceTail: Task<Void, Never>?
+    private var revisionPersistenceTail: Task<Void, Never>?
+    /// Journal and sidecar writes queued but not yet finished.
+    private var queuedPersistenceWrites = 0
+
+    /// Whether a journal or revision write is still in flight. App quit
+    /// checks this synchronously and, when it is true, waits for
+    /// ``flushPersistence()`` before letting AppKit terminate.
+    public var hasPendingPersistenceWrites: Bool { queuedPersistenceWrites > 0 }
+    private var pendingPersistedRevision: Int?
+
+    private func persistRevision() {
+        guard let persistence else { return }
+        let alreadyScheduled = pendingPersistedRevision != nil
+        pendingPersistedRevision = revision
+        guard !alreadyScheduled else { return }
+        let previous = revisionPersistenceTail
+        queuedPersistenceWrites += 1
+        revisionPersistenceTail = Task { [weak self, persistence] in
+            await previous?.value
+            defer { self?.queuedPersistenceWrites -= 1 }
+            guard let value = self?.pendingPersistedRevision else { return }
+            self?.pendingPersistedRevision = nil
+            do {
+                try await persistence.recordRevision(value)
+            } catch {
+                workstreamPersistenceLogger.error(
+                    "workstream revision sidecar write failed error=\(String(describing: error), privacy: .private(mask: .hash))"
+                )
+            }
+        }
+    }
 
     private func persist(_ item: WorkstreamItem) {
         guard let persistence else { return }
         let previous = persistenceTail
-        persistenceTail = Task { [persistence, item] in
+        queuedPersistenceWrites += 1
+        persistenceTail = Task { [weak self, persistence, item] in
             await previous?.value
-            try? await persistence.append(item)
+            do {
+                try await persistence.append(item)
+            } catch {
+                workstreamPersistenceLogger.error(
+                    "workstream journal append failed error=\(String(describing: error), privacy: .private(mask: .hash))"
+                )
+            }
+            self?.queuedPersistenceWrites -= 1
         }
     }
 
@@ -283,6 +405,7 @@ public final class WorkstreamStore {
     /// (and tests) that must read the log back.
     public func flushPersistence() async {
         await persistenceTail?.value
+        await revisionPersistenceTail?.value
     }
 
     private func insert(_ item: WorkstreamItem) {
@@ -393,107 +516,6 @@ public final class WorkstreamStore {
         #endif
     }
 
-    private func decode(
-        event: WorkstreamEvent,
-        source: WorkstreamSource
-    ) -> (WorkstreamKind, WorkstreamPayload) {
-        let toolInput = event.toolInputJSON ?? "{}"
-        switch event.hookEventName {
-        case .permissionRequest:
-            return (
-                .permissionRequest,
-                .permissionRequest(
-                    requestId: event.requestId ?? event.sessionId,
-                    toolName: event.toolName ?? "unknown",
-                    toolInputJSON: toolInput,
-                    pattern: nil
-                )
-            )
-        case .askUserQuestion:
-            let parsed = WorkstreamQuestionPrompt.parse(toolInputJSON: event.toolInputJSON)
-            return (
-                .question,
-                .question(
-                    requestId: event.requestId ?? event.sessionId,
-                    questions: parsed
-                )
-            )
-        case .exitPlanMode:
-            return (
-                .exitPlan,
-                .exitPlan(
-                    requestId: event.requestId ?? event.sessionId,
-                    plan: toolInput,
-                    defaultMode: .manual
-                )
-            )
-        case .preToolUse:
-            return (.toolUse, .toolUse(toolName: event.toolName ?? "", toolInputJSON: toolInput))
-        case .postToolUse:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: event.isError ?? false)
-            )
-        case .postToolUseFailure:
-            return (
-                .toolResult,
-                .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: true)
-            )
-        case .preCompact:
-            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
-        case .postCompact:
-            return (
-                .toolResult,
-                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
-            )
-        case .subagentStart:
-            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
-        case .subagentStop:
-            return (
-                .toolResult,
-                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
-            )
-        case .userPromptSubmit:
-            let prompt = Self.promptText(from: event.toolInputJSON)
-            return (
-                .userPrompt,
-                .userPrompt(text: prompt.isEmpty ? (event.context?.lastUserMessage ?? "") : prompt)
-            )
-        case .sessionStart:
-            return (.sessionStart, .sessionStart)
-        case .sessionEnd:
-            return (.sessionEnd, .sessionEnd)
-        case .stop:
-            return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
-        case .todoWrite:
-            return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
-        case .notification:
-            return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
-        }
-    }
-
-    private func defaultTitle(for event: WorkstreamEvent) -> String? {
-        if let tool = event.toolName, !tool.isEmpty {
-            return tool
-        }
-        return titleProvider(event)
-    }
-
-    private static func jsonObject(from json: String?) -> Any? {
-        guard let json, let data = json.data(using: .utf8) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-    }
-
-    private static func promptText(from json: String?) -> String {
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            return (dict["prompt"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["message"] as? String)
-                ?? ""
-        }
-        return json ?? ""
-    }
-
     private func rebuildContextIndex() {
         lastContextByWorkstream.removeAll(keepingCapacity: true)
         for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
@@ -562,46 +584,5 @@ public final class WorkstreamStore {
         return carried.isEmpty ? nil : carried
     }
 
-    private static func stopReason(from json: String?) -> String? {
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            return (dict["reason"] as? String)
-                ?? (dict["message"] as? String)
-                ?? (dict["cause"] as? String)
-        }
-        return nil
-    }
 
-    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
-        let rawTodos: [Any]
-        if let dict = jsonObject(from: json) as? [String: Any] {
-            rawTodos = dict["todos"] as? [Any] ?? []
-        } else {
-            rawTodos = jsonObject(from: json) as? [Any] ?? []
-        }
-        return rawTodos.enumerated().compactMap { idx, raw in
-            guard let dict = raw as? [String: Any] else { return nil }
-            let content = (dict["content"] as? String)
-                ?? (dict["text"] as? String)
-                ?? (dict["title"] as? String)
-                ?? ""
-            guard !content.isEmpty else { return nil }
-            let rawState = (dict["state"] as? String)
-                ?? (dict["status"] as? String)
-                ?? "pending"
-            let state: WorkstreamTaskTodo.State
-            switch rawState {
-            case "completed", "done":
-                state = .completed
-            case "inProgress", "in_progress", "active":
-                state = .inProgress
-            default:
-                state = .pending
-            }
-            return WorkstreamTaskTodo(
-                id: (dict["id"] as? String) ?? "todo\(idx)",
-                content: content,
-                state: state
-            )
-        }
-    }
 }
