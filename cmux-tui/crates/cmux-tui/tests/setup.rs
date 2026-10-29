@@ -931,7 +931,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("computer_use"),
             &json!("cloud_machine"),
             &json!("notifications"),
-            &json!("browser_import")
+            &json!("browser_import"),
+            &json!("tailnet")
         ],
         "{status}"
     );
