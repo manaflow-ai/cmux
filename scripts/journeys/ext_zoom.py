@@ -391,6 +391,30 @@ def analyze_press(samples, start_ms, end_ms, refresh_ms, browser, max_ms=150.0, 
     return problems, facts
 
 
+def frame_table(samples, start_ms, end_ms, panes_by_kind):
+    """One row per display frame of a press: t from the press, and for each pane kind its shown rect, the share of its
+    tab bar that shows (row[13]) and whether it is visible (not wholly under a pane in front)."""
+    kinds = {v: k for k, v in (panes_by_kind or {}).items()}
+    rows = []
+    for s in samples:
+        if not (start_ms - 17 <= s.get("t", 0) < end_ms):
+            continue
+        panes = _panes(s)
+        vis = _visible(panes)
+        row = {"t": round(s["t"] - start_ms, 1), "zoom": kinds.get(_zoom_owner(s), "")}
+        for pane, r in panes.items():
+            kind = kinds.get(pane)
+            if not kind:
+                continue
+            row[kind] = {"rect": [round(v) for v in r[1:5]], "header": r[13] if len(r) > 13 else None,
+                         "visible": pane in vis}
+        pages = [r for r in s.get("page") or [] if isinstance(r, list)]
+        row["pages"] = [{"size": [r[0], r[1]], "hidden": r[5], "cut": r[8] if len(r) > 8 else None,
+                         "child_window": r[9] if len(r) > 9 else None} for r in pages]
+        rows.append(row)
+    return rows
+
+
 def cond_zoom_transition(j, want, cache):
     data = getattr(j, "zoom_traces", {}).get(want["of"])
     if not data:
@@ -403,6 +427,8 @@ def cond_zoom_transition(j, want, cache):
         found, facts = analyze_press(samples, start, end, data.get("refresh_ms"), browser, float(want.get("max_ms", 150)),
                                      _page_in_window(data.get("layers"), browser))
         report.append({"press": i + 1, "facts": facts, "problems": found})
+        (j.out / f"diag-{want['of']}-press{i + 1}-frames.json").write_text(
+            json.dumps(frame_table(samples, start, min(end, start + 400), data["panes"])) + "\n")
         problems += [f"press {i + 1}: {p}" for p in found]
     return not problems, {"presses": report, "problems": problems[:20], "frames": len(samples)}
 
