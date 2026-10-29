@@ -2,7 +2,8 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last` and `acpmux_info`.
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
+//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -41,7 +42,8 @@ fn tools() -> Value {
                 "properties": {
                     "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
                     "text": {"type": "string", "description": "The message, self-contained."},
-                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."}
+                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
+                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi"], "description": "What the message asks of the receiver: block (you cannot go on until it acts), question (you wait for its answer), result (work you finished; the default) or fyi. A coordinator is woken by blocks and questions only; results and FYIs wait for its next turn's inbox digest."}
                 },
                 "required": ["to", "text"]
             }
@@ -75,6 +77,40 @@ fn tools() -> Value {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
+            }
+        },
+        {
+            "name": "team_send",
+            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt includes the hub's resolution and whether the message may start work; a normal message never starts work automatically.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "A team address such as @member/agent or @team/role."},
+                    "body": {"type": "string", "description": "The information to deliver."}
+                },
+                "required": ["to", "body"]
+            }
+        },
+        {
+            "name": "team_inbox",
+            "description": "List durable messages addressed to this agent's team address. Messages are information by default and are delivered when the agent reaches its next turn boundary.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "unreadOnly": {"type": "boolean", "description": "Only messages that have not been read or acknowledged (default true)."},
+                    "before": {"type": "integer", "minimum": 0, "description": "Continue from a previous response's next cursor."}
+                }
+            }
+        },
+        {
+            "name": "team_ack",
+            "description": "Acknowledge a team message after reading it. The acknowledgement is recorded by the team hub.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "The hub message id from team_inbox."}
+                },
+                "required": ["id"]
             }
         }
     ])
@@ -111,6 +147,9 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
     }
     match params["name"].as_str().unwrap_or_default() {
         "send" => send(daemon, &args).await,
+        "team_send" => team_send(daemon, &args).await,
+        "team_inbox" => team_inbox(daemon, &args).await,
+        "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
@@ -149,6 +188,53 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
     }
 }
 
+/// Send a team-scoped message through the daemon's hub client. The daemon owns the
+/// caller token and Labs gate, so this MCP surface cannot bypass either one.
+async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
+    let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
+        return error_result("to and body are required".to_owned());
+    };
+    if body.trim().is_empty() {
+        return error_result("body is empty".to_owned());
+    }
+    match daemon.request(method::MUX_TEAM_SEND, json!({"to": to, "body": body})).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+/// Read the durable team inbox. `unreadOnly` defaults to true so an agent does not
+/// repeatedly receive old information unless it explicitly asks for all messages.
+async fn team_inbox(daemon: &Arc<Client>, args: &Value) -> Value {
+    let unread_only = args.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
+    let mut params = json!({"unreadOnly": unread_only});
+    if let Some(before) = args.get("before").and_then(Value::as_u64) {
+        params["before"] = json!(before);
+    }
+    match daemon.request(method::MUX_TEAM_INBOX, params).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+async fn team_ack(daemon: &Arc<Client>, args: &Value) -> Value {
+    let Some(id) = arg(args, "id") else {
+        return error_result("id is required".to_owned());
+    };
+    match daemon.request(method::MUX_TEAM_ACK, json!({"id": id})).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+fn team_result_text(result: &Value) -> String {
+    if result.is_string() {
+        result.as_str().unwrap_or_default().to_owned()
+    } else {
+        serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+    }
+}
+
 /// `send`: what `acpmux send --no-wait` does (`cli/run/send_async.rs`): the message goes to this
 /// daemon's outbox (`_acpmux/send_queue`), which delivers it as this session (its caller token)
 /// and retries a slow target or a peer that is down. It answers with the delivery once it
@@ -161,11 +247,16 @@ async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
         return error_result("text is empty".to_owned());
     }
     let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
+    let class = match send_class(args) {
+        Ok(class) => class,
+        Err(e) => return error_result(e),
+    };
     let key = match crate::cli::orchestrate::expand_session_key(to) {
         Ok(key) => key,
         Err(e) => return refusal(e),
     };
-    let prompt = PromptId::new(None);
+    let mut prompt = PromptId::new(None);
+    prompt.class = class;
     let request = prompt.params(&key, text, steer, None);
     let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
         Ok(queued) => queued,
@@ -208,6 +299,18 @@ delivering it, retrying while the target is slow or its peer is down. Do not sen
     };
     structured["delivery"] = json!(how_id);
     ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
+}
+
+/// `send`'s `class` (`prompt_class.rs`), checked here too, so a wrong one is this call's error and
+/// not a failed delivery.
+fn send_class(args: &Value) -> Result<Option<String>, String> {
+    match args.get("class") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(c)) if crate::prompt_class::PromptClass::parse(c).is_some() => {
+            Ok(Some(c.clone()))
+        }
+        Some(_) => Err(format!("class must be one of {}", crate::prompt_class::VALUES)),
+    }
 }
 
 /// `ls`: `acpmux ls` as one line per session.

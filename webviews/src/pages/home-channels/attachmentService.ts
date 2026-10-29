@@ -8,8 +8,14 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
-import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
 import { imageSize, MAX_DECODE_PIXELS, MAX_UNSIZED_DECODE_BYTES } from "../../agent-session/acpmux/composer/imageWork";
+import {
+  HomeOps,
+  MESSAGE_PARTS,
+  type HomeAttachment,
+  type HomeAttachmentSupport,
+  type HomeDerivedImage,
+} from "./types";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 
@@ -52,7 +58,6 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
   heic: "image/heic",
 };
 
-export const MAX_ATTACHMENTS = 10;
 const PREVIEW_BYTES_LIMIT = 512_000;
 const POSTER_BYTES_LIMIT = 2_000_000;
 const PREVIEW_EDGE = 720;
@@ -122,6 +127,21 @@ export type Refusal = "size";
 export function refusal(file: File): Refusal | undefined {
   if (file.size <= 0) return "size";
   return undefined;
+}
+
+/** The messages one send of `text` and `files` becomes, in order: each within `MESSAGE_PARTS`, the
+ * text (when there is any) with the first files. No files: the text alone. */
+export function messageGroups<T>(text: string, files: readonly T[]): { text: string; files: T[] }[] {
+  const groups: { text: string; files: T[] }[] = [];
+  let at = 0;
+  let first = true;
+  do {
+    const room = MESSAGE_PARTS - (first && text ? 1 : 0);
+    groups.push({ text: first ? text : "", files: files.slice(at, at + room) });
+    at += room;
+    first = false;
+  } while (at < files.length);
+  return groups;
 }
 
 export function formatBytes(bytes: number): string {

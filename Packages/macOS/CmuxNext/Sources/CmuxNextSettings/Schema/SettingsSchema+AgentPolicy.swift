@@ -323,6 +323,9 @@ extension SettingsSchema {
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
         "labs.voiceRoomURL": .network,
+        // On, Add Device mints a line that joins any machine to the team's machines: only the person
+        // turns that on.
+        "labs.machineJoin": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,

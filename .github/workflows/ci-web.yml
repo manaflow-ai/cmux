@@ -488,12 +488,19 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-          # Room for one alone retry of the slowest file after a short one: at the
-          # runner's 120 s default, #27045's shard 1 spent 60 s retrying
-          # code-block-highlight-height and cut attach-huge-files' retry (about
-          # 130 s) short, so its first run's typing reads stood as reds. 300 s
-          # keeps the slowest shard (about 32 min on 16 vCPU) inside its 40 min.
-          CMUX_WEB_TEST_RETRY_BUDGET: "300"
+          # Every failed or timed-out file gets its alone retry before it counts
+          # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
+          # its job. A fixed budget left contention reds unretried, and the base
+          # replay (one at a time) then charged them to the change: a 240 s
+          # timeout budget kept 7 of #27007's shard 1 timeouts, and a 300 s
+          # failed-file budget cut accent-glass-invariants' retry (it needs more
+          # than 297 s alone) and skipped transcript-thought and
+          # streaming-text-frames (#27425's shard 4). The retries end 32 min into
+          # this step (it starts about 2 min into the job), which leaves the
+          # uploads room inside the 40 min timeout-minutes. A file that fails
+          # alone too stays red.
+          CMUX_WEB_TEST_RETRY_BUDGET: "1920"
+          CMUX_WEB_TEST_RETRY_DEADLINE: "1920"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.

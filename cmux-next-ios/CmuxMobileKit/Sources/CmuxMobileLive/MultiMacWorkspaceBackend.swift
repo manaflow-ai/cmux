@@ -7,7 +7,8 @@ import Foundation
 /// with no session answers through the idle stand-in, which says it is not
 /// connected.
 @MainActor
-public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend, AgentChatsBackend {
+public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend,
+    AgentChatsBackend, WorkspacePaneBackend {
     private weak var coordinator: LiveCoordinator?
 
     public init(coordinator: LiveCoordinator) {
@@ -112,6 +113,46 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         try await backend(workspace.macID).closeScreen(screen, in: workspace)
+    }
+
+    // MARK: WorkspacePaneBackend
+
+    public func canEditPanes(on macID: String) -> Bool { on(macID)?.canEditPanes(on: macID) ?? false }
+    public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).split(pane, direction, in: workspace)
+    }
+    public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).newPane(from: pane, column: column, in: workspace)
+    }
+    public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).toggleZoom(pane, in: workspace)
+    }
+    public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).swap(pane, direction, in: workspace)
+    }
+    public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).renamePane(pane, to: name, in: workspace)
+    }
+    public func closePane(_ pane: Int, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).closePane(pane, in: workspace)
+    }
+    public func equalizeSplits(in workspace: Workspace) async throws -> Int {
+        try await backend(workspace.macID).equalizeSplits(in: workspace)
+    }
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
+        try await backend(workspace.macID).undoLayout(in: workspace, confirming: confirmation)
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTab(tab, toNewSplit: edge, in: workspace)
+    }
+    public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTabToNewColumn(tab, in: workspace)
+    }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTab(tab, toPane: pane, in: workspace)
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).forkAgentChat(tab, to: destination, in: workspace)
     }
 
     // MARK: WorkspaceArrangementBackend
