@@ -13,7 +13,7 @@ import { runChild } from "./helpers/run-child";
 // refusal (cleanup.ts --snapshot) against channel files and wrangler.jsonc.
 
 type Step = { name?: string; id?: string; if?: string; uses?: string; env?: Record<string, string>; with?: Record<string, unknown>; run?: string; "working-directory"?: string };
-type Job = { environment?: string; permissions?: unknown; env: Record<string, string>; steps: Step[] };
+type Job = { environment?: string; permissions?: unknown; needs?: string; if?: string; env: Record<string, string>; steps: Step[] };
 type Workflow = {
   on: Record<string, { inputs: Record<string, { type: string; options?: string[]; default?: unknown }> }>;
   permissions: Record<string, string>;
@@ -55,17 +55,31 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
     expect(workflowText).not.toMatch(/:\s*write\b|write-all/);
   });
 
-  test("one job, in the bake's environment", () => {
-    expect(Object.keys(workflow.jobs)).toEqual(["promote"]);
-    expect(job.environment).toBe("cmux-next-vm-image-dev");
+  test("the promote job's environment is cmux-next-vm-image-prod for production and cmux-next-vm-image-dev for dev", () => {
+    expect(Object.keys(workflow.jobs)).toEqual(["prod-gate", "promote"]);
+    // vm-image-cmux-vm-prod-channel.test.ts evaluates it for both channels.
+    expect(job.environment).toBe("${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}");
+    // The gate names no environment (a job naming a missing one would create it), runs for production only, and gates promote.
+    expect(workflow.jobs["prod-gate"]!.environment).toBeUndefined();
+    expect((workflow.jobs["prod-gate"] as Job).if).toBe("inputs.channel == 'production'");
+    expect(job.needs).toBe("prod-gate");
+    expect(job.if).toBe("${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.channel == 'dev' && needs.prod-gate.result == 'skipped')) }}");
   });
 
   test("never cancels a running promotion", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
   });
 
-  test("channel is dev only", () => {
-    expect(workflow.on.workflow_dispatch!.inputs.channel).toMatchObject({ type: "choice", options: ["dev"] });
+  test("channel is dev or production, dev by default", () => {
+    expect(workflow.on.workflow_dispatch!.inputs.channel).toMatchObject({ type: "choice", options: ["dev", "production"], default: "dev" });
+  });
+
+  test("the production secrets reach promote.ts on production only; dev gets none of them", () => {
+    const promote = step("Promote (fresh-clone smoke on the channel's account)");
+    for (const name of ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"]) expect(promote.env![name]).toBe(`\${{ inputs.channel == 'production' && secrets.${name} || '' }}`);
+    expect(promote.env!.GH_TOKEN).toBe("${{ inputs.channel == 'production' && github.token || '' }}");
+    expect(promote.run).toContain("unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN\n");
+    expect(workflow.jobs.promote!.steps.find((s) => s.uses?.startsWith("actions/download-artifact@"))?.with?.name).toBe("cmux-vm-image-${{ inputs.channel == 'production' && 'prod-copy' || 'bake' }}-${{ inputs.bake_run }}");
   });
 
   test("nothing publishes: no push, no PR, no credentials kept by checkout", () => {
@@ -75,14 +89,21 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {
-    for (const s of job.steps) if (s.run) expect(s.run).not.toContain("${{");
+    for (const j of Object.values(workflow.jobs)) for (const s of j.steps) if (s.run) expect(s.run).not.toContain("${{");
   });
 
   test("the key is only FREESTYLE_KEY_SECRET in step env; a step that runs bun unsets it and passes a file", () => {
-    expect([...workflowText.matchAll(/secrets\.[A-Za-z_]+/g)].map((m) => m[0]).every((s) => s === "secrets.FREESTYLE_API_KEY")).toBe(true);
+    expect(new Set([...workflowText.matchAll(/secrets\.[A-Za-z_]+/g)].map((m) => m[0]))).toEqual(new Set(["secrets.FREESTYLE_API_KEY", "secrets.CMUX_UITEST_STACK_EMAIL", "secrets.CMUX_UITEST_STACK_PASSWORD"]));
     expect(job.env).not.toHaveProperty("FREESTYLE_KEY_SECRET");
+    // Presence checks see whether a secret is set, never its value.
+    const PRESENCE = /^\$\{\{ secrets\.[A-Z_]+ != '' && 'yes' \|\| '' \}\}$/;
     for (const s of job.steps) {
-      for (const [k, v] of Object.entries(s.env ?? {})) if (v.includes("secrets.")) expect(k).toBe("FREESTYLE_KEY_SECRET");
+      for (const [k, v] of Object.entries(s.env ?? {})) {
+        if (!v.includes("secrets.")) continue;
+        if (k.startsWith("HAS_")) expect(v).toMatch(PRESENCE);
+        else if (k.startsWith("CMUX_UITEST_STACK_")) expect(v).toBe(`\${{ inputs.channel == 'production' && secrets.${k} || '' }}`);
+        else expect(k).toBe("FREESTYLE_KEY_SECRET");
+      }
       expect(s.env ?? {}).not.toHaveProperty("FREESTYLE_API_KEY");
       // Before any external command runs, the key leaves the environment (an unexported shell variable).
       if (s.env?.FREESTYLE_KEY_SECRET) {
@@ -106,13 +127,20 @@ async function runScript(name: string, env: Record<string, string>, dir: string)
 }
 
 describe("Check the inputs", () => {
-  const base = { CHANNEL: "dev", SNAPSHOT: ID(1), BAKE_RUN: "40270232246", DELETE_SNAPSHOT: "", GITHUB_REF: "refs/heads/feat-cmux-next" };
+  const base = { CHANNEL: "dev", SNAPSHOT: ID(1), BAKE_RUN: "40270232246", DELETE_SNAPSHOT: "", GITHUB_REF: "refs/heads/feat-cmux-next", HAS_KEY: "yes", HAS_EMAIL: "", HAS_PASSWORD: "" };
+  const prod = { CHANNEL: "production", HAS_EMAIL: "yes", HAS_PASSWORD: "yes" };
   const cases: Array<[string, Partial<typeof base>, string | null]> = [
     ["promote", {}, "promote=true\ndelete=false\n"],
     ["promote and delete", { DELETE_SNAPSHOT: ID(2) }, "promote=true\ndelete=true\n"],
     ["delete only", { SNAPSHOT: "", BAKE_RUN: "", DELETE_SNAPSHOT: ID(2) }, "promote=false\ndelete=true\n"],
     ["staging", { CHANNEL: "staging" }, null],
-    ["production", { CHANNEL: "production" }, null],
+    ["production", prod, "promote=true\ndelete=false\n"],
+    ["production without the production key", { ...prod, HAS_KEY: "" }, null],
+    ["production without the test profile email", { ...prod, HAS_EMAIL: "" }, null],
+    ["production without the test profile password", { ...prod, HAS_PASSWORD: "" }, null],
+    ["production with delete_snapshot", { ...prod, DELETE_SNAPSHOT: ID(2) }, null],
+    ["production delete only", { ...prod, SNAPSHOT: "", BAKE_RUN: "", DELETE_SNAPSHOT: ID(2) }, null],
+    ["production from another branch", { ...prod, GITHUB_REF: "refs/heads/main" }, null],
     ["another branch", { GITHUB_REF: "refs/heads/main" }, null],
     ["nothing", { SNAPSHOT: "", BAKE_RUN: "" }, null],
     ["snapshot without bake_run", { BAKE_RUN: "" }, null],
@@ -139,7 +167,7 @@ describe("Check the inputs", () => {
 });
 
 describe("key handling in the run scripts", () => {
-  for (const name of ["Promote (fresh-clone smoke on the dev account)", "Delete the spare snapshot"]) {
+  for (const name of ["Promote (fresh-clone smoke on the channel's account)", "Delete the spare snapshot"]) {
     test(`${name}: bun sees a 0600 key file, not the key; the file is gone afterwards`, async () => {
       const dir = scratch();
       const bin = path.join(dir, "bin");

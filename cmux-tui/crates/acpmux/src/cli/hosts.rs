@@ -307,11 +307,9 @@ fn restart_detached(json: bool) -> String {
     format!("{SHUTDOWN_KEEPING_AGENTS}; {start}")
 }
 
-/// `daemon shutdown --keep-agents` on the remote. A CLI older than the flag
-/// rejects it (clap's usage error names it); its plain `daemon shutdown`
-/// already keeps hosted agents, so only then it runs again without the flag.
-/// Any other failure (no daemon runs) is not retried.
-const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
+/// Explicit update handoff on the remote. Older CLIs fall back only when clap rejects
+/// a new flag; their plain shutdown already keeps hosted agents. Other failures do not retry.
+const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown --keep-agents --restart 2>&1) || case \"$out\" in *\"unexpected argument '--restart'\"*) out=$(~/.local/bin/acpmux daemon shutdown --keep-agents 2>&1) || case \"$out\" in *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac ;; *\"unexpected argument '--keep-agents'\"*) ~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1 ;; esac";
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is
 /// still not running is an error, not a status line.
@@ -611,7 +609,14 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
                 .request("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true}))
                 .await
         }
-        None => client.request("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+        None => {
+            client
+                .request(
+                    "_acpmux/peer_reconnect",
+                    json!({"name": name, "wait": true, "force": true}),
+                )
+                .await
+        }
     }
 }
 
@@ -1117,7 +1122,7 @@ mod tests {
                 "systemctl --user daemon-reload",
                 "systemctl --user cat acpmux.service",
                 "systemctl --user is-active --quiet acpmux.service",
-                "acpmux daemon shutdown --keep-agents",
+                "acpmux daemon shutdown --keep-agents --restart",
                 "systemctl --user enable --now acpmux.service",
                 // The self-update timer (host_auto_update.rs), once the unit runs.
                 "systemctl --user daemon-reload",
@@ -1365,15 +1370,26 @@ mod tests {
     #[cfg(unix)]
     fn a_restart_keeps_agents_and_falls_back_only_for_a_cli_without_the_flag() {
         // A current CLI: one call, with the flag.
-        assert_eq!(remote_shutdown_calls("new", "exit 0"), ["daemon shutdown --keep-agents"]);
+        assert_eq!(
+            remote_shutdown_calls("new", "exit 0"),
+            ["daemon shutdown --keep-agents --restart"]
+        );
         // A CLI older than the flag: clap refuses it; the plain call detaches.
         let old = r#"case "$*" in *--keep-agents*) echo "error: unexpected argument '--keep-agents' found" >&2; exit 2;; esac"#;
         assert_eq!(
             remote_shutdown_calls("old", old),
-            ["daemon shutdown --keep-agents", "daemon shutdown"]
+            ["daemon shutdown --keep-agents --restart", "daemon shutdown"]
+        );
+        let previous = r#"case "$*" in *--restart*) echo "error: unexpected argument '--restart' found" >&2; exit 2;; esac"#;
+        assert_eq!(
+            remote_shutdown_calls("previous", previous),
+            ["daemon shutdown --keep-agents --restart", "daemon shutdown --keep-agents"]
         );
         // Any other failure (no daemon answered) is not retried.
         let down = "echo 'acpmux: runtime: daemon not running' >&2; exit 1";
-        assert_eq!(remote_shutdown_calls("down", down), ["daemon shutdown --keep-agents"]);
+        assert_eq!(
+            remote_shutdown_calls("down", down),
+            ["daemon shutdown --keep-agents --restart"]
+        );
     }
 }
