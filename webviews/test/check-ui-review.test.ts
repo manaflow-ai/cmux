@@ -29,6 +29,17 @@ describe("cross-surface UI review lint", () => {
       { rule: "redundant-open", fingerprint: "Open chat", line: 1 },
     ]);
     expect(findRedundantOpenButtons(tsx, `<div><button>Open chat</button></div>`)).toHaveLength(0);
+    expect(findRedundantOpenButtons(tsx, `<div onClick={open}><button>Open</button></div>`)).toMatchObject([
+      { fingerprint: "Open" },
+    ]);
+    expect(findRedundantOpenButtons(tsx, `<div onClick={open}><button>Opening soon</button></div>`)).toHaveLength(0);
+  });
+
+  test("a focusable row without a pointer action does not make its Open button redundant", () => {
+    expect(findRedundantOpenButtons(tsx, `<div tabIndex={-1}><button>Open chat</button></div>`)).toHaveLength(0);
+    expect(
+      findRedundantOpenButtons(tsx, `<div role="listitem" onKeyDown={move}><button>Open chat</button></div>`),
+    ).toHaveLength(0);
   });
 
   test("reads a styled button's rendered label, not its attributes", () => {
@@ -46,6 +57,9 @@ describe("cross-surface UI review lint", () => {
     expect(findMultiSpace(tsx, "<span>Ran      2 commands</span>")).toHaveLength(1);
     expect(findMultiSpace(tsx, "<span>Ran 2 commands</span>")).toHaveLength(0);
     expect(findMultiSpace(tsx, '<div aria-label="Ran      2 commands" />')).toHaveLength(1);
+    expect(findMultiSpace(tsx, '<div className="flex  gap-2" />')).toHaveLength(0);
+    expect(findMultiSpace(tsx, '<div className={cx("flex  gap-2", open && "is-open")} />')).toHaveLength(0);
+    expect(findMultiSpace(tsx, '<input placeholder={"Search  files"} />')).toHaveLength(1);
   });
 
   test("flags a repeated leading type label in mapped sibling rows", () => {

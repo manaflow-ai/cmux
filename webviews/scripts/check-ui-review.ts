@@ -148,15 +148,20 @@ function ancestors(node: ts.Node): ts.Node[] {
   return result;
 }
 
+/** Attributes whose value a person reads or hears; className, type, name and the like are not copy. */
+const COPY_ATTRIBUTE = /^(?:title|placeholder|alt|label|aria-label|aria-description|aria-valuetext|aria-placeholder)$/i;
+
 function isUiLiteral(node: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral): boolean {
   const parent = node.parent;
-  if (ts.isJsxExpression(parent)) return true;
-  if (ts.isJsxAttribute(parent)) return true;
   if (ts.isPropertyAssignment(parent)) {
     const name = propertyName(parent.name);
     return Boolean(name && /^(?:label|title|text|description|placeholder|ariaLabel|aria-label|alt)$/i.test(name));
   }
-  return ancestors(node).some((ancestor) => ts.isJsxElement(ancestor) || ts.isJsxSelfClosingElement(ancestor));
+  for (const ancestor of ancestors(node)) {
+    if (ts.isJsxAttribute(ancestor)) return ts.isIdentifier(ancestor.name) && COPY_ATTRIBUTE.test(ancestor.name.text);
+    if (ts.isJsxElement(ancestor) || ts.isJsxSelfClosingElement(ancestor) || ts.isJsxFragment(ancestor)) return true;
+  }
+  return false;
 }
 
 function normalizeCopy(value: string): string {
@@ -304,11 +309,10 @@ function visibleText(node: ts.Node, translations: Map<string, string>): string {
   return normalizeCopy(chunks.join(" "));
 }
 
+/** A row that opens on its own: a pointer activation handler. Focusability (tabIndex, onKeyDown) alone opens nothing. */
 function hasClickHandler(element: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
-  return (
-    ["onClick", "onPointerDown", "onKeyDown", "onDoubleClick"].some((name) => Boolean(jsxAttribute(element, name))) ||
-    attributeText(element, "role") === "button" ||
-    Boolean(jsxAttribute(element, "tabIndex"))
+  return ["onClick", "onPointerDown", "onMouseDown", "onDoubleClick"].some((name) =>
+    Boolean(jsxAttribute(element, name)),
   );
 }
 
@@ -323,7 +327,7 @@ export function findRedundantOpenButtons(
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
       if (jsxName(openingElement(node).tagName).toLowerCase() === "button") {
         const label = visibleText(node, translations) || attributeText(node, "aria-label") || "";
-        if (/^open(?:\s|…)/i.test(label)) {
+        if (/^open(?:\s|…|$)/i.test(label)) {
           const row = ancestors(node).find(
             (ancestor): ancestor is ts.JsxElement | ts.JsxSelfClosingElement =>
               (ts.isJsxElement(ancestor) || ts.isJsxSelfClosingElement(ancestor)) && hasClickHandler(ancestor),
