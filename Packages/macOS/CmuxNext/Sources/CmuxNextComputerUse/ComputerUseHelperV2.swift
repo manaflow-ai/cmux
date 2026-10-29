@@ -138,8 +138,14 @@ public final class ComputerUseHelperV2 {
     /// Cua Driver values itself before the driver loads.
     nonisolated static func environment(home: String = NSHomeDirectory(),
                                         temporaryDirectory: String = ComputerUseHelperDaemon.userTemporaryDirectory(),
-                                        user: String = NSUserName()) -> [String: String] {
-        [
+                                        user: String = NSUserName(),
+                                        bundleID: String? = Bundle.main.bundleIdentifier) -> [String: String] {
+        // Legacy permits an exact tagged DEV bundle for dogfood. Only this
+        // app chooses that scope. Do not read it from an agent or inherited env.
+        let prefix = "com.cmuxterm.app.debug."
+        let allowed = bundleID.flatMap { $0.hasPrefix(prefix) && $0.count > prefix.count ? $0 : nil } ?? ""
+        return [
+            "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed,
             "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
             "CUA_TELEMETRY_ENABLED": "false",
             "CUA_DRIVER_RS_UPDATE_CHECK": "false",
