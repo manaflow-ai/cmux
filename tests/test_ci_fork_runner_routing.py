@@ -176,6 +176,10 @@ class _Unsupported(ValueError):
     pass
 
 
+class _Fails(ValueError):
+    """The expression errors for this context, so the job fails instead of picking a runner."""
+
+
 def _truthy(value: object) -> bool:
     return value not in ("", None, False, 0)
 
@@ -202,17 +206,26 @@ def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
         text = node[1]
         if text.startswith("'"):
             return text[1:-1].replace("''", "'")
-        return {"true": True, "false": False, "null": None}.get(text, text)
+        if text in ("true", "false", "null"):
+            return {"true": True, "false": False, "null": None}[text]
+        # GitHub coerces numbers against strings and booleans; this check does not model it.
+        raise _Unsupported(f"number literal {text}")
     if kind == "ref":
         path = re.sub(r"\['([A-Za-z_][A-Za-z0-9_-]*)'\]", r".\1", node[1])
         if path not in context:
             raise _Unsupported(path)
         return context[path]
     if kind == "cmp" and node[1] in ("==", "!="):
-        left, right = (str(evaluate_runs_on(side, context)).lower() for side in (node[2], node[3]))
-        return (left == right) == (node[1] == "==")
+        left, right = (evaluate_runs_on(side, context) for side in (node[2], node[3]))
+        if not (isinstance(left, str) and isinstance(right, str)):
+            # Mixed types compare by GitHub's number coercion, which this check does not model.
+            raise _Unsupported(f"comparison of {type(left).__name__} with {type(right).__name__}")
+        return (left.lower() == right.lower()) == (node[1] == "==")
     if kind == "call" and node[1] == "fromJSON" and len(node[2]) == 1:
-        return json.loads(str(evaluate_runs_on(node[2][0], context)))
+        try:
+            return json.loads(str(evaluate_runs_on(node[2][0], context)))
+        except json.JSONDecodeError as error:
+            raise _Fails(str(error)) from error
     if kind == "call" and node[1] in ("contains", "startsWith") and len(node[2]) == 2:
         haystack, needle = (evaluate_runs_on(arg, context) for arg in node[2])
         if isinstance(haystack, list):
@@ -222,6 +235,43 @@ def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
         haystack, needle = str(haystack).lower(), str(needle).lower()
         return haystack.startswith(needle) if node[1] == "startsWith" else needle in haystack
     raise _Unsupported(repr(node))
+
+
+def _ref_name(node: tuple) -> str | None:
+    return _refs(node)[0] if node[0] == "ref" else None
+
+
+def _compared_literals(node: tuple, found: dict[str, set[str]] | None = None) -> dict[str, set[str]]:
+    """ref -> the string literals it is compared with by == or !=."""
+    found = {} if found is None else found
+    if node[0] == "cmp":
+        for side, other in ((node[2], node[3]), (node[3], node[2])):
+            name = _ref_name(side)
+            if name and other[0] == "literal" and other[1].startswith("'"):
+                found.setdefault(name, set()).add(other[1][1:-1].replace("''", "'"))
+    for child in (node[1] if node[0] in ("or", "and") else node[2] if node[0] == "call"
+                  else (node[1],) if node[0] == "not" else (node[2], node[3]) if node[0] == "cmp" else ()):
+        _compared_literals(child, found)
+    return found
+
+
+def _free_refs(node: tuple, inside: str = "") -> set[str]:
+    """Refs used other than as a side of == or !=, or as the needle of contains(fromJSON(..), ref)."""
+    kind = node[0]
+    if kind == "ref":
+        return set() if inside == "cmp" else {_refs(node)[0]}
+    if kind == "cmp":
+        return {ref for side in (node[2], node[3]) for ref in _free_refs(side, "cmp")}
+    if kind == "call":
+        args = node[2]
+        if node[1] == "contains" and len(args) == 2 and args[0][0] == "call" and args[0][1] == "fromJSON":
+            return _free_refs(args[0]) | _free_refs(args[1], "cmp")
+        return {ref for arg in args for ref in _free_refs(arg)}
+    if kind in ("or", "and"):
+        return {ref for child in node[1] for ref in _free_refs(child)}
+    if kind == "not":
+        return _free_refs(node[1])
+    return set()
 
 
 def runner_label_errors(runs_on: str) -> list[str]:
@@ -246,12 +296,23 @@ def runner_label_errors(runs_on: str) -> list[str]:
             literals.update(str(item).lower() for item in json.loads(value))
     named = {label for label in literals if EPHEMERAL_LITERAL.fullmatch(label)}
     refs = sorted(set(_refs(tree)))
+    # Each literal, and values that extend it, so a startsWith or substring pick is tried too.
+    near = sorted({variant for literal in literals
+                   for variant in (literal, literal + "-x", "glaeda-" + literal, literal.upper())})
+    compared = _compared_literals(tree)
     choices = []
     for ref in refs:
         if ref in RUNNER_CONTEXT_VALUES:
-            choices.append(RUNNER_CONTEXT_VALUES[ref])
+            # Its listed values, every literal it is compared with, and one value outside them,
+            # so a branch for an event or a repository not listed here is still evaluated. A
+            # context used other than in a comparison (returned, or searched) gets every
+            # literal and its extensions, as a variable does.
+            values = (*RUNNER_CONTEXT_VALUES[ref], *sorted(compared.get(ref, ())), "zz-unlisted")
+            if ref in _free_refs(tree):
+                values += tuple(near)
+            choices.append(tuple(dict.fromkeys(values)))
         elif ref.lower().startswith("vars."):
-            choices.append(tuple(dict.fromkeys((*ADVERSARIAL_VARIABLE_VALUES, *sorted(literals)))))
+            choices.append(tuple(dict.fromkeys((*ADVERSARIAL_VARIABLE_VALUES, *near))))
         else:
             return [f"{runs_on!r} reads {ref}, which this check cannot enumerate"]
     errors: list[str] = []
@@ -261,6 +322,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
             label = str(evaluate_runs_on(tree, context) or "").lower()
         except _Unsupported as error:
             return [f"{runs_on!r} uses {error}, which this check cannot evaluate"]
+        except _Fails:
+            continue  # runs-on errors in this context: the job fails, it runs nowhere
         inside = context.get("github.repository_owner", "manaflow-ai") == "manaflow-ai"
         if label not in named or (inside and not label.startswith("blacksmith-")):
             errors.append(f"{runs_on!r} yields {label!r} when {context}")
@@ -1272,6 +1335,23 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
                         f"${{{{ {fork}{widened} }}}}", f"${{{{ {fork}{unbounded} }}}}",
                         "${{ needs.pick.outputs.runner || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        # Review of #27631: number literals and type coercion, unlisted contexts,
+                        # and startsWith or substring picks must not pass.
+                        f"${{{{ {fork}!0 && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}'true' == true && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER }}}}",
+                        f"${{{{ {fork}'01' != 1 && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER }}}}",
+                        f"${{{{ {fork}github.event_name == 'merge_group' && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}github.event_name == 'merge_group' && format('{{0}}', vars.LINUX_RUNNER) || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}github.repository != 'manaflow-ai/cmux' && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}github.event.pull_request.head.repo.full_name == 'manaflow-ai/evil' && "
+                        "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}startsWith(vars.LINUX_RUNNER, 'blacksmith-16vcpu-ubuntu-2404') && "
+                        "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(vars.LINUX_RUNNER, 'blacksmith-16vcpu-ubuntu-2404') && "
+                        "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
                         "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "ubuntu-24.04"):
             self.assertNotEqual(runner_label_errors(refused), [], refused)
         for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
