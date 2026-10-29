@@ -42,6 +42,35 @@ import Testing
         #expect(closes == 2)
     }
 
+    @Test func numericPositionOverridesNamedRestingIdentity() {
+        var spec = descriptor()
+        spec.selectedValue = "high"
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "0", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        var values: [String] = []
+        view.change = { values.append($0) }
+        #expect(view.slider.doubleValue == 0 && view.currentLabel.stringValue == "Low")
+        #expect(values.isEmpty)
+        view.slider.keyDown(with: key(36))
+        #expect(values == ["0"])
+    }
+
+    @Test func numericSliderReceivesInitialKeyboardFocus() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        let model = NativePopupModel(schemaVersion: 1, id: "numeric", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Value", value: "0", minimum: 0, maximum: 1, step: 1)])
+        content.update(model)
+        content.focusInitial()
+        #expect(window.firstResponder is NSSlider)
+    }
+
     @Test func selectedValueWinsOverDefaultAndDisabledSliderEmitsNothing() {
         var spec = descriptor()
         spec.selectedValue = "low"

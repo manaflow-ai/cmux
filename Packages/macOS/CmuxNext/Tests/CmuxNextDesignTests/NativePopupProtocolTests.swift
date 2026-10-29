@@ -43,6 +43,11 @@ import Testing
         model.rows = [NativePopupRow(id: "effort", kind: .slider, label: "Effort", value: "0",
                                      minimum: 0, maximum: 0, step: 1, slider: NativePopupSlider(stops: [stop]))]
         #expect(model.isValid)
+        for value in ["-1", "1", "0.5", "nan", "not a number"] {
+            model.rows[0].value = value
+            #expect(!model.isValid)
+        }
+        model.rows[0].value = "0"
         model.rows[0].slider?.stops.append(stop)
         #expect(!model.isValid)
         model.rows[0].slider?.stops = [stop]
