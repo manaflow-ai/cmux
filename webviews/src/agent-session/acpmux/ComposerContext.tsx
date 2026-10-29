@@ -477,7 +477,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   // Extra onboarding actions add rows below the list; reserve their full height when choosing the side.
   // Otherwise a top-anchored picker can clip the last action at the viewport edge.
-  const { control, anchor, open, setOpen, side } = useLocationPopover(extras?.length ? 400 : undefined);
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
     <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
@@ -698,7 +698,9 @@ function LocationPicker({
   onOpen?(): void;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  // Extra onboarding actions add rows below the list; reserve their full height when choosing the side.
+  // Otherwise a top-anchored picker can clip the last action at the viewport edge.
+  const { control, anchor, open, setOpen, side } = useLocationPopover(extras?.length ? 400 : undefined);
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
