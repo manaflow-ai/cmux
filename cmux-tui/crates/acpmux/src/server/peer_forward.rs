@@ -279,7 +279,7 @@ async fn forward_inner(
                             .await
                             && peer.link_epoch() == link
                         {
-                            peer.note_attached_page(&id, &page);
+                            peer.note_hidden_attach_page(&id, &page);
                         }
                     }
                 });

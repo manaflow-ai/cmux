@@ -100,3 +100,109 @@ async fn dropping_an_accepted_prompt_wait_cleans_recovery_metadata() {
     peer.recover_prompts(peer.link_epoch()).await.unwrap();
     assert!(outbound.try_recv().is_err(), "an abandoned waiter was recovered");
 }
+
+#[test]
+fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
+    let (notices, _) = mpsc::channel(16);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
+    peer.mark_attached("s");
+    peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 40, "lastSeq": 50}));
+    assert_eq!(peer.attached.lock_or_recover()["s"], 40, "use the snapshot, not later history");
+    peer.note_live(&json!({"sessionId": "s", "_meta": {"acpmux": {"seq": 42}}}));
+    peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 40}));
+    assert_eq!(
+        peer.attached.lock_or_recover()["s"],
+        42,
+        "a delayed response cannot rewind live events"
+    );
+    assert!(!peer.mark_attached("s"), "another prompt retains the same stream baseline");
+    peer.mark_attached("old-peer");
+    peer.note_hidden_attach_page("old-peer", &json!({"events": [], "lastSeq": 9}));
+    assert_eq!(
+        peer.attached.lock_or_recover()["old-peer"],
+        0,
+        "an unbounded lastSeq is not a safe snapshot"
+    );
+}
+
+#[tokio::test]
+async fn reconnect_replays_before_admitting_a_concurrent_attach() {
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+    async fn request(ws: &mut WebSocketStream<tokio::io::DuplexStream>) -> Value {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if let Frame::Text(text) = frame {
+                return serde_json::from_str(&text).unwrap();
+            }
+        }
+    }
+    async fn reply(ws: &mut WebSocketStream<tokio::io::DuplexStream>, req: &Value, result: Value) {
+        ws.send(Frame::Text(
+            json!({"jsonrpc": "2.0", "id": req["id"], "result": result}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    }
+    let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    peer.mark_attached("s");
+    peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 10}));
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let init = request(&mut server).await;
+    assert_eq!(init["method"], method::INITIALIZE);
+    reply(&mut server, &init, json!({})).await;
+    let watch = request(&mut server).await;
+    assert_eq!(watch["method"], method::MUX_WATCH);
+    // Traffic triggered by watch/recovery cannot advance the cursor past the gap.
+    server
+        .send(Frame::Text(
+            Message::notification(method::MUX_EVENT, event(12)).to_value().to_string().into(),
+        ))
+        .await
+        .unwrap();
+    reply(&mut server, &watch, json!({"sessions": [{"sessionId": "s"}]})).await;
+    let replay = request(&mut server).await;
+    assert_eq!(replay["method"], method::MUX_ATTACH);
+    assert_eq!(replay["params"]["afterSeq"], 10, "do not skip history or the replay gap");
+    assert!(!peer.connected.load(Ordering::SeqCst), "replay has not reached subscribers yet");
+    let concurrent = tokio::time::timeout(
+        Duration::from_secs(2),
+        peer.request(method::MUX_ATTACH, json!({"sessionId": "s"})),
+    )
+    .await
+    .expect("attach must be refused immediately during replay")
+    .unwrap_err();
+    assert_eq!(concurrent.data.unwrap()["reason"], "peer_unreachable");
+    reply(&mut server, &replay, json!({"events": [event(11), event(12)], "hasMore": true})).await;
+    let next = request(&mut server).await;
+    assert_eq!(next["params"]["afterSeq"], 12);
+    assert!(!peer.connected.load(Ordering::SeqCst), "all bounded pages must finish");
+    reply(&mut server, &next, json!({"events": [event(13)], "hasMore": false})).await;
+    let mut seqs = Vec::new();
+    loop {
+        let (_, _, notice) =
+            tokio::time::timeout(Duration::from_secs(2), notices.recv()).await.unwrap().unwrap();
+        match notice {
+            PeerNotice::Notification { method: m, params, .. } if m == method::MUX_EVENT => {
+                seqs.push(params["seq"].as_u64().unwrap())
+            }
+            PeerNotice::Connected => break,
+            _ => {}
+        }
+    }
+    assert_eq!(seqs, vec![11, 12, 13], "subscribers receive each gap event once, before readiness");
+    assert!(peer.connected.load(Ordering::SeqCst));
+    peer.stop();
+    tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap().unwrap();
+}

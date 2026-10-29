@@ -28,6 +28,26 @@ pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
     });
 }
 
+/// Reconstruct only fields the persisted outcome actually retained.
+fn persisted_outcome(result: Value, settled: Value) -> Result<Value, RpcError> {
+    if settled.get("status").and_then(Value::as_str) == Some("failed") {
+        let code = settled.get("code").and_then(Value::as_i64).unwrap_or(-32603);
+        let message = settled
+            .get("error")
+            .and_then(Value::as_str)
+            .or_else(|| settled.get("errorText").and_then(Value::as_str))
+            .unwrap_or("the original prompt failed");
+        let mut data = settled.clone();
+        if let (Some(data), Some(original)) =
+            (data.as_object_mut(), settled.get("data").and_then(Value::as_object))
+        {
+            data.extend(original.clone());
+        }
+        return Err(RpcError::new(code, message).with_data(data));
+    }
+    Ok(result)
+}
+
 impl Hub {
     /// Read an accepted prompt without submitting another turn. An adopted active turn
     /// may have no in-memory ledger entry: its persisted completion wakes this wait.
@@ -64,22 +84,7 @@ impl Hub {
                         )
                 })?;
             if let Some(settled) = settled {
-                if settled.get("status").and_then(Value::as_str) == Some("failed") {
-                    let code = settled.get("code").and_then(Value::as_i64).unwrap_or(-32603);
-                    let message = settled
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .or_else(|| settled.get("errorText").and_then(Value::as_str))
-                        .unwrap_or("the original prompt failed");
-                    let mut data = settled.clone();
-                    if let (Some(data), Some(original)) =
-                        (data.as_object_mut(), settled.get("data").and_then(Value::as_object))
-                    {
-                        data.extend(original.clone());
-                    }
-                    return Err(RpcError::new(code, message).with_data(data));
-                }
-                return Ok(result);
+                return persisted_outcome(result, settled);
             }
             // finish_turn takes `turn` before awaiting its final writes, while the session
             // still says Running. A settled orphan has neither an active nor finishing turn.
@@ -109,6 +114,14 @@ impl Hub {
                     .is_some_and(|(_, settled)| settled.is_some())
                 {
                     continue;
+                }
+                // A compacted old failure can retain only lastTurn. Once no matching turn
+                // can still finish, preserve that failure instead of returning a success.
+                if let Some(last) = session.meta().last_turn.filter(|last| {
+                    last.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                        && last.get("status").and_then(Value::as_str) == Some("failed")
+                }) {
+                    return persisted_outcome(result, last);
                 }
                 return Ok(result);
             }
@@ -184,17 +197,19 @@ impl Hub {
                 "stopReason": last.get("stopReason").cloned().unwrap_or(Value::Null),
                 "_meta": {"acpmux": {"promptId": prompt_id, "turnId": last.get("turnId"), "status": last.get("status"), "duplicate": true}},
             });
-            // lastTurn deliberately omits the RPC code; use the persisted failure when held.
-            let mut settled = last.clone();
+            // lastTurn is written before turn_result and omits the original code/data.
+            // A failed summary alone must not settle a still-finishing recovered turn.
+            let mut settled = Some(last.clone());
             if last.get("status").and_then(Value::as_str) == Some("failed") {
+                settled = None;
                 let _ = self.store.scan_kinds(&session.id, &["turn_result"], &mut |record| {
                     if record.msg.get("turnId") == last.get("turnId") {
-                        settled = record.msg;
+                        settled = Some(record.msg);
                     }
                     true
                 });
             }
-            return Some((result, Some(settled)));
+            return Some((result, settled));
         }
         let mut turn_id: Option<String> = None;
         let mut ended: Option<Value> = None;
@@ -372,6 +387,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn prompt_outcome_waits_for_failed_summarys_original_record() {
+        let (hub, session) = chat();
+        hub.append(&session, "mux", "user_message", json!({"promptId": "p", "turnId": "t"}));
+        hub.append(&session, "mux", "turn_started", json!({"promptId": "p", "turnId": "t"}));
+        // finish_turn has taken TurnInfo and recorded lastTurn, but has not appended
+        // turn_result yet. A reconnect must wait for its original code and error data.
+        hub.set_status(&session, crate::store::SessionStatus::Running);
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "promptId": "p", "turnId": "t", "status": "failed", "errorText": "summary only",
+        }));
+        let query = hub.prompt_outcome(&session, "p");
+        tokio::pin!(query);
+        tokio::select! {
+            biased;
+            result = &mut query => panic!("failed summary answered before its record: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+        hub.append(&session, "mux", "turn_result", json!({
+            "promptId": "p", "turnId": "t", "status": "failed", "code": -32042,
+            "error": "original error", "data": {"reason": "original_reason"}, "recovery": "retry later",
+        }));
+        let error = tokio::time::timeout(std::time::Duration::from_secs(1), query)
+            .await.unwrap().unwrap_err();
+        assert_eq!(error.code, -32042);
+        assert_eq!(error.message, "original error");
+        assert_eq!(error.data.as_ref().unwrap()["reason"], "original_reason");
+        assert_eq!(error.data.unwrap()["recovery"], "retry later");
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
     async fn prompt_outcome_returns_persisted_failure_with_its_original_code_and_message() {
         let (hub, session) = chat();
         hub.append(&session, "mux", "user_message", json!({"promptId": "p", "turnId": "t"}));
@@ -391,6 +437,11 @@ mod tests {
             assert_eq!(error.data.as_ref().unwrap()["errorKind"], "disk.full");
             assert_eq!(error.data.unwrap()["recovery"], "free space");
         }
+        session.meta.lock().unwrap().last_turn = Some(json!({
+            "promptId": "compacted", "turnId": "older", "status": "failed", "errorText": "retained error",
+        }));
+        let compacted = hub.prompt_outcome(&session, "compacted").await.unwrap_err();
+        assert_eq!(compacted.message, "retained error");
         assert!(session.prompts.lock().unwrap().is_empty());
         hub.shutdown_all().await;
     }

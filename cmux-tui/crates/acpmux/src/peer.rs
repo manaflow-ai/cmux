@@ -746,6 +746,24 @@ impl Peer {
             .or_insert(seq);
     }
 
+    /// A first hidden attach deliberately reads no history. Its snapshot is the
+    /// stream baseline even when the page has no events. Keep a newer live cursor
+    /// if notifications raced the response; never move beyond the peer's snapshot.
+    pub fn note_hidden_attach_page(&self, session_id: &str, page: &Value) {
+        let replay = self.replay_highwater.lock_or_recover();
+        if replay.contains_key(session_id) {
+            return;
+        }
+        // Older peers may sample lastSeq after the page. It cannot establish a
+        // no-history baseline without risking a live event lost in that interval.
+        let Some(seq) = page.get("pageThrough").and_then(Value::as_u64) else {
+            return;
+        };
+        if let Some(cursor) = self.attached.lock_or_recover().get_mut(session_id) {
+            *cursor = (*cursor).max(seq);
+        }
+    }
+
     /// Advance the cursor for a live event sent on this peer link.
     fn note_live(&self, params: &Value) {
         let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
@@ -1111,6 +1129,10 @@ impl Peer {
         let link = self.link_epoch();
         self.admitting.store(true, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
+        // Gate existing streams before initialize/watch or outcome recovery can
+        // produce events. A live record must not move the replay cursor past a gap.
+        let replay_cursors = self.attached.lock_or_recover().clone();
+        *self.replay_highwater.lock_or_recover() = replay_cursors;
         *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
@@ -1179,39 +1201,14 @@ impl Peer {
                 .filter_map(|row| row.get("sessionId").and_then(Value::as_str).map(str::to_owned))
                 .collect();
             me.attached.lock_or_recover().retain(|id, _| listed.contains(id));
+            me.replay_highwater.lock_or_recover().retain(|id, _| listed.contains(id));
             me.recover_prompts(link).await?;
-            // Connected only now, and ready with it, so its state note follows `connected`.
-            // `run` moves the epoch on before it clears `connected` and takes the link down, so
-            // a link that dropped meanwhile is seen here: it is not made ready again, and never
-            // left reading connected.
-            let live = me.with_link(|l| {
-                let live = me.link_epoch() == link;
-                if live {
-                    me.connected.store(true, Ordering::SeqCst);
-                    l.ready(crate::store::now_ms());
-                }
-                live
-            });
-            if !live || me.link_epoch() != link {
-                me.connected.store(false, Ordering::SeqCst);
-                return Ok(());
-            }
-            tracing::info!(peer = %me.name, "connected to {}", me.url);
             let attached: Vec<(String, u64)> = me
                 .attached
                 .lock_or_recover()
                 .iter()
                 .map(|(sid, cursor)| (sid.clone(), *cursor))
                 .collect();
-            // Presence in this map is the per-session replay gate. A live
-            // event for an already-completed session is delivered immediately
-            // even while another session is still paging.
-            {
-                let mut highwater = me.replay_highwater.lock_or_recover();
-                highwater.clear();
-                highwater.extend(attached.iter().map(|(sid, cursor)| (sid.clone(), *cursor)));
-            }
-            let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             for (sid, cursor) in attached {
                 let mut after = cursor;
                 loop {
@@ -1269,6 +1266,25 @@ impl Peer {
                     }
                 }
             }
+            // Admit new requests only after all replay pages have reached subscribers.
+            // Otherwise a fresh attach can return those pages before replay emits them again.
+            // `run` moves the epoch on before it clears `connected` and takes the link down, so
+            // a link that dropped meanwhile is seen here: it is not made ready again, and never
+            // left reading connected.
+            let live = me.with_link(|l| {
+                let live = me.link_epoch() == link;
+                if live {
+                    me.connected.store(true, Ordering::SeqCst);
+                    l.ready(crate::store::now_ms());
+                }
+                live
+            });
+            if !live || me.link_epoch() != link {
+                me.connected.store(false, Ordering::SeqCst);
+                return Ok(());
+            }
+            tracing::info!(peer = %me.name, "connected to {}", me.url);
+            let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             me.refresh_health();
             Ok::<(), RpcError>(())
         });
