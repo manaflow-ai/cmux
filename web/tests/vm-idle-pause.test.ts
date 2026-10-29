@@ -1002,6 +1002,47 @@ describe("legacy daemon fallback", () => {
     }
   });
 
+  test("only the exact a9b104f3 daemon refusal is legacy: lookalike commands and embedded copies stay unknown", async () => {
+    for (const error of [
+      // A later command whose name starts the same way.
+      "bad request: unknown variant `subscribe-activity-v2`, expected one of `hello`, `subscribe-activity`",
+      // The refusal quoted inside another error.
+      "relay: bad request: unknown variant `subscribe-activity`, expected one of `hello`",
+      // Same words, not serde's shape.
+      "bad request: unknown variant subscribe-activity",
+    ]) {
+      await withDaemonSocket(JSON.stringify({ id: null, ok: false, error }) + "\n", async (socketPath) => {
+        expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toBeNull();
+      });
+    }
+    // The exact refusal, with or without serde's list, is legacy.
+    for (const error of [LEGACY_DAEMON_ERROR, "bad request: unknown variant `subscribe-activity`, expected `hello`"]) {
+      await withDaemonSocket(JSON.stringify({ id: null, ok: false, error }) + "\n", async (socketPath) => {
+        expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toEqual({ legacy: true });
+      });
+    }
+  });
+
+  test("only the exact a9b104f3 acp refusal means no acpmux: other codes and embedded copies stay unknown", async () => {
+    const refusal = 'unknown resource scope "acp".';
+    for (const acpmuxStatusError of [
+      // Another code with the same message.
+      JSON.stringify({ code: "transport.failed", message: refusal, details: {}, retryable: false }) + "\n",
+      // The refusal inside other diagnostics.
+      `warning: config unreadable\ncmux: ${refusal}\n`,
+      `cmux: ${refusal} while starting acpmux\n`,
+      JSON.stringify({ code: "usage.invalid", message: `wrapper: ${refusal}`, details: {}, retryable: false }) + "\n",
+    ]) {
+      expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toBeNull();
+    }
+    for (const acpmuxStatusError of [
+      JSON.stringify({ code: "usage.invalid", message: `${refusal} Did you mean \`app\`?`, details: {}, retryable: false }) + "\n",
+      `cmux: ${refusal}\n`,
+    ]) {
+      expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toEqual({ busy_sessions: 0, last_updated_at_ms: null });
+    }
+  });
+
   test("the probe command keeps acp status errors in English and hands them to the script", () => {
     const command = vmIdleProbeCommand(["10.192.0.5"]);
     expect(command).toContain(`LC_ALL=C "$CMUX_TUI_BIN" acp --json daemon status`);
