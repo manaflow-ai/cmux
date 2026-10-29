@@ -22,12 +22,12 @@ def entry(pr: int = 23456, **overrides) -> dict:
     return {key: item for key, item in value.items() if item is not None}
 class KillSwitchLintTest(unittest.TestCase):
     def run_lint(self, switches: dict, files: dict[str, str] | None = None, flags: dict | None = None,
-                 today: str = TODAY) -> subprocess.CompletedProcess:
+                 today: str = TODAY, registry_version: object = 1) -> subprocess.CompletedProcess:
         with tempfile.TemporaryDirectory() as root:
             registry = os.path.join(root, "release-notes/next/kill-switches.json")
             os.makedirs(os.path.dirname(registry))
             with open(registry, "w", encoding="utf-8") as stream:
-                json.dump({"version": 1, "switches": switches}, stream)
+                json.dump({"version": registry_version, "switches": switches}, stream)
             if flags is not None:
                 with open(os.path.join(root, "release-notes/next/flags.json"), "w", encoding="utf-8") as stream:
                     json.dump(flags, stream)
@@ -51,6 +51,15 @@ class KillSwitchLintTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
     def test_an_entry_without_a_pr_number_is_refused(self):
         self.assert_fails(self.run_lint({"pr-23456": entry(pr=None)}, self.call()), "pr-23456: no PR number")
+    def test_registry_version_and_pr_number_are_strict_integers(self):
+        for version in (True, 1.0, 1.5):
+            with self.subTest(version=version):
+                self.assert_fails(self.run_lint({"pr-23456": entry()}, self.call(), registry_version=version),
+                                  "not a version 1 registry")
+        for pr in (23456.0, 23456.5):
+            with self.subTest(pr=pr):
+                self.assert_fails(self.run_lint({"pr-23456": entry(pr=pr)}, self.call()),
+                                  "pr-23456: no PR number")
     def test_an_entry_whose_number_is_not_its_key_is_refused(self):
         self.assert_fails(self.run_lint({"pr-23456": entry(pr=23457)}, self.call()), "pr-23456: no PR number")
     def test_a_key_that_is_not_pr_n_is_refused(self):
@@ -126,6 +135,12 @@ class KillSwitchLintTest(unittest.TestCase):
         flags["cohorts"] = {}
         done = self.run_lint({"pr-23456": entry()}, self.call(), flags)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+    def test_flags_version_is_a_strict_integer_one(self):
+        for version in (True, 1.0, 1.5):
+            with self.subTest(version=version):
+                flags = {"version": version, "default": {}, "cohorts": {}}
+                self.assert_fails(self.run_lint({"pr-23456": entry()}, self.call(), flags),
+                                  "flags.json: not a version 1 document")
     def test_a_reference_to_the_function_that_is_not_a_call_is_refused(self):
         for code in ('let check = killSwitch\nif check("pr-999") { oldPath() }\n',
                      'let check = KillSwitches.killSwitch\n', 'run(killSwitch)\n'):

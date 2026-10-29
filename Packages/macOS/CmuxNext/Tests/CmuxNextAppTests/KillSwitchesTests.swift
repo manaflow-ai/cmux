@@ -74,6 +74,8 @@ import Testing
         let document = try #require(KillSwitchDocument(data: Data(Self.offPR.utf8)))
         #expect(document.off(cohort: "nightly") == ["pr-23456"])
         #expect(KillSwitchDocument(data: Data(#"{"version":2,"default":{"DisabledFeatures":["pr-1"]}}"#.utf8)) == nil)
+        #expect(KillSwitchDocument(data: Data(#"{"version":true,"default":{"DisabledFeatures":["pr-1"]}}"#.utf8)) == nil)
+        #expect(KillSwitchDocument(data: Data(#"{"version":1.5,"default":{"DisabledFeatures":["pr-1"]}}"#.utf8)) == nil)
         #expect(KillSwitchDocument(data: Data("not json".utf8)) == nil)
     }
     @Test func onlyAVerifiedDocumentIsReadAndCached() async throws {
@@ -154,6 +156,30 @@ import Testing
         #expect(!switches.isOff("pr-1"))
         await joined.value
         #expect(switches.off == ["pr-2"])
+    }
+    @Test func aRingThatReturnsBeforeTheFirstReadFinishesStillInvalidatesTheOldResult() async throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let network = Network(files: try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-1"]}}"#))
+        let firstGate = Gate()
+        await network.hold(firstGate)
+        let switches = KillSwitches()
+        let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        defer { withExtendedLifetime(updater) {} }
+        let first = try #require(reader.read())
+        updater.follow(ring: "dev")
+        _ = try #require(reader.read())
+        updater.follow(ring: "nightly")
+        let latest = try #require(reader.read())
+        let queuedGate = Gate()
+        await network.hold(queuedGate)
+        await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-3"]}}"#))
+        await firstGate.release()
+        await first.value
+        await queuedGate.reached(1)
+        await queuedGate.release()
+        await latest.value
+        #expect(switches.off == ["pr-3"])
     }
     @Test func aReadAskedWhileTheSameRingsFetchIsOutReadsAgainAfterIt() async throws {
         let fixture = Fixture()
