@@ -110,6 +110,23 @@ import Testing
         #expect(find.matches.count == 7)
     }
 
+    @Test func outputWhileANewQueryRunsNeverLosesItsReveal() async {
+        let find = AgentChatFind()
+        find.query = "build"
+        let step = find.step
+        find.search(Self.turns())
+        var turns = Self.turns()
+        turns[1].items[1] = .message(id: "b", markdown: "build")
+        find.refresh(turns)
+        let first = find.pending
+        await first?.value
+        // The query's search landed and moved to its match; the output is searched after it.
+        #expect(find.step != step)
+        #expect(find.countText == "4 of 4")
+        await find.pending?.value
+        #expect(find.matches.count == 5)
+    }
+
     @Test func aMatchNamesTheRenderedBlockThatHoldsIt() {
         // A long answer: the match in its last paragraph scrolls to that paragraph, not to a
         // share of the whole message (a code card and a table above it draw taller than their text).

@@ -40,10 +40,11 @@ public final class AgentChatFind {
     @ObservationIgnored private var generation = 0
     /// The search running now (tests wait on it).
     @ObservationIgnored private(set) var pending: Task<Void, Never>?
-    /// The newest transcript a refresh asked for while one ran: searched once that one ends,
+    /// The newest transcript a refresh asked for while a search ran: searched once that one ends,
     /// so streamed output costs at most one search at a time, never one per chunk.
     @ObservationIgnored private var queuedRefresh: [AgentTurn]?
-    @ObservationIgnored private var refreshing = false
+    /// A search or refresh is running.
+    @ObservationIgnored private var busy = false
 
     public init() {}
 
@@ -143,32 +144,42 @@ public final class AgentChatFind {
     /// current match becomes the last one (the newest, nearest the bottom where the reader is),
     /// and the transcript goes to it.
     public func search(_ turns: [AgentTurn]) {
-        // A new query supersedes any refresh (its result is dropped by the generation).
+        // A new query supersedes a running refresh (its result is dropped by the generation);
+        // output that arrives while it runs is searched after it, so its reveal is never lost.
         queuedRefresh = nil
-        refreshing = false
-        run(turns) { [weak self] found in self?.apply(found, keeping: nil, reveal: true) }
+        busy = true
+        run(turns) { [weak self] found in
+            guard let self else { return }
+            self.apply(found, keeping: nil, reveal: true)
+            self.finished()
+        }
     }
 
     /// Searches again after the transcript changed: the count follows, the current match stays
-    /// (the same occurrence of its block), and the transcript does not move. While a refresh
-    /// runs, later ones collapse into one run of the newest transcript after it.
+    /// (the same occurrence of its block), and the transcript does not move. While a search
+    /// or refresh runs, later refreshes collapse into one run of the newest transcript after it.
     public func refresh(_ turns: [AgentTurn]) {
-        if refreshing {
+        if busy {
             queuedRefresh = turns
             return
         }
-        refreshing = true
+        busy = true
         let keep = currentMatch.flatMap { match in
             current.map { index in (block: match.block, nth: matches[..<index].filter { $0.block == match.block }.count) }
         }
         run(turns) { [weak self] found in
             guard let self else { return }
             if found != self.matches { self.apply(found, keeping: keep, reveal: false) }
-            self.refreshing = false
-            if let next = self.queuedRefresh {
-                self.queuedRefresh = nil
-                self.refresh(next)
-            }
+            self.finished()
+        }
+    }
+
+    /// The running search ended: the newest queued transcript, if any, is searched next.
+    private func finished() {
+        busy = false
+        if let next = queuedRefresh {
+            queuedRefresh = nil
+            refresh(next)
         }
     }
 
