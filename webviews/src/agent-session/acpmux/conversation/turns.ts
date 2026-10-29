@@ -23,6 +23,7 @@ import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { isWaitingMessage } from "./pendingMessages";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -137,6 +138,9 @@ export type TurnView = {
   messageBreaks: readonly number[];
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
+  /// Other sessions' messages in the last turn the agent has not read yet, which it does not draw:
+  /// they are in the group of waiting messages (pendingMessages.ts).
+  pending: readonly AcpmuxRow[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -153,6 +157,7 @@ export type TurnView = {
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
 const NO_MESSAGE_BREAKS: readonly number[] = [];
+const NO_PENDING: readonly AcpmuxRow[] = [];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
@@ -249,6 +254,7 @@ export function turnViewFrom(
   }
   const first = starts.length;
   const fromStart = lead === 0;
+  const pending: AcpmuxRow[] = [];
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
@@ -288,9 +294,15 @@ export function turnViewFrom(
       sessionStatus,
       lineBelow,
     );
-    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
-    // never folded into one card (Leo, 2026-10-29).
-    for (const row of shaped) out.push(row);
+    // Other sessions' messages the agent read stay each its own line where it read them
+    // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
+    // the running turn for the one group of waiting messages at the end (pendingMessages.ts).
+    if (last) {
+      for (const row of shaped) {
+        if (isWaitingMessage(row)) pending.push(row);
+        else out.push(row);
+      }
+    } else for (const row of shaped) out.push(row);
     ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
@@ -303,6 +315,7 @@ export function turnViewFrom(
     sessionStatus,
     messageBreaks,
     ...(waitingSteers ? { waitingSteers } : {}),
+    pending: pending.length ? pending : NO_PENDING,
     lead,
     starts,
     times,

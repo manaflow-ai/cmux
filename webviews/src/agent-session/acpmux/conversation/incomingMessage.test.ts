@@ -526,6 +526,13 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("")).toBe("");
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
+  // A bare pull request or issue address reads as its short label, as its chip does.
+  expect(messagePreview("merged https://github.com/teamleaderleo/leo-workspace/pull/1234")).toBe(
+    "merged teamleaderleo/leo-workspace#1234",
+  );
+  expect(messagePreview("see https://github.com/manaflow-ai/cmux/issues/27/files, then go")).toBe(
+    "see manaflow-ai/cmux#27, then go",
+  );
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
   // A code fence's marker is no text: its first code line is.
   expect(messagePreview("```ts\nconst retries = 3;\n```\nMore")).toBe("const retries = 3;");

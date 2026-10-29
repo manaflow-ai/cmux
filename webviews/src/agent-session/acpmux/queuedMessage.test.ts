@@ -112,3 +112,17 @@ test("a teammate's queued prompt keeps its author through acpmux's list", () => 
   );
   expect(listed[0]?.author).toEqual(ana);
 });
+
+// Leo, 2026-10-29, on a sub-session's note to its parent drawn as a plain box of raw text: "why is
+// this styled like this?". `acpmux send --no-wait` delivers through the daemon's outbox, whose
+// client is `acpmux-outbox#…`: its "From <name>:" names the sender as a shell's does.
+test("a sub-session's note through the outbox names its sender, not the person", () => {
+  const text = "From claude-sr2/ui-think-tank: merged https://github.com/teamleaderleo/leo-workspace/pull/1234";
+  expect(queuedMessage({ text, client: "acpmux-outbox#7@cosmic", promptId: "p9" })).toEqual({
+    name: "claude-sr2/ui-think-tank",
+    text: "merged https://github.com/teamleaderleo/leo-workspace/pull/1234",
+    raw: text,
+  });
+  // The person's own words stay theirs: "From now on" names no agent.
+  expect(queuedMessage({ text: "From now on: rebase first", client: "acpmux-outbox#7" })).toBeUndefined();
+});

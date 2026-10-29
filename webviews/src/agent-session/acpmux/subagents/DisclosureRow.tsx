@@ -3,7 +3,8 @@
 // A caller that keeps its own open state (an incoming message, whose state the row estimate reads,
 // incomingOpened.ts) passes `open` and `onOpenChange` in place of `disclosureKey`; `actions` sit after
 // the toggle, outside its button, for the controls a row adds at the line's end (a menu, a queue tag,
-// Reply).
+// Reply); `leading` sits before it, outside its button too, for a control of its own at the line's
+// start (an incoming message's sender, which opens its chat), with the icon then left to it.
 import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
@@ -18,7 +19,7 @@ export type DisclosureRowProps = {
   disclosureKey?: string;
   /// Indexed activities enclosed by this panel; Find opens each matching ancestor and child.
   findItems?: readonly AcpmuxActivity[];
-  icon: ReactNode;
+  icon?: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
@@ -39,6 +40,8 @@ export type DisclosureRowProps = {
   toggleLabel?: string;
   /// After the toggle, outside its button.
   actions?: ReactNode;
+  /// Before the toggle, outside its button.
+  leading?: ReactNode;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
 };
@@ -61,6 +64,7 @@ export function DisclosureRow({
   fadeIn,
   toggleLabel,
   actions,
+  leading,
   className,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
@@ -80,6 +84,7 @@ export function DisclosureRow({
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <div className="cv-disclosure__line" data-find-skip>
+        {leading}
         <button
           ref={collapse.headerRef}
           type="button"
@@ -89,9 +94,11 @@ export function DisclosureRow({
           aria-label={toggleLabel}
           onClick={collapse.toggle}
         >
-          <span className="cv-disclosure__icon" aria-hidden="true">
-            {icon}
-          </span>
+          {icon !== undefined && (
+            <span className="cv-disclosure__icon" aria-hidden="true">
+              {icon}
+            </span>
+          )}
           <span className="cv-disclosure__label">{label}</span>
           {meta && <span className="cv-disclosure__meta">{meta}</span>}
           {status && <span className="cv-disclosure__status">{status}</span>}

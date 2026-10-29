@@ -2428,12 +2428,47 @@ pre.cv-math-source {
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
 }
-.cv-received__from {
+/* The sender at the line's start (IncomingMessageCard.tsx SenderName): its harness mark, then its
+   name, which opens its chat. The name's hover highlight is its own, never the row's. */
+.cv-received__sender {
+  display: inline-flex;
   flex: none;
+  align-items: center;
   max-width: 45%;
+  min-width: 0;
+  height: 26px;
+  gap: calc(var(--ds-space-1) + 2px);
+  padding-inline-start: var(--ds-space-1);
+}
+.cv-received__mark {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  justify-content: center;
+  color: var(--cv-text-muted);
+}
+.cv-received__from {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--cv-text);
+}
+.cv-received__from--open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+  margin-inline: -4px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cv-received__from--open:hover,
+.cv-received__from--open:focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 8%, transparent);
 }
 .cv-received__preview {
   flex: 0 1 auto;
@@ -2442,13 +2477,7 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   color: var(--cv-text-dim);
 }
-/* Opened: who it is from, then the whole message, wrapped, never cut. */
-.cv-received__from-line {
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  line-height: 18px;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
+/* Opened: the whole message, wrapped, never cut. */
 .cv-received__text {
   margin-top: 4px;
   color: var(--cv-text);
@@ -4170,39 +4199,6 @@ article.acpmux-row:empty {
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
-}
-/* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): their one quiet
-   "Read after this turn", 18px (model.ts estimates it), in from the icon column. */
-.cv-received__queued-head {
-  padding-inline-start: 4px;
-  color: var(--cv-text-dim);
-  font-size: var(--text-caption);
-  line-height: 18px;
-  white-space: nowrap;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's quiet tag
-   at the line's end ("Read after this step"), revealed on hover, focus or its action menu opening.
-   No spinner, no dot, no motion. */
-.cv-received__queued {
-  flex: none;
-  padding: 0 calc(var(--ds-space-1) + 2px);
-  border-radius: 5px;
-  color: var(--cv-text-dim);
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 10%, transparent);
-  font-size: var(--text-caption);
-  line-height: 18px;
-  white-space: nowrap;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-.cv-received .cv-received__queued {
-  opacity: 0;
-}
-.cv-received:hover .cv-received__queued,
-.cv-received:focus-within .cv-received__queued,
-.cv-received:has(.cv-received-actions [aria-haspopup="menu"][aria-expanded="true"]) .cv-received__queued {
-  opacity: 1;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
