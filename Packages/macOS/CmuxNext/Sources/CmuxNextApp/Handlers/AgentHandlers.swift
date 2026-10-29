@@ -132,8 +132,12 @@ enum AgentHandlers {
         })
         gatePointerInspectorMenuRows(in: registry)
         registry.bindEffect(.fileOpen, effect: { invocation in
-            try openFile(invocation, context: context)
-            return .done
+            do {
+                try openFile(invocation, context: context)
+                return .done
+            } catch {
+                return .refused(ViewerService.reason(error))
+            }
         })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
