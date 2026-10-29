@@ -121,20 +121,25 @@ struct ProviderDetectionSourcesTests {
 
     /// Accounts shows an API key as signed in exactly when Connect would accept it, so a key
     /// never reads ready and then fails `invalidFormat` on the first Connect.
+    struct KeyCase: Sendable, CustomTestStringConvertible {
+        let provider: AIProvider, name: String, key: String, accepted: Bool
+        var testDescription: String { "\(name) \(accepted ? "accepted" : "refused")" }
+    }
+
     @Test(arguments: [
-        (AIProvider.anthropic, "ANTHROPIC_API_KEY", "abcdefghijklmnopqrstuvwxyz0123", false),
-        (AIProvider.anthropic, "ANTHROPIC_API_KEY", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz", false),
-        (AIProvider.anthropic, "ANTHROPIC_API_KEY", "sk-ant-api03-abcdefghijklmnopqrstuvwxyz", true),
-        (AIProvider.openAI, "OPENAI_API_KEY", "short", false),
-        (AIProvider.openAI, "OPENAI_API_KEY", "sk-proj-abcdefghijklmnopqrstuvwxyz", true),
-        (AIProvider.openRouter, "OPENROUTER_API_KEY", "sk-or-v1-abcdefghijklmnopqrstuvwxyz", true),
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "abcdefghijklmnopqrstuvwxyz0123", accepted: false),
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz", accepted: false),
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "sk-ant-api03-abcdefghijklmnopqrstuvwxyz", accepted: true),
+        KeyCase(provider: .openAI, name: "OPENAI_API_KEY", key: "short", accepted: false),
+        KeyCase(provider: .openAI, name: "OPENAI_API_KEY", key: "sk-proj-abcdefghijklmnopqrstuvwxyz", accepted: true),
+        KeyCase(provider: .openRouter, name: "OPENROUTER_API_KEY", key: "sk-or-v1-abcdefghijklmnopqrstuvwxyz", accepted: true),
     ])
-    func detectionAgreesWithConnectOnKeyFormat(provider: AIProvider, name: String, key: String, accepted: Bool) {
-        let detector = Self.detector(env: [name: key])
-        #expect(detector.detectLocal(provider).status == (accepted ? .signedIn : .unknown))
+    func detectionAgreesWithConnectOnKeyFormat(_ c: KeyCase) {
+        let detector = Self.detector(env: [c.name: c.key])
+        #expect(detector.detectLocal(c.provider).status == (c.accepted ? .signedIn : .unknown))
         let resolver = CredentialResolver(environment: detector.environment, keys: NoSavedKeys())
-        let connects = (try? resolver.credential(for: provider, pasted: nil)) != nil
-        #expect(connects == accepted)
+        let connects = (try? resolver.credential(for: c.provider, pasted: nil)) != nil
+        #expect(connects == c.accepted)
     }
 
     @Test func emptyAPIKeyUsesMissingStateBecauseConnectIgnoresIt() {
