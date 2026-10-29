@@ -15,6 +15,7 @@ use crate::mesh::{Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
