@@ -164,7 +164,9 @@ export function DotSwitch<Option extends string>({
                 pressed.current = false;
                 const input = event.currentTarget;
                 onPick(style);
-                setPicked(style);
+                // Keyboard feedback belongs to focus; only a pointer pick gets timed feedback.
+                // Otherwise Tab away can reveal a stale pick after onBlur clears focused.
+                setPicked(fromKeys ? undefined : style);
                 // Picked by keys, the new dot's name shows, not the one a resting pointer is over.
                 if (fromKeys) setHovered(undefined);
                 // After the pick's commit, where a page that mounts for it (Classic, or a screen

@@ -43,6 +43,8 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           await page.goto(
             `http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
               width,
+              colorScheme: scheme,
+              reducedMotion: width === 340 ? 1 : 0,
               theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
             })}`,
           );
@@ -92,9 +94,55 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           await third.click();
           await page.waitForFunction(() => document.activeElement?.textContent === "Before dots");
           await page.mouse.move(1, 1);
+          expect(await shown()).toBe(true);
           // fixed-wait: verify the pointer pick name expires after its 1100ms timer.
           await page.waitForTimeout(1400);
           expect(await shown()).toBe(false);
+        } finally {
+          await page.close();
+        }
+      });
+
+      test(`${scheme}, ${width}px: immediate keyboard blur clears the name`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 240 } });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
+              width,
+              colorScheme: scheme,
+              reducedMotion: width === 340 ? 1 : 0,
+              theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
+            })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          const label = page.locator(".nt-style-name");
+          await page.getByRole("button", { name: "Before dots" }).click();
+          await page.mouse.move(1, 1);
+          await page.keyboard.press("Tab");
+          const started = await page.evaluate(() => performance.now());
+          await page.keyboard.press("ArrowRight");
+          // Let the existing post-pick focus restoration run before the user's next key.
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+          expect(await page.getByRole("radio", { name: "Quick actions", exact: true }).isChecked()).toBe(true);
+          expect(await label.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
+          await page.keyboard.press("Tab");
+          const result = await page.evaluate(
+            (started) => ({
+              elapsed: performance.now() - started,
+              active: document.activeElement?.textContent,
+              shown: document.querySelector(".nt-style-name")!.hasAttribute("data-shown"),
+              reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+            }),
+            started,
+          );
+          console.log("dot-immediate-blur", JSON.stringify({ scheme, width, ...result }));
+          expect(result.elapsed).toBeLessThan(1100);
+          expect(result.active).toBe("After dots");
+          expect(result.reduced).toBe(width === 340);
+          expect(result.shown).toBe(false);
+          await page.waitForFunction(() => getComputedStyle(document.querySelector(".nt-style-name")!).opacity === "0");
+          expect(await label.evaluate((node) => getComputedStyle(node).opacity)).toBe("0");
         } finally {
           await page.close();
         }
