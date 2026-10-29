@@ -415,7 +415,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  test("messages queued behind the running turn draw after it, one Read after this turn over the first", async () => {
+  test("messages queued behind the running turn draw after it, in one group, no Read after this turn", async () => {
     const page = await openChat(
       [
         ...turn(1),
@@ -432,26 +432,23 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       ],
     );
     try {
-      const rows = page.locator(".cv-received");
-      await rows.nth(1).waitFor({ timeout: 10_000 });
-      expect(await rows.count()).toBe(2);
-      expect(await rows.locator(".cv-received__from").allInnerTexts()).toEqual(["lint-lane", "docs-lane"]);
-      // The note is said once, over the first queued message's line, not on each line.
-      const heads = page.locator(".cv-received__queued-head");
-      expect(await heads.allInnerTexts()).toEqual(["Read after this turn"]);
-      expect(await page.getByText("Read after this turn").count()).toBe(1);
-      expect(await page.locator(".cv-disclosure__line .cv-received__queued").count()).toBe(0);
-      expect(
-        await heads.evaluate((head) => head.closest("[data-queued-message]")?.getAttribute("data-queued-message")),
-      ).toBe("q-1");
-      const headBottom = await heads.evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await topOf(rows.first())).toBeGreaterThanOrEqual(headBottom - 0.5);
-      // After the running turn: below the turn's reply, in the queue's order.
+      // One collapsed group after the running turn, with no "Read after this turn" (Leo,
+      // 2026-10-29: "why the fuck do you guys keep doing this fucking bullshit with the red after
+      // this turn?"); opened, a line per message in the queue's order.
+      const toggle = page.locator(".cv-pending__toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      expect(await toggle.count()).toBe(1);
+      expect(await page.getByText(/Read after this (turn|step)/).count()).toBe(0);
       const replyBottom = await page
         .getByText("Reading the helper now.")
         .first()
         .evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(await heads.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(replyBottom);
+      expect(await topOf(toggle)).toBeGreaterThanOrEqual(replyBottom);
+      await toggle.click();
+      const rows = page.locator(".cv-received");
+      await rows.nth(1).waitFor({ timeout: 10_000 });
+      expect(await rows.count()).toBe(2);
+      expect(await rows.locator(".cv-received__from").allInnerTexts()).toEqual(["lint-lane", "docs-lane"]);
       expect(await topOf(rows.nth(1))).toBeGreaterThan(await topOf(rows.first()));
       // No composer-queue row for them.
       expect(await page.locator(".acpmux-queued").count()).toBe(0);
