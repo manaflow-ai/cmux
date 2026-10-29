@@ -454,6 +454,21 @@ const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
 use crate::hub::SIDE_TAG;
 
+/// A queue change is answered once its records are on disk (`Hub::records_written`): a restart
+/// rebuilds the queue from the log, so a daemon that dies right after the answer keeps what it
+/// acknowledged.
+async fn answered_once_written(
+    hub: &Arc<Hub>,
+    session: &Arc<crate::hub::Session>,
+    answer: Value,
+) -> Result<Value, RpcError> {
+    if hub.records_written(session).await {
+        Ok(answer)
+    } else {
+        Err(RpcError::internal("the chat's event log failed: the queue change is not saved"))
+    }
+}
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -1489,7 +1504,8 @@ async fn dispatch_request(
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             let gated = super::trust_gate::gated(conn.origin, &params);
-            hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
+            let answer = hub.queue_edit(&s, &params, control, gated, device.as_deref()).await?;
+            answered_once_written(hub, &s, answer).await
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -1501,7 +1517,8 @@ async fn dispatch_request(
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             hub.full_access_hold(&s.meta(), control, device.as_deref())?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
-            Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+            let answer = json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed});
+            answered_once_written(hub, &s, answer).await
         }
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             super::outbox::handle(hub, conn, m, &params).await

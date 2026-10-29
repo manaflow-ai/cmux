@@ -919,6 +919,16 @@ impl Hub {
 
     // ------------------------------------------------------------ logging
 
+    /// Waits until every record of `session` appended so far is written by the log's writer
+    /// thread (`store/log_writer.rs`). A request whose answer acknowledges a change a restart
+    /// rebuilds from the log (a queue edit) answers only then, so a daemon that dies right
+    /// after the answer keeps the change. False when the log failed: nothing after it is
+    /// written.
+    pub(crate) async fn records_written(&self, session: &Session) -> bool {
+        let seq = session.seq.load(Ordering::SeqCst);
+        crate::agent::WriteTicket::new(seq, self.store.progress(&session.id)).written().await
+    }
+
     pub(super) fn append(
         &self,
         session: &Session,
