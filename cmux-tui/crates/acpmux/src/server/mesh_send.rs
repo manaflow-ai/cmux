@@ -101,7 +101,7 @@ pub(super) async fn send(
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
         idempotency_key: if target.starts_with('@') {
-            super::team::sender_key(conn, &prompt_id)
+            super::team::sender_key(conn, &prompt_id)?
         } else {
             idempotency_key(&prompt_id)
         },

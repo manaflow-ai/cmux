@@ -87,7 +87,7 @@ async fn send(
             body,
             // The hub alone decides whether this message may start work.
             mode: Mode::TurnEnd,
-            idempotency_key: sender_key(conn, &id),
+            idempotency_key: sender_key(conn, &id)?,
         })
         .await
         .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
@@ -209,8 +209,9 @@ pub(super) fn remember_sender(
 }
 
 /// Namespace caller-selected retry keys so another session cannot recover a sender's receipt.
-pub(super) fn sender_key(conn: &Conn, id: &str) -> String {
+pub(super) fn sender_key(conn: &Conn, id: &str) -> Result<String, RpcError> {
     let identity = conn.caller().filter(|_| !conn.is_person());
-    let seed = serde_json::to_vec(&(identity, id)).expect("strings serialize");
-    format!("team:{}", crate::sha256::sha256_hex(&seed))
+    let seed = serde_json::to_vec(&(identity, id))
+        .map_err(|e| RpcError::internal(format!("cannot encode team retry key: {e}")))?;
+    Ok(format!("team:{}", crate::sha256::sha256_hex(&seed)))
 }
