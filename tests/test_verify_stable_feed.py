@@ -14,6 +14,8 @@ import importlib.util
 import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import signal
+import subprocess
 import sys
 import threading
 import unittest
@@ -31,6 +33,7 @@ EXPECTED_FEED_NAMES = ("appcast.xml", "appcast-arm64.xml", "appcast-x86_64.xml")
 
 
 def appcast(*enclosures: str) -> bytes:
+    """Build an RSS feed containing exactly the supplied enclosures."""
     items = "".join(f"<item><title>1.2.3</title>{e}</item>" for e in enclosures)
     return (
         '<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" '
@@ -39,6 +42,7 @@ def appcast(*enclosures: str) -> bytes:
 
 
 def enclosure(url=DMG, length="100", signature="c2ln") -> str:
+    """Build an enclosure, optionally omitting its signature."""
     sig = f' sparkle:edSignature="{signature}"' if signature else ""
     return f'<enclosure url="{url}" length="{length}" type="application/octet-stream"{sig}/>'
 
@@ -53,11 +57,13 @@ class Server:
         self.calls = []
 
     def _fail(self, url):
+        """Consume one queued failure before serving a fixture response."""
         queued = self.failures.get(url)
         if queued:
             raise feed.FetchError(queued.pop(0))
 
     def get(self, url):
+        """Record the feed request and serve its body or a fetch failure."""
         self.calls.append(("GET", url))
         self._fail(url)
         if url not in self.bodies:
@@ -65,6 +71,7 @@ class Server:
         return self.bodies[url]
 
     def head(self, url):
+        """Record an enclosure probe and serve its reported full size."""
         self.calls.append(("HEAD", url))
         self._fail(url)
         if url not in self.lengths:
@@ -101,10 +108,12 @@ class Clock:
 
 @contextlib.contextmanager
 def range_server(body):
+    """Serve an actual one-byte range response and record the request header."""
     ranges = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            """Advertise one byte even when the test deliberately omits it."""
             ranges.append(self.headers.get("Range"))
             self.send_response(206)
             self.send_header("Content-Range", "bytes 0-0/100")
@@ -126,13 +135,6 @@ def range_server(body):
 
 
 class VerifyStableFeedTests(unittest.TestCase):
-    def setUp(self):
-        self._sleep = feed.time.sleep
-        feed.time.sleep = lambda _seconds: None
-
-    def tearDown(self):
-        feed.time.sleep = self._sleep
-
     def test_healthy_feed_passes(self):
         server = Server({FEED_URL: appcast(enclosure())}, {DMG: 100})
         self.assertEqual(check(server), [])
@@ -190,7 +192,8 @@ class VerifyStableFeedTests(unittest.TestCase):
     def test_transient_error_is_retried(self):
         server = Server({FEED_URL: appcast(enclosure())}, {DMG: 100},
                         failures={FEED_URL: ["HTTP 502"], DMG: ["connection reset"]})
-        self.assertEqual(check(server, attempts=3), [])
+        with patch.object(threading.Event, "wait", return_value=False):
+            self.assertEqual(check(server, attempts=3), [])
 
     def test_404_is_not_retried(self):
         server = Server()
@@ -246,9 +249,42 @@ class VerifyStableFeedTests(unittest.TestCase):
             ], cancelled), 130)
         self.assertEqual(check_url.call_count, 1)
 
+    def test_cli_sigterm_cancels_verification(self):
+        """A real termination signal stops a CLI checking a broken local feed."""
+        requested = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_error(404)
+                requested.set()
+
+            def log_message(self, *_args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            process = subprocess.Popen([
+                sys.executable, str(SCRIPT), "--feed", f"http://127.0.0.1:{server.server_port}/feed.xml",
+                "--attempts", "1", "--settle-seconds", "60",
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertTrue(requested.wait(5), "CLI did not request the feed")
+                process.send_signal(signal.SIGTERM)
+                stdout, stderr = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 130, stderr)
+                self.assertIn("Feed verification cancelled", stdout)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+                server.shutdown()
+                thread.join()
+
     def test_main_exits_nonzero_on_any_problem(self):
+        """The CLI exits nonzero if any selected feed remains broken."""
         original = feed.check_feed
-        feed.check_feed = lambda url, attempts: [] if url.endswith("good.xml") else [f"{url}: bad"]
+        feed.check_feed = lambda url, attempts, **_kwargs: [] if url.endswith("good.xml") else [f"{url}: bad"]
         try:
             self.assertEqual(quiet_main(["--feed", "https://x/good.xml"]), 0)
             self.assertEqual(quiet_main(["--feed", "https://x/good.xml", "--feed", "https://x/bad.xml"]), 1)
@@ -256,9 +292,10 @@ class VerifyStableFeedTests(unittest.TestCase):
             feed.check_feed = original
 
     def test_tag_adds_the_release_feeds(self):
+        """Tag selection adds every architecture to the chosen default scope."""
         seen = []
         original = feed.check_feed
-        feed.check_feed = lambda url, attempts: seen.append(url) or []
+        feed.check_feed = lambda url, attempts, **_kwargs: seen.append(url) or []
         try:
             self.assertEqual(quiet_main(["--feed", "https://x/a.xml", "--tag", "v1.2.3"]), 0)
         finally:
@@ -270,9 +307,9 @@ class VerifyStableFeedTests(unittest.TestCase):
         # GitHub serves a cached 404 for a just-uploaded asset for a few minutes.
         results = [["https://x/a.xml: feed did not load (HTTP 404)"], []]
         clock = Clock()
-        with patch.object(feed, "check_feed", side_effect=lambda url, attempts: results.pop(0)), \
+        with patch.object(feed, "check_feed", side_effect=lambda url, attempts, **_kwargs: results.pop(0)), \
                 patch.object(feed.time, "monotonic", clock.monotonic), \
-                patch.object(feed.time, "sleep", clock.sleep):
+                patch.object(threading.Event, "wait", side_effect=clock.sleep):
             self.assertEqual(quiet_main(["--feed", "https://x/a.xml", "--settle-seconds", "60"]), 0)
         self.assertEqual(results, [])
 
@@ -280,7 +317,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         clock = Clock()
         with patch.object(feed, "check_feed", return_value=["feed did not load (HTTP 404)"]), \
                 patch.object(feed.time, "monotonic", clock.monotonic), \
-                patch.object(feed.time, "sleep", clock.sleep):
+                patch.object(threading.Event, "wait", side_effect=clock.sleep):
             self.assertEqual(quiet_main(["--feed", "https://x/a.xml", "--settle-seconds", "60"]), 1)
         self.assertEqual(clock.now, 60)
 
@@ -288,7 +325,8 @@ class VerifyStableFeedTests(unittest.TestCase):
         clock, calls = Clock(), []
         first, second, healthy = (f"https://x/{name}.xml" for name in ("a", "b", "healthy"))
 
-        def check_url(url, _attempts):
+        def check_url(url, _attempts, **_kwargs):
+            """Keep one feed failing while another recovers on its second call."""
             calls.append(url)
             if url == healthy or (url == second and calls.count(second) > 1):
                 return []
@@ -296,7 +334,7 @@ class VerifyStableFeedTests(unittest.TestCase):
 
         with patch.object(feed, "check_feed", side_effect=check_url), \
                 patch.object(feed.time, "monotonic", clock.monotonic), \
-                patch.object(feed.time, "sleep", clock.sleep):
+                patch.object(threading.Event, "wait", side_effect=clock.sleep):
             self.assertEqual(quiet_main([
                 "--feed", first, "--feed", second, "--feed", healthy, "--settle-seconds", "30",
             ]), 1)
@@ -307,7 +345,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         clock = Clock()
         with patch.object(feed, "check_feed", return_value=["HTTP 404"]) as check_url, \
                 patch.object(feed.time, "monotonic", clock.monotonic), \
-                patch.object(feed.time, "sleep", clock.sleep):
+                patch.object(threading.Event, "wait", side_effect=clock.sleep):
             self.assertEqual(quiet_main(["--feed", FEED_URL, "--settle-seconds", "1"]), 1)
         self.assertEqual(check_url.call_count, 1)
         self.assertEqual(clock.now, 1)
@@ -318,9 +356,10 @@ class VerifyStableFeedTests(unittest.TestCase):
         self.assertEqual(check_url.call_count, 2)
 
     def test_tag_only_checks_just_the_release_feeds(self):
+        """A backport checks all tagged architectures without probing latest."""
         seen = []
         original = feed.check_feed
-        feed.check_feed = lambda url, attempts: seen.append(url) or []
+        feed.check_feed = lambda url, attempts, **_kwargs: seen.append(url) or []
         try:
             self.assertEqual(quiet_main(["--tag", "v1.2.3", "--tag-only"]), 0)
         finally:
@@ -335,6 +374,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         self.assertIsNone(feed.served_length(200, None, None))
 
     def test_default_feeds_cover_every_stable_feed_name(self):
+        """Each independently named architecture exists on both default hosts."""
         for name in EXPECTED_FEED_NAMES:
             self.assertIn(f"https://github.com/manaflow-ai/cmux/releases/latest/download/{name}", feed.DEFAULT_FEEDS)
             self.assertIn(f"https://files.cmux.com/stable/{name}", feed.DEFAULT_FEEDS)
