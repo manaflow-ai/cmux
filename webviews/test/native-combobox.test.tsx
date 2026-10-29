@@ -7,7 +7,8 @@ import { UiProvider } from "../src/ui/UiProvider";
 import { Menu, MenuButton, MenuPopup } from "../src/ui/Menu";
 import { Popover } from "../src/ui/Popover";
 import { Select } from "../src/ui/Select";
-import { comboboxDescription, selectDescription } from "../src/ui/popupDescriptors";
+import { comboboxDescription, popupAction, selectDescription } from "../src/ui/popupDescriptors";
+import { popupChoice, popupIdentity, popupSection } from "../src/agent-session/acpmux/nativeComposerPopup";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
 
@@ -191,6 +192,27 @@ test.each([false, true])(
     expect(container.querySelector('[role="option"]')).toBeNull();
   },
 );
+
+test("composer native menu rows match the generated host action contract", () => {
+  const rows = [
+    ...popupSection(popupIdentity("mode-heading"), "Modes", [
+      popupChoice(popupIdentity("mode", "full-access"), "Full access", { checked: true, shortcut: "1" }),
+    ]),
+    ...popupSection(popupIdentity("mode-heading", "options"), "Options", [
+      popupChoice(popupIdentity("option", "full-access", "fast"), "Fast", { checked: false }),
+    ]),
+  ];
+  const ids = rows.map((row) => row.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(rows.every((row) => row.id.length > 0 && row.id.length <= 128)).toBe(true);
+  expect(rows.filter((row) => row.kind === "section")).toHaveLength(2);
+  expect(rows.filter((row) => row.kind === "action")).toHaveLength(2);
+  expect(rows.every((row) => row.children === undefined && row.options === undefined)).toBe(true);
+  const model = { rows };
+  for (const row of rows.filter((candidate) => candidate.kind === "action")) {
+    expect(popupAction(model, row.id)).toMatchObject({ id: row.id, keepOpen: false });
+  }
+});
 
 test.each(["footer", "actions"] as const)(
   "native combobox reopens after a terminal auxiliary %s action",
