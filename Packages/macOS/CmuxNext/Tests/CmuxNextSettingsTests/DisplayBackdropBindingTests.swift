@@ -143,7 +143,7 @@ import Testing
         root = ["appearance": ["displayBackgrounds": .object([first: "folder:/changing"]),
                                "displayBackgroundRotations": .object([first: "15m"])]]
         binding.apply(root)
-        date = date.addingTimeInterval(900)
+        date = date.addingTimeInterval(901)
         binding.apply(root)
         await binding.folderRefresh?.value
         #expect(await loader.count("/changing") == 2)
@@ -166,7 +166,7 @@ import Testing
         binding.apply(root)
         await loader.finish("/inactive", pictures: [.art(.munchScream)])
         await stale?.value
-        date = date.addingTimeInterval(86_400)
+        date = date.addingTimeInterval(172_800)
         await loader.useImmediateResults(for: "/inactive")
         display = first
         binding.apply(root)
