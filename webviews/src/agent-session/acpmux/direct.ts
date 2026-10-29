@@ -2182,6 +2182,9 @@ export class AcpmuxDirectClient {
     this.copyLive = undefined;
     this.events = [];
     this.queue = [];
+    this.commands = [];
+    this.commandsApplied = false;
+    knownCommands.delete(sessionId);
     // Those rows are off screen again, so the frame the host shows is the failure, not a chat: it
     // fades in as any first draw of a chat does.
     this.drewKeptTail = false;
