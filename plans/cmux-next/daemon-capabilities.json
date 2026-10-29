@@ -13,6 +13,7 @@
     "agent-session-start-vm-kind-v1",
     "agent-session-tabs-v1",
     "agent-session-trust-v1",
+    "agent-session-trust-vm-kind-v1",
     "app-screens-v1",
     "attach-identity-v1",
     "batch-close-v1",

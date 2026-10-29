@@ -175,6 +175,61 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// Scrolls the first drawn element matching `selector` (a layout box, and neither it nor an
+    /// ancestor hidden or fully transparent: a match under `display: none` is skipped) into view at
+    /// `block` (`start`, `center`, `end` or `nearest`), at once (`behavior: instant`), scrolling every scroller that holds it, so a capture can show
+    /// content below the fold (Settings > Accounts' lower cards) with no wheel or key event, which a
+    /// capture slot's never-active window does not get. `{scrolled: true, top, height, viewport}` in
+    /// CSS pixels when the element's box is in the viewport after the scroll (`top` is its top in the
+    /// viewport); else `{scrolled: false, reason}`: `no match`, `not rendered` (every match has no
+    /// box), or `not in view` (a clipping scroller or overlay kept it out).
+    public func debugScroll(_ selector: String, block: String = "start") async -> JSONValue {
+        let script = """
+        const all = [...document.querySelectorAll(selector)];
+        if (!all.length) { return JSON.stringify({ reason: 'no match' }); }
+        // Drawn: a layout box, and neither it nor an ancestor hidden or fully transparent.
+        const drawn = (e) => {
+          if (!e.getClientRects().length) { return false; }
+          for (let a = e; a && a.nodeType === 1; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) { return false; }
+          }
+          return true;
+        };
+        const el = all.find(drawn);
+        if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
+        el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+        const r = el.getBoundingClientRect();
+        // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
+        // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
+        // header over its top edge does not. (An overlay with pointer-events: none is not seen.)
+        let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+        let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+        for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+          const cs = getComputedStyle(a);
+          const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
+          if (!clipsX && !clipsY) { continue; }
+          const c = a.getBoundingClientRect();
+          if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
+          if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
+        }
+        const shown = bottom > top && right > left
+          && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+        if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
+        return JSON.stringify({ top: r.top, height: r.height, viewport: window.innerHeight });
+        """
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "block": block]) as? String,
+              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
+            return ["scrolled": false, "reason": "page not loaded"]
+        }
+        guard members["reason"] == nil else {
+            members["scrolled"] = false
+            return .object(members)
+        }
+        members["scrolled"] = true
+        return .object(members)
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }

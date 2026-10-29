@@ -34,7 +34,13 @@ impl App {
             Direction::Down => (0, 1),
         };
         let panes = if self.viewport_layout.is_empty() {
-            self.pane_areas.iter().map(|area| (area.pane, area.rect.into())).collect()
+            // Docked workspaces draw beside the active screen; focus moves
+            // only between the active screen's own panes.
+            self.pane_areas
+                .iter()
+                .filter(|area| screen.panes.iter().any(|pane| pane.id == area.pane))
+                .map(|area| (area.pane, area.rect.into()))
+                .collect()
         } else {
             self.viewport_layout.clone()
         };

@@ -242,7 +242,7 @@
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: var(--ui-row-height);
+  height: var(--ui-row-height);
   margin: 0 0 4px;
   padding: 0 var(--ui-row-padding-inline);
   border: 0;

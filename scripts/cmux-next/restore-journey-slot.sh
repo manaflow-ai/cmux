@@ -25,6 +25,8 @@ elif [ $# -gt 0 ]; then
 fi
 args=$(printf '%q ' "$@")
 here=$(cd "$(dirname "$0")" && pwd)
+# capture-host and the ssh routes to the capture minis (capture-host-env.sh).
+. "$here/capture-host-env.sh"
 mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
