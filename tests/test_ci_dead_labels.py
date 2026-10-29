@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import io
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import yaml
@@ -240,50 +242,59 @@ class RateLimited(RuntimeError):
 
 
 class FakeGitHub:
-    """Runs that are queued until force-cancelled, then complete after `settle_after` reads."""
+    """Runs that are queued until force-cancelled, then complete (cancelled) after `settle_after` reads; a re-run
+    moves the run to its next attempt."""
 
-    def __init__(self, settle_after=1, rerun_error=None, attempt_moves=False, cancel_limit_on=None,
-                 rerun_limit=False):
+    def __init__(self, settle_after=1, rerun_error=None, cancel_error=None, cancel_limit_on=None, rerun_limit=False,
+                 cancel_takes=True):
         self.calls: list[tuple[str, int]] = []
         self.state: dict[int, dict] = {}
         self.jobs_of: dict[int, list] = {}
         self.settle_after = settle_after
         self.rerun_error = rerun_error
-        self.attempt_moves = attempt_moves
+        self.cancel_error = cancel_error
         self.cancel_limit_on = cancel_limit_on
         self.rerun_limit = rerun_limit
+        self.cancel_takes = cancel_takes
 
-    def add(self, r, jobs=None):
-        self.state[r["id"]] = {**r, "reads": 0, "cancelled": False}
+    def add(self, r, jobs=None, **state):
+        self.state[r["id"]] = {**r, "reads": 0, "cancelled": False, "conclusion": None, **state}
         self.jobs_of[r["id"]] = jobs if jobs is not None else [job(B16, created=40)]
 
     def run(self, run_id):
-        st = self.state.setdefault(run_id, {**run(run_id), "reads": 0, "cancelled": False})
-        if st["cancelled"]:
+        st = self.state[run_id]
+        if st["cancelled"] and st["status"] != "completed":
             st["reads"] += 1
             if st["reads"] >= self.settle_after:
-                st["status"] = "completed"
-        attempt = 2 if self.attempt_moves and st["cancelled"] else st.get("run_attempt", 1)
-        return {k: v for k, v in st.items() if k not in ("reads", "cancelled")} | {"run_attempt": attempt}
+                st.update(status="completed", conclusion="cancelled")
+        return {k: v for k, v in st.items() if k not in ("reads", "cancelled")}
 
     def jobs(self, run_id):
-        return self.jobs_of.get(run_id, [job(B16, created=40)])
+        return self.jobs_of[run_id]
 
     def force_cancel(self, run_id):
         if self.cancel_limit_on == run_id:
             raise RateLimited("POST force-cancel failed (403: rate limit)")
         self.calls.append(("force-cancel", run_id))
-        self.state.setdefault(run_id, {**run(run_id), "reads": 0})["cancelled"] = True
+        if self.cancel_takes:
+            self.state[run_id]["cancelled"] = True
+        if self.cancel_error:
+            raise RuntimeError(self.cancel_error)  # GitHub may have taken it all the same
 
-    def rerun_failed(self, run_id):
+    def _rerun(self, run_id, kind):
         if self.rerun_limit:
             raise RateLimited("POST rerun failed (403: rate limit)")
-        self.calls.append(("rerun", run_id))
+        self.calls.append((kind, run_id))
         if self.rerun_error:
             raise RuntimeError(self.rerun_error)
+        st = self.state[run_id]
+        st.update(status="queued", conclusion=None, run_attempt=st.get("run_attempt", 1) + 1, cancelled=False)
+
+    def rerun_failed(self, run_id):
+        self._rerun(run_id, "rerun")
 
     def rerun(self, run_id):
-        self.calls.append(("rerun-all", run_id))
+        self._rerun(run_id, "rerun-all")
 
 
 class Saved:
@@ -302,30 +313,39 @@ def go(r, whole=False):
     return dead_labels.Redispatch(r, "lint", B16, None, whole)
 
 
+def owed_ids(saved):
+    return [e["run_id"] for e in saved.last]
+
+
 class RedispatchTests(unittest.TestCase):
     def move(self, github, decisions, **kw):
         saved = kw.pop("save", Saved())
         clock = iter(range(0, 10**6, kw.pop("step", 1)))
+        kw.setdefault("cap", 25)
         out = dead_labels.redispatch(github, decisions, dry_run=False, save=saved, now=lambda: next(clock),
                                      sleep=lambda _: None, **kw)
         return out, saved
 
-    def test_cancel_then_rerun_and_held_runs_untouched(self) -> None:
+    def next_sweep(self, github, saved):
+        return dead_labels.resume(github, saved.last, now=100.0)
+
+    def test_owed_before_the_cancel_and_cleared_only_once_the_rerun_is_seen(self) -> None:
         github = FakeGitHub(settle_after=2)
         github.add(run(1))
         (results, failures), saved = self.move(github, [go(run(1)), dead_labels.Redispatch(run(2), "lint", B16, "held")])
         self.assertEqual(github.calls, [("force-cancel", 1), ("rerun", 1)])
         self.assertEqual(failures, 0)
-        self.assertIn("re-run", results[1])
-        # Owed before the cancel, struck once re-run.
-        self.assertEqual([e["run_id"] for e in saved.history[0]], [1])
-        self.assertEqual(saved.last, [])
+        self.assertEqual([e["run_id"] for e in saved.history[0]], [1])  # written before the cancel
+        self.assertEqual(owed_ids(saved), [1])  # a re-run asked is not yet a confirmed outcome
+        owed, results, _ = self.next_sweep(github, saved)
+        self.assertEqual(owed, [])  # the next sweep sees attempt 2: cleared
+        self.assertIn("later attempt", results[1])
+        self.assertEqual(github.calls.count(("rerun", 1)), 1)  # never asked twice
 
     def test_a_nightly_build_that_started_since_the_inventory_is_never_cancelled(self) -> None:
         nightly = run(1, event="push", path=".github/workflows/nightly.yml", name="Nightly macOS build",
                       branch="nightly-next")
         github = FakeGitHub()
-        # Planned from an inventory where nothing had started; read again, its build has.
         github.add(nightly, [ran(B32, 1, name="build-nightly-app"), job(B16, created=40)])
         (results, _), saved = self.move(github, [go(nightly)])
         self.assertEqual(github.calls, [])
@@ -338,10 +358,35 @@ class RedispatchTests(unittest.TestCase):
                                  (None, {"run_attempt": 2}, "attempt moved"),
                                  (None, {"status": "completed"}, "completed now")):
             github = FakeGitHub()
-            github.add({**run(1), **state}, jobs)
+            github.add(run(1), jobs, **state)
             (results, _), _ = self.move(github, [go(run(1))])
             self.assertEqual(github.calls, [], why)
             self.assertIn(why, results[1])
+
+    def test_an_ambiguous_cancel_error_keeps_the_obligation(self) -> None:
+        # Review finding 1 (e9f7c53): a timeout or 5xx after GitHub took the cancel. The entry stays, and the next
+        # sweep re-reads the run and re-runs it.
+        github = FakeGitHub(cancel_error="POST force-cancel failed (502)")
+        github.add(run(1))
+        (results, _), saved = self.move(github, [go(run(1))])
+        self.assertEqual(owed_ids(saved), [1])
+        self.assertIn("kept owed", results[1])
+        owed, _, _ = self.next_sweep(github, saved)
+        self.assertEqual(github.calls[-1], ("rerun", 1))
+        self.assertEqual(owed_ids(type("S", (), {"last": owed})()), [1])  # cleared only once attempt 2 is seen
+        self.assertEqual(dead_labels.resume(github, owed, now=200.0)[0], [])
+
+    def test_an_ambiguous_cancel_that_never_took_clears_when_the_run_finishes_on_its_own(self) -> None:
+        github = FakeGitHub(cancel_error="POST force-cancel failed (502)", cancel_takes=False)
+        github.add(run(1))
+        (_, _), saved = self.move(github, [go(run(1))])
+        self.assertEqual(owed_ids(saved), [1])
+        self.assertEqual(self.next_sweep(github, saved)[0], [{**saved.last[0]}])  # still running: kept
+        github.state[1].update(status="completed", conclusion="success")
+        owed, results, _ = self.next_sweep(github, saved)
+        self.assertEqual(owed, [])
+        self.assertIn("on its own", results[1])
+        self.assertNotIn(("rerun", 1), github.calls)
 
     def test_a_rate_limit_on_the_second_cancel_keeps_the_first_runs_rerun_owed(self) -> None:
         github = FakeGitHub(cancel_limit_on=2)
@@ -351,12 +396,9 @@ class RedispatchTests(unittest.TestCase):
         with self.assertRaises(RateLimited):
             self.move(github, [go(run(1)), go(run(2))], save=saved)
         self.assertEqual(github.calls, [("force-cancel", 1)])
-        self.assertEqual([e["run_id"] for e in saved.last], [1])  # run 2 was never cancelled: not owed
-        # The next sweep re-runs it.
-        owed, results, failures = dead_labels.resume(github, saved.last, now=10.0)
-        self.assertEqual((owed, failures), ([], 0))
-        self.assertEqual(github.calls[-1], ("rerun", 1))
-        self.assertIn("re-run now", results[1])
+        self.assertIn(1, owed_ids(saved))
+        owed, results, _ = self.next_sweep(github, saved)
+        self.assertIn(("rerun", 1), github.calls)
 
     def test_a_rate_limit_on_the_rerun_keeps_it_owed(self) -> None:
         github = FakeGitHub(rerun_limit=True)
@@ -364,28 +406,47 @@ class RedispatchTests(unittest.TestCase):
         saved = Saved()
         with self.assertRaises(RateLimited):
             self.move(github, [go(run(1))], save=saved)
-        self.assertEqual([e["run_id"] for e in saved.last], [1])
+        self.assertEqual(owed_ids(saved), [1])
+        with self.assertRaises(RateLimited):
+            dead_labels.resume(github, saved.last, now=5.0)
 
-    def test_resume_drops_reruns_someone_made_and_gives_up_after_its_ttl(self) -> None:
-        github = FakeGitHub(attempt_moves=True)
+    def test_a_failed_rerun_stays_owed_and_is_asked_again(self) -> None:
+        github = FakeGitHub(rerun_error="(422)")
         github.add(run(1))
-        github.state[1]["cancelled"] = True
-        owed, results, _ = dead_labels.resume(github, [{"run_id": 1, "attempt": 1, "whole": False, "at": 0}], now=5.0)
-        self.assertEqual(owed, [])
-        self.assertIn("re-run since", results[1])
-        slow = FakeGitHub(settle_after=10**9)
-        slow.add(run(2))
-        slow.state[2]["cancelled"] = True
+        (results, failures), saved = self.move(github, [go(run(1))])
+        self.assertEqual(failures, 1)
+        self.assertIn("asks again", results[1])
+        self.assertEqual(owed_ids(saved), [1])
+        github.rerun_error = None
+        owed, _, _ = self.next_sweep(github, saved)
+        self.assertEqual(github.calls.count(("rerun", 1)), 2)  # the failed ask, then one more
+        self.assertEqual(dead_labels.resume(github, owed, now=200.0)[0], [])
+
+    def test_the_cap_refuses_new_cancels_and_never_evicts(self) -> None:
+        # Review finding 2 (e9f7c53): obligations were cut to make room. Now a full cap stops new cancels.
+        github = FakeGitHub()
+        github.add(run(9))
+        owed = [{"run_id": n, "attempt": 1, "whole": False, "at": 0} for n in range(100, 125)]
+        (results, _), saved = self.move(github, [go(run(9))], owed=owed, cap=25)
+        self.assertEqual(github.calls, [])
+        self.assertIn("cap of 25", results[9])
+        self.assertEqual(saved.history, [])
+
+    def test_resume_never_drops_an_unsettled_or_unreadable_entry(self) -> None:
+        github = FakeGitHub(settle_after=10**9)
+        github.add(run(2))
+        github.state[2]["cancelled"] = True
         entry = {"run_id": 2, "attempt": 1, "whole": False, "at": 0}
-        self.assertEqual(dead_labels.resume(slow, [entry], now=60.0)[0], [entry])
-        owed, results, failures = dead_labels.resume(slow, [entry], now=dead_labels.OBLIGATION_TTL_S + 1.0)
-        self.assertEqual((owed, failures), ([], 1))
+        owed, results, failures = dead_labels.resume(github, [entry, {"run_id": "x"}],
+                                                     now=dead_labels.OBLIGATION_ALARM_S + 1.0)
+        self.assertEqual(owed, [entry, {"run_id": "x"}])
+        self.assertEqual(failures, 2)
         self.assertIn("by hand", results[2])
 
     def test_without_a_snapshot_nothing_is_cancelled(self) -> None:
         github = FakeGitHub()
         github.add(run(1))
-        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=False, save=None)
+        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=False, save=None, cap=25)
         self.assertEqual(github.calls, [])
         self.assertIn("no snapshot", results[1])
 
@@ -397,7 +458,7 @@ class RedispatchTests(unittest.TestCase):
 
     def test_dry_run_touches_nothing(self) -> None:
         github = FakeGitHub()
-        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=True, save=Saved())
+        results, _ = dead_labels.redispatch(github, [go(run(1))], dry_run=True, save=Saved(), cap=25)
         self.assertEqual(github.calls, [])
         self.assertIn("dry run", results[1])
 
@@ -408,23 +469,55 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(failures, 0)
         self.assertIn("next sweep", results[1])
         self.assertNotIn(("rerun", 1), github.calls)
-        self.assertEqual([e["run_id"] for e in saved.last], [1])
+        self.assertEqual(owed_ids(saved), [1])
 
-    def test_someone_elses_rerun_is_not_doubled(self) -> None:
-        github = FakeGitHub(attempt_moves=True)
+    def test_someone_elses_rerun_clears_it_without_a_second(self) -> None:
+        github = FakeGitHub(settle_after=10**9)
         github.add(run(1))
-        (results, failures), saved = self.move(github, [go(run(1))])
-        self.assertEqual(github.calls, [("force-cancel", 1)])
-        self.assertEqual((failures, saved.last), (0, []))
-        self.assertIn("someone else", results[1])
+        (_, _), saved = self.move(github, [go(run(1))], step=50)
+        github.state[1].update(run_attempt=2, status="queued")
+        owed, results, _ = self.next_sweep(github, saved)
+        self.assertEqual(owed, [])
+        self.assertEqual([c for c in github.calls if c[0].startswith("rerun")], [])
 
-    def test_a_failed_rerun_is_a_failure_and_stays_owed(self) -> None:
-        github = FakeGitHub(rerun_error="(422)")
-        github.add(run(1))
-        (results, failures), saved = self.move(github, [go(run(1))])
-        self.assertEqual(failures, 1)
-        self.assertIn("next sweep", results[1])
-        self.assertEqual([e["run_id"] for e in saved.last], [1])
+
+class FailClosedTests(unittest.TestCase):
+    def test_a_partial_read_finds_no_dead_label(self) -> None:
+        # Review finding 3 (e9f7c53): an unread run may hold the only recent start on a label.
+        runs = [run(1), run(2)]
+        jobs = {1: [job(B16, created=40)], 2: [ran(B32, 1)]}
+        self.assertTrue(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(dead_labels.dead_labels_if_complete(runs, jobs, now=NOW,
+                                                                 unread=["the jobs of Linux-only run 7"]), [])
+
+    def test_the_janitor_counts_failed_linux_only_and_evidence_listings_as_partial(self) -> None:
+        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
+        self.assertIn("dead_labels.dead_labels_if_complete(", janitor)
+        self.assertNotIn("dead_labels.dead_labels(runs", janitor)
+        self.assertIn('partial_reads.append(f"the evidence runs of {workflow}")', janitor)
+        self.assertIn("partial_reads += [f\"the jobs of Linux-only run {run_id}\"", janitor)
+
+    def test_read_linux_only_jobs_names_its_failures(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import queue_janitor
+
+        class GH:
+            def jobs(self, run_id):
+                if run_id == 2:
+                    raise RuntimeError("GET jobs failed (502)")
+                return []
+        runs = [{**run(1), "path": ".github/workflows/x.yml"}, {**run(2), "path": ".github/workflows/x.yml"}]
+        with redirect_stderr(io.StringIO()):
+            found, failed = queue_janitor.read_linux_only_jobs(GH(), runs, {}, frozenset({".github/workflows/x.yml"}),
+                                                               NOW)
+        self.assertEqual((sorted(found), failed), ([1], [2]))
+
+    def test_obligations_share_the_janitors_one_cap_and_are_never_cut_on_read(self) -> None:
+        janitor = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
+        self.assertIn("cap=LOST_PENDING_MAX", janitor)
+        self.assertNotIn("OBLIGATIONS_MAX", janitor)
+        self.assertIn("return kept if key != LOST_RERUNS_KEY else kept[-LOST_PENDING_MAX:]", janitor)
 
 
 class LinuxOnlyReadTests(unittest.TestCase):

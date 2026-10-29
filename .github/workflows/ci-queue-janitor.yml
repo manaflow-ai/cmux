@@ -267,8 +267,10 @@ jobs:
       # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a
       # pull request run lands on, for two API requests instead of one job
       # listing per in-flight run.
+      # always(): the snapshot carries the dead-label pass's owed re-runs (scripts/ci/dead_labels.py), which a sweep
+      # cut off at its timeout must still hand to the next one.
       - name: Publish macOS pool load
-        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        if: ${{ always() && steps.fresh.outputs.skip != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-load

@@ -35,7 +35,8 @@ a matrix value gives the same label back, so such a job is flagged in the
 summary and left. Right before the cancel the run and its jobs are read again
 and every check below is made again (recheck()). Its re-run is written into the
 janitor's snapshot before the cancel, so a rate limit or a crash in between
-never loses the run: the next sweep re-runs it (resume()). It is never moved when:
+never loses the run: only a confirmed outcome clears it, and every later sweep
+reads the run again (resume()). It is never moved when:
   - a job of it is running (cancelling would throw that work away; a later
     sweep takes the run once the job ends);
   - it is a nightly, DEV or promote run whose build has started
@@ -198,6 +199,19 @@ def run_reason(run: Mapping[str, Any]) -> str | None:
     if attempt >= MAX_ATTEMPT:
         return f"already on attempt {attempt}; a re-run is moved at most once"
     return None
+
+
+def dead_labels_if_complete(runs: Sequence[Mapping[str, Any]],
+                            jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *, now: dt.datetime,
+                            evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+                            unread: Sequence[str] = ()) -> list[DeadLabel]:
+    """dead_labels(), or none at all when any listing of the sweep failed (`unread` names them): a run left unread
+    may hold the only recent start on a label, so a partial inventory never calls a label dead."""
+    if unread:
+        print(f"dead-labels: {len(unread)} listing(s) failed this sweep ({'; '.join(unread)[:300]}); no label is "
+              "judged dead and nothing is moved")
+        return []
+    return dead_labels(runs, jobs_by_run, now=now, evidence=evidence)
 
 
 def protected_reason(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> str | None:
@@ -429,12 +443,17 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
 
 
 # --- moving a run --------------------------------------------------------------------------------------------
-# A run is force-cancelled only after its re-run is written down (OBLIGATIONS_KEY in the janitor's snapshot, which the
-# workflow uploads even when the sweep fails), so a rate limit or a crash between the cancel and the re-run never
-# loses the run: the next sweep reads the obligation back (resume()) and re-runs it once its cancel settled.
+# An obligation is a run this pass force-cancelled (or tried to) and owes a re-run. It is written into the janitor's
+# snapshot (OBLIGATIONS_KEY; the workflow uploads it whatever the sweep's outcome) before the cancel, and only a
+# confirmed outcome clears it (settle()): the run is seen on a later attempt (re-run), or it completed with a
+# conclusion other than cancelled (the cancel never took and the run finished). An error, a timeout or an unread run
+# clears nothing: the entry stays, and every later sweep reads the run again and acts the same way (a re-run is
+# asked only of a run that completed cancelled on the attempt the entry names, and a re-run that did take shows as a
+# later attempt). The obligations share the janitor's one cap for carried re-runs (queue_janitor.LOST_PENDING_MAX,
+# passed as `cap`): when it is full no new run is cancelled; nothing is ever evicted.
 OBLIGATIONS_KEY = "dead_label_reruns"
-OBLIGATION_TTL_S = 6 * 3600
-OBLIGATIONS_MAX = 50
+# An obligation older than this is named in every summary as an error for a person; it is still never dropped.
+OBLIGATION_ALARM_S = 6 * 3600
 
 
 def _rate_limited(error: BaseException) -> bool:
@@ -472,56 +491,68 @@ def _rerun(github: Any, run_id: int, whole: bool) -> None:
         github.rerun_failed(run_id)
 
 
+def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, str, bool]:
+    """Act on one obligation: (cleared, what happened, failed). Cleared only on a confirmed outcome; any error or
+    unread state keeps it. A rate limit is raised (the caller has the entry saved)."""
+    run_id, attempt = entry.get("run_id"), entry.get("attempt")
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or not isinstance(attempt, int):
+        return False, "an unreadable entry; kept for a person", True
+    try:
+        run = github.run(run_id)
+    except RuntimeError as error:
+        if _rate_limited(error):
+            raise
+        return False, f"could not be read ({error}); kept", False
+    seen = run.get("run_attempt")
+    if isinstance(seen, int) and seen > attempt:
+        return True, "re-run (a later attempt exists)", False
+    if seen != attempt:
+        return False, f"its attempt reads {seen!r}; kept", True
+    if run.get("status") != "completed":
+        old = now - float(entry.get("at") or 0) > OBLIGATION_ALARM_S
+        return False, ("cancelled long ago and still not finished; look at it by hand" if old
+                       else "its cancel is still finishing; the next sweep re-runs it"), old
+    if run.get("conclusion") != "cancelled":
+        return True, f"finished {run.get('conclusion') or 'with no conclusion'} on its own; nothing to re-run", False
+    try:
+        _rerun(github, run_id, bool(entry.get("whole")))
+    except RuntimeError as error:
+        if _rate_limited(error):
+            raise
+        # The answer may have been lost after GitHub took it: the next sweep sees a later attempt, or asks again.
+        return False, f"the re-run failed ({error}); the next sweep asks again", True
+    return False, "re-run asked; cleared once the next attempt is seen", False
+
+
 def resume(github: Any, obligations: Sequence[Mapping[str, Any]], *, now: float) -> tuple[list[dict[str, Any]],
                                                                                           dict[int, str], int]:
-    """Carry out re-runs an earlier sweep owed: (still owed, {run id: result}, failures). A run whose attempt moved
-    was re-run by someone; one still finishing its cancel stays owed up to OBLIGATION_TTL_S."""
+    """Carry out what earlier sweeps owe: (still owed, {run id: result}, failures)."""
     owed: list[dict[str, Any]] = []
     results: dict[int, str] = {}
     failures = 0
-    for entry in obligations:
-        run_id, attempt = entry.get("run_id"), entry.get("attempt")
-        if not isinstance(run_id, int) or not isinstance(attempt, int):
-            continue
+    for index, entry in enumerate(obligations):
         try:
-            run = github.run(run_id)
-        except RuntimeError as error:
-            if _rate_limited(error):
-                raise
+            cleared, what, failed = settle(github, entry, now=now)
+        except RuntimeError:
+            owed.extend(dict(rest) for rest in obligations[index:])
+            raise
+        if not cleared:
             owed.append(dict(entry))
-            continue
-        if run.get("run_attempt") != attempt:
-            results[run_id] = "an earlier sweep's cancel: re-run since"
-        elif run.get("status") == "completed":
-            try:
-                _rerun(github, run_id, bool(entry.get("whole")))
-                results[run_id] = "an earlier sweep's cancel: re-run now"
-            except RuntimeError as error:
-                if _rate_limited(error):
-                    raise
-                failures += 1
-                if now - float(entry.get("at") or 0) > OBLIGATION_TTL_S:
-                    results[run_id] = f"an earlier sweep's cancel: re-run failed ({error}); re-run it by hand"
-                else:
-                    owed.append(dict(entry))
-                    results[run_id] = f"an earlier sweep's cancel: re-run failed ({error}); tried again next sweep"
-        elif now - float(entry.get("at") or 0) > OBLIGATION_TTL_S:
-            results[run_id] = "an earlier sweep's cancel never settled; re-run it by hand"
-            failures += 1
-        else:
-            owed.append(dict(entry))
+        if isinstance(entry.get("run_id"), int):
+            results[int(entry["run_id"])] = f"an earlier sweep's cancel: {what}"
+        failures += failed
     return owed, results, failures
 
 
 def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
                save: Callable[[list[dict[str, Any]]], None] | None, owed: Sequence[Mapping[str, Any]] = (),
-               now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
+               cap: int, now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
                settle_seconds: float = SETTLE_SECONDS) -> tuple[dict[int, str], int]:
-    """Move every run that goes: read it again (recheck()), write down its re-run (save(), with `owed`, what earlier
-    sweeps still owe), force-cancel it, then re-run each once its cancel settles and strike it from what is owed.
-    ({run id: result}, failures). With `save` None nothing is cancelled: a re-run could not be carried over.
-    `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun(id) and rerun_failed(id). A rate
-    limit is raised once what is owed is saved."""
+    """Move every run that goes: read it again (recheck()), write its obligation (save(), with `owed`, what earlier
+    sweeps still owe), force-cancel it, then settle() each until its cancel finished or `settle_seconds` passed.
+    ({run id: result}, failures). With `save` None nothing is cancelled, and with `cap` obligations owed already no
+    new run is. `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun(id), rerun_failed(id).
+    A rate limit is raised; every obligation it leaves is saved first."""
     going = [d for d in decisions if d.why_not is None]
     results: dict[int, str] = {}
     failures = 0
@@ -530,9 +561,12 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
     if save is None:
         return {int(d.run["id"]): "not moved: no snapshot to carry its re-run" for d in going}, 0
     obligations = [dict(entry) for entry in owed]
-    pending: dict[int, dict[str, Any]] = {}
+    mine: list[dict[str, Any]] = []
     for decision in going:
         run_id = int(decision.run["id"])
+        if len(obligations) >= cap:
+            results[run_id] = f"not moved: {len(obligations)} re-runs are owed already, the cap of {cap}"
+            continue
         why = recheck(github, decision)
         if why:
             results[run_id] = f"kept: {why}"
@@ -540,49 +574,33 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
         entry = {"run_id": run_id, "attempt": int(decision.run.get("run_attempt") or 1), "whole": decision.whole,
                  "at": now()}
         obligations.append(entry)
-        save(obligations[-OBLIGATIONS_MAX:])
+        save(list(obligations))
         try:
             github.force_cancel(run_id)
-            pending[run_id] = entry
         except RuntimeError as error:
-            obligations.remove(entry)
-            save(obligations[-OBLIGATIONS_MAX:])
             if _rate_limited(error):
                 raise
-            results[run_id] = f"force-cancel failed ({error})"
-            failures += 1
+            # Ambiguous: GitHub may have taken it. The obligation stays; settle() reads what happened.
+            results[run_id] = f"force-cancel answered an error ({error}); kept owed, the next sweeps settle it"
+            continue
+        mine.append(entry)
     deadline = now() + settle_seconds
-    while pending:
-        for run_id, entry in list(pending.items()):
-            try:
-                run = github.run(run_id)
-            except RuntimeError as error:
-                if _rate_limited(error):
-                    raise
+    while mine:
+        for entry in list(mine):
+            cleared, what, failed = settle(github, entry, now=now())
+            if "still finishing" in what and now() < deadline:
                 continue
-            if run.get("run_attempt") != entry["attempt"]:
-                results[run_id] = "cancelled; someone else re-ran it meanwhile"
-            elif run.get("status") == "completed":
-                try:
-                    _rerun(github, run_id, entry["whole"])
-                    results[run_id] = "force-cancelled and re-run on the current route"
-                except RuntimeError as error:
-                    if _rate_limited(error):
-                        raise
-                    results[run_id] = f"force-cancelled, but the re-run failed ({error}); the next sweep tries again"
-                    failures += 1
-                    del pending[run_id]
-                    continue
-            else:
-                continue
-            del pending[run_id]
-            obligations.remove(entry)
-            save(obligations[-OBLIGATIONS_MAX:])
-        if pending and now() >= deadline:
-            for run_id in pending:
-                results[run_id] = f"force-cancelled, still finishing after {int(settle_seconds)} s; the next sweep re-runs it"
+            mine.remove(entry)
+            results[entry["run_id"]] = what
+            failures += failed
+            if cleared:
+                obligations.remove(entry)
+                save(list(obligations))
+        if mine and now() >= deadline:
+            for entry in mine:
+                results[entry["run_id"]] = f"force-cancelled, still finishing after {int(settle_seconds)} s; owed"
             break
-        if pending:
+        if mine:
             sleep(POLL_SECONDS)
     return results, failures
 

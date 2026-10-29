@@ -3088,7 +3088,9 @@ def previous_lost_reruns(github: GitHub, key: str = LOST_RERUNS_KEY) -> list[dic
             continue
         entries = document.get(key) if isinstance(document, Mapping) else None
         if isinstance(entries, list):
-            return [dict(entry) for entry in entries if isinstance(entry, Mapping)][-LOST_PENDING_MAX:]
+            kept = [dict(entry) for entry in entries if isinstance(entry, Mapping)]
+            # The dead-label obligations are never cut: their writer stops at the same cap instead.
+            return kept if key != LOST_RERUNS_KEY else kept[-LOST_PENDING_MAX:]
     return []
 
 
@@ -3156,11 +3158,12 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
 
 def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
                          jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], linux_only: frozenset[str],
-                         now: dt.datetime) -> dict[int, list[dict[str, Any]]]:
-    """The jobs of the queued runs read_run_jobs() leaves out as Linux-only that could move
-    (dead_labels.linux_only_candidates(): at most LINUX_ONLY_READS, in turn across sweeps), for the dead-label pass
-    alone. A failed read skips the run."""
+                         now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], list[int]]:
+    """(the jobs of the queued runs read_run_jobs() leaves out as Linux-only that could move
+    (dead_labels.linux_only_candidates(): at most LINUX_ONLY_READS, in turn across sweeps), the ids whose listing
+    failed), for the dead-label pass alone; any failure makes that pass decide nothing this sweep."""
     found: dict[int, list[dict[str, Any]]] = {}
+    failed: list[int] = []
     unlisted = [run for run in runs if run["id"] not in jobs_by_run and run.get("status") == "queued"
                 and run.get("path") in linux_only and not follows_another_copy(run)]
     for run in dead_labels.linux_only_candidates(unlisted, now=now):
@@ -3169,8 +3172,9 @@ def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
         except RateLimited:
             raise
         except RuntimeError as error:
+            failed.append(run["id"])
             print(f"queue-janitor: jobs of Linux-only run {run['id']}: {error}", file=sys.stderr)
-    return found
+    return found, failed
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -3233,6 +3237,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # few completed runs of its own workflow listed (evidence_queries()),
         # only when such a suspect exists.
         evidence_jobs: dict[int, list[dict[str, Any]]] = {}
+        # A listing that failed anywhere in the sweep: the dead-label pass then decides nothing (dead_labels.py).
+        partial_reads: list[str] = []
         for workflow, since in evidence_queries(runs, jobs_by_run, now=now):
             try:
                 listed = github.completed_runs(workflow, since)
@@ -3242,6 +3248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except RateLimited:
                 raise
             except RuntimeError as error:
+                partial_reads.append(f"the evidence runs of {workflow}")
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
         unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs,
@@ -3306,11 +3313,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Dead labels (dead_labels.py) are judged on the inventory plus a few queued Linux-only runs it leaves out.
     try:
-        dead_inventory = {**jobs_by_run, **read_linux_only_jobs(github, runs, jobs_by_run, linux_only, now)}
+        linux_jobs, linux_failed = read_linux_only_jobs(github, runs, jobs_by_run, linux_only, now)
+        partial_reads += [f"the jobs of Linux-only run {run_id}" for run_id in linux_failed]
     except RateLimited as error:
         print(f"queue-janitor: Linux-only jobs for the dead-label pass: {error}", file=sys.stderr)
-        dead_inventory = dict(jobs_by_run)
-    dead = dead_labels.dead_labels(runs, dead_inventory, now=now, evidence=evidence_jobs)
+        linux_jobs, partial_reads = {}, [*partial_reads, "the Linux-only runs (rate limited)"]
+    dead_inventory = {**jobs_by_run, **linux_jobs}
+    # Fail closed: a run left unread may hold the only recent start on a label, so a partial read finds no dead
+    # label and the pass cancels nothing (dead_labels.dead_labels_if_complete()).
+    dead = dead_labels.dead_labels_if_complete(runs, dead_inventory, now=now, evidence=evidence_jobs,
+                                               unread=partial_reads)
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -3487,7 +3499,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     def save_owed(entries: Sequence[Mapping[str, Any]]) -> None:
         if snapshot is not None and args.pool_load:
-            snapshot[dead_labels.OBLIGATIONS_KEY] = [dict(entry) for entry in entries][-dead_labels.OBLIGATIONS_MAX:]
+            # Never cut: redispatch() refuses new cancels at the cap instead (LOST_PENDING_MAX, shared with category e).
+            snapshot[dead_labels.OBLIGATIONS_KEY] = [dict(entry) for entry in entries]
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     if owed_reruns is not None:
         save_owed(owed_reruns)  # carried as read, whatever happens below
@@ -3499,9 +3512,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if owed is not None and not args.dry_run:
             owed, resumed_results, resumed_failures = dead_labels.resume(github, owed, now=time.time())
             failures += resumed_failures
-            save_owed(owed)
+            save_owed(owed)  # only confirmed outcomes left it
         redispatch_results, redispatch_failures = dead_labels.redispatch(
-            github, redispatch_decisions, dry_run=args.dry_run, owed=owed or (),
+            github, redispatch_decisions, dry_run=args.dry_run, owed=owed or (), cap=LOST_PENDING_MAX,
             save=save_owed if owed is not None and snapshot is not None else None)
     except RuntimeError as error:  # a rate limit: the next sweep sees what was cancelled
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
