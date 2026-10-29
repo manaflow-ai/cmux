@@ -438,34 +438,25 @@ final class CreationInputCoordinator {
         if hold.current?.target == old { hold.current?.target = new }
     }
 
-    /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
-    /// wait for a focused terminal of the window that showed that terminal, never another window's.
-    /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
+    /// The daemon gave back `bytes` typed for terminal `terminalID`, whose creation failed (its error, a closed connection,
+    /// no commit within the daemon's expiry: `terminal-input-unclaimed`). They drop, logged in the queue of the window
+    /// that showed that terminal (reason targetFailed); they never go to another terminal (principled audit, lagFirstKey
+    /// step 4: before, they waited up to 3 s for the window's focused terminal and were typed there).
     func giveBack(_ bytes: Data, terminal terminalID: String) {
-        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
-        giveBack()
-    }
-
-    /// Hands held give-back keys to the focused terminal (the key window's), when it is in their window.
-    func giveBack() {
         guard let services = router?.services else { return }
-        let focused = services.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }
-        let window = focused?.session.view.window.flatMap { services.windows.owner(of: $0)?.state.id }
-        GivenBackInput.shared.deliver(window: window, to: focused.map { $0.session.sendBytes })
-    }
-
-    /// The cmux window showing the view of terminal `terminalID`, still being created.
-    private func window(ofCreatingTerminal terminalID: String) -> String? {
-        guard let services = router?.services,
-              let entry = services.cache.terminals.values.first(where: { $0.io.creatingTerminalID == terminalID }),
-              let window = entry.session.view.window else { return nil }
-        return services.windows.owner(of: window)?.state.id
+        let entry = services.cache.terminals.first { $0.value.io.creatingTerminalID == terminalID }
+        let number = entry?.value.session.view.window.map { router?.focus(for: $0).0?.window ?? $0 }?.windowNumber
+        let target = WindowInputQueue.Target(entry?.key ?? "terminal:\(terminalID)")
+        guard let number, let queue = router?.inputQueues.queue(for: number) else {
+            // No window shows it any more: the drop is only logged.
+            return WindowInputQueue.logDrop(target, .targetFailed, bytes.count)
+        }
+        queue.dropGivenBack(bytes.count, for: target)
     }
 
     /// A focus settle in `window` (every focus-model change ends in one): the held keys are reconciled with it in a new
     /// turn, after the focus queue and outside any action's task.
     func focusDidSettle(in window: NSWindow?) {
-        giveBack()
         // A claim whose workspace the window shows now ends here, not at a later key (it must not hold again if the
         // window goes back to Home without the person).
         if let window, !claims.isEmpty { _ = activeClaim(in: window) }

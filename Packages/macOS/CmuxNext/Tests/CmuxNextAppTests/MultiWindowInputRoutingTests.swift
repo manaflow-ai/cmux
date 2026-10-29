@@ -152,15 +152,20 @@ import Testing
     /// Keys the daemon gives back (`terminal-input-unclaimed`) were typed for a terminal whose creation failed: they drop
     /// with a reason (targetFailed) and never go to another terminal, of window A or of any other window (principled
     /// audit, lagFirstKey step 4: a late command in another terminal is worse than a lost key). No timer decides it.
-    @Test func givenBackKeysNeverGoToAnotherTerminal() {
-        let input = GivenBackInput(limit: .seconds(60))
-        var inA = Data(), inB = Data()
-        input.deliver(adding: Data("ls\r".utf8), window: "A", to: nil)
-        input.deliver(window: "B", to: { inB.append($0) })
-        input.deliver(window: "A", to: { inA.append($0) })
-        #expect(inA.isEmpty, "keys typed for a failed terminal ran in another terminal of their window")
-        #expect(inB.isEmpty, "keys typed in window A reached a terminal of window B")
-        input.deliver(adding: Data("rm".utf8), window: nil, to: { inB.append($0) })
-        #expect(inB.isEmpty)
+    @Test func givenBackKeysNeverGoToAnotherTerminal() throws {
+        var drops: [(WindowInputQueue.Target, WindowInputQueue.DropReason, Int)] = []
+        let queue = WindowInputQueue(dropped: { drops.append(($0, $1, $2)) })
+        let other = WindowInputQueue.Target("tab-other")
+        let typed = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                  context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+        queue.capture(typed, for: other)
+        queue.dropGivenBack(Data("ls\r".utf8).count, for: WindowInputQueue.Target("tab-failed"))
+        var sent: [NSEvent] = []
+        queue.drain(other, takesKeys: { true }) { sent.append($0) }
+        #expect(sent == [typed], "keys typed for a failed terminal ran in another terminal of their window")
+        #expect(drops.count == 1 && drops.first?.0 == WindowInputQueue.Target("tab-failed") && drops.first?.1 == .targetFailed && drops.first?.2 == 3,
+                "the given-back keys did not drop with their reason: \(drops)")
+        #expect(queue.givenBackDropped == 3)
+        #expect(queue.problems.isEmpty, "\(queue.problems)")
     }
 }

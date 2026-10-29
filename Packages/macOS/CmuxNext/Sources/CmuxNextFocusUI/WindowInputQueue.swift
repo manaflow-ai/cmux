@@ -4,7 +4,7 @@ import os
 /// One window's held keys: every key-down a cmux path holds because the target it was typed for cannot take keys yet
 /// (a new terminal whose view is not the first responder, a New Tab page whose field is not ready, a new workspace's
 /// terminal the window does not show yet). It replaces the per-path holds (`CreationInputCoordinator`'s buffers,
-/// `NewTabInputCoordinator`, `GivenBackInput`) with one owned queue and one rule set (principled audit, lagFirstKey):
+/// `NewTabInputCoordinator`, the daemon's given-back keys) with one owned queue and one rule set (principled audit, lagFirstKey):
 ///
 /// - Each key is stamped with the target it was typed for (``capture(_:for:)``) and is delivered exactly once, in typed
 ///   order, only to that target, and only while that target's view takes keys (``drain(_:takesKeys:deliver:)``).
@@ -68,9 +68,12 @@ public final class WindowInputQueue {
 
     /// - Parameter dropped: Told each drop (the target, why, how many keys); the default logs it.
     public init(dropped: ((Target, DropReason, Int) -> Void)? = nil) {
-        self.dropped = dropped ?? { target, reason, count in
-            Self.logger.info("held keys dropped: target=\(target.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) keys=\(count)")
-        }
+        self.dropped = dropped ?? Self.logDrop
+    }
+
+    /// The default drop report: one log line (the target, why, how many).
+    public static func logDrop(_ target: Target, _ reason: DropReason, _ count: Int) {
+        logger.info("held keys dropped: target=\(target.id, privacy: .public) reason=\(reason.rawValue, privacy: .public) count=\(count)")
     }
 
     /// Whether no key waits.
@@ -133,6 +136,18 @@ public final class WindowInputQueue {
         held = held.map { $0.target == old ? Held(sequence: $0.sequence, event: $0.event, target: new) : $0 }
         if let last = lastDelivered.removeValue(forKey: old) { lastDelivered[new] = max(last, lastDelivered[new] ?? 0) }
     }
+
+    /// The daemon gave back `bytes` bytes typed for `target`, a terminal whose creation failed (`terminal-input-unclaimed`):
+    /// they drop (``DropReason/targetFailed``), logged, and never go to another terminal. They were never captured here
+    /// (the view sent them by the terminal's id), so the key counts do not change.
+    public func dropGivenBack(_ bytes: Int, for target: Target) {
+        guard bytes > 0 else { return }
+        givenBackDropped += bytes
+        dropped(target, .targetFailed, bytes)
+    }
+
+    /// Bytes the daemon gave back and this queue dropped (``dropGivenBack(_:for:)``).
+    public private(set) var givenBackDropped = 0
 
     /// The window closed: every waiting key drops.
     public func close() {
