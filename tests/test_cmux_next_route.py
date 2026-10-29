@@ -9,6 +9,7 @@ through the regenerated graph.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import sys
@@ -221,9 +222,9 @@ class GraphGenerator(unittest.TestCase):
 
 
 class MacReleaseInputs(unittest.TestCase):
-    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the Linux SwiftPM check does not."""
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the fleet SwiftPM compile check does not."""
 
-    def test_package_sources_stay_on_linux(self):
+    def test_package_sources_stay_on_the_compile_check(self):
         for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
                         [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
                         # The Xcode app target is not in this compile (the scheme compile builds it).
@@ -481,6 +482,86 @@ class EveryTier(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
+
+
+MAC_TIERS = ("full", "native", "scheme", "generated", "swift", "daemon", "mac_release", "swift_canary")
+
+
+def mac_tiers(result: dict[str, str]) -> list[str]:
+    return [key for key in MAC_TIERS if result.get(key) == "true"]
+
+
+class LinuxLaneTests(unittest.TestCase):
+    """A tests/test_*.py whose registry lane is linux-guard, and that no Mac tier reads, needs no Mac tier."""
+
+    @classmethod
+    def setUpClass(cls):
+        import cmux_next_route as route_module
+        cls.route = route_module
+        graph = route_module.load_graph(ROOT)
+        tests = [name for name, target in graph["targets"].items() if target["kind"] == "test"]
+        cls.read = staticmethod(lambda path: any(route_module.matches(path, r) for name in tests
+                                                 for r in graph["targets"][name].get("reads", [])))
+        cls.tree_inputs = route_module.tree_input_paths(ROOT)
+        cls.linux = route_module.linux_guard_tests(ROOT)
+        # A linux-guard test the CI-only patterns do not already cover: the new fast path is what skips it.
+        cls.sample = next(path for path in sorted(cls.linux)
+                          if not route_module.ci_only(path) and not route_module.web_fast(path)
+                          and not route_module.consumed(path, cls.tree_inputs, cls.read))
+
+    def test_the_allowlist_comes_from_the_registry(self):
+        from test_execution_registry import load_registry
+        entries = load_registry(ROOT / "tests/test-execution.toml")
+        expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
+        self.assertEqual(set(self.linux), expected)
+        self.assertGreater(len(self.linux), 100)
+
+    def test_a_linux_guard_test_alone_skips_the_mac_tiers(self):
+        result = tiers([self.sample])
+        self.assertEqual(mac_tiers(result), [], self.sample)
+        self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+
+    def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
+        from test_execution_registry import load_registry
+        entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
+                   for e in load_registry(ROOT / "tests/test-execution.toml")]
+        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+            self.assertIn("native", mac_tiers(tiers([self.sample])))
+
+    def test_an_unreadable_registry_allowlists_nothing(self):
+        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+            self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
+            self.assertIn("native", mac_tiers(tiers([self.sample])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+
+    def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
+        with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
+            self.assertIn("swift", mac_tiers(tiers([self.sample])))
+
+    def test_no_allowlisted_test_is_a_mac_input(self):
+        """Over the real registry: every linux-guard test the fast path lets skip is read by no Mac tier."""
+        for path in sorted(self.linux):
+            with self.subTest(path=path):
+                if self.route.consumed(path, self.tree_inputs, self.read):
+                    self.assertNotEqual(mac_tiers(tiers([path])), [], path)
+                    continue
+                self.assertNotIn(path, self.route.FULL_INPUTS + self.route.DAEMON_PATHS)
+                for pattern in (self.route.SWIFT_JOB_INPUTS + self.route.GENERATED_INPUTS
+                                + self.route.BUNDLE_INPUTS + self.route.MAC_RELEASE_INPUTS + tuple(self.tree_inputs)):
+                    self.assertFalse(self.route.matches(path, pattern) or fnmatch.fnmatch(path, pattern),
+                                     f"{path} matches Mac input {pattern}")
+                self.assertEqual(mac_tiers(tiers([path])), [], path)
+
+    def test_an_unknown_path_still_routes_to_mac(self):
+        for path in ("newdir/tool.py", "tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
+            with self.subTest(path=path):
+                self.assertIn("native", mac_tiers(tiers([path])))
+
+    def test_a_linux_guard_test_with_another_file_still_compiles(self):
+        for other in ("scripts/cmux-next/new-step.sh", "Resources/new.json",
+                      f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
+            with self.subTest(other=other):
+                self.assertIn("native", mac_tiers(tiers([self.sample, other])))
 
 
 class PushAttribution(unittest.TestCase):

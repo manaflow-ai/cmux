@@ -108,6 +108,10 @@ and render-server field animation, blurred header and native scrolling.
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
   `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
   row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
+  `HomeFileCard` (a file attachment as a neutral card on either side, close to
+  Messages': the type's system icon and localized kind, the name shortened in
+  the middle with its extension kept; RowDrawing, Layout and `RowDraw.needsFill`
+  hand file rows to it),
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
@@ -125,6 +129,12 @@ and render-server field animation, blurred header and native scrolling.
   (the public view).
 
 ## Blocker patches
+
+Home activity is the Messages typing indicator: three staggered dots that pulse on the
+render server inside a breathing bubble. Reduce Motion and the host's Home motion gate
+(`MessagesLabHomeView.holdsTypingStill`) hold them still; ending typing and recycling a row
+remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual native Home view.
+
 
 | file | why |
 | --- | --- |

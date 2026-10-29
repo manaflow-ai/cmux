@@ -2998,7 +2998,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
@@ -3099,7 +3099,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(attachCalls).toBe(1);
@@ -3378,7 +3378,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(2);
     // The forced preflight probe and the failure recovery probe cover the
     // pause race without a third provider call after the running resume handle.

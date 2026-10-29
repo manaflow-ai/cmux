@@ -40,6 +40,8 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
   }
 
   const CHAT = "agent-pane.composer-row";
+  /** How far in from the box's sides the + and mic glyphs' centers sit (composer-alignment-centers). */
+  const GLYPH_COLUMN = 22;
   const NEW_TAB = "agent-pane.new-tab";
   /** Each template's gallery state and its box. */
   const NEW_TAB_TEMPLATES: [string, string, string][] = [
@@ -97,6 +99,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
         .map((row) => row.getBoundingClientRect())
         .filter((rect) => rect.width > 0);
       const screen = document.querySelector(".nt-screen, .acpmux-newtab");
+      const bar = document.querySelector(".acpmux-newtab-foot");
       return {
         box: { left: card.left, right: card.right },
         first: Math.min(...controls.map((rect) => rect.left)),
@@ -105,6 +108,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           ? { left: Math.min(...rows.map((rect) => rect.left)), right: Math.max(...rows.map((rect) => rect.right)) }
           : null,
         page: screen ? { left: screen.getBoundingClientRect().left, width: screen.clientWidth } : null,
+        footPad: bar ? parseFloat(getComputedStyle(bar).paddingRight) : 0,
       };
     }, box);
 
@@ -122,14 +126,14 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           expect(Math.abs(at.box.right - at.column!.right), "the box's right edge on the column's").toBeLessThanOrEqual(
             0.5,
           );
-          expect(
-            Math.abs(at.first - at.box.left),
-            "the row's first control on the box's left edge",
-          ).toBeLessThanOrEqual(0.5);
-          expect(
-            Math.abs(at.box.right - at.last),
-            "the row's last control on the box's right edge",
-          ).toBeLessThanOrEqual(0.5);
+          // The row adds no side padding of its own (#24216). Its outer controls sit on the box's glyph
+          // columns (composer-alignment-centers.test.ts, 2026-10-27): the mode's shield under the +
+          // glyph and the context ring's glyph under the mic's, each 22 px in. So the mode's pill starts
+          // inside the box and short of that column, and the last control ends likewise on the right.
+          expect(at.first - at.box.left, "the row's first control starts inside the box").toBeGreaterThanOrEqual(-0.5);
+          expect(at.first - at.box.left, "no deeper than the + glyph's column").toBeLessThan(GLYPH_COLUMN);
+          expect(at.box.right - at.last, "the row's last control ends inside the box").toBeGreaterThanOrEqual(-0.5);
+          expect(at.box.right - at.last, "no deeper than the mic glyph's column").toBeLessThan(GLYPH_COLUMN);
         });
 
     // Every New Tab template (templates.ts), Cards and the Classic page included, takes the chat's
@@ -152,11 +156,12 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
             Math.abs(at.page!.left + at.page!.width - inset - at.box.right),
             "the box's right edge on the chat's column",
           ).toBeLessThanOrEqual(1);
-          // The Default template and the Classic page have no quiet row.
+          // The Default template has no quiet row. The Classic page's row sits in the box's own footer
+          // bar (#26551, 2026-10-28), so it ends on that bar's inner edge, not the box's.
           if (Number.isFinite(at.last))
             expect(
-              Math.abs(at.box.right - at.last),
-              "the row's last control on the box's right edge",
+              Math.abs(at.box.right - at.footPad - at.last),
+              "the row's last control on the box's right edge (or its footer bar's)",
             ).toBeLessThanOrEqual(0.5);
         });
   }

@@ -1,0 +1,36 @@
+# The suites that need a display (PACKAGE TARGET.SUITE): cmux-ci sends a package-test-lane suite step
+# naming one to a display worker. Each has a display skip trait; scripts/ci/display_suites.py --check
+# keeps this list equal to those traits, and --fix rewrites it.
+Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTests
+Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
+Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
+Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
+Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
+Packages/macOS/CmuxNext CmuxNextAppTests.LaunchFirstFrameRevealTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarInsertWhileDisplayAsleepTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewHomeTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarMultiViewWindowTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarNewRowInPlaceTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarPriorityMotionTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowsMoveOnRenderServerTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
+Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TooltipSurfaceTests
+Packages/macOS/CmuxNext CmuxNextAppTests.WindowZoomTests
+Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests
+Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuBehaviorTests
+Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuPerformanceTests
+Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.PopupGrowMotionTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.TabHoverCardAttachTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.WindowKeyFamilyTrackerTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.WindowScreenshotTests
+Packages/macOS/CmuxPhonePush CmuxPhonePushTests.PhonePushSharedStateTests

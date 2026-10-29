@@ -2,18 +2,58 @@
 
 use super::*;
 
+impl Pooled {
+    /// Whether this agent, started from `argv`, runs in full access (`runs_full_access`): its
+    /// argv, the mode and config options its harness session came up in, and what it reported
+    /// for that session since it started (`StartReports`), held until a chat takes it
+    /// (`held.rs`; reviews 32 and 46 of #23322).
+    pub(super) fn runs_full_access(&self, argv: &[String]) -> bool {
+        use crate::hub::full_access_bound::{FullAccessView, runs_full_access};
+        let new = self.new_result.as_ref();
+        let mut view = FullAccessView::of_session_new(argv, new);
+        if let TapSlot::Held(held) = &*self.tap.lock().unwrap_or_else(|e| e.into_inner()) {
+            view.reported = held_reports_full_access(held, new);
+        }
+        runs_full_access(&view).is_some()
+    }
+}
+
+/// Whether the lines `held` for a pooled agent whose harness answered `session/new` with `new`
+/// report full access for its session (`StartReports`).
+pub(in crate::hub) fn held_reports_full_access(
+    held: &[(Direction, Message, Option<u64>)],
+    new: Option<&Value>,
+) -> bool {
+    let mut reports = crate::hub::full_access_bound::StartReports::default();
+    for (dir, msg, _) in held {
+        if let (Direction::In, Message::Notification { method: m, params: Some(p) }) = (dir, msg)
+            && m == crate::rpc::method::SESSION_UPDATE
+        {
+            reports.note(p);
+        }
+    }
+    reports.of_answer(new)
+}
+
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
     /// host in the pool directory, `initialize`, then the harness session.
-    pub(super) async fn spawn_pooled(&self, spec: &PoolSpec) -> anyhow::Result<Pooled> {
+    /// `off`: MDM's off as the pooled start began (`pool_want`), the start's one read of it.
+    pub(super) async fn spawn_pooled(
+        self: &Arc<Self>,
+        spec: &PoolSpec,
+        off: &crate::hub::full_access_bound::OffLatch,
+    ) -> anyhow::Result<Pooled> {
         let session_id = uuid::Uuid::now_v7().to_string();
         let draft = &spec.draft;
         let name = self.unique_name(&draft.harness);
         let profile = &spec.spawn;
         // MDM forces full access off (#23322): a profile pinning it is never prewarmed.
-        if self.refuse_pinned_full_access(profile).is_err() {
+        if self.refuse_pinned_full_access(off, profile).is_err() {
             anyhow::bail!("{} pins full access, which MDM forces off", draft.harness);
         }
+        #[cfg(debug_assertions)]
+        self.off_blip_seam();
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let (command_line, translator) = if claude {
             // As `ensure_child` starts a fresh Claude session.
@@ -78,11 +118,24 @@ impl Hub {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::agent::Launch::new(
+            &host_spec.program,
+            &host_spec.args,
+            &host_spec.env,
+            &host_spec.cwd,
+        );
+        let servers =
+            crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
+                .await;
         let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
-            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
-        let started = started.map(|p| Pooled { preview, ..p });
+            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
+        let started = started.map(|p| {
+            p.child.record_launch(servers);
+            Pooled { preview, ..p }
+        });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
         }
@@ -93,19 +146,31 @@ impl Hub {
     /// the harness session, all within `START_BUDGET`. On failure the host
     /// is ended.
     async fn start_pooled(
-        &self,
+        self: &Arc<Self>,
         session_id: String,
         name: String,
         record: HostRecord,
         spec: &PoolSpec,
         claude: bool,
+        latch: &crate::hub::full_access_bound::OffLatch,
     ) -> anyhow::Result<Pooled> {
         let draft = &spec.draft;
         if self.pool.stopping.load(Ordering::SeqCst) {
             end_pooled_host(&record).await;
             anyhow::bail!("the daemon is stopping");
         }
-        let (tap, slot) = holding_tap();
+        // MDM's off as this start began (`latch`, reviews 71, 73 and 77 of #23322): a report of
+        // full access while it starts ends it then, an unset after the off too, not at its answer.
+        let reported = Arc::new(tokio::sync::Notify::new());
+        let reported_off = Arc::new(AtomicBool::new(false));
+        let (hub, notify, flag) = (Arc::downgrade(self), reported.clone(), reported_off.clone());
+        let id = session_id.clone();
+        let (tap, slot) = holding_tap(move || {
+            notify.notify_one();
+            if let Some(hub) = hub.upgrade() {
+                hub.pool_reported(&id, &flag);
+            }
+        });
         let (inbound, target) = holding_inbound();
         let attach =
             ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
@@ -139,18 +204,30 @@ impl Hub {
             };
             Ok::<_, RpcError>((init, new_result))
         };
-        let (init, new_result) = match tokio::time::timeout(START_BUDGET, started).await {
-            Ok(Ok(v)) => v,
-            failed => {
-                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
-                end_pooled_host(&record).await;
-                match failed {
-                    Ok(Err(e)) => anyhow::bail!("{}", e.message),
-                    _ => anyhow::bail!("no harness session within {START_BUDGET:?}"),
+        let held = slot.clone();
+        let held_full = move || {
+            let slot = held.lock().unwrap_or_else(|e| e.into_inner());
+            matches!(&*slot, TapSlot::Held(h) if held_reports_full_access(h, None))
+        };
+        let outcome = tokio::time::timeout(START_BUDGET, async {
+            tokio::select! {
+                started = started => started.map_err(|e| anyhow::anyhow!("{}", e.message)),
+                () = latch.reported_under_off(&reported, held_full) => {
+                    Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
                 }
             }
+        })
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no harness session within {START_BUDGET:?}")));
+        let (init, new_result) = match outcome {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
+                end_pooled_host(&record).await;
+                return Err(e);
+            }
         };
-        Ok(Pooled {
+        let p = Pooled {
             session_id,
             name,
             key: spec.key.clone(),
@@ -165,7 +242,17 @@ impl Hub {
             parked: false,
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
             preview: Default::default(),
-        })
+            reported_off,
+            started: latch.clone(),
+            claimed_under: None,
+        };
+        // An off this start began under, or that began while it ran, holds though an unset
+        // followed (review 73): an agent that came up in full access then is not kept.
+        if latch.off() && p.runs_full_access(&spec.spawn.argv) {
+            end_pooled(p).await;
+            anyhow::bail!("it came up in full access, which MDM forces off");
+        }
+        Ok(p)
     }
 
     /// End entries nobody will take (in the background).
