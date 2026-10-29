@@ -98,16 +98,20 @@ public final class PulledBuildWatch {
         let task = Task { [weak self] in
             var entry: PulledBuild?
             var all: [String] = []
+            var read = false
             for url in urls {
                 guard let data = await fetch(url) else { continue }
+                read = true
                 let list = PulledBuild.decode(data)
                 all += list.map(\.build).filter { !all.contains($0) }
                 if entry == nil, let found = list.first(where: { $0.build == build }) { entry = found }
             }
             guard let self else { return }
+            self.refreshTask = nil
+            // A read that failed (offline, or no list published) never forgets a build known to be pulled.
+            guard read else { return self.onRefresh() }
             if self.pulledBuilds != all { self.pulledBuilds = all }
             if self.pulled != entry { self.pulled = entry }
-            self.refreshTask = nil
             self.onRefresh()
         }
         refreshTask = task

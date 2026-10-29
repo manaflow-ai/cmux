@@ -48,6 +48,12 @@ import Testing
         #expect(watch.isPulled("299") && !watch.isPulled("301"))
         #expect(refreshed == 1)
 
+        // A failed read keeps what the last read knew.
+        watch.fetch = { _ in nil }
+        await watch.refresh().value
+        #expect(watch.pulledBuilds == ["300", "299"] && watch.pulled?.build == "300")
+        #expect(refreshed == 2)
+
         let missing = Self.watch(list: nil)
         await missing.refresh().value
         #expect(missing.pulled == nil && missing.pulledBuilds.isEmpty)
