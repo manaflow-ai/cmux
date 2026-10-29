@@ -42,14 +42,19 @@ extension InternalPageDiscardPolicyCoverageTests {
         }
 
         /// Two pages with one raw value are one page to the store (one provider per id): the second replaces the
-        /// first. The store records a replacement by another type, and not a provider registered again.
+        /// first. The store records a replacement by another provider, of another type or of the same type (one
+        /// `WebPageTab` type serves several pages), and not the same provider registered again.
         @MainActor @Test func theStoreRecordsTwoPagesSharingAnID() {
             let pages = InternalPageTabStore()
-            pages.register(SettingsLookalike())
-            pages.register(SettingsLookalike())
+            let first = SettingsLookalike()
+            pages.register(first)
+            pages.register(first)
             #expect(pages.sharedPageIDs.isEmpty, "a provider registered again is not a second page")
+            pages.register(SettingsLookalike())
+            #expect(pages.sharedPageIDs[.settings]?.count == 2, "a second page of the same type took the id unseen")
             pages.register(OtherSettingsLookalike())
-            #expect(pages.sharedPageIDs[.settings] == ["SettingsLookalike", "OtherSettingsLookalike"])
+            #expect(pages.sharedPageIDs[.settings] == ["SettingsLookalike \"Lookalike\"", "SettingsLookalike \"Lookalike\"",
+                                                      "OtherSettingsLookalike \"Other\""])
         }
 
         /// Every page the app registers at launch (the store's own registry after the launch binding) has an id
