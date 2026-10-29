@@ -273,7 +273,10 @@ def run_lease(specs, build, out, frame_interval):
         log(f"downloading build {build['id']} on {host} (and the text reader, once per mini)")
         app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; wait || true; "
+                           f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; "
+                           # capture-host launches a bundle only with its commit beside it (the build's ref, from the
+                           # controller's record of the artifact just downloaded).
+                           f"printf %s {q(str(build.get('commit') or ''))} > build/capture-commit; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
                            f"find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1",
                      timeout=left(420)).stdout.decode().strip()
