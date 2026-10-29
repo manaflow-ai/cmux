@@ -10,8 +10,10 @@ import {
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
+  sourceOfFile,
   thumbnail,
   type AttachmentError,
+  type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
@@ -25,6 +27,7 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { attachSources } from "./attachmentSources";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -236,6 +239,39 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
+    // The app each file came from: one the page made knows it (a capture cmux took); the host says
+    // the rest for the person's drop or paste (composer/attachmentSources.ts). A chip made before
+    // the answer gets its source when it comes; one whose source nobody knows has none.
+    const fileSource: (AttachmentSource | undefined)[] = files.map((file) =>
+      isMadeFile(file) ? undefined : sourceOfFile(file),
+    );
+    const sourced = (index: number, attachment: ComposerAttachment): ComposerAttachment => {
+      const source = fileSource[index];
+      return source && !attachment.source ? { ...attachment, source } : attachment;
+    };
+    if (kind) {
+      const asked = files.flatMap((file, index) => (isMadeFile(file) || fileSource[index] ? [] : [{ file, index }]));
+      void attachSources(
+        kind,
+        asked.map(({ file }) => file),
+      ).then((answer) => {
+        const late = new Map<string, AttachmentSource>();
+        answer.forEach((source, at) => {
+          const index = asked[at]!.index;
+          if (!source) return;
+          fileSource[index] = source;
+          const chip = made[index];
+          if (chip) late.set(chip, source);
+        });
+        if (late.size)
+          setAttachments((staged) =>
+            staged.map((chip) => {
+              const source = late.get(chip.id);
+              return source && !chip.source ? { ...chip, source } : chip;
+            }),
+          );
+      });
+    }
     /// The chips this batch put in this chat's strip (not handed to another chat).
     const staged = new Set<string>();
     const marked = new Set<number>();
@@ -246,8 +282,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
-    const ready = (index: number, attachment: ComposerAttachment) => {
+    const ready = (index: number, read: ComposerAttachment) => {
       if (!settle(index)) return;
+      const attachment = sourced(index, read);
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;

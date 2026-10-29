@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -190,6 +191,8 @@ enum ScreenshotHandlers {
                 result["path"] = .string(try await saveTemporary(png))
             case .file(let url):
                 try await write(png, to: url)
+                // A chip made of it later wears cmux's icon (AttachmentSourceFiles).
+                AttachmentSourceFiles.markOwn(url)
                 result["path"] = .string(url.path)
             }
         } catch {
@@ -198,6 +201,8 @@ enum ScreenshotHandlers {
         if copies {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
+            // Says who wrote it (nspasteboard.org), so a paste of it wears cmux's icon.
+            AttachmentPasteboardOrigin.claim(NSPasteboard.general)
         }
         return result
     }
@@ -224,6 +229,7 @@ enum ScreenshotHandlers {
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)
+        AttachmentSourceFiles.markOwn(file)
         AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
                              newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
         return file.path

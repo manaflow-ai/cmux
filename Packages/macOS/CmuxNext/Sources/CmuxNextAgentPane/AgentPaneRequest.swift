@@ -105,6 +105,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
     /// person's files: never logged.
     case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
+    /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
+    case attachSource(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
+    case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.

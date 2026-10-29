@@ -43,7 +43,9 @@ enum AgentPaneCapture {
         let stem = "Screenshot \(formatter.string(from: taken))"
         guard let image = fit(png) else { return ["tooLarge": true, "name": "\(stem).png"] }
         let name = image.mimeType == "image/png" ? "\(stem).png" : "\(stem).jpg"
-        return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
+        // cmux took it: its chip wears cmux's icon (AttachmentSource).
+        return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString(),
+                "source": AttachmentSource.cmux.json]
     }
 
     /// Runs the pick; false when `screencapture` could not start. Its caller is the main actor: the spawn

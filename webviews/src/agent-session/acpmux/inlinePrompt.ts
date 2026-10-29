@@ -1,5 +1,6 @@
 import {
   attachmentBlocks,
+  attachmentSource,
   hasInlineMarks,
   inlineToken,
   orderedDraftParts,
@@ -54,6 +55,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         mimeType: a.mimeType,
         name: a.name,
         ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(a.source ? { source: a.source } : {}),
       });
     else {
       const first = blocks[0];
@@ -67,6 +69,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
         ...(a.video ? { video: a.video } : {}),
+        ...(a.source ? { source: a.source } : {}),
       } as PromptContentPart);
     }
     if (a.kind === "image" && blocks[1]?.type === "resource_link") {
@@ -98,6 +101,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
         : {}),
       ...(typeof raw.width === "number" ? { width: raw.width } : {}),
       ...(typeof raw.height === "number" ? { height: raw.height } : {}),
+      ...sourceField(raw.source),
     };
   if (!["file", "document", "audio", "pasted", "resource_link"].includes(String(kind))) return undefined;
   return {
@@ -111,7 +115,14 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
       : {}),
+    ...sourceField(raw.source),
   } as PromptContentPart;
+}
+
+/// `{source}` when acpmux kept a valid one with the part, else nothing.
+function sourceField(value: unknown) {
+  const source = attachmentSource(value);
+  return source ? { source } : {};
 }
 export function recordedPromptParts(msg: any, known?: readonly PromptContentPart[]): PromptContentPart[] | undefined {
   if (!Array.isArray(msg?.inlineParts)) return undefined;
