@@ -236,6 +236,36 @@ fn shell_idle_a_program_execed_in_the_shells_place_is_not_idle() {
     assert_not_idle(&harness, Duration::from_millis(500), "an exec'd shell");
 }
 
+/// Review 2, finding 5: `exec -a bash` gives the new program the shell's
+/// argv[0], so a check that compares argv reads it as the shell. The check
+/// compares what the kernel exec'd.
+#[test]
+fn shell_idle_a_program_execed_under_the_shells_name_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some(other) = find(&[
+        "/bin/dash",
+        "/usr/bin/dash",
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/bin/ksh",
+        "/usr/bin/ksh",
+    ]) else {
+        eprintln!("skipped: no shell other than bash is installed");
+        return;
+    };
+    let Some((harness, surface)) = start_bash("shell-idle-exec-a") else { return };
+    type_text(
+        &harness,
+        surface,
+        &format!("exec -a bash {other} -c 'printf \"\\033]133;A\\007%s> \" named; read line'\r"),
+    );
+    let screen = wait_for_screen(&harness.socket, surface, "named>");
+    assert!(screen.contains("named>"), "no {:?} on the screen: {screen:?}", "named>");
+    let leader = wait_for_foreign_foreground(&harness, "a program exec'd as bash");
+    assert_eq!(leader, Some(shell_pid(&harness, surface)), "the exec'd image keeps the pid");
+    assert_not_idle(&harness, Duration::from_millis(500), "a program exec'd as bash");
+}
+
 /// The lead, 2026-10-28: a shell with job control off (`set +m`) runs its
 /// jobs in its own process group, so its group leading the foreground proves
 /// nothing. A background job, and a foreground job that prints its own
