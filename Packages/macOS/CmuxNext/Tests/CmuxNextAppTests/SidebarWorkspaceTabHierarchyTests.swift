@@ -34,6 +34,7 @@ struct SidebarWorkspaceTabHierarchyTests {
         context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
         return try #require(context.makeImage())
+    }
 
     private static func workspace(_ id: WorkspaceID, _ title: String, tabs: [SidebarTab], focused: TabID? = nil) -> SidebarWorkspace {
         var workspace = SidebarWorkspace(id: id, title: title)
