@@ -11,6 +11,7 @@ pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod event_bus;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -353,7 +354,7 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    pub(super) events: event_bus::EventBus,
     /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
     /// asker meanwhile gets this daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
@@ -512,7 +513,7 @@ impl Hub {
         deferred: bool,
         supervisor: crate::supervised::Supervisor,
     ) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = event_bus::EventBus::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -652,6 +653,16 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    /// A receiver and the number of events sent before it (`event_bus.rs`).
+    pub(crate) fn subscribe_counted(&self) -> (broadcast::Receiver<HubEvent>, u64) {
+        self.events.subscribe_counted()
+    }
+
+    /// The number of events published so far (`event_bus.rs`).
+    pub(crate) fn events_sent(&self) -> u64 {
+        self.events.sent()
     }
 
     pub fn mailbox(&self) -> &Mailbox {

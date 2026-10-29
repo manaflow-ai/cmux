@@ -97,6 +97,8 @@ pub struct Conn {
     /// Its vote in the memory registry, once it sent the app's memory limit
     /// (`memory_control.rs`); withdrawn when the connection ends.
     pub(crate) memory_vote: std::sync::OnceLock<cmux_memory::Voter>,
+    /// How many hub events its fan-out has handed on (`fanout.rs`); unset with no fan-out.
+    fanout_progress: std::sync::OnceLock<tokio::sync::watch::Receiver<u64>>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -236,6 +238,21 @@ impl Conn {
         for lease in held.unwrap_or_default() {
             hub.end_peer_lease(&lease);
         }
+    }
+
+    /// Follows its fan-out's progress (`fanout::start`, once per connection).
+    fn watch_fanout(&self, progress: tokio::sync::watch::Receiver<u64>) {
+        let _ = self.fanout_progress.set(progress);
+    }
+
+    /// Waits until its fan-out has handed on every hub event published before now
+    /// (`hub/event_bus.rs`), so a reply sent next follows them: a turn's updates before
+    /// the `session/prompt` result. Returns at once with no fan-out, or once it ended.
+    async fn events_handed_on(&self, hub: &Hub) {
+        let Some(progress) = self.fanout_progress.get() else { return };
+        let sent = hub.events_sent();
+        let mut progress = progress.clone();
+        let _ = progress.wait_for(|handed_on| *handed_on >= sent).await;
     }
 
     fn send(&self, msg: &Message) {
