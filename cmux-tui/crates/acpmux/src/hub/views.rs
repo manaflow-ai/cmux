@@ -484,14 +484,19 @@ impl Hub {
 
     pub async fn status(&self) -> Value {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
-        let host_pressure = self.host_pressure_status().await;
+        let loading = !self.store_loaded() || !self.startup_complete();
+        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
         let cfg = self.config.read().await;
         // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
         // (statvfs and a bounded, cached folder walk), so off the async workers.
         let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-            .await
-            .unwrap_or(Value::Null);
+        let disk = if loading {
+            Value::Null
+        } else {
+            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                .await
+                .unwrap_or(Value::Null)
+        };
         let sessions = self.sessions();
         let stuck: Vec<Value> = sessions
             .iter()
@@ -564,6 +569,7 @@ impl Hub {
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
+            "loading": self.loading_status(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
             // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
             // from this daemon's own environment; the app hands off a Chief-home

@@ -135,8 +135,10 @@ impl Hub {
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
-        self.wait_adopted(session).await;
+        // Read this log now, ahead of queued background loads, while keeping the prompt
+        // behind adoption's recovered turn below.
         self.session_log(session).await;
+        self.wait_adopted(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;

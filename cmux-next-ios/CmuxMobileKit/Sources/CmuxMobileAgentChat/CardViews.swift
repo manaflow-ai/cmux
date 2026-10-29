@@ -473,6 +473,8 @@ struct FailureCard: View {
     let message: String
     /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
     var detail: String?
+    /// Retry with another model, beside Retry (the Mac's failed turn shows it there).
+    var retryWith: RetryModelChoice?
     let retry: () -> Void
 
     var body: some View {
@@ -491,7 +493,15 @@ struct FailureCard: View {
                 .font(.footnote)
                 .tint(.secondary)
             }
-            Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+            HStack(spacing: 8) {
+                Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                if let retryWith {
+                    retryWith.menu
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityLabel(RetryModelChoice.title)
+                }
+            }
         }
         .padding(16)
         .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }

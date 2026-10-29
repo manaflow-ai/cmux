@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 523,
+  "count": 525,
   "sections": [
     {
       "id": "general",
@@ -425,6 +425,14 @@
           "help": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
           "kind": "toggle",
           "default": false,
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.livePreview",
+          "title": "Live Preview in Chat",
+          "help": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+          "kind": "toggle",
+          "default": true,
           "group": "Computer Use"
         },
         {
@@ -2062,6 +2070,14 @@
             "both",
             "none"
           ]
+        },
+        {
+          "key": "appearance.highlightColor",
+          "title": "Highlight Color",
+          "help": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+          "kind": "color",
+          "default": null,
+          "group": "App Theme"
         },
         {
           "key": "appearance.hue",

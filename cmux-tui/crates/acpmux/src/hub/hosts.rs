@@ -11,6 +11,7 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
+use futures_util::StreamExt;
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -286,53 +287,12 @@ impl Hub {
                 return;
             }
         };
-        for (_, record) in good {
-            if agent_host::liveness(&dir, &record.session_id, &record.start_nonce) == Liveness::Dead
-            {
-                agent_host::remove_artifacts(&dir, &record);
-                continue;
-            }
-            let Some(session) = self.session_by_id(&record.session_id) else {
-                // A host for a session this daemon does not know (purged):
-                // nothing can show it, so end it.
-                let ended = end_host_blocking(
-                    dir.clone(),
-                    record.session_id.clone(),
-                    Some(record.start_nonce.clone()),
-                    Some(record.host_pid),
-                )
-                .await;
-                if ended {
-                    agent_host::remove_artifacts(&dir, &record);
-                } else {
-                    self.hold_unresolved(Some(&record.session_id)).await;
-                }
-                continue;
-            };
-            // This runs after the ready line, so a prompt can reach the host
-            // first (`ensure_child` -> `readopt`, under the spawn lock). One
-            // adoption per host: a second link would replace the first
-            // child, and the requests open on it would be lost.
-            let _spawning = session.spawn_lock.lock().await;
-            if let Some(child) = session.child.lock().await.as_ref()
-                && child.is_alive().await
-            {
-                continue;
-            }
-            // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
-            // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
-            // end failed is not adopted either (review 51), and may still write a line the previous
-            // daemon handed it: held until it is proven gone (`hold_unresolved`).
-            if self.ends_before_adoption(&session, off.off()).await {
-                if !Self::host_record_gone(&session.id) {
-                    self.hold_unresolved(Some(&session.id)).await;
-                }
-                continue;
-            }
-            if let Err(e) = self.adopt_one(&session, record, &off).await {
-                tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
-            }
-        }
+        // Each host has its own spawn lock, replay and recovery. A slow host must not hold
+        // every following chat behind its replay deadline. Keep at most eight in flight;
+        // this pass ends once the records are drained and owns no detached adoption tasks.
+        futures_util::stream::iter(good)
+            .for_each_concurrent(8, |(_, record)| self.adopt_record(&dir, record, &off))
+            .await;
         for unreadable in bad {
             // Nothing proves what it may still write: held until its host is proven gone.
             if !Self::host_record_gone(&unreadable.session_id) {
@@ -353,6 +313,58 @@ impl Hub {
                     json!({"recordVersion": unreadable.record_version, "reason": unreadable.reason}),
                 );
             }
+        }
+    }
+
+    async fn adopt_record(
+        self: &Arc<Self>,
+        dir: &std::path::Path,
+        record: agent_host::HostRecord,
+        off: &OffLatch,
+    ) {
+        if agent_host::liveness(dir, &record.session_id, &record.start_nonce) == Liveness::Dead {
+            agent_host::remove_artifacts(dir, &record);
+            return;
+        }
+        let Some(session) = self.session_by_id(&record.session_id) else {
+            // A host for a session this daemon does not know (purged):
+            // nothing can show it, so end it.
+            let ended = end_host_blocking(
+                dir.to_owned(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(dir, &record);
+            } else {
+                self.hold_unresolved(Some(&record.session_id)).await;
+            }
+            return;
+        };
+        // This runs after the ready line, so a prompt can reach the host
+        // first (`ensure_child` -> `readopt`, under the spawn lock). One
+        // adoption per host: a second link would replace the first
+        // child, and the requests open on it would be lost.
+        let _spawning = session.spawn_lock.lock().await;
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await
+        {
+            return;
+        }
+        // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
+        // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
+        // end failed is not adopted either (review 51), and may still write a line the previous
+        // daemon handed it: held until it is proven gone (`hold_unresolved`).
+        if self.ends_before_adoption(&session, off.off()).await {
+            if !Self::host_record_gone(&session.id) {
+                self.hold_unresolved(Some(&session.id)).await;
+            }
+            return;
+        }
+        if let Err(e) = self.adopt_one(&session, record, off).await {
+            tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
         }
     }
 

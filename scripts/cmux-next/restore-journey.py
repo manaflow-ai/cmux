@@ -107,6 +107,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
+import rj_rows  # noqa: E402  (next to this script, copied the same way)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -658,6 +659,7 @@ def restore_acpmux_config():
 REPORTS = {}  # page name -> latest {path, scrollY, at}
 LIVE_READ = {}  # the seeded history page's outside-folder read probe, before the first quit
 SINCE = 0.0  # when the last quit ended: reports older than this are stale
+CHAT_CONNECT_BOUND = 10  # seconds a shown chat page may take to connect after a relaunch
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
 PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
@@ -1435,6 +1437,28 @@ def terminal_items(term):
             "ticks": [int(t) for t in re.findall(r"rj-tick-(\d+)", text)]}
 
 
+def pane_active_tab(pane_id):
+    """The tab pane `pane_id` shows, from its screen's layout export (`active_tab_id` of its leaf), or None."""
+    topo = topology() or {}
+    screen = next((s_.get("id") for ws in rj_workspaces(topo) for s_ in ws.get("screens", [])
+                   if any(p.get("id") == pane_id for p in s_.get("panes", []))), None)
+    if not screen:
+        return None
+    exported = cli("screen", screen, "layout", "export", quiet=True)
+    found = []
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("pane_id") == pane_id and node.get("active_tab_id"):
+                found.append(node["active_tab_id"])
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(exported.get("value", exported) if isinstance(exported, dict) else exported)
+    return found[0] if found else None
+
+
 def layout_shape(screen_id, pane_index):
     """The screen's split tree from the daemon, with pane ids replaced by their index and ratios rounded."""
     exported = cli("screen", screen_id, "layout", "export", quiet=True)
@@ -1509,18 +1533,7 @@ class visiting:
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
-def grid_fits_view(label, pp, view):
-    """A row: the terminal renders the grid its view fits (`fit_grid`), so the shell has no rows
-    past the pane's edge. Read after the settle wait, so a grid that never follows its view fails
-    here even when it is equally wrong before and after the relaunch (cx-yt7rt)."""
-    surface = view.get("surface") or {}
-    grid, fit = surface.get("grid"), surface.get("fit_grid")
-    row = f"{label}: {pp}.view.grid_fits_view"
-    if not grid:
-        return (row, False, "no terminal grid drawn", "layout")
-    if "fit_grid" not in surface:
-        return (row, True, f"grid {grid}; this build reports no fit_grid", "layout")
-    return (row, fit is not None and fit == grid, f"grid {grid}, view fits {fit}", "layout")
+grid_fits_view = rj_rows.grid_fits_view
 
 
 def snapshot(label):
@@ -1697,13 +1710,27 @@ def snapshot(label):
         # The chat's page shows only while its workspace is shown: visit it.
         with visiting("rj-agent"):
             # A page still connecting to acpmux has no session yet: wait for it to connect.
-            shown_at = time.time()
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting" else None)(
-                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 45, 1) \
-                or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
+            # Each ask is short (5 s): one call that hangs must not count as the page's connect time.
+            shown_at, asks = time.time(), []
+            def connected():
+                answer = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=5)
+                asks.append([round(time.time() - shown_at, 1), (answer.get("error") or answer.get("connection")) if isinstance(answer, dict) else str(answer)])
+                return answer if isinstance(answer, dict) and "error" not in answer and answer.get("connection") != "connecting" else None
+            state = wait(connected, 90, 0.25)
+            connect_seconds = round(time.time() - shown_at, 1)
+            state = state or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=10)
         raw["agent_pane.chat_state"] = state
-        raw["agent_pane.connect_seconds"] = round(time.time() - shown_at, 1)
+        raw["agent_pane.connect_seconds"] = connect_seconds
+        raw["agent_pane.connect_asks"] = asks[-40:]
         say(f"  chat page {state.get('connection') if isinstance(state, dict) else state} {raw['agent_pane.connect_seconds']} s after it was shown")
+        if label.endswith("-after"):
+            # A person who opens the chat after a relaunch waits this long for it (before: 61 s, one
+            # 60 s debug call that hung, not the page).
+            RESULTS.append((f"{label[:-len('-after')]}: the chat page connects within {CHAT_CONNECT_BOUND} s after it is shown",
+                            isinstance(state, dict) and "error" not in state and state.get("connection") not in (None, "connecting", "disconnected")
+                            and connect_seconds <= CHAT_CONNECT_BOUND,
+                            f"{state.get('connection') if isinstance(state, dict) else state} after {connect_seconds} s; asks {json.dumps(asks[:6])[:200]}",
+                            "agent chat"))
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
             items["agent.page.last_assistant"] = state.get("lastAssistant")
@@ -1735,7 +1762,8 @@ def snapshot(label):
             last = {}
 
             def drawn():
-                _, now = view_panes()
+                report, now = view_panes()
+                last["report"] = report
                 shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
                 ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
                 if not ok:
@@ -1748,12 +1776,19 @@ def snapshot(label):
                     settled = last.get("grids") == grids
                 last["grids"] = grids
                 return now if settled else None
-            now = wait(drawn, 20, 0.5) or view_panes()[1]
+            now = wait(drawn, 20, 0.5)
+            report = last.get("report")
+            if not now:
+                # Not settled: read once more, waiting out a report the app does not answer (a
+                # loaded host), so the rows name what the app drew, not a failed read.
+                report, now = wait(lambda: (lambda r: r if rj_rows.report_error(r[0]) is None else None)(view_panes()), 60, 2) \
+                    or view_panes()
+            raw[f"debug.surfaces.{name}"] = report
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
-                RESULTS.append(grid_fits_view(label, pp, v))
+                RESULTS.append(grid_fits_view(label, pp, v, report))
     if "cloud" not in SKIP:
         items.update(cloud_items())
     if "agents" not in SKIP:
@@ -1906,6 +1941,11 @@ def compare(variant, before, after):
         if variant == "reboot" and (item.startswith(("counter.", "top.")) or item == "agent.status"):
             # A reboot ends every process: running programs and their screens cannot come back.
             RESULTS.append((f"{variant}: {item}", NA, "n/a: a reboot ends every running program", area_of(item)))
+            continue
+        if item == "agent.status" and {b, a} <= {"ready", "idle"}:
+            # acpmux hibernates a chat whose agent sat idle 2 min (`idle`: no agent process, the next
+            # prompt resumes it): the same live session as `ready`, not a lost one.
+            RESULTS.append((f"{variant}: {item}", True, f"{json.dumps(b)} -> {json.dumps(a)} (idle: hibernated, resumes on the next prompt)", area_of(item)))
             continue
         if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
             ok = a is True and b is True
@@ -2296,7 +2336,16 @@ def finish_turn_in_flight(variant, turn):
     if tab:
         with visiting("rj-chats"):
             pane = place_of(tab.get("id"), topo)[1]
-            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+            # Its pane holds another chat too: show this chat's tab, and read only its own page.
+            # The tab the pane showed comes back after, so the layout rows see the seeded state.
+            shown_tab = pane_active_tab(pane)
+            cli("tab", tab["id"], "focus", quiet=True)
+            def own_page_shows():
+                state = page(pane, "chat_state") or {}
+                return state.get("sessionId") == turn["chat"]["session"] and "after-gate" in str((state.get("lastAssistant") or {}).get("text"))
+            shown = wait(own_page_shows, 20, 0.5)
+            if shown_tab and shown_tab != tab["id"]:
+                cli("tab", shown_tab, "focus", quiet=True)
     RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
                     f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
                     + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))

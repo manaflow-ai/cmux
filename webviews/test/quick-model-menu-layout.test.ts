@@ -194,14 +194,16 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("the picker uses readable rows and a left harness rail", async () => {
+  test("the picker uses native menu rows and a left harness rail", async () => {
     const page = await open("claude");
     try {
       const rail = await bounds(page, ".acpmux-quick-rail");
       const body = await bounds(page, ".acpmux-quick-body");
       const row = (await page.locator(".acpmux-quick-list .acpmux-quick-item").first().boundingBox())!;
       expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
-      expect(row.height).toBeGreaterThanOrEqual(36);
+      // A native menu's row (Leo 2026-10-28: "AND I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED
+      // IT'S FUCKING TONKA TOYS").
+      expect(Math.round(row.height)).toBe(28);
       const search = await bounds(page, ".acpmux-quick-search");
       expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);

@@ -44,6 +44,8 @@ actor CodexBrokerSession {
     private var exitWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<BrokerResult, any Swift.Error>] = [:]
+    /// Ends the reader of the holder's replies (``FileHandle/readyChunks()``); deinit calls it.
+    private let stopReading: @Sendable () -> Void
 
     init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL, inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment) throws {
         try FileManager.checked.createDirectory(at: home, withIntermediateDirectories: true)
@@ -64,17 +66,18 @@ actor CodexBrokerSession {
         self.process = process
         self.input = inputPipe.fileHandleForWriting
         self.output = outputPipe.fileHandleForReading
-        // task-owner: this reader is bounded by the private broker process and
-        // terminates on EOF; pending continuations are failed by terminationHandler.
-        Task { [weak self, output = outputPipe.fileHandleForReading] in
-            do {
-                for try await line in output.bytes.lines {
-                    await self?.consume(Data((line + "\n").utf8))
-                }
-                await self?.terminatePending()
-            } catch {
-                await self?.terminatePending()
+        // Not `output.bytes.lines`: Foundation reads every `FileHandle.bytes` in the process one
+        // at a time, so another session's idle reader (or any other) left this one's replies
+        // unread until the 15 s request bound failed them as brokerUnavailable.
+        let (chunks, stopReading) = outputPipe.fileHandleForReading.readyChunks()
+        self.stopReading = stopReading
+        // task-owner: the reader ends at EOF, a failed read, or deinit (stopReading); pending
+        // requests fail then.
+        Task { [weak self] in
+            for await chunk in chunks {
+                await self?.consume(chunk)
             }
+            await self?.terminatePending()
         }
         process.terminationHandler = { [weak self] _ in
             // task-owner: termination handler reports EOF to the stored reader task.
@@ -83,6 +86,7 @@ actor CodexBrokerSession {
     }
 
     deinit {
+        stopReading()
         stopDeadline?.cancel()
         try? input.close()
         try? output.close()
@@ -119,13 +123,16 @@ actor CodexBrokerSession {
 
     private func consume(_ data: Data) {
         buffer.append(data)
-        guard buffer.count <= 64 * 1024 else {
+        // A chunk may hold several replies; the cap is on one reply line (a whole one, or the
+        // part of one still waiting for its newline), not on a chunk.
+        let limit = 64 * 1024
+        func overflow() {
             terminatePending()
             if process.isRunning { process.terminate() }
             buffer.removeAll(keepingCapacity: false)
-            return
         }
         while let newline = buffer.firstIndex(of: 0x0A) {
+            guard newline - buffer.startIndex <= limit else { return overflow() }
             let line = buffer.prefix(upTo: newline)
             buffer.removeSubrange(...newline)
             guard let reply = try? JSONDecoder().decode(BrokerReply.self, from: line),
@@ -141,6 +148,7 @@ actor CodexBrokerSession {
                 continuation.resume(throwing: Error.invalidReply)
             }
         }
+        if buffer.count > limit { overflow() }
     }
 
     private func terminatePending() {

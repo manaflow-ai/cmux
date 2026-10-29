@@ -31,6 +31,7 @@ import {
   itemAnswerText,
   QuestionProblemError,
   cancelledKey,
+  consentChoice,
   reply,
   type AgentQuestion,
   type Answer,
@@ -74,7 +75,10 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// nothing else has it or the composer is empty. A click chooses an option and never sends it (Leo,
 /// 2026-10-24: "just clicking it directly just automatically sends the input. So it makes the skip
 /// and submit buttons redundant"): Submit or ⌘↩ sends, Enter sends the highlighted row, and a
-/// double-click on a single-choice option chooses and sends it. Escape skips the waiting ask,
+/// double-click on a single-choice option chooses and sends it. A yes-or-no ask (model.ts
+/// `consentChoice`, the folder trust card) is ChatGPT's consent card instead: the question, one muted
+/// line of what Allow does, and its two buttons, Deny with esc and Allow with ↩ (Leo's 2026-10-29
+/// reference). Escape skips the waiting ask,
 /// including from Other, and claims the key so it cannot also stop the turn or hide the floating
 /// chat. Other accepts Enter to submit and Shift-Enter for a newline. A reply acpmux refuses shows
 /// its error on the card, which takes input again for a retry. Only a person's click or key sends
@@ -184,13 +188,18 @@ function PendingQuestion({
   const item = activeItem(state);
   const highlighted = highlightedRow(state, item);
 
+  // The same, read at once: a second click before the card renders again (a consent's double click)
+  // must not answer twice either.
+  const sending = useRef<string | undefined>(undefined);
   const send = (sentReply: QuestionReply | undefined) => {
-    if (!sentReply || sent) return;
+    if (!sentReply || sent || sending.current === question.id) return;
+    sending.current = question.id;
     setSentFor(question.id);
     setRefused(undefined);
     const askId = question.id;
     Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
       // The ask stays pending: say why on the card and take input again.
+      if (sending.current === askId) sending.current = undefined;
       setSentFor((current) => (current === askId ? undefined : current));
       if (isHostRefusal(error)) {
         setRefused({ reason: errorMessage(error) });
@@ -212,6 +221,8 @@ function PendingQuestion({
     const view = card?.ownerDocument.defaultView ?? window;
     view.dispatchEvent(new view.Event(COMPOSER_READY_EVENT));
   };
+  // A yes-or-no ask (consentChoice) draws as its two buttons, with no option list, Skip or Submit.
+  const consent = consentChoice(question);
   const skip = () => {
     if (sent) return;
     send(declineReply(question));
@@ -257,6 +268,13 @@ function PendingQuestion({
   const onKeyDown = (event: KeyboardEvent) => {
     // WebKit sends the Enter that commits an IME candidate after compositionend, as keyCode 229.
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+    // A consent's Return (or ⌘↩) is its Allow, except on a focused Not now, which presses that.
+    if (consent && event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      if (!event.metaKey && (event.target as HTMLElement).closest(".acpmux-question-skip")) return;
+      event.preventDefault();
+      if (!event.repeat) dispatch({ type: "number", value: consent.accept + 1 });
+      return;
+    }
     // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
     // answers like Enter: the highlighted row, then Submit once every item has an answer.
     if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
@@ -279,6 +297,12 @@ function PendingQuestion({
     if (event.key === "Escape") {
       event.preventDefault();
       if (!event.repeat) skip();
+      return;
+    }
+    // A consent has no list, so its number and arrow keys pick nothing out of sight. They are
+    // still consumed, so a digit never falls through to the composer as typed text.
+    if (consent) {
+      if (/^[1-9]$|^Arrow(?:Up|Down)$/.test(event.key)) event.preventDefault();
       return;
     }
     // In Other, plain Enter submits; Shift-Enter and every other editing key stay native.
@@ -314,7 +338,8 @@ function PendingQuestion({
     if (!card || arrived.current === question.id) return;
     arrived.current = question.id;
     if (hidden || !keyboardIsIdle(card.ownerDocument)) return;
-    card.querySelector<HTMLElement>(`[data-row="${highlightedRow(state)}"]`)?.focus();
+    const target = consent ? ".acpmux-question-submit" : `[data-row="${highlightedRow(state)}"]`;
+    card.querySelector<HTMLElement>(target)?.focus();
   });
   const goToItem = (index: number) => {
     let next = state;
@@ -330,6 +355,62 @@ function PendingQuestion({
   };
 
   if (!item) return null;
+  if (consent) {
+    const accept = item.options[consent.accept]!;
+    const reject = item.options[consent.reject]!;
+    return (
+      <fieldset
+        ref={group}
+        id={id}
+        hidden={hidden}
+        className="acpmux-question"
+        data-consent=""
+        aria-labelledby={legendId}
+        aria-busy={sent || undefined}
+      >
+        <legend id={legendId} className="acpmux-question-head">
+          <span className="acpmux-hidden-label">
+            {t("question.asking", { agent: question.source.agentName ?? t("question.agent") })}
+          </span>
+          <span className="acpmux-question-prompt">
+            {inlineText(item.prompt)}
+            {accept.detail && <span className="acpmux-question-scope">{inlineText(accept.detail)}</span>}
+          </span>
+          {item.header && <span className="acpmux-question-chip">{item.header}</span>}
+        </legend>
+        {refused && (
+          <p className="acpmux-question-error" role="alert">
+            {t("question.replyFailed")}
+            {refused.reason && " "}
+            {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
+          </p>
+        )}
+        <div className="acpmux-question-actions">
+          <button
+            type="button"
+            className="acpmux-question-skip"
+            aria-keyshortcuts="Escape"
+            title={reject.detail}
+            disabled={sent}
+            onClick={skip}
+          >
+            {inlineText(reject.label)}
+            <Keycap>esc</Keycap>
+          </button>
+          <button
+            type="button"
+            className="acpmux-question-submit"
+            aria-keyshortcuts="Enter"
+            disabled={sent}
+            onClick={() => dispatch({ type: "number", value: consent.accept + 1 })}
+          >
+            {inlineText(accept.label)}
+            <Keycap>↩</Keycap>
+          </button>
+        </div>
+      </fieldset>
+    );
+  }
   const hoveredRow = hovered?.item === item.id ? hovered.row : undefined;
   const previewOption = shownPreview(item.options, [hoveredRow, highlighted]);
   const showPreview = hasPreviews(item);
@@ -453,8 +534,15 @@ function PendingQuestion({
             {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
           </span>
         )}
-        <button type="button" className="acpmux-question-skip" disabled={sent} onClick={skip}>
+        <button
+          type="button"
+          className="acpmux-question-skip"
+          aria-keyshortcuts="Escape"
+          disabled={sent}
+          onClick={skip}
+        >
           {t("question.skip")}
+          <Keycap>esc</Keycap>
         </button>
         {action === "next" ? (
           <button

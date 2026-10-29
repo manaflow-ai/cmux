@@ -583,6 +583,33 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// A web link tapped in a terminal (the Mac's Cmd-click, `TerminalHostDelegate.openWeb`):
+    /// `new-browser-tab {url, pane}` in the terminal's own pane, so the page opens beside it in
+    /// the same workspace. Only `http` and `https` (the mobile host refuses any other scheme).
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            throw WorkspaceCreationError("Only web links open in a browser tab.", isForPerson: true)
+        }
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        do {
+            let reply = try await client.request("new-browser-tab", params: ["url": url.absoluteString, "pane": place.pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            let tree = try await sync.listNow()
+            guard let opened = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return opened
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
     /// `move-tab {surface, pane, index}`: to the target's pane and place.
     /// Within the tab's own pane only: a drag onto a tab of another pane would move it into
     /// that pane (and could close a split), a layout change, not a reorder.

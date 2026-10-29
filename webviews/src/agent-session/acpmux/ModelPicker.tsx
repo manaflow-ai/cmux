@@ -797,13 +797,13 @@ export function ModelPicker(props: ModelPickerProps) {
       if (seen.has(model)) return [];
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
-      const hint = [!harnessFixed ? entry.name : undefined, model.provider, effort, typed.fast ? fastText : undefined]
-        .filter(Boolean)
-        .join(" · ");
+      // The harness travels on its own: the menu heads each harness's matches with its name.
+      const hint = [model.provider, effort, typed.fast ? fastText : undefined].filter(Boolean).join(" · ");
       const row = quickRow(entry.id, model);
       return [
         {
           ...row,
+          ...(!harnessFixed ? { harness: entry.name } : {}),
           ...(hint ? { hint } : {}),
           ...(effort ? { effort } : {}),
           ...(typed.fast ? { fast: true } : {}),

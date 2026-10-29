@@ -678,7 +678,8 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
 - A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
   app's link into it would be invisible, so it is unknown.
-- A machine is idle only when there is no attached client, no live agent or acpmux session with
+- A machine is idle only when nobody typed through an attached client for the whole timeout (an
+  app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
   a turn or a pending permission, no terminal running a command (anything but a shell at its
   prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
   inbound connection on its private address, and CPU use since the previous probe below
