@@ -64,6 +64,7 @@ afterEach(() => {
 
 function nativeHost() {
   const shown: NativePopupModel[] = [];
+  const updated: NativePopupModel[] = [];
   const listeners = new Set<(event: NativePopupEvent) => void>();
   const host: PopupHost = {
     show: async () => ({ shown: false }),
@@ -76,7 +77,9 @@ function nativeHost() {
         shown.push(model);
         return { shown: true };
       },
-      update() {},
+      update(model) {
+        updated.push(model);
+      },
       hide() {},
       listen(listener) {
         listeners.add(listener);
@@ -84,8 +87,54 @@ function nativeHost() {
       },
     },
   };
-  return { host, shown, listeners };
+  return { host, shown, updated, listeners };
 }
+
+test.each([false, true])("native Tab completion retains suggestion identity (readable=%s)", async (readable) => {
+  const container = installDom();
+  const { host, shown, updated, listeners } = nativeHost();
+  const key = "project:opaque-key";
+  const completed = readable ? "/work/project" : key;
+  const queries: string[] = [];
+  const submitted: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="/wo"
+          label="Projects"
+          suggestions={[key]}
+          {...(readable ? { completionText: () => completed } : {})}
+          onQuery={(value) => queries.push(value)}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model: comboboxDescription({ suggestions: [key] }) }}
+        />
+      </UiProvider>,
+    );
+  });
+  const sent = shown[0]!;
+  expect(sent.search?.completeOnTab).toBe(true);
+  expect(sent.rows[0]!.completion).toBe(completed);
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "complete", popupId: sent.id, revision: sent.revision, id: sent.rows[0]!.id, value: completed });
+  });
+  expect(queries).toEqual([completed]);
+  expect(container.querySelector<HTMLInputElement>("input")!.value).toBe(completed);
+  expect(submitted).toEqual([]);
+  expect(listeners.size).toBe(1);
+  const current = updated.at(-1) ?? sent;
+  expect(current.search?.value).toBe(completed);
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "submit", popupId: current.id, revision: current.revision, value: completed, reason: "none" });
+  });
+  expect(submitted).toEqual([key]);
+  expect(listeners.size).toBe(0);
+});
 
 test("native combobox submits a picked action ID without a value payload", async () => {
   const container = installDom();
