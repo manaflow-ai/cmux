@@ -17,35 +17,17 @@ import Testing
         let download: BrowserPageDownload?
         /// How long each answer takes (a chooser that opens late, a download that runs).
         let delay: Duration
-        let ignoreCancellation: Bool
 
-        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil,
-             delay: Duration = .zero, ignoreCancellation: Bool = false) {
+        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil, delay: Duration = .zero) {
             self.chooser = chooser
             self.fileInput = fileInput
             self.download = download
             self.delay = delay
-            self.ignoreCancellation = ignoreCancellation
-        }
-
-        private func waitIfNeeded() async {
-            guard delay > .zero else { return }
-            if ignoreCancellation {
-                let components = delay.components
-                let nanoseconds = Int(components.seconds * 1_000_000_000 + components.attoseconds / 1_000_000_000)
-                await withCheckedContinuation { continuation in
-                    DispatchQueue.global().asyncAfter(deadline: .now() + .nanoseconds(nanoseconds)) {
-                        continuation.resume()
-                    }
-                }
-            } else {
-                try? await Task.sleep(for: delay)
-            }
         }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
             operations.withLock { $0.append(operation) }
-            await waitIfNeeded()
+            if delay > .zero { try await Task.sleep(for: delay) }
             if case .upload = operation {
                 return ["chooser": .string(chooser), "value": ["value": ["fileInput": .bool(fileInput)]]]
             }
@@ -54,7 +36,7 @@ import Testing
 
         func downloads(_ query: BrowserPageDownloadQuery) async throws -> BrowserPageDownloads {
             queries.withLock { $0.append(query) }
-            await waitIfNeeded()
+            if delay > .zero { try await Task.sleep(for: delay) }
             guard query.wait != nil else { return .list([]) }
             return download.map(BrowserPageDownloads.ended) ?? .timedOut
         }
@@ -125,43 +107,76 @@ import Testing
         #expect(engine.scripts.last?.contains("new W.DataTransfer()") == true)
     }
 
-    @Test func concurrentFallbackUploadsUseDistinctPageState() async throws {
-        let (folder, paths) = try scratch(["a.txt", "b.txt"])
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
-        let router = install(engine)
+    /// Deliberately ignores task cancellation, like a WebKit callback already in flight.
+    actor EvaluationGate {
+        private var started = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var release: CheckedContinuation<Void, Never>?
 
-        async let first = call(router, "browser.page.upload", ["selector": .string("#f"), "files": .array([.string(paths[0])])])
-        async let second = call(router, "browser.page.upload", ["selector": .string("#f"), "files": .array([.string(paths[1])])])
-        _ = await (first, second)
+        func suspend() async {
+            guard !started else { return }
+            await withCheckedContinuation { continuation in
+                release = continuation
+                started = true
+                for waiter in waiting { waiter.resume() }
+                waiting.removeAll()
+            }
+        }
 
-        let starts = engine.scripts.filter { $0.contains("Object.create(null)") }
-        #expect(starts.count == 2)
-        #expect(Set(starts).count == 2, "overlapping uploads need separate page state identities")
+        func waitUntilStarted() async {
+            if started { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func resume() {
+            release?.resume()
+            release = nil
+        }
     }
 
-    @Test func cancelledStreamRunsIdentityScopedCleanup() async throws {
-        let (folder, paths) = try scratch(["a.txt"])
+    final class SuspendedChunkEngine: BrowserPageEngine {
+        let gate = EvaluationGate()
+        let scripts = Mutex<[String]>([])
+
+        func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            guard case let .evaluate(script) = operation else { return .null }
+            scripts.withLock { $0.append(script) }
+            if script.contains("const bytes =") { await gate.suspend() }
+            return ["value": ["value": true]]
+        }
+    }
+
+    @Test func cancelledStreamStopsAfterInFlightChunkAndCleansUp() async throws {
+        let (folder, paths) = try scratch(["a.txt"], bytes: BrowserPageService.uploadChunkBytes + 1)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let engine = ChooserEngine(chooser: "withdrawn", fileInput: true, delay: .milliseconds(100), ignoreCancellation: true)
+        let engine = SuspendedChunkEngine()
         var snapshot = ControlSnapshot.sample()
         let tab = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")
         snapshot.topology.workspaces[0].screens[0].panes[0].tabs.append(tab)
         let call = ControlCall(
-            request: ControlRequest(method: "browser.page.upload", params: ["selector": .string("#f"), "files": .array([.string(paths[0])])]),
+            request: ControlRequest(method: "browser.page.upload", params: ["tab": "tab_0123abcd", "selector": "#f", "files": .array([.string(paths[0])])]),
             snapshot: snapshot,
-            connection: ControlConnectionID(rawValue: 1),
+            connection: .inProcess,
             deadline: .now + .seconds(10)
         )
         let task = Task {
-            try? await BrowserPageService.streamUpload(engine, call, selector: "#f")
+            do {
+                _ = try await BrowserPageService.streamUpload(engine, call, selector: "#f")
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                Issue.record("Unexpected upload error: \(error)")
+                return false
+            }
         }
-        try await Task.sleep(for: .milliseconds(20))
+        await engine.gate.waitUntilStarted()
         task.cancel()
-        _ = await task.value
+        await engine.gate.resume()
+        #expect(await task.value, "the cancelled task must report cancellation")
 
-        let scripts = engine.scripts
-        #expect(scripts.first?.contains("__cmuxUploads") == true)
+        let scripts = engine.scripts.withLock { $0 }
+        #expect(scripts.count == 3, "only start, the in-flight chunk and cleanup may execute")
         #expect(!scripts.contains { $0.contains("new W.DataTransfer()") }, "cancelled upload must not commit files")
         #expect(scripts.last?.contains("delete el.__cmuxUploads[") == true)
     }

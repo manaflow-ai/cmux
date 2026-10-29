@@ -81,7 +81,7 @@ import Testing
         _ = try await call(router, "upload", ["selector": "#file", "files": [.string(file.path)]])
         let script = try #require(engine.evaluated.first(where: { $0.contains(Data("hello upload".utf8).base64EncodedString()) }))
         #expect(script.contains(Data("hello upload".utf8).base64EncodedString()), "the bytes go to the page")
-        #expect(script.contains("note.txt"))
+        #expect(engine.evaluated.first?.contains("note.txt") == true)
         #expect(engine.inputs.map(\.kind) == [.click])
         await #expect(throws: ControlError.self) {
             _ = try await call(router, "upload", ["selector": "#file", "files": [.string(dir.appendingPathComponent("missing").path)]])
