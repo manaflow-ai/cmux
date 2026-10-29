@@ -414,6 +414,43 @@ test.each([
   expect(listeners.size).toBe(0);
 });
 
+test.each([[], ["alpha"]])("native combobox supplies its query field for action-only models %j", async (suggestions) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const submitted: string[] = [];
+  const model = comboboxDescription({ suggestions });
+  delete model.search;
+  if (model.rows[0]) model.rows[0].id = "query";
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="free text"
+          label="Projects"
+          suggestions={suggestions}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model }}
+        />
+      </UiProvider>,
+    );
+  });
+  const sent = shown[0]!;
+  expect(sent.search?.value).toBe("free text");
+  expect(sent.search?.submitOnReturn).toBe(true);
+  expect(sent.search?.autoHighlight).toBe("none");
+  expect(sent.rows.some((row) => row.id === sent.search?.id)).toBe(false);
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "submit", popupId: sent.id, revision: sent.revision, value: "free text", reason: "none" });
+  });
+  expect(submitted).toEqual(["free text"]);
+  expect(listeners.size).toBe(0);
+});
+
 test.each(["none", "keyboard"] as const)(
   "native search Return preserves pinned-action highlight provenance %s",
   async (reason) => {
