@@ -24,24 +24,21 @@ struct MenuGridTests {
         menu.items.flatMap { [$0] + ($0.submenu.map(rows) ?? []) }
     }
 
-    /// A themed menu's rows: each drawn by cmux on the grid, the text column shared by rows
-    /// with and without an icon. Returns the columns it measured.
+    /// A themed menu's rows: every one a native `NSMenuItem` AppKit draws (no custom row view,
+    /// NativeContextMenuTests), each image in the grid's square icon box, so AppKit's image column
+    /// is the grid's and every row's text starts on one column. Returns the menu's columns.
     private static func expectOnGrid(_ menu: NSMenu, _ name: String) -> (icon: CGFloat, text: CGFloat)? {
-        var measured: (icon: CGFloat, text: CGFloat)?
-        for item in rows(menu) where !item.isSeparatorItem && !item.isSectionHeader && !(item.view is MenuIdentityHeaderView) {
-            guard item.view is ThemedMenuRowView else {
-                if item.view == nil { Issue.record("\(name): \(item.title) is drawn by AppKit, off the menu grid") }
-                continue
+        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
+        for item in rows(menu) where !item.isSeparatorItem && !(item.view is MenuIdentityHeaderView) {
+            #expect(item.view == nil, "\(name): \(item.title) has its own row view, off AppKit's grid")
+            if let image = item.image {
+                #expect(image.size == box, "\(name): \(item.title)'s icon is \(image.size), not the grid's box")
             }
-            let columns = ThemedMenuRowView.columns(of: item)
-            let iconColumn = item.menu?.items.contains { $0.image != nil } == true
-            let stateColumn = item.menu?.items.contains { $0.state != .off } == true
-            #expect(columns.icon == MenuMetrics.iconX(stateColumn: stateColumn), "\(name): \(item.title)'s icon at \(columns.icon)")
-            #expect(columns.text == MenuMetrics.textX(iconColumn: iconColumn, stateColumn: stateColumn),
-                    "\(name): \(item.title)'s text at \(columns.text)")
-            if item.menu === menu { measured = columns }
         }
-        return measured
+        let iconColumn = menu.items.contains { $0.image != nil }
+        let stateColumn = menu.items.contains { $0.state != .off }
+        guard menu.items.contains(where: { !$0.isSeparatorItem && $0.view == nil }) else { return nil }
+        return (MenuMetrics.iconX(stateColumn: stateColumn), MenuMetrics.textX(iconColumn: iconColumn, stateColumn: stateColumn))
     }
 
     /// The registry's menus, themed as every caller shows them: on the grid.
@@ -90,12 +87,12 @@ struct MenuGridTests {
     }
 
     /// The sidebar footer's profile menu (Leo 2026-10-21: "left alignment on the profile settings
-    /// dropdown/pop i think is similar"): the current profile's avatar was the menu's one image, and
-    /// AppKit pushed that row's name right of every other row's text. Themed, the avatar sits on the
-    /// icon column and every row's text on one column.
+    /// dropdown/pop i think is similar"): the current profile's avatar is larger than the symbols, so
+    /// AppKit's image column, and every row's text, sat right of the other menus'. Themed, the
+    /// avatar and the symbols share the grid's icon box: one text column, the grid's.
     @Test func theProfileMenuSharesOneTextColumn() throws {
         let services = Self.services()
-        let avatar = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+        let avatar = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { rect in
             NSColor.systemGray.setFill()
             NSBezierPath(ovalIn: rect).fill()
             return true
@@ -104,25 +101,49 @@ struct MenuGridTests {
             .themeRows(in: ThemeScope(level: .room))
         let columns = try #require(Self.expectOnGrid(menu, "profile"))
         #expect(columns.text == MenuMetrics.textX(iconColumn: true))
-        let texts = Set(menu.items.filter { $0.view is ThemedMenuRowView }.map { ThemedMenuRowView.columns(of: $0).text })
-        #expect(texts == [MenuMetrics.textX(iconColumn: true)], "the profile menu's rows start their text at \(texts.sorted())")
+        let widths = Set(Self.rows(menu).compactMap { $0.image?.size.width })
+        #expect(widths == [MenuMetrics.iconSize], "the profile menu's icons are \(widths.sorted()) wide")
     }
 
-    /// The footer's profile control shows the App's menu themed, not as AppKit draws it.
+    /// The footer's profile control shows the App's menu themed: native rows on the grid.
     @Test func theSidebarShowsTheProfileMenuThemed() async throws {
         let h = try await SidebarBandHideTests().make()
         defer { h.tearDown() }
         let menu = NSMenu()
         let current = menu.addItem(withTitle: "Default", action: #selector(NSText.copy(_:)), keyEquivalent: "")
-        current.image = NSImage(size: NSSize(width: 12, height: 12))
-        menu.addItem(withTitle: "Settings…", action: #selector(NSText.copy(_:)), keyEquivalent: ",")
+        current.image = NSImage(size: NSSize(width: 18, height: 18))
+        let settings = menu.addItem(withTitle: "Settings…", action: #selector(NSText.copy(_:)), keyEquivalent: ",")
+        settings.image = NSImage.menuSymbol("gearshape")
         h.sidebar.profileMenuProvider = { menu }
         var shown: NSMenu?
         h.sidebar.footerBand.profileMenuPresenter = { menu, _ in shown = menu }
         #expect(h.sidebar.footerBand.showProfileMenu(from: nil))
-        let rows = try #require(shown).items
-        #expect(rows.allSatisfy { $0.view is ThemedMenuRowView }, "the profile menu is drawn by AppKit")
-        #expect(Set(rows.map { ThemedMenuRowView.columns(of: $0).text }) == [MenuMetrics.textX(iconColumn: true)])
+        let themed = try #require(shown)
+        #expect(themed.appearance != nil, "the profile menu opens in the sidebar's light or dark")
+        _ = Self.expectOnGrid(themed, "sidebar profile")
+    }
+
+    /// An ordinary row's icon goes in the grid's box, its shape kept: a large or wide image is
+    /// scaled down, a small one is centered, a template stays a template, and theming twice
+    /// changes nothing.
+    @Test func anOrdinaryRowsIconFitsTheGridsBox() {
+        _ = NSApplication.shared
+        let side = MenuMetrics.iconSize
+        let wide = NSImage(size: NSSize(width: 28, height: 14))
+        wide.isTemplate = true
+        wide.accessibilityDescription = "Wide"
+        let menu = NSMenu()
+        let row = menu.addItem(withTitle: "Wide", action: nil, keyEquivalent: "")
+        row.image = wide
+        let plain = menu.addItem(withTitle: "Plain", action: nil, keyEquivalent: "")
+        menu.themeRows(in: ThemeScope(level: .room))
+        let fitted = row.image
+        #expect(fitted?.size == NSSize(width: side, height: side))
+        #expect(fitted?.isTemplate == true)
+        #expect(fitted?.accessibilityDescription == "Wide")
+        #expect(plain.image == nil, "a row with no icon gets none")
+        menu.themeRows(in: ThemeScope(level: .room))
+        #expect(row.image === fitted, "theming again keeps the fitted icon")
     }
 
     /// The grid's own sense: a menu's columns read left to right inside its highlight.

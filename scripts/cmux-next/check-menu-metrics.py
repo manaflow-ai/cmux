@@ -35,6 +35,13 @@ DEBT = {
     "CmuxNextDesign/PopupStyle.swift",
     "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuStyle.swift",
 }
+# Files whose type names read as a menu but whose flagged metrics are not a menu row's: each with why.
+NOT_MENUS = {
+    # The Mac screen's toggle switch: its knob inset sits in a file that also adds NSMenuItem helpers.
+    "CmuxNextMacScreen/MacScreenButtons.swift",
+}
+# The system menu bar's status item (`MenuBarIcon`) is an icon, not a menu.
+NOT_SURFACE = re.compile(r"MenuBar")
 SURFACE = re.compile(r"\b(?:class|struct|enum|extension)\s+(\w*(?:Menu|Popup|Picker)s?(?:Row|Item|Header|Separator|Strip|Style|Layout|Metrics)?\w*?\b|\w*EditorRow\w*)(?=[\s:{<])")
 NUMBER = r"-?\d+(?:\.\d+)?"
 HORIZONTAL = r"\w*(?:[a-z]X|[Ii]nset|[Pp]adding|[Ll]eading|[Tt]railing|[Ii]ndent|[Mm]argin|(?:[Hh]ighlight|[Rr]ow)\w*Radius)\w*"
@@ -57,6 +64,7 @@ SELF_TEST = [
     (False, "final class EditorRowView {\n    func f() { a.leadingAnchor.constraint(\n        equalTo: b.leadingAnchor,\n        constant: MenuMetrics.iconX) }\n}"),
     (False, "struct ToolbarButton {\n    static let leadingInset: CGFloat = 5\n}"),
     (False, "enum BrowserDownloadsMenu {\n    // static let leadingInset: CGFloat = 5\n}"),
+    (False, "public struct MenuBarIcon {\n    static let glyphRect = NSRect(x: 1.2, y: 1.5, width: 11.6, height: 15.0)\n}"),
 ]
 
 
@@ -67,7 +75,7 @@ def strip_comment(line):
 
 def violations(text):
     """(line, why) for each rule a menu surface's text breaks; nothing for a file that is not one."""
-    if not SURFACE.search(text):
+    if not any(not NOT_SURFACE.search(match.group(1)) for match in SURFACE.finditer(text)):
         return None
     lines = text.splitlines()
     # Comments blanked, line breaks kept, so a match's start gives its line.
@@ -104,20 +112,20 @@ def main():
             if found is None:
                 continue
             seen.add(relative)
-            if relative in DEBT or relative == GRID:
+            if relative in DEBT or relative in NOT_MENUS or relative == GRID:
                 continue
             lines = text.splitlines()
             for number, why in found:
                 failures.append("%s/%s:%d: %s; take it from MenuMetrics (schemas/menu-metrics/menu-metrics.json): %s"
                                 % (SOURCES, relative, number, why, lines[number - 1].strip()))
-    stale = sorted(DEBT - seen)
+    stale = sorted((DEBT | NOT_MENUS) - seen)
     for relative in stale:
-        failures.append("%s: listed in DEBT but no longer a menu surface; remove it from scripts/cmux-next/check-menu-metrics.py" % relative)
+        failures.append("%s: listed in DEBT or NOT_MENUS but no longer a menu surface; remove it from scripts/cmux-next/check-menu-metrics.py" % relative)
     if failures:
         print("\n".join(failures))
         print("%d menu metric violation(s)" % len(failures))
         sys.exit(1)
-    print("menu metrics: %d menu surface file(s) on the grid, %d still in DEBT" % (len(seen - DEBT), len(DEBT & seen)))
+    print("menu metrics: %d menu surface file(s) on the grid, %d still in DEBT" % (len(seen - DEBT - NOT_MENUS), len(DEBT & seen)))
     if "--list" in sys.argv[1:]:
         print("\n".join(sorted(seen)))
 
