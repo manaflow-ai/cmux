@@ -238,7 +238,11 @@ impl MeshHub for FakeHub {
                     from: m.from.clone(),
                     body: m.body.clone(),
                     attempt: 1,
-                    start_work: Some(crate::mesh::StartWork::Information),
+                    start_work: m
+                        .to
+                        .team_address
+                        .as_ref()
+                        .map(|_| acpmux::mesh::StartWork::Information),
                     state: Some("queued".into()),
                     subject: None,
                 });
