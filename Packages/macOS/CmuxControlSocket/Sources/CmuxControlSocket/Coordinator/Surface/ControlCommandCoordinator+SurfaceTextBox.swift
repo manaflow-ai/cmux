@@ -30,6 +30,8 @@ extension ControlCommandCoordinator {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .dockUnavailable(let message):
+            return .err(code: "unavailable", message: message, data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .surfaceNotFoundForID:

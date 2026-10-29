@@ -35,6 +35,8 @@ public enum ControlSurfaceTextBoxResolution: Sendable, Equatable {
     case tabManagerUnavailable
     /// No workspace resolved (`not_found` / "Workspace not found").
     case workspaceNotFound
+    /// The requested Dock cannot be revealed for explicit TextBox focus.
+    case dockUnavailable(message: String)
     /// A `surface_id` param was present but did not resolve (`not_found` /
     /// "Surface not found for the given surface_id"). It never falls back to the
     /// focused surface.

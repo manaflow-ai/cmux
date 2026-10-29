@@ -32,6 +32,15 @@ extension TerminalController {
             guard let panel = target.terminalPanel else {
                 return .surfaceNotTerminal(surfaceId)
             }
+            let shouldFocus = focus && (action == .show || (action == .toggle && !panel.isTextBoxActive))
+            if shouldFocus {
+                guard focusAndRevealWindowDock(for: dock, fallback: tabManager) else {
+                    return .dockUnavailable(message: dockFocusUnavailableMessage())
+                }
+                dock.focusPanelFromDockInteraction(surfaceId, window: nil)
+            }
+            // Dock selection reasserts terminal focus; apply the TextBox intent
+            // afterwards so it remains the final responder target.
             return applied(
                 action,
                 to: panel,
@@ -60,6 +69,12 @@ extension TerminalController {
                 return ws.panels[surfaceID] == nil ? .surfaceNotFoundForID : .surfaceNotTerminal(surfaceID)
             }
             return .noFocusedSurface
+        }
+        let shouldFocus = focus && (action == .show || (action == .toggle && !target.panel.isTextBoxActive))
+        if shouldFocus, let remote = ws.remoteTmuxControlPane(surfaceID: target.surfaceID) {
+            guard focusRemoteTmuxControlPane(remote, workspace: ws, tabManager: tabManager) else {
+                return .surfaceNotFoundForID
+            }
         }
         let resolution = applied(
             action,
