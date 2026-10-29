@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import CmuxFoundation
 
@@ -140,6 +141,51 @@ struct EternalTerminalCommandBuilderTests {
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)
         #expect(config.split(separator: "\n").contains(Substring("identityfile " + path)))
+    }
+
+    @Test("ET startup failure retains the SSH launcher until an explicit retry")
+    func startupFailureCanRetrySSH() throws {
+        try withFakeCommands { directory, environment in
+            let launcher = directory.appendingPathComponent("ssh-launcher")
+            try "printf 'ssh fallback\\n'; rm -- \"$0\"\n".write(to: launcher, atomically: true, encoding: .utf8)
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = "1"
+            environment["FAKE_LAUNCHER_PATH"] = launcher.path
+            let result = try run(
+                builder(sshFallbackCommand: "/bin/sh '\(launcher.path)'", sshFallbackLauncherPaths: [launcher.path]),
+                environment: environment,
+                terminalInput: "ssh\n"
+            )
+            #expect(result.status == 0)
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(fileExists(directory, "launcher-present-at-et-start"))
+            #expect(!fileExists(directory, "ssh-launcher"))
+        }
+    }
+
+    @Test("ET errors never automatically replay SSH", arguments: ["", "\n", "no\n"])
+    func startupFailureRequiresExplicitRetry(input: String) throws {
+        try withFakeCommands { directory, environment in
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = "1"
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                                 environment: environment, terminalInput: input.isEmpty ? nil : input)
+            #expect(result.status == 1)
+            #expect(result.stdout.isEmpty)
+        }
+    }
+
+    @Test("success and signal exits never offer SSH replay", arguments: [0, 130, 143])
+    func completedSessionNeverRetries(status: Int) throws {
+        try withFakeCommands { directory, environment in
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = String(status)
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                                 environment: environment, terminalInput: "ssh\n")
+            #expect(result.status == Int32(status))
+            #expect(result.stdout.isEmpty)
+            #expect(result.stderr.isEmpty)
+        }
     }
 
     @Test("probes an explicit --terminal-path instead of searching PATH")
@@ -463,7 +509,10 @@ struct EternalTerminalCommandBuilderTests {
             try installExecutable(named: "et", script: """
                 #!/bin/sh
                 printf '%s\\n' "$@" > "$ET_ARGS_FILE"
-                exit 0
+                if [ -n "$FAKE_LAUNCHER_PATH" ] && [ -f "$FAKE_LAUNCHER_PATH" ]; then
+                  touch "$FAKE_LAUNCHER_RECEIPT"
+                fi
+                exit "${FAKE_ET_STATUS:-0}"
                 """, in: directory)
         }
         let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
@@ -487,6 +536,7 @@ struct EternalTerminalCommandBuilderTests {
             "FAKE_PROXY_JUMP": proxyJump ?? "",
             "FAKE_CONFIG_HOST": "resolved.example.com",
             "FAKE_CONFIG_STATUS": "0",
+            "FAKE_LAUNCHER_RECEIPT": directory.appendingPathComponent("launcher-present-at-et-start").path,
             "FAKE_LIFECYCLE_STATUS": String(lifecycleStatus),
             "FAKE_NC_STATUS": serverReachable ? "0" : "1",
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
@@ -520,7 +570,8 @@ struct EternalTerminalCommandBuilderTests {
 
     private func run(
         _ builder: EternalTerminalCommandBuilder,
-        environment: [String: String]
+        environment: [String: String],
+        terminalInput: String? = nil
     ) throws -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         let standardOutput = Pipe()
@@ -530,7 +581,24 @@ struct EternalTerminalCommandBuilderTests {
         process.environment = environment
         process.standardOutput = standardOutput
         process.standardError = standardError
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        if terminalInput != nil {
+            guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            process.standardInput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
+        defer {
+            if master >= 0 { close(master) }
+            if slave >= 0 { close(slave) }
+        }
         try process.run()
+        if let terminalInput {
+            FileHandle(fileDescriptor: master, closeOnDealloc: false).write(Data(terminalInput.utf8))
+        }
         process.waitUntilExit()
         return (
             process.terminationStatus,
