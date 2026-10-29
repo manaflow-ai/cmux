@@ -44,9 +44,17 @@ public enum ActionTrackedWork {
         var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         var startFailure: ActionWorkFailure?
         let refusal = ActionRunScope.carrying(scope) {
-            registry.capturingRefusal {
-                captured = registry.capturingRun { startFailure = start() }
+            // A control-socket/CLI caller captures refusals and receives them
+            // in its action result. Interactive runs must leave refusal
+            // reporting enabled so CloudHandlers.runTracked can show its
+            // normal failure sheet.
+            if capturedByCaller {
+                return registry.capturingRefusal {
+                    captured = registry.capturingRun { startFailure = start() }
+                }
             }
+            captured = registry.capturingRun { startFailure = start() }
+            return nil
         }
         let work = captured.work, results = captured.results
         return await withTaskCancellationHandler {
