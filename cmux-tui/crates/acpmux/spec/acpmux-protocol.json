@@ -421,6 +421,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mesh_control",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/step_now",
       "params": true,
       "result": true
