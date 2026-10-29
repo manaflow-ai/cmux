@@ -10,7 +10,7 @@
     {"title": "Focus the second inner tab", "cmux": ["action", "run", "nextSurface"], "wait": 1},
     {"title": "Inspect the second tab before hovering", "rpc": {"method": "debug.sidebar_rows"}, "wait": 0},
     {"title": "Use dark appearance for the real hover", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1},
-    {"title": "Hover the workspace row", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "move"}}, "wait": 1},
+    {"title": "Hover the workspace row", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "move"}}, "wait": 2},
     {"title": "Move into the popover", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 60, "action": "move"}}, "wait": 2},
     {"title": "Click the first inner tab from the second", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 60, "action": "click"}}, "wait": 3},
     {"title": "Focused tab after the click", "rpc": {"method": "debug.sidebar_rows"}, "wait": 1},
