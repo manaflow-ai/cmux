@@ -1619,6 +1619,7 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
+            cpu_class: crate::cpu_class::CpuClass::for_session(&profile.env),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).

@@ -184,6 +184,7 @@ process's command line and its kill never leave the machine.
 | Chat closed, no client attached | Keeps running: a running process blocks the idle reap. |
 | Over the session's memory budget (cx-v9s8g) | Enforced by the kernel, not by acpmux measuring: on Linux the session's cgroup scope (`MemoryMax`); `killed`, reason `budget_memory`. |
 | Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` on macOS. |
+| Start (macOS) | The harness starts at background CPU class (`PRIO_DARWIN_BG`, `cpu_class.rs`), so every process it runs inherits it and cmux's GUI and renderers go first. `normal` opts out: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, or config `session.cpuClass`. |
 | Harness time limit (Claude's `timeout`; acpmux lifts the ceiling to about 24.8 days) | `killed`, reason `harness_time_limit`. |
 | Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the `process_update` records. A process still `running` there stays so until its harness reports its end. |
 | Harness or host exit, app update relaunch | `lost` (built), with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |

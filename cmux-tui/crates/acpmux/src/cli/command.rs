@@ -534,7 +534,8 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        /// `session.memory_mb=6144`, `session.swap_mb=2048` or
+        /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },

@@ -214,6 +214,10 @@ pub struct SpawnSpec {
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
     pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
+    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
+    /// a daemon that predates it starts the harness as before.
+    #[serde(default)]
+    pub cpu_class: crate::cpu_class::CpuClass,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

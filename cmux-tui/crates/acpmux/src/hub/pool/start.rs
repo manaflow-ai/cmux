@@ -112,6 +112,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
+            cpu_class: crate::cpu_class::CpuClass::for_session(&profile.env),
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
