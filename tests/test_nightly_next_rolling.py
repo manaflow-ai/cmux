@@ -135,42 +135,116 @@ class RollingRuleTests(unittest.TestCase):
         go, _ = decide(promotions=[stale, other], waited_minutes=5)
         self.assertTrue(go)
 
-    def test_unknowns_fail_open(self):
-        """The promotion ignores a request that moves nothing, so asking is the safe side."""
-        self.assertTrue(decide(head="")[0])
-        self.assertTrue(decide(head_runs=[run(12, 12)], waited_minutes=None)[0])
+    def test_nothing_waiting_needs_no_promotion(self):
+        go, reason = decide(head_runs=[run(12, 12)], waited_minutes=None)
+        self.assertFalse(go, reason)
+        self.assertTrue(decide(head="")[0], "an empty head asks as before")
 
-    def test_main_fails_open_when_reads_fail(self):
+    def test_an_unknown_gap_counts_as_an_old_landing(self):
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[run(14, 12)], jobs_of=lambda r: BUILDING,
+                                    promotions=[], oldest_waiting=rolling.UNKNOWN)
+        self.assertTrue(go, reason)
+        self.assertIn("unknown", reason)
+
+
+TIP = "c" * 40
+
+
+class Api:
+    """Answers by path prefix, as `gh api` does; a value that is an exception is raised."""
+
+    def __init__(self, routes: dict):
+        self.routes, self.paths = routes, []
+
+    def __call__(self, path: str):
+        self.paths.append(path)
+        for prefix, value in self.routes.items():
+            if prefix in path:
+                if isinstance(value, Exception):
+                    raise value
+                return value
+        raise AssertionError(f"unexpected read {path}")
+
+
+def compare(status: str, commits: list[tuple[str, float]], ahead_by: int | None = None) -> dict:
+    """The compare API's shape: commits oldest first, each with commit.committer.date."""
+    return {"status": status, "ahead_by": len(commits) if ahead_by is None else ahead_by, "behind_by": 0,
+            "commits": [{"sha": sha, "commit": {"committer": {"date": at(minutes)}}} for sha, minutes in commits]}
+
+
+def api_for(compare_answer, ref=None, runs=None, jobs=None) -> Api:
+    return Api({
+        "/git/ref/heads/nightly-next": ref if ref is not None else {"ref": "refs/heads/nightly-next", "object": {"sha": HEAD, "type": "commit"}},
+        f"/compare/{HEAD}...{TIP}": compare_answer,
+        "branch=nightly-next": {"total_count": 1, "workflow_runs": runs if runs is not None else [run(20, 12)]},
+        "event=workflow_dispatch": {"total_count": 0, "workflow_runs": []},
+        "/jobs?": {"total_count": 2, "jobs": jobs if jobs is not None else BUILDING},
+    })
+
+
+class ApiReadTests(unittest.TestCase):
+    """Every read is an API read with the job's token: no git remote (the tick checks out with
+    persist-credentials: false) and no shallow history (it fetches 150 commits)."""
+
+    def test_the_head_comes_from_the_refs_api_and_the_gap_from_compare(self):
+        api = api_for(compare("ahead", [(WAITING, 4), ("d" * 40, 2)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertFalse(go, reason)
+        self.assertIn("repos/o/r/git/ref/heads/nightly-next", api.paths)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}", api.paths)
+        self.assertNotIn("ls-remote", SCRIPT.read_text(encoding="utf-8"))
+
+    def test_the_oldest_waiting_commit_is_the_first_compare_lists(self):
+        api = api_for(compare("ahead", [(WAITING, 11), ("d" * 40, 2)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertTrue(go, reason)
+        self.assertIn(WAITING[:12], reason)
+
+    def test_a_gap_past_any_shallow_history_is_still_read(self):
+        """nightly-next 400 commits behind: compare answers its oldest page, no checkout needed."""
+        api = api_for(compare("ahead", [(WAITING, 300)] + [(f"{i:040x}", 1) for i in range(249)], ahead_by=400))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertTrue(go, reason)
+        self.assertIn("waited 300 min", reason)
+
+    def test_a_tip_at_or_behind_nightly_next_waits_for_nothing(self):
+        for status in ("identical", "behind"):
+            with self.subTest(status=status):
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(compare(status, [])))
+                self.assertFalse(go, reason)
+
+    def test_an_unknown_gap_promotes(self):
+        """A failed compare, a diverged nightly-next (a train commit) or an empty list: the oldest
+        landing counts as old."""
+        for answer in (OSError("502"), compare("diverged", [(WAITING, 1)]), compare("ahead", [], ahead_by=3)):
+            with self.subTest(answer=repr(answer)[:40]):
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(answer))
+                self.assertTrue(go, reason)
+                self.assertIn("unknown", reason)
+
+    def test_an_unreadable_nightly_next_waits_for_the_backstop_and_says_so(self):
+        """Never a silent go: the feed watch's dispatch for one commit skips this rule."""
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(compare("ahead", []), ref=OSError("401")))
+        self.assertFalse(go)
+        self.assertIn("could not read nightly-next", reason)
+
+    def test_other_failed_reads_promote_and_say_so(self):
+        api = api_for(compare("ahead", [(WAITING, 4)]), jobs=None)
+        api.routes["branch=nightly-next"] = OSError("rate limited")
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertTrue(go)
+        self.assertIn("could not read the running builds", reason)
+
+    def test_main_writes_its_answer_without_any_git_remote(self):
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch) / "out"
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--repo", "o/r", "--checkout", scratch],
-                capture_output=True, text=True, env={"GITHUB_OUTPUT": str(out), "PATH": "/nonexistent"})
+                [sys.executable, str(SCRIPT), "--repo", "o/r", "--tip", TIP],
+                capture_output=True, text=True, cwd=scratch,
+                env={"GITHUB_OUTPUT": str(out), "PATH": "/nonexistent"})
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("go=true", out.read_text())
-
-
-class OldestAfterTests(unittest.TestCase):
-    def test_the_oldest_first_parent_commit_after_head(self):
-        with tempfile.TemporaryDirectory() as repo:
-            def git(*args, date=None):
-                env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-                       "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin"}
-                if date:
-                    env.update(GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
-                return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True,
-                                      text=True, env=env).stdout.strip()
-            git("init", "-q")
-            git("commit", "-q", "--allow-empty", "-m", "head", date="2026-10-29T01:00:00Z")
-            head = git("rev-parse", "HEAD")
-            git("commit", "-q", "--allow-empty", "-m", "first", date="2026-10-29T01:10:00Z")
-            first = git("rev-parse", "HEAD")
-            git("commit", "-q", "--allow-empty", "-m", "second", date="2026-10-29T01:20:00Z")
-            sha, landed = rolling.oldest_after(repo, head)
-            self.assertEqual(sha, first)
-            self.assertEqual(landed, dt.datetime(2026, 10, 29, 1, 10, tzinfo=dt.timezone.utc))
-            self.assertIsNone(rolling.oldest_after(repo, "c" * 40), "a head outside this history")
-            self.assertIsNone(rolling.oldest_after(repo, git("rev-parse", "HEAD")), "nothing waits")
+            self.assertIn("go=false", out.read_text())
+            self.assertIn("::warning title=nightly-next rolling rule::", result.stdout)
 
 
 if __name__ == "__main__":

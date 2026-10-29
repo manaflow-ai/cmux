@@ -157,7 +157,8 @@ jobs:
 
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
       # building nightly-next, else once the oldest landing the running build does not carry
-      # has waited 10 minutes. A dispatch for one commit skips it. Any failed read says go.
+      # has waited 10 minutes. A dispatch for one commit skips it. It reads through the API only;
+      # its failure modes are in the script's docstring.
       - name: Apply the rolling rule
         id: rolling
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == ''
@@ -165,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WINDOW_MINUTES: ${{ vars.NIGHTLY_NEXT_ROLLING_MINUTES || '10' }}
-        run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --checkout . --window-minutes "$WINDOW_MINUTES"
+        run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --tip "$(git rev-parse HEAD)" --window-minutes "$WINDOW_MINUTES"
 
       - name: Request nightly-next promotion on main
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && steps.rolling.outputs.go != 'false'

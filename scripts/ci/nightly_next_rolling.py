@@ -27,11 +27,14 @@ main that is still moving nightly-next counts as building for --promotion-minute
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
 
-Any read that fails answers "go": the promotion is the step that already ignores
-a request that does not move nightly-next forward, so failing open costs at most
-one extra build, while failing closed could hold the feed.
+Every read goes through the API with the job's token (no git remote, no
+shallow history). A failed read of nightly-next waits, with a warning: the feed
+watch's dispatch for one commit skips this rule, so that costs at most the
+backstop's delay. Any other failed read, and a gap to the tip that cannot be
+read, promotes, with a warning: the promotion ignores a request that does not
+move nightly-next forward.
 
-usage: nightly_next_rolling.py --repo OWNER/NAME [--checkout DIR] [--window-minutes 10]
+usage: nightly_next_rolling.py --repo OWNER/NAME --tip SHA [--window-minutes 10]
 Writes go=true|false and reason=... to $GITHUB_OUTPUT when it is set.
 """
 from __future__ import annotations
@@ -59,16 +62,18 @@ PROMOTION_MINUTES = 15.0
 PROMOTION_TITLE = "Promote nightly-next to"
 # A nightly run outlives its timeouts by less than this; an older one is not building.
 RUN_LOOKBACK = dt.timedelta(hours=3)
+# oldest_after's answer when the gap to the tip cannot be read.
+UNKNOWN = "unknown"
 
 
 def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
-           promotions: list[dict], oldest_waiting: tuple[str, dt.datetime] | None,
+           promotions: list[dict], oldest_waiting,
            window_minutes: float = WINDOW_MINUTES,
            promotion_minutes: float = PROMOTION_MINUTES) -> tuple[bool, str]:
     """(promote now, why). head: nightly-next's commit; head_runs: nightly.yml runs on nightly-next
     for it; promotions: recent nightly.yml workflow_dispatch runs on main; oldest_waiting: the
-    oldest first-parent feat-cmux-next commit after head and when it landed (None when nothing
-    waits, or when head is not in the branch's history)."""
+    oldest feat-cmux-next commit after head and when it landed, None when nothing waits, or
+    UNKNOWN (oldest_after)."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
     building = ""
@@ -97,7 +102,9 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     if not building:
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
     if oldest_waiting is None:
-        return True, f"{building}, and no commit after it is known to wait; asking anyway"
+        return False, f"{building}, and no feat-cmux-next commit waits after it"
+    if oldest_waiting == UNKNOWN:
+        return True, f"{building}, and the gap to the tip is unknown, so the oldest landing counts as old; promoting"
     sha, landed = oldest_waiting
     waited = (now - landed).total_seconds() / 60
     if waited >= window_minutes:
@@ -107,23 +114,29 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
                    f"{window_minutes:g} min, so the next landing, a finished build or the backstop cron asks again")
 
 
-def git(checkout: str, *args: str) -> str:
-    return subprocess.run(["git", "-C", checkout, *args], check=True, capture_output=True, text=True).stdout.strip()
-
-
-def oldest_after(checkout: str, head: str) -> tuple[str, dt.datetime] | None:
-    """The oldest first-parent commit after head on the checked-out branch, and its committer date
-    (squash merges set it at landing). None when head is not in this history."""
+def oldest_after(api, repo: str, head: str, tip: str):
+    """The oldest feat-cmux-next commit after nightly-next's head, and when it landed (squash merges
+    set the committer date at landing), from the compare API: no shallow checkout is involved.
+    None when nothing waits (tip equals or is behind head). UNKNOWN when the gap cannot be read or
+    head is not an ancestor of tip (a train commit): `decide` treats that as an old landing."""
     try:
-        if subprocess.run(["git", "-C", checkout, "merge-base", "--is-ancestor", head, "HEAD"],
-                          capture_output=True).returncode != 0:
-            return None
-        first = git(checkout, "rev-list", "--first-parent", "--reverse", f"{head}..HEAD").split("\n")[0]
-        if not first:
-            return None
-        return first, watch.parse_time(git(checkout, "log", "-1", "--format=%cI", first))
-    except (subprocess.CalledProcessError, ValueError):
+        data = api(f"repos/{repo}/compare/{head}...{tip}")
+    except Exception as error:  # noqa: BLE001 - an unknown gap promotes
+        print(f"::warning title=nightly-next rolling rule::could not compare {head[:12]}...{tip[:12]} ({error!r}); "
+              "treating the oldest waiting landing as old")
+        return UNKNOWN
+    status = data.get("status")
+    if status in ("identical", "behind"):
         return None
+    commits = data.get("commits") or []
+    if status != "ahead" or not commits:
+        return UNKNOWN
+    # The compare API lists commits oldest first (its first page holds the oldest 250).
+    first = commits[0]
+    try:
+        return first["sha"], watch.parse_time(first["commit"]["committer"]["date"])
+    except (KeyError, TypeError, ValueError):
+        return UNKNOWN
 
 
 def gh_api(path: str):
@@ -131,31 +144,44 @@ def gh_api(path: str):
     return json.loads(out)
 
 
-def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--repo", required=True)
-    parser.add_argument("--checkout", default=".")
-    parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
-    args = parser.parse_args(argv)
-    now = dt.datetime.now(dt.timezone.utc)
+def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
+             window_minutes: float = WINDOW_MINUTES) -> tuple[bool, str]:
+    """Read everything through the API (the job's token) and decide.
+
+    nightly-next's head unreadable: wait, with a warning. The rule's purpose is to coalesce, and
+    the feed watch (every 10 minutes) dispatches a build for one commit, which skips this rule, so
+    a failed read here costs at most that backstop's delay and never a burst of builds. Any other
+    failed read promotes, with a warning: the promotion ignores a request that moves nothing."""
     try:
-        line = subprocess.run(["git", "-C", args.checkout, "ls-remote", "origin", "refs/heads/nightly-next"],
-                              check=True, capture_output=True, text=True).stdout.split()
-        head = line[0] if line else ""
-        base = f"repos/{args.repo}/actions/workflows/nightly.yml/runs?"
-        head_runs = gh_api(base + urllib.parse.urlencode(
-            {"branch": "nightly-next", "head_sha": head, "per_page": 10}))["workflow_runs"] if head else []
-        promotions = gh_api(base + urllib.parse.urlencode(
+        head = api(f"repos/{repo}/git/ref/heads/nightly-next")["object"]["sha"]
+    except Exception as error:  # noqa: BLE001
+        print(f"::warning title=nightly-next rolling rule::could not read nightly-next ({error!r}); "
+              "waiting for the feed watch's backstop dispatch")
+        return False, f"could not read nightly-next ({error!r}); the feed watch's backstop covers this"
+    try:
+        base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
+        head_runs = api(base + urllib.parse.urlencode(
+            {"branch": "nightly-next", "head_sha": head, "per_page": 10}))["workflow_runs"]
+        promotions = api(base + urllib.parse.urlencode(
             {"branch": "main", "event": "workflow_dispatch", "per_page": 10}))["workflow_runs"]
 
         def jobs_of(run: dict) -> list[dict]:
-            return gh_api(f"repos/{args.repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
+            return api(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
-        go, reason = decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
-                            oldest_waiting=oldest_after(args.checkout, head) if head else None,
-                            window_minutes=args.window_minutes)
-    except Exception as error:  # noqa: BLE001 - fail open, see the docstring
-        go, reason = True, f"could not read the running builds ({error!r}); asking as before"
+        return decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
+                      oldest_waiting=oldest_after(api, repo, head, tip), window_minutes=window_minutes)
+    except Exception as error:  # noqa: BLE001
+        print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
+        return True, f"could not read the running builds ({error!r}); promoting"
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--tip", required=True, help="the feat-cmux-next commit the tick checked out")
+    parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
+    args = parser.parse_args(argv)
+    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
