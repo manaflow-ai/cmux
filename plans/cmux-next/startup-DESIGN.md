@@ -129,7 +129,8 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 
 82 names at `cf1f106ddbe`. The spec's 81 were at `772cdfc45ac`; the one added since is
 `GhosttyRuntime.shared.inputSources.start(` (row 16). After 014 the same names live in
-`CmuxNextApp/Startup/Startup+<Domain>.swift`, and `startup-lint.py` (104) replaces the awk range.
+`CmuxNextApp/Startup/Startup+<Domain>.swift`, and the runtime census `startup-queue.py mainjobs` replaces the awk
+range (the static `startup-lint.py`, task 104, was deleted unlanded: principled audit row p08-19).
 
 | # | Call | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
@@ -432,7 +433,7 @@ EOF
 ```
 
 After 014 splits `AppDelegate.swift` into `Startup/*.swift`, the Q2 rows are checked with
-`startup-lint.py` (104) instead of the awk range; the allowlist check is the same.
+the runtime census `startup-queue.py mainjobs` instead of the awk range; the allowlist check is the same.
 
 ## 13. Hour-0 launch seed (072)
 

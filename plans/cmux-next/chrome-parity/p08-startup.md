@@ -42,8 +42,10 @@ Applied from the reviews (each was checked in the code at `772cdfc45ac`):
   queues replace it: Q11 (main-actor jobs and untagged main turns before `startup_complete`), Q12
   (off-main jobs that bypass the fence), Q13 (timers, watchers, observers armed in the launch window).
   Review 1's Q4b is dropped for the same reason.
-- Done check 8(3) cannot be checked with awk. A pinned ast-grep tool `startup-lint.py` does it (task 104,
-  an agent tool, not CI).
+- Done check 8(3) cannot be checked with awk. The runtime census `startup-queue.py mainjobs` (Q11) checks the
+  real invariant: each main turn before the first frame runs in a StartupScheduler task or the allowlist. (Task 104,
+  a static `startup-lint.py`, was deleted by the 2026-10-29 principled audit, row p08-19: it never landed and would
+  infer scheduling from identifier names.)
 - Input during the picture phase changes only the model in its turn. It never builds the whole window
   in one turn (task 061 rewritten).
 - Picture safety (reviews 1 and 2): no backdrop blur in the picture (a live `WindowMaterialView` sits
@@ -394,7 +396,7 @@ build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
    optional, on cmux20-bench only.
 4. Main thread at launch, from `debug.startup`: `main_cpu_ms_to_first_frame <= 60`; `critical_violations == 0`;
    allowlist length <= 15; no afterStartup task starts before `startup_complete`; reason is never `failsafe`
-   in 20 of 20 runs; `python3 scripts/cmux-next/startup-lint.py` prints 0 hits.
+   in 20 of 20 runs; the runtime census `python3 scripts/cmux-next/startup-queue.py mainjobs` lists 0 main turns outside a StartupScheduler task and the allowlist.
 5. No hangs at launch. `debug.hangs` from process start (watchdog from `main()`) to `startup_complete + 5 s`,
    20 warm + 10 cold: 0 stalls > 250 ms; 0 main turns > 16 ms except the named CefInitialize turn (until F2)
    and, only if 017 finds no off-main path, the named WKProcessPool turn; main turn p99 <= 4 ms from first
@@ -411,7 +413,7 @@ build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
    0 ms and `kill -9` of the host during launch leaves cmux alive and answering `debug.key`.
 8. Static counts. (1) Q1 command <= 3 hits (cache, windows, keyRouter). (2) Q1b: every one of the 43
    stored initializers is marked value-only, lazy or posted in startup-DESIGN.md. (3) Q3 command 0 hits.
-   (4) `startup-lint.py` 0 hits.
+   (4) `startup-queue.py mainjobs` 0 unlisted main turns.
 9. Order file. `python3 scripts/cmux-next/pgo/check.py --app "$NX_APP" --order Resources/build/cmux-next.order --link-map <map>`:
    >= 90 % of order symbols resolved in the final Release binary; profdata sha in the order header matches.
    Cold A/B (purge, 10 runs each, same host): `launch.pageins_first_frame` -30 % or better and
@@ -446,8 +448,8 @@ Every hit of a queue is one task with the named template. Each queue is regenera
 - Q1b stored initializers. `grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`.
   43 today. Task 098 (and 078 for AppCrashReporting).
 - Q2 launch calls. `awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/' .../AppDelegate.swift | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u`
-  = 81 today. After 014: `python3 scripts/cmux-next/startup-lint.py` (104) over `CmuxNextApp/Startup/*.swift`
-  and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
+  = 81 today. After 014 the names live in `CmuxNextApp/Startup/*.swift` and `AppServices.init`; the runtime
+  census `startup-queue.py mainjobs` checks that each runs in a StartupScheduler task or the allowlist. Tasks 025-031, 077, 079, 095, 097, 101.
 - Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce(\(\))?\.schedule|(LaunchImageHold\.shared|imageHold)\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
 - Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold`
