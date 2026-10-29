@@ -1497,6 +1497,8 @@ export class AcpmuxDirectClient {
   private opening = false;
   private hasConnected = false;
   private closed = false;
+  /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
+  private replayMode = false;
   private selectionGeneration = 0;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
@@ -1561,6 +1563,7 @@ export class AcpmuxDirectClient {
   static replay(sessionId: string, events: EventRecord[], listener: Listener): AcpmuxDirectClient {
     const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
     client.closed = true;
+    client.replayMode = true;
     client.events = events
       .filter((event) => event.seq > 0 && (event.sessionId ?? sessionId) === sessionId)
       .sort((a, b) => a.seq - b.seq);
@@ -1647,8 +1650,13 @@ export class AcpmuxDirectClient {
     wire?: AcpWireLog,
   ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
-    await client.open();
-    return client;
+    try {
+      await client.open();
+      return client;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
 
   private async open(): Promise<void> {
@@ -1673,14 +1681,14 @@ export class AcpmuxDirectClient {
       endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
-    await new Promise<void>((resolve, reject) => {
+    const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
       const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => {
         opened = true;
         this.wire.lifecycle("open");
-        resolve();
+        resolve(socket);
       };
       socket.onerror = () => {
         this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
@@ -1688,7 +1696,7 @@ export class AcpmuxDirectClient {
         reject(new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
-        if (this.socket !== socket) return;
+        if (this.socket !== socket || this.closed) return;
         this.wire.lifecycle("close", {
           code: event?.code,
           reason: event?.reason || undefined,
@@ -1878,6 +1886,10 @@ export class AcpmuxDirectClient {
       } else if (this.host.adopt) {
         await this.adoptChat(this.host.adopt);
       }
+      // Permission and handoff reads tolerate their own failures. A socket lost during those
+      // reads must still fail the handshake, so the host retries instead of keeping a dead client.
+      if (this.closed || openingSocket !== this.socket || openingSocket.readyState !== WebSocket.OPEN)
+        throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
       this.wire.lifecycle("connected", {
@@ -4734,11 +4746,12 @@ export class AcpmuxDirectClient {
     return !this.selectedSessionId || this.drewKeptTail || this.attachedGeneration === this.selectionGeneration;
   }
 
-  private emit(connection = "connected"): void {
+  private emit(connection = this.socket?.readyState === WebSocket.OPEN ? "connected" : "disconnected"): void {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
   private emitNow(connection: string): void {
+    if (this.closed && !this.replayMode) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -7023,6 +7036,7 @@ export class AcpmuxDirectClient {
     // it should leave it warm for the next one. The host alone keeps it: this client is going away,
     // and a tail left in this page's map would be drawn by whatever client comes after it.
     this.rememberCurrentTail(false);
+    this.replayMode = false;
     this.closed = true;
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
