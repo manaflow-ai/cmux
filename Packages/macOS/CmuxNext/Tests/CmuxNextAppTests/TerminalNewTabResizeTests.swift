@@ -46,6 +46,11 @@ struct TerminalNewTabResizeTests {
             // but never sized again, so its window node stayed hidden): its node chain says which node hides it.
             let surface = try #require(pane.currentTabKey.flatMap { services.cache.existingTerminal($0)?.session.surfaceView })
             #expect(surface.isShown && surface.sizesToBounds, "the new tab's terminal is on screen but does not size itself: \(surface.nodeChain)")
+            // G3: the terminal hangs under the node its pane selected for the tab (the cause on v2.2.7-opt: under the
+            // stand-in's node, which the pane hid).
+            #expect(surface.visibilityNode.parent === pane.selectedNode,
+                    "the new tab's terminal hangs under \(surface.visibilityNode.parent?.name ?? "nil"), the pane selected \(pane.selectedNode?.name ?? "nil")")
+            #expect(InputInvariantMonitor.terminalNodes(services).isEmpty)
 
             // The window gets smaller, as a person's drag or a window_place leaves it.
             let tall = window.frame

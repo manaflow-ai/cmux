@@ -153,6 +153,7 @@ final class InputInvariantMonitor {
         var result = InputInvariants.world(observation)
         result.violations += Self.pageGeometry(services)
         result.violations += Self.terminalGrids(services)
+        result.violations += Self.terminalNodes(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
         result.violations += services.hoverCards.singleCardViolations().map {
@@ -218,6 +219,23 @@ final class InputInvariantMonitor {
                 let owner = owns ? entry.io.announcedGrid.map { TerminalGridSize(columns: $0.cols, rows: $0.rows) } : nil
                 guard let problem = entry.session.surfaceView.restingGridMismatch(onScreen: onScreen, ownerGrid: owner) else { return nil }
                 return InputViolation(invariant: .terminalGridFits, window: controller.state.id, detail: "pane \(pane.paneKey) tab \(key): \(problem)")
+            }
+        }
+    }
+
+    /// G3 (felt 1e; principled-audit R3): the terminal a pane presents for its selected tab hangs under the node the pane
+    /// selected for that tab, so it counts as shown exactly when the pane shows it (an adopted Ctrl-` stand-in stayed under
+    /// its own node, hidden as the pane's old selection: on screen, never sized). Facts only: the selection the pane
+    /// presents and the parent of the surface's node; a pane whose presentation trails its selection is W9's.
+    static func terminalNodes(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                guard !pane.isSuspended, let key = pane.currentTabKey, pane.stripModel.selectedID?.rawValue == key,
+                      let entry = services.cache.existingTerminal(key), let selected = pane.selectedNode else { return nil }
+                let parent = entry.session.surfaceView.visibilityNode.parent
+                guard parent !== selected else { return nil }
+                return InputViolation(invariant: .terminalUnderSelectedNode, window: controller.state.id,
+                                      detail: "pane \(pane.paneKey) tab \(key): its terminal hangs under \(parent?.name ?? "no node"), the pane selected \(selected.name)")
             }
         }
     }
