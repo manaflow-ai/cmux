@@ -36,11 +36,23 @@ function optionIds(
 /** Resolve a current pick through enabled ancestors, using the native host's action rules. */
 export function popupAction(model: PopupDescription, id: string | undefined): ResolvedAction | undefined {
   if (id === undefined) return undefined;
+  return findPopupAction(model, (action) => action.id === id);
+}
+
+/** Page-side Return resolves the same selection policy as a native ID-only pick. */
+export function popupActionByValue(model: PopupDescription, value: string): ResolvedAction | undefined {
+  return findPopupAction(model, (action) => (action.value ?? action.id) === value);
+}
+
+function findPopupAction(
+  model: PopupDescription,
+  matches: (action: ResolvedAction) => boolean,
+): ResolvedAction | undefined {
   function find(rows: readonly PopupRow[]): ResolvedAction | undefined {
     for (const row of rows) {
       if (row.disabled) continue;
-      if (row.id === id && row.kind === "action") return row;
-      const action = row.actions?.find((candidate) => candidate.id === id && !candidate.disabled);
+      if (row.kind === "action" && matches(row)) return row;
+      const action = row.actions?.find((candidate) => !candidate.disabled && matches(candidate));
       if (action) return action;
       const child = row.children && find(row.children);
       if (child) return child;

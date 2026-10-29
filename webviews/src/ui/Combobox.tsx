@@ -10,7 +10,7 @@ import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
-import { popupAction } from "./popupDescriptors";
+import { popupAction, popupActionByValue } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -227,6 +227,11 @@ export function Combobox({
     setValue(next);
     onQuery(next);
   };
+  const submit = (next: string) => {
+    if (isItemDisabled?.(next)) return;
+    if (native && !popupActionByValue(native.model, next)?.keepOpen) setNativeSessionOpen(false);
+    onSubmit(next);
+  };
   const onKeyDown = (event: BaseUIKeyEvent) => {
     onCommand?.(event);
     if (event.defaultPrevented) return;
@@ -262,7 +267,7 @@ export function Combobox({
           ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
           : undefined;
       const next = selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
-      if (!isItemDisabled?.(next)) onSubmit(next);
+      submit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -301,7 +306,7 @@ export function Combobox({
         if (isItemDisabled?.(item)) return;
         event.preventDefault();
         pressActivatedRef.current = item;
-        onSubmit(item);
+        submit(item);
       }}
       onClick={(event) => {
         // A real mouse click follows the primary press and must not submit twice. Keyboard and
@@ -311,7 +316,7 @@ export function Combobox({
         if (pressed === item && event.detail > 0) return;
         // Base UI cancels pointerdown to retain input focus. Browsers then omit the
         // compatibility mousedown, so a primary click must also activate on its own.
-        if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
+        if (event.button === 0) submit(item);
       }}
     >
       {renderItemContent(item)}

@@ -624,6 +624,166 @@ test.each(["escape", "outside", "pick", "controlled", "unmount"] as const)(
   },
 );
 
+test.each(["pick", "outside"] as const)("native popover resolves finalFocus mounted by %s close", async (close) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const finalFocus: { current: HTMLInputElement | null } = { current: null };
+  function Fixture() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        {!open && <input ref={finalFocus} aria-label="Destination" />}
+        <Popover
+          open={open}
+          onOpenChange={setOpen}
+          anchor={container}
+          label="Details"
+          finalFocus={finalFocus}
+          native={{ model: menuModel, anchor: () => container }}
+        >
+          No page rows
+        </Popover>
+      </>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Fixture />
+      </UiProvider>,
+    );
+  });
+  expect(finalFocus.current).toBeNull();
+  const sent = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners)
+      listener(
+        close === "pick"
+          ? { type: "pick", popupId: sent.id, revision: sent.revision, id: "done" }
+          : { type: "dismiss", popupId: sent.id, revision: sent.revision, reason: close },
+      );
+  });
+  expect(finalFocus.current !== null).toBe(true);
+  expect(document.activeElement === finalFocus.current).toBe(true);
+});
+
+test.each(["escape", "outside", "pick", "controlled", "unmount"] as const)(
+  "native menu honors explicit finalFocus on %s close",
+  async (close) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const target = document.createElement("input");
+    document.body.append(target);
+    const finalFocus = { current: target };
+    function Fixture() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button data-close onClick={() => setOpen(false)}>
+            Close
+          </button>
+          <Menu open={open} onOpenChange={setOpen} native={{ model: menuModel }}>
+            <MenuButton label="Actions">Actions</MenuButton>
+            <MenuPopup finalFocus={finalFocus}>No page rows</MenuPopup>
+          </Menu>
+        </>
+      );
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Fixture />
+        </UiProvider>,
+      );
+    });
+    const sent = shown[0]!;
+    await act(async () => {
+      if (close === "controlled") container.querySelector<HTMLButtonElement>("[data-close]")!.click();
+      else if (close === "unmount") root!.render(null);
+      else
+        for (const listener of listeners)
+          listener(
+            close === "pick"
+              ? { type: "pick", popupId: sent.id, revision: sent.revision, id: "done" }
+              : { type: "dismiss", popupId: sent.id, revision: sent.revision, reason: close },
+          );
+    });
+    expect(target.isConnected).toBe(true);
+    expect(document.activeElement === target).toBe(true);
+  },
+);
+
+test.each([false, true])("page Enter preserves native action keepOpen=%s", async (keepOpen) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const pending: { resolve?: (reply: { shown: boolean }) => void } = {};
+  host.native!.show = (model) => {
+    shown.push(model);
+    return new Promise((resolve) => {
+      pending.resolve = resolve;
+    });
+  };
+  const submitted: string[] = [];
+  const model = comboboxDescription({ suggestions: ["alpha"] });
+  model.rows[0]!.keepOpen = keepOpen;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="alpha"
+          label="Projects"
+          suggestions={["alpha"]}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model }}
+        />
+      </UiProvider>,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(submitted).toEqual(["alpha"]);
+  expect(listeners.size).toBe(keepOpen ? 1 : 0);
+  await act(async () => pending.resolve!({ shown: true }));
+  expect(listeners.size).toBe(keepOpen ? 1 : 0);
+});
+
+test("page Enter closes native suggestions after submitting free text", async () => {
+  const container = installDom();
+  const { host, listeners } = nativeHost();
+  const submitted: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="new project"
+          label="Projects"
+          suggestions={["alpha"]}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }}
+        />
+      </UiProvider>,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(submitted).toEqual(["new project"]);
+  expect(listeners.size).toBe(0);
+});
+
 test("uncontrolled native menu closes on a pick and opens on the next trigger click", async () => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();

@@ -24,6 +24,7 @@ import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
+import { useNativeFinalFocus } from "./useNativeFinalFocus";
 
 export interface MenuProps {
   open?: boolean;
@@ -325,6 +326,7 @@ export function MenuPopup({
   const [own, setOwn] = useState<Element | undefined>(undefined);
   const triggerRef = menu?.trigger;
   const menuOpen = menu?.isOpen ?? false;
+  useNativeFinalFocus(Boolean(menu?.nativeAvailable && menuOpen), finalFocus);
   useLayoutEffect(() => {
     if (menuOpen) setOwn(boundary ? (triggerRef?.current?.closest(boundary) ?? undefined) : undefined);
   }, [boundary, triggerRef, menuOpen]);
