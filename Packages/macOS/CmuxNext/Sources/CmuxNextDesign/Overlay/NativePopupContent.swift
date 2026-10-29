@@ -41,7 +41,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
         let reset = next.search?.autoHighlight != model?.search?.autoHighlight ||
-            (model?.search?.value.isEmpty == false && next.search?.value.isEmpty == true)
+            (next.search?.autoHighlight != nil && model?.search?.value.isEmpty == false && next.search?.value.isEmpty == true)
         if reset { selected = nil; selectionReason = "none"; searchHasInput = false }
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
