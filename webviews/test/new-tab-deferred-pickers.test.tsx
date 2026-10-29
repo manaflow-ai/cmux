@@ -493,3 +493,39 @@ for (const remembered of [false, true]) {
     expect(detail).toBe("High");
   });
 }
+
+test("a New Tab replaces held Sonnet High with Medium after switching to Codex and back", async () => {
+  const { wire, pickInline, pickCombo, send, held } = await mountNewTab({
+    model: "claude-fable-5-1",
+    opened: [effortOption("reasoning_effort")],
+  });
+  await pickInline();
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+
+  await pickCombo("astra", "Astra");
+  expect(held()?.model).toBe("gpt-6-astra");
+  await act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
+  const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label^="Claude"]');
+  expect(claude).not.toBeNull();
+  await act(async () => claude!.click());
+  const medium = dom.window.document.querySelector<HTMLElement>(
+    '.acpmux-quick-effort-segment[aria-label="Sonnet 5.5 · Medium"]',
+  );
+  expect(medium).not.toBeNull();
+  await act(async () => medium!.click());
+
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  expect(held()).toEqual({ model: "claude-sonnet-5-5", options: { effort: "medium" } });
+  expect(wire).toEqual(["new claude", "new codex", "new claude"]);
+  await send("hello");
+  expect(wire).toEqual([
+    "new claude",
+    "new codex",
+    "new claude",
+    "model claude-sonnet-5-5",
+    "reasoning_effort=medium",
+    "prompt hello",
+  ]);
+});
