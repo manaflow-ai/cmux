@@ -42,6 +42,11 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public struct Run: Sendable, Hashable, Decodable {
             public var checked: Int
             public var elapsedMs: Int
+
+            public init(checked: Int, elapsedMs: Int) {
+                self.checked = checked
+                self.elapsedMs = elapsedMs
+            }
         }
 
         public struct LastDecision: Sendable, Hashable, Decodable {
@@ -49,6 +54,13 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
             public var outcome: String
             public var reason: String
             public var run: Run
+
+            public init(at: Int, outcome: String, reason: String, run: Run) {
+                self.at = at
+                self.outcome = outcome
+                self.reason = reason
+                self.run = run
+            }
         }
 
         public var minutes: Int
@@ -57,6 +69,16 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public var lastApiActivityAt: Int?
         public var privateAddressKnown: Bool
         public var lastDecision: LastDecision?
+
+        public init(minutes: Int, lastCheckedAt: Int?, idleSince: Int?, lastApiActivityAt: Int?,
+                    privateAddressKnown: Bool, lastDecision: LastDecision?) {
+            self.minutes = minutes
+            self.lastCheckedAt = lastCheckedAt
+            self.idleSince = idleSince
+            self.lastApiActivityAt = lastApiActivityAt
+            self.privateAddressKnown = privateAddressKnown
+            self.lastDecision = lastDecision
+        }
     }
 
     /// Provider operations and session transports advertised for this machine.

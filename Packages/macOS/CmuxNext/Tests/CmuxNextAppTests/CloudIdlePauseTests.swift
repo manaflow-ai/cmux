@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
@@ -62,6 +63,10 @@ struct CloudIdlePauseTests {
         let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
+
+        let appServer = try JSONValue.parse(Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
+        let next = try #require(CloudMachine(next: appServer))
+        #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {

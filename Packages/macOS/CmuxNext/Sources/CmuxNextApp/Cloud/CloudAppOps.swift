@@ -65,7 +65,27 @@ extension CloudMachine {
         // declares none and every Cloud action stays available.
         // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
+        let idlePause = idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
-                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes)
+                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes,
+                  idlePause: idlePause)
+    }
+
+    private static func idlePauseDiagnostics(_ value: JSONValue?) -> IdlePauseDiagnostics? {
+        guard let fields = value?.objectValue,
+              let minutes = fields["minutes"]?.doubleValue.flatMap({ Int(exactly: $0) }),
+              let privateAddressKnown = fields["privateAddressKnown"]?.boolValue else { return nil }
+        let integer: (String, [String: JSONValue]) -> Int? = { key, object in
+            object[key]?.doubleValue.flatMap { Int(exactly: $0) }
+        }
+        let lastDecision: IdlePauseDiagnostics.LastDecision? = fields["lastDecision"]?.objectValue.flatMap { decision in
+            guard let at = integer("at", decision), let outcome = decision["outcome"]?.stringValue,
+                  let reason = decision["reason"]?.stringValue, let runFields = decision["run"]?.objectValue,
+                  let checked = integer("checked", runFields), let elapsedMs = integer("elapsedMs", runFields) else { return nil }
+            return .init(at: at, outcome: outcome, reason: reason, run: .init(checked: checked, elapsedMs: elapsedMs))
+        }
+        return .init(minutes: minutes, lastCheckedAt: integer("lastCheckedAt", fields),
+                     idleSince: integer("idleSince", fields), lastApiActivityAt: integer("lastApiActivityAt", fields),
+                     privateAddressKnown: privateAddressKnown, lastDecision: lastDecision)
     }
 }
