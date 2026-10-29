@@ -46,6 +46,10 @@ pub struct Session {
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
+    /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
+    /// settles the logical turn before its cancel reaches the harness; keeping this lock until
+    /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
+    pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,

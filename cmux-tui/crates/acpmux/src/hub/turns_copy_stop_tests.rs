@@ -96,7 +96,9 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
         let (hub, s) = (hub.clone(), s.clone());
         tokio::spawn(async move {
             let opts = PromptOptions {
-                on_accepted: Some(Box::new(move |v| { let _ = accepted_tx.send(v); })),
+                on_accepted: Some(Box::new(move |v| {
+                    let _ = accepted_tx.send(v);
+                })),
                 ..Default::default()
             };
             hub.prompt_with(&s, vec![json!({"type": "text", "text": "slow"})], "test", false, opts)
@@ -122,10 +124,14 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     assert_eq!(result["stopReason"], "end_turn", "the old cancel reached the new turn: {result}");
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     let cancel = events.iter().find(|e| e.dir == "out" && e.kind == "session/cancel").unwrap();
-    let next = events.iter().find(|e| {
-        e.dir == "out" && e.kind == "session/prompt"
-            && e.msg["params"]["prompt"].to_string().contains("slow")
-    }).unwrap();
+    let next = events
+        .iter()
+        .find(|e| {
+            e.dir == "out"
+                && e.kind == "session/prompt"
+                && e.msg["params"]["prompt"].to_string().contains("slow")
+        })
+        .unwrap();
     assert!(cancel.seq < next.seq, "the new prompt overtook the old cancel");
 }
 

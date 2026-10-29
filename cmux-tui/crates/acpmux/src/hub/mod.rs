@@ -923,6 +923,7 @@ impl Hub {
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             turn_lock: Mutex::new(()),
+            input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),

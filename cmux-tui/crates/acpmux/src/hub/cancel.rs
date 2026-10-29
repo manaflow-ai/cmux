@@ -68,6 +68,15 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
+        // A compacting Stop settles the logical turn before sending this session-wide cancel.
+        // Hold the same handoff gate used by prompts so a new turn cannot enqueue its prompt
+        // while this cancel is delayed in the child writer.
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        // Another Stop or a natural result may have ended the captured turn while this
+        // caller waited. Never send its session-wide interrupt into a different turn.
+        if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
+            return Ok(());
+        }
         // End the logical turn before waiting on a hosted writer. A compacting
         // Claude process can ignore the interrupt, and the first Stop must
         // still settle the UI immediately.
@@ -96,6 +105,7 @@ impl Hub {
             .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
             .await
             .map_err(|e| RpcError::internal(e.to_string()));
+        drop(input_handoff);
         // Stop always ends the turn: an agent that does not answer the cancel
         // (Claude Code idle after a local slash command, while acpmux still
         // waits on the prompt) gets its turn ended here, as cancelled and

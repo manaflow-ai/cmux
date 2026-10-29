@@ -41,7 +41,25 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, fence, on_sent);
+    // A session-wide cancel has no turn id. Keep the next prompt behind the current prompt's
+    // handoff so a delayed Stop cannot overtake it (or be overtaken by it) at the child writer.
+    // The guard is released by `on_sent`, once `write_fenced` has handed the frame to the child;
+    // it is also dropped if the request is cut before it is written.
+    let request = async {
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        // The turn can settle while this prompt waits behind a Stop's handoff.
+        if let Some((turn, answer)) = session.steer_end.borrow().clone()
+            && turn == turn_id
+        {
+            return Ok(answer);
+        }
+        child
+            .request_with_hook(method::SESSION_PROMPT, params, fence, move || {
+                drop(input_handoff);
+                on_sent();
+            })
+            .await
+    };
     tokio::pin!(request);
     loop {
         tokio::select! {
