@@ -45,6 +45,17 @@ def is_setup(step: dict) -> bool:
     return "uses" in step
 
 
+
+# The DEV daily placement (dev-daily-place) hands cmux-scheme-compile a runs-on that may be a label list
+# ([a pool label, glaeda-runner-<name>]); the job's label copy reads that list's first label instead.
+DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)",
+              "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
+
+
+def label_copy(runs_on: str) -> str:
+    """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
+    return runs_on.replace(*DAILY_PICK)
+
 class ChecksJobStructure(unittest.TestCase):
     def split(self) -> tuple[list[dict], list[dict], dict]:
         all_steps = steps()
@@ -775,7 +786,7 @@ class PathRoutingStructure(unittest.TestCase):
             expression = job["runs-on"]
             if "CMUX_NEXT_RUNNER" in job.get("env", {}):
                 with self.subTest(job=name, field="CMUX_NEXT_RUNNER"):
-                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], expression)
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], label_copy(expression))
             for event in ("pull_request", "workflow_dispatch"):
                 for attempt, actor, expected in (
                     (1, "github-actions[bot]", "stale-owned-label"),

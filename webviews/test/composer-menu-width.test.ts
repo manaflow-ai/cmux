@@ -44,8 +44,11 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src/agent-session");
-  // The liquid glass first, as build-agent-pane-web.sh loads it: every popup's material.
+  // The desktop layer, then the liquid glass, as build-agent-pane-web.sh loads them: desktop.css holds
+  // the design tokens the glass reads (its tint is `--ds-glass-plain-tint` since #24589), and the
+  // glass is every popup's material.
   const css = [
+    "../pages/shared/desktop.css",
     "../ui/glass/glass.css",
     "shared/styles.css",
     "acpmux/styles.css",

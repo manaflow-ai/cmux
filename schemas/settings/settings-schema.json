@@ -1494,7 +1494,8 @@
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines"
+          "machines",
+          "cloudEnvironments"
         ],
         "symbol" : "person.crop.circle",
         "title" : {
@@ -1620,6 +1621,8 @@
             "rows" : [
               "labs.previewFeatures",
               "labs.classicHome",
+              "labs.voiceRoom",
+              "labs.voiceRoomURL",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -23088,7 +23091,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -24474,7 +24477,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 250,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -25035,7 +25038,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 600,
+      "default" : 1500,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -37018,6 +37021,107 @@
       "title" : {
         "key" : "settings.labs.classicHome",
         "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoom.help",
+        "text" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoom",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "call",
+        "meeting",
+        "transcribe",
+        "screen",
+        "record",
+        "chief"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoom"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoom",
+        "text" : "Voice Room"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoomURL.help",
+        "text" : "The room's web address. Empty uses the room server on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoomURL",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "address",
+        "url",
+        "server",
+        "tailnet"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoomURL"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoomURL",
+        "text" : "Voice Room Address"
       },
       "validation" : "portable"
     },

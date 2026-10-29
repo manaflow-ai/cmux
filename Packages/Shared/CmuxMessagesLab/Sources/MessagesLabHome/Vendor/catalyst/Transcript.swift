@@ -373,7 +373,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.connectorAnchorY ?? 0) // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {

@@ -168,6 +168,15 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
     top
 }
 
+/// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and
+/// `_acpmux/harnesses` rows): the discovered `cmux` profile, Claude Code on the cmux model
+/// router, is Claude's automatic fallback, not an agent to pick. It showed as a "Cmux" harness
+/// above Claude Code (user, 2026-10-28). The row stays, so a chat that failed over to it keeps
+/// its name, icon and models. A `cmux` profile the person wrote in their config is pickable.
+pub(super) fn picker_hidden(cfg: &crate::config::Config, name: &str) -> bool {
+    name == crate::config::CMUX_ROUTER_PROFILE && cfg.discovered.contains(name)
+}
+
 /// The harness-level catalog fields a picker shows.
 fn harness_catalog_json(curated: &CatalogHarness) -> Value {
     let mut v = json!({"id": curated.id, "name": curated.name, "brand": curated.brand, "families": curated.families, "modelSource": curated.model_source});
@@ -229,6 +238,9 @@ impl Hub {
             if let Some(reason) = probe_errors.get(name) {
                 entry["probeError"] = json!(reason);
             }
+            if picker_hidden(&cfg, name) {
+                entry["pickerHidden"] = json!(true);
+            }
             if let Some(curated) = &curated {
                 entry["catalog"] = harness_catalog_json(curated);
             }
@@ -266,6 +278,7 @@ impl Hub {
 #[cfg(test)]
 mod picker_models_tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn harness_picker_order_survives_catalog_order_and_aliases() {
@@ -285,5 +298,68 @@ mod picker_models_tests {
         let reported = [("existing", "Existing"), ("new-family", "New")]
             .map(|(id, name)| (id.to_owned(), name.to_owned()));
         assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
+    }
+
+    /// A hub with Claude Code and the `cmux` router profile, discovered or user-written.
+    fn router_hub(discovered: bool) -> std::sync::Arc<Hub> {
+        use crate::config::{Config, StoreMode};
+        let mut found = BTreeMap::new();
+        crate::config::add_cmux_router(&mut found, &|_| Some("/usr/bin/claude".into()));
+        let claude = HarnessProfile {
+            env: BTreeMap::new(),
+            description: None,
+            models: vec![],
+            model: None,
+            ..found["cmux"].clone()
+        };
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude".into(), claude);
+        if discovered {
+            cfg.join_discovered(found);
+        } else {
+            cfg.harnesses.insert("cmux".into(), found["cmux"].clone());
+        }
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    fn models_row(reply: &Value, name: &str) -> Value {
+        reply["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == name)
+            .cloned()
+            .unwrap()
+    }
+
+    /// The discovered `cmux` profile is Claude's automatic fallback to the cmux model router,
+    /// not an agent a person picks: pickers showed it as a "Cmux" harness above Claude Code
+    /// (user, 2026-10-28). Both replies keep its row (a chat that failed over to it still needs
+    /// its name, icon and models) and mark it `pickerHidden`.
+    #[tokio::test]
+    async fn the_discovered_cmux_router_fallback_is_hidden_from_pickers() {
+        let hub = router_hub(true);
+        assert_eq!(
+            hub.config.read().await.harnesses["claude"].fallback.as_deref(),
+            Some("cmux"),
+            "the router stays Claude's fallback"
+        );
+        let models = hub.models_catalog().await;
+        assert_eq!(models_row(&models, "cmux")["pickerHidden"], json!(true));
+        assert!(models_row(&models, "cmux")["models"].as_array().is_some_and(|m| !m.is_empty()));
+        assert_eq!(models_row(&models, "claude").get("pickerHidden"), None);
+        let view = hub.harnesses_view().await;
+        assert_eq!(view["harnesses"]["cmux"]["pickerHidden"], json!(true));
+        assert_eq!(view["harnesses"]["claude"].get("pickerHidden"), None);
+    }
+
+    /// A `cmux` profile the person wrote in their config is theirs to pick.
+    #[tokio::test]
+    async fn a_user_written_cmux_profile_stays_in_pickers() {
+        let hub = router_hub(false);
+        assert_eq!(models_row(&hub.models_catalog().await, "cmux").get("pickerHidden"), None);
+        assert_eq!(hub.harnesses_view().await["harnesses"]["cmux"].get("pickerHidden"), None);
     }
 }

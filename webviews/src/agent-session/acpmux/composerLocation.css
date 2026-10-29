@@ -895,10 +895,12 @@
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
 
-/* plain: the content edge is where the prompt's text starts in the card (16 px in the chat's card,
-   the New Tab's 18 px); a small ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
-:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
-:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+/* plain: the content edge is the card's first column, the + glyph's box: 14 px in the chat's card (its
+   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), 23 px in the
+   New Tab's (its + since #25125: an 18 px glyph in a 28 px button 18 px in). A small ghost button's
+   icon ink sits 6 px in from its edge (ui/ghost.css). */
+:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 23px; }
 :root[data-top-strip="plain"] .acpmux-composer-strip,
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   height: auto;
@@ -954,8 +956,9 @@
     var(--acpmux-composer-tray)
   );
 }
-:root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
-:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+/* The same column as plain's (above): the + glyph's box in each card. */
+:root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
+:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 23px; }
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-box,
 :root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
 /* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
@@ -968,6 +971,14 @@
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+/* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
+   Transparency the tray's step goes over the card's glass tint, as Codex's tray does
+   (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
 }
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
@@ -1179,10 +1190,12 @@
 .acpmux-composer-foot .acpmux-access {
   order: -1;
   margin-inline-end: auto;
-  /* The mode's shield sits under the + glyph: its chip starts 10 px in from the box, its shield 8 px
-     further, so the chip moves 5 px left to put the shield's center 22 px in, as + and the mic's glyph
-     are (composer-alignment-centers.test.ts). */
-  margin-inline-start: -5px;
+  /* The mode's shield sits under the + glyph, its center 22 px in from the box as + and the mic's
+     glyph are (composer-alignment-centers.test.ts). The row has no side padding (#24216), and the
+     shield's center is 17 px into its chip, so the chip starts 5 px in. (-5 px was measured in a
+     gallery that applied styles.css after this sheet, so the row kept the bar's 10 px padding there
+     and nowhere in the app.) */
+  margin-inline-start: 5px;
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
@@ -1316,9 +1329,9 @@
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
 /* One compact ring in the main and quiet rows (#24661): the base 22 px box, not the 24 px a scale
    snap gave the quiet row. Its glyph (12 px, centered in the 22 px box) sits 22 px in from the box's
-   right, as the mic's glyph does: 2 px of right margin keeps the glyph center 13 px in from the row's
-   end, where the 24 px box with 1 px of margin had it (composer-alignment-centers.test.ts). */
-.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 2px; }
+   right, under the mic's glyph (composer-alignment-centers.test.ts): the row has no side padding
+   (#24216), so 11 px of end margin and half the box put it there. */
+.acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 11px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

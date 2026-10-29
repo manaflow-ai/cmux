@@ -6,7 +6,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
-import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
+import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type ChiefCallCap, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
 import { autoReloadDecision, chargeSavedCard, endRun, failAutoReload, monthReloaded, readAutoReload, startRun, writeAutoReload, type AutoReloadSettings } from "./credits-autoreload.ts"
 import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
 import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
@@ -193,9 +193,9 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** Prepaid credits: hold a model call's maximum price before the call (refused below it). */
-  async creditReserve(entity: string, id: string, maxMicros: number, chief: string | null, conversation: string | null): Promise<CreditReserve> {
+  async creditReserve(entity: string, id: string, maxMicros: number, chief: string | null, conversation: string | null, cap?: ChiefCallCap): Promise<CreditReserve> {
     this.bind(entity)
-    const r = creditReserve(this.ctx.storage, id, maxMicros, chief, conversation, Date.now())
+    const r = creditReserve(this.ctx.storage, id, maxMicros, chief, conversation, Date.now(), cap)
     if (r.ok) this.scheduleAlarm()
     return r
   }
