@@ -135,6 +135,13 @@ test("trust.pending shows Trust folder when the folder's trust can't be read", a
   );
 });
 
+test("trust.pending shows Trust folder when the folder reads as answered untrusted", async () => {
+  // acpmux's gate says pending: a read that says "untrusted" (a stale answer) must not replace the
+  // Trust question with Don't trust's Undo, which keeps no replay (#24144 review).
+  const cwd = "/Users/you/src/read-untrusted";
+  await refusedThenTrusted(async () => ({ cwd, level: "untrusted", decided: true }), cwd, "chat-read-untrusted");
+});
+
 test("trust.pending for another spelling of the folder trusts the folder acpmux named", async () => {
   const cwd = "/Users/you/src/link";
   await refusedThenTrusted(async () => ({ cwd, level: "unknown" }), cwd, "chat-link", "/Users/you/src/real");

@@ -119,7 +119,12 @@ function refusedShown(
   family: string | undefined,
   canAnswer: boolean,
 ) {
-  if (!said || (read?.ask && said.cwd === folder)) return undefined;
+  if (!said) return undefined;
+  // The read's own question stands only when it asks what acpmux's gate asks: a pending question
+  // for `trust.pending`, Don't trust's for `trust.untrusted`. A read that says the folder was
+  // answered "untrusted" while the gate says pending is stale, and would hide the Trust button.
+  const readAgrees = read?.ask !== undefined && (read.ask.state === "decided") === (said.level === "untrusted");
+  if (readAgrees && said.cwd === folder) return undefined;
   const forced = shownTrust(
     { cwd: said.cwd, level: said.level, ...(said.cwd === folder && repo ? { repo } : {}) },
     said.cwd,
