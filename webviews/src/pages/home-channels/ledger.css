@@ -819,6 +819,7 @@
   color: var(--page-text-2);
 }
 .lg-sheet-meta {
+  font-variant-numeric: tabular-nums;
   display: flex;
   flex-wrap: wrap;
   margin: 0;
@@ -1910,6 +1911,7 @@
   gap: 6px;
 }
 .lg-picker-count {
+  font-variant-numeric: tabular-nums;
   min-height: var(--text-caption--line-height);
   margin: 0;
   font-size: var(--text-caption);
