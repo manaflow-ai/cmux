@@ -105,13 +105,48 @@ struct WireGenArguments {
 struct GeneratedFile {
     let url: URL
 
-    /// Writes `text` atomically, so a build that stops mid-write never compiles half a file.
+    /// Writes `text` atomically, so a build that stops mid-write never compiles half a file: the bytes
+    /// go to a new temporary file in the same directory, which rename(2) then puts in place. A failure
+    /// removes the temporary file.
+    ///
+    /// Not `Data.write(to:options: .atomic)`: in a sandboxed process (SwiftPM runs build-tool commands
+    /// in a sandbox) Foundation first asks FileManager for an item-replacement directory, a coreservicesd
+    /// look-up that blocked forever in a non-GUI fleet session (swift-build waited 95 min, 2026-10-28).
     func write(_ text: String) throws(WireGenError) {
+        let path = url.path(percentEncoded: false)
+        var template = Array("\((path as NSString).deletingLastPathComponent)/.\(url.lastPathComponent).XXXXXX".utf8CString)
+        let descriptor = unsafe template.withUnsafeMutableBufferPointer { buffer -> Int32 in
+            guard let base = unsafe buffer.baseAddress else {
+                errno = EINVAL
+                return -1
+            }
+            return unsafe mkstemp(base)
+        }
+        guard descriptor >= 0 else {
+            throw WireGenError.unwritable(path: path, reason: Self.reason("create a temporary file", errno))
+        }
+        // mkstemp replaced the Xs in place; the last element is the terminating NUL.
+        let temporary = String(decoding: template.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        var problem: String?
         do {
             // blocking-allow: host build tool, not the app; no app thread to block.
-            try Data(text.utf8).write(to: url, options: .atomic)
+            try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).write(contentsOf: Data(text.utf8))
         } catch {
-            throw WireGenError.unwritable(path: url.path(percentEncoded: false), reason: "\(error)")
+            problem = "write \(temporary): \(error)"
         }
+        // mkstemp makes the file 0600; a generated source is readable as any other file is.
+        if problem == nil, fchmod(descriptor, 0o644) != 0 { problem = Self.reason("chmod \(temporary)", errno) }
+        if close(descriptor) != 0, problem == nil { problem = Self.reason("close \(temporary)", errno) }
+        // blocking-allow: host build tool, not the app; the rename that makes the write atomic.
+        if problem == nil, rename(temporary, path) != 0 { problem = Self.reason("rename \(temporary)", errno) }
+        if let problem {
+            // blocking-allow: host build tool, not the app; removes the temporary file of a failed write.
+            unlink(temporary)
+            throw WireGenError.unwritable(path: path, reason: problem)
+        }
+    }
+
+    private static func reason(_ step: String, _ code: Int32) -> String {
+        "\(step): \(unsafe String(cString: strerror(code)))"
     }
 }

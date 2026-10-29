@@ -629,6 +629,12 @@
       "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
     },
     {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "CmuxNextWireGen GeneratedFile.write (the same build-tool executable as the p05-ipc-027 entry above): the atomic write is now its own temporary file in the output directory and a rename(2), not Data.write(.atomic), whose sandboxed path asks coreservicesd for an item-replacement directory and blocked forever in a non-GUI fleet step (swift-build waited 95 min, step 8c7b9f60, 2026-10-28). The write, the rename and the removal of a failed write's temporary file are three escapes where there was one; the tool still runs only on the build host, never in the app, and still does not link the CmuxNextCompat seams."
+    },
+    {
       "date": "2026-10-27",
       "row": "blocking_allow_escapes",
       "allow": 5,
