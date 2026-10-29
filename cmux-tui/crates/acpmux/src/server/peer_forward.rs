@@ -115,6 +115,13 @@ fn is_duplicate(v: &Value) -> bool {
         || v.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true)
 }
 
+/// The peer's acceptance names the message its journal kept (`hub/message_events.rs`
+/// `name_message`), and it is not `ours`. A peer from before that names none: nothing to check.
+fn kept_another(v: &Value, ours: Option<&str>) -> bool {
+    let kept = v.get("messageId").and_then(Value::as_str);
+    matches!((kept, ours), (Some(kept), Some(ours)) if kept != ours)
+}
+
 /// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
 /// answered: any `peer` the peer's own answer gave is replaced, so the app
 /// enrolls this Mac only on a peer of this daemon, never on a host the peer named.
@@ -348,7 +355,8 @@ async fn forward_inner(
         } else {
             None
         };
-        // The peer's acceptance said this prompt id was a duplicate (`is_duplicate`).
+        // The peer's acceptance said this prompt id was a duplicate (`is_duplicate`) or kept
+        // another send's message (`kept_another`): its answer records nothing either.
         let duplicate = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let token = accept.as_ref().map(|prompt_id| {
             let (conn, peer_name) = (conn.clone(), peer.name.clone());
@@ -363,9 +371,11 @@ async fn forward_inner(
                 &id,
                 prompt_id,
                 Box::new(move |mut v| {
-                    if is_duplicate(&v) {
-                        // The peer ran this prompt id before, maybe as another message (a
-                        // direct send, then its `send_queue` retry): only its journal says.
+                    let ours = sender_message.as_ref().map(|(.., message_id)| message_id.as_str());
+                    if is_duplicate(&v) || kept_another(&v, ours) {
+                        // The peer ran this prompt id before, or kept another send's message
+                        // under it (a direct send and its `send_queue` retry both hear the one
+                        // acceptance): only its journal says whether this message is there.
                         duplicate_seen.store(true, std::sync::atomic::Ordering::SeqCst);
                         if let Some(intent) = forward_intent {
                             super::outbox::forward_unconfirmed(&callback_hub, &intent);
@@ -675,5 +685,26 @@ mod tests {
         let mut p = json!({"sessionId": "s"});
         bound_page(method::SESSION_PROMPT, &json!({}), &mut p);
         assert!(p.get("maxBytes").is_none());
+    }
+}
+
+#[cfg(test)]
+mod message_identity_tests {
+    use super::{is_duplicate, kept_another};
+    use serde_json::json;
+
+    /// A sender's copy is recorded only for the message the peer's acceptance names, and only
+    /// when that acceptance is no duplicate; a peer that names none is taken at its word.
+    #[test]
+    fn an_acceptance_confirms_only_the_message_it_names() {
+        let named = json!({"sessionId": "t", "promptId": "p", "messageId": "p"});
+        assert!(!kept_another(&named, Some("p")));
+        assert!(kept_another(&named, Some("delivery-1")));
+        assert!(!kept_another(&json!({"sessionId": "t", "promptId": "p"}), Some("delivery-1")));
+        assert!(!kept_another(&named, None));
+        assert!(is_duplicate(&json!({"promptId": "p", "duplicate": true, "turnId": "t1"})));
+        assert!(is_duplicate(&json!({"stopReason": "end_turn",
+                                     "_meta": {"acpmux": {"duplicate": true}}})));
+        assert!(!is_duplicate(&named));
     }
 }

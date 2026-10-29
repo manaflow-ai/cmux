@@ -418,6 +418,61 @@ async fn a_queued_retry_of_a_direct_peer_prompt_adds_no_outgoing_copy() {
     );
 }
 
+/// A direct send and its `send_queue` retry in flight at once both hear the peer's one
+/// acceptance of their prompt id. Only the message the receiver kept, which that acceptance
+/// names, gains an outgoing copy.
+#[tokio::test]
+async fn overlapping_direct_and_queued_sends_of_one_prompt_id_record_one_outgoing_copy() {
+    let (a, b, target) = busy_peer("overlap", "lane").await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "overlap-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut direct = C::as_session(a.clone(), &sender).await;
+    let mut queued = C::as_session(a, &sender).await;
+    let request = prompt("b/lane", "one message", "p-overlap");
+    let (_, delivery) = tokio::join!(
+        direct.send(method::SESSION_PROMPT, request.clone()),
+        queued.call(SEND_QUEUE, json!({"request": request})),
+    );
+    let delivery = delivery.unwrap()["deliveryId"].as_str().expect("a delivery id").to_owned();
+    let accepted = direct
+        .notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+            p["promptId"] == "p-overlap"
+        })
+        .await
+        .expect("the receiver accepted the prompt id");
+    let status =
+        queued.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    // The peer link keeps order: once a later prompt's acceptance is here, every callback of
+    // the first acceptance has run.
+    direct.send(method::SESSION_PROMPT, prompt("b/lane", "later", "p-later")).await;
+    direct
+        .notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+            p["promptId"] == "p-later"
+        })
+        .await
+        .expect("the later prompt was accepted");
+    let ids = |events: Vec<Value>| -> Vec<Value> {
+        events.into_iter().map(|e| e["messageId"].clone()).collect()
+    };
+    let mut receiver = C::new(b).await;
+    let incoming = ids(receiver.message_events(&target).await);
+    assert_eq!(incoming.len(), 2, "{incoming:?}");
+    assert!(incoming[0] == json!("p-overlap") || incoming[0] == json!(delivery), "{incoming:?}");
+    assert_eq!(accepted["messageId"], incoming[0], "the acceptance names the kept message");
+    assert_eq!(ids(person.message_events(&sender).await), incoming, "outgoing copies");
+}
+
 /// A browser's metadata stays untrusted when the prompt crosses a daemon link.
 #[tokio::test]
 async fn web_to_peer_prompt_cannot_forge_message_sender_or_local_journal() {
