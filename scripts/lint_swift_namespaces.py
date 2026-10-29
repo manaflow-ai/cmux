@@ -72,6 +72,10 @@ DECL = re.compile(
 EXT = re.compile(r"(?m)^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
                  r"(?:(?:public|package|internal|private|fileprivate)[ \t]+)?"
                  r"extension[ \t]+(?P<name>[\w.]+)")
+# The start of a line up to a scoped import's kind: `import enum`, `internal import enum`,
+# `@preconcurrency import enum`.
+SCOPED_IMPORT = re.compile(r"[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
+                           r"(?:(?:public|package|internal|private|fileprivate)[ \t]+)?import[ \t]+$")
 MEMBER = re.compile(
     r"\b(case|init|func|var|let|subscript|struct|class|enum|actor|typealias)\b"
 )
@@ -209,6 +213,11 @@ for root in roots:
             if any(Path(path).is_relative_to(root) for root in enum_roots):
                 for enum in re.finditer(r'\benum\s+(\w+)[^{]*\{', src):
                     name = enum.group(1)
+                    # `import enum Module.Type` (a scoped import) names a type of another module; it
+                    # declares nothing here.
+                    line_start = src.rfind('\n', 0, enum.start()) + 1
+                    if SCOPED_IMPORT.match(src, line_start, enum.start()):
+                        continue
                     body = body_and_end(src, enum.end() - 1)
                     depths = depth_prefix(body)
                     top = ''.join(ch if depths[i] == 0 else ' ' for i, ch in enumerate(body))
