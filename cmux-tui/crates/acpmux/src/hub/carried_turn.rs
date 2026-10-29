@@ -55,6 +55,21 @@ pub(super) struct NextTurn {
     pub(super) continues: Continues,
 }
 
+/// The carried turns' successions kept with no steer waiting (`trim_successors`), for a Stop
+/// that saw a turn a few carries back.
+const SUCCESSORS_KEPT: usize = 64;
+
+/// The most kept while steers wait: each carry reads at least one of them, so this bounds only
+/// a chat sent more steers in one turn than this.
+const SUCCESSORS_MAX: usize = 100_000;
+
+/// Drops the successions no waiting steer can name.
+pub(super) fn trim_successors(successors: &mut std::collections::VecDeque<(String, String)>) {
+    while successors.len() > SUCCESSORS_KEPT {
+        successors.pop_front();
+    }
+}
+
 /// The carries' turns a session keeps for the steers read in them: only the newest can still be
 /// read in, but a steer's answer may be handled after a few more turns went by.
 const CARRIES_KEPT: usize = 64;
@@ -84,14 +99,15 @@ pub(super) fn steer_carry(answer: &Result<Value, RpcError>) -> Option<u64> {
 impl NextTurn {
     /// The ended turn's `turn_result` names the turn it carried into (`carriedTo`), so a restart
     /// before that turn's `turn_started` still runs it (`Hub::recover_carried`).
-    pub(super) fn record(&self) -> Value {
+    /// `control` is the turn's as it is now: a Web steer may have raised it (`check_steer`).
+    pub(super) fn record(&self, control: Control) -> Value {
         let t = &self.next;
         json!({
             "turnId": t.turn_id,
             "promptId": t.prompt_id,
             "prompt": t.prompt_preview,
             "client": t.client,
-            "control": t.control.as_str(),
+            "control": control.as_str(),
             "seq": self.carried.seq,
             "promptIds": self.carried.prompt_ids,
         })
@@ -158,7 +174,11 @@ impl Hub {
         }
         if let Some(from) = from {
             now.successors.push_back((from.turn_id.clone(), turn_id.clone()));
-            while now.successors.len() > CARRIES_KEPT {
+            // A steer still waiting may name a turn many carries back: kept while any waits.
+            if now.waiting.is_empty() {
+                trim_successors(&mut now.successors);
+            }
+            while now.successors.len() > SUCCESSORS_MAX {
                 now.successors.pop_front();
             }
         }
@@ -191,10 +211,11 @@ impl Hub {
         next: &NextTurn,
         slot: Option<RunSlot>,
     ) {
-        let mut turn = next.next.clone();
-        if session.turn().is_none_or(|t| t.turn_id != turn.turn_id) {
+        // The turn as it is now: a Web steer may have raised its control since it was put in
+        // place (`check_steer`).
+        let Some(mut turn) = session.turn().filter(|t| t.turn_id == next.next.turn_id) else {
             return;
-        }
+        };
         turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         let continues = Some(next.continues.clone());
@@ -354,11 +375,13 @@ impl Hub {
             };
             self.schedule_auto_resume(&session, turn_id, cut);
             let Some(next) = next else { break };
-            let NextTurn { carried, next: mut next_turn, continues: next_continues } = *next;
+            let NextTurn { carried, next: next_turn, continues: next_continues } = *next;
             continues = Some(next_continues);
-            if session.turn().is_none_or(|t| t.turn_id != next_turn.turn_id) {
+            // As it is now (`start_carried`).
+            let Some(mut next_turn) = session.turn().filter(|t| t.turn_id == next_turn.turn_id)
+            else {
                 break;
-            }
+            };
             next_turn.turn_seq = self.begin_carried(&session, turn_id, &next_turn, &carried);
             turn = next_turn;
         }
@@ -468,6 +491,54 @@ mod tests {
         assert_eq!(on(&one), None);
         set(None);
         assert_eq!(on(&one), None);
+    }
+
+    async fn chat() -> (Arc<Hub>, Arc<Session>) {
+        use crate::config::{Config, StoreMode};
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let cfg =
+            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let s = hub.new_session(req).await.unwrap();
+        (hub, s)
+    }
+
+    /// A steer still waits on a turn many carries back (one steer read per carried turn): its
+    /// forced Stop still reaches it (`succeeds`), past the successions kept with none waiting.
+    #[tokio::test]
+    async fn a_waiting_steer_keeps_its_turns_succession_past_many_carries() {
+        let (hub, s) = chat().await;
+        s.steer_now.lock().unwrap().waiting.insert("p-old".into(), None);
+        let first = TurnInfo::prompted("test", "work", "t-0", "p-0", Control::Local);
+        let mut turn = first.clone();
+        for seq in 0..(SUCCESSORS_KEPT as u64 + 10) {
+            turn = hub.carried_turn(&s, Some(&turn), &Carried { seq, prompt_ids: vec![] }).0;
+        }
+        assert!(Hub::succeeds(&s, "t-0", &turn.turn_id), "the succession was dropped");
+        // Answered: the old successions go.
+        let mut now = s.steer_now.lock().unwrap();
+        now.waiting.clear();
+        trim_successors(&mut now.successors);
+        drop(now);
+        assert!(!Hub::succeeds(&s, "t-0", &turn.turn_id));
+    }
+
+    /// A Stop of a turn that carried on holds for the carried turn: a connection error there is
+    /// not continued (`auto_resume.rs`).
+    #[tokio::test]
+    async fn a_stop_holds_across_a_carry() {
+        let (hub, s) = chat().await;
+        let one = TurnInfo::prompted("test", "work", "t-1", "p-1", Control::Local);
+        *s.turn.lock().unwrap() = Some(one.clone());
+        hub.stop_auto_resume(&s);
+        let two = hub.carried_turn(&s, Some(&one), &Carried { seq: 1, prompt_ids: vec![] }).0;
+        hub.take_turn(&s, "t-1", Some(two.clone()));
+        hub.schedule_auto_resume(&s, "t-1", None);
+        assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
     }
 
     #[test]

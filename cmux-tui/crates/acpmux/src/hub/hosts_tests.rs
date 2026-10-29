@@ -284,6 +284,8 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
         json!({"turnId": "t1", "status": "completed", "carriedTo": to}),
         false,
     );
+    // A Web steer raised the carried turn before its start was logged.
+    log.push("mux", "turn_control", json!({"turnId": "t2", "control": "web"}), false);
     let (hub, root) = hub_with(1, &log).await;
     let session = hub.resolve("chat0").unwrap();
     let work = hub.open_work(&session, "inc");
@@ -292,6 +294,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     assert_eq!(from, "t1");
     let next = super::super::carried_turn::NextTurn::from_record(&record).unwrap();
     assert_eq!((next.next.turn_id.as_str(), next.next.prompt_id.as_str()), ("t2", "p-late"));
+    assert_eq!(next.next.control, Control::Web, "raised before its start");
     assert_eq!((next.carried.seq, next.carried.prompt_ids.clone()), (7, vec!["p-late".to_owned()]));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
@@ -304,6 +307,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     let session = hub.resolve("chat0").unwrap();
     let work = hub.open_work(&session, "inc");
     assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t2"));
+    assert_eq!(work.turn.as_ref().map(|t| t.5), Some(Control::Web), "raised before its start");
     assert!(work.turn_carried && work.carry_next.is_none());
     assert_eq!(work.prompt_request, None, "a steer is not a carried turn's prompt");
     assert_eq!(work.steers, vec![(json!(3), None)]);

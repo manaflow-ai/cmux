@@ -845,13 +845,21 @@ impl Hub {
                     let field = |k: &str| {
                         e.msg.get(k).and_then(Value::as_str).unwrap_or_default().to_owned()
                     };
+                    // A carried turn raised to Web before its start was logged keeps it.
+                    let raised = work.carry_next.as_ref().is_some_and(|(_, next)| {
+                        next.get("turnId") == e.msg.get("turnId") && next["control"] == "web"
+                    });
                     work.turn = Some((
                         e.seq,
                         field("turnId"),
                         field("promptId"),
                         field("prompt"),
                         field("client"),
-                        Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
+                        if raised {
+                            Control::Web
+                        } else {
+                            Control::from_recorded(e.msg.get("control").and_then(Value::as_str))
+                        },
                     ));
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
@@ -868,6 +876,12 @@ impl Hub {
                         && e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str())
                     {
                         t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                    }
+                    // A Web steer into a carried turn not started yet (`carried_turn.rs`).
+                    if let Some((_, next)) = work.carry_next.as_mut()
+                        && e.msg.get("turnId") == next.get("turnId")
+                    {
+                        next["control"] = json!(Control::Web.as_str());
                     }
                 }
                 ("mux", "turn_result") => {

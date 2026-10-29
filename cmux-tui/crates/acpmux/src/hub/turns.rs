@@ -901,7 +901,10 @@ impl Hub {
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
-        let carried_to = next.filter(|_| !detached).map(super::carried_turn::NextTurn::record);
+        let carried_to = next.filter(|_| !detached).map(|n| {
+            let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
+            n.record(live.map_or(n.next.control, |t| t.control))
+        });
         let carries_on = carried_to.is_some();
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is

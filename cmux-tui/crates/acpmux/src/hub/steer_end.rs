@@ -43,6 +43,9 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     // A steer may be read in a turn its agent ran on into after `turn_id` ended
     // (`carried_turn.rs`): that turn's forced end settles it too.
     let settles = |turn: &str| turn == turn_id || (steer && Hub::succeeds(session, turn_id, turn));
+    // The answer is a settlement acpmux published already, not the agent's: never published
+    // again, under this prompt's turn (a carried turn's forced end, review 5 of #27536).
+    let published = std::sync::atomic::AtomicBool::new(false);
     let settled = |answer: Value| {
         if steer
             && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
@@ -70,6 +73,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         if let Some((turn, answer)) = session.steer_end.borrow().clone()
             && settles(&turn)
         {
+            published.store(true, std::sync::atomic::Ordering::SeqCst);
             return settled(answer);
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -88,6 +92,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         tokio::select! {
             answer = &mut request => {
                 if steer
+                    && !published.load(std::sync::atomic::Ordering::SeqCst)
                     && let Ok(value) = &answer
                     && ends_turn(value)
                 {
@@ -220,6 +225,10 @@ impl Hub {
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             now.waiting.remove(&prompt_id);
             now.sent.remove(&prompt_id);
+            // No steer waits on an older carried turn any more (`carried_turn.rs`).
+            if now.waiting.is_empty() {
+                super::carried_turn::trim_successors(&mut now.successors);
+            }
         }
         let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {
