@@ -50,6 +50,14 @@ struct SessionInfoLine: Equatable {
     }
 }
 
+/// The keys that press a focused line or button, as a push button's: Space and Return.
+enum SessionInfoKeys {
+    static func presses(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty else { return false }
+        return event.charactersIgnoringModifiers == " " || event.charactersIgnoringModifiers == "\r"
+    }
+}
+
 /// One item of the panel's list.
 enum SessionInfoItem: Equatable {
     case title(String)
@@ -320,12 +328,14 @@ final class SessionInfoLineView: NSView {
         let subtitleHeight = subtitle.map { $0.size(forWidth: max(1, textWidth)).height } ?? 0
         let block = titleSize.height + (subtitle != nil ? 1 + subtitleHeight : 0) + (line.kind == .row && meter != nil ? 6 : 0)
         var y = (height - block) / 2
-        let titleWidth = min(titleSize.width, textWidth)
+        // The chevron's room comes off the title's, so it never runs into the meta or the meter.
+        let chevronWidth: CGFloat = chevron != nil ? 16 : 0
+        let titleWidth = max(0, min(titleSize.width, textWidth - chevronWidth))
         title.frame = CGRect(x: textX, y: y, width: titleWidth, height: titleSize.height)
         var after = textX + titleWidth
         if let chevron {
             chevron.frame = CGRect(x: after + 6, y: y, width: 10, height: titleSize.height)
-            after += 16
+            after += chevronWidth
         }
         if let detail {
             let w = max(0, min(detail.naturalSize.width, textRight - after - 4))
@@ -360,6 +370,16 @@ final class SessionInfoLineView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool { press() }
+
+    // Keyboard: with Full Keyboard Access a line with an action is a key view; Space or Return runs it.
+    override var acceptsFirstResponder: Bool { line.action != nil }
+    override var canBecomeKeyView: Bool { line.action != nil && NSApp.isFullKeyboardAccessEnabled }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: SessionInfoMetrics.rowRadius, yRadius: SessionInfoMetrics.rowRadius).fill() }
+    override func keyDown(with event: NSEvent) {
+        if SessionInfoKeys.presses(event), press() { return }
+        super.keyDown(with: event)
+    }
 
     /// Runs the line's action; false when it has none.
     @discardableResult func press() -> Bool {
@@ -438,6 +458,16 @@ final class SessionInfoButtonView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool { press() }
+
+    // Keyboard: with Full Keyboard Access an enabled button is a key view; Space or Return presses it.
+    override var acceptsFirstResponder: Bool { enabled }
+    override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func keyDown(with event: NSEvent) {
+        if SessionInfoKeys.presses(event), press() { return }
+        super.keyDown(with: event)
+    }
 
     /// Runs the button's action unless it is disabled.
     @discardableResult func press() -> Bool {

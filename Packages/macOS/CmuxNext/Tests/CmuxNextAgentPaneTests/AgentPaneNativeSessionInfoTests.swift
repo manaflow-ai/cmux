@@ -164,6 +164,30 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(content.lines[0].line.action == "fold:subagents:1")
     }
 
+    /// A long section title on a narrow panel leaves the fold chevron clear of the meta beside it,
+    /// and Space on a focused button presses it as on a push button.
+    @Test func narrowHeaderKeepsItsChevronClearAndSpacePressesAButton() throws {
+        var sent: [String] = []
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { sent.append($0) })
+        let header = SessionInfoLineView(line: SessionInfoLine(
+            kind: .header, title: String(repeating: "Background tasks ", count: 6), trailing: "12 running", unfolded: true,
+            action: "fold:tasks:0"), ink: ink)
+        header.frame = CGRect(x: 0, y: 0, width: 180, height: 26)
+        header.layoutSubtreeIfNeeded()
+        let frames = header.subviews.map(\.frame)
+        let chevron = try #require(header.subviews.first { $0 is NSImageView }).frame
+        let meta = try #require(frames.max { $0.minX < $1.minX })
+        #expect(chevron.maxX <= meta.minX)
+
+        let stop = SessionInfoButtonView(button: .init(label: "Stop", symbol: nil, action: "tasks.stop:1", disabled: nil), ink: ink)
+        let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                  context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                                                  isARepeat: false, keyCode: 49))
+        stop.keyDown(with: space)
+        #expect(sent == ["tasks.stop:1"])
+        #expect(stop.acceptsFirstResponder)
+    }
+
     /// A drag of the panel's left edge widens it at once and hands the page the width when it ends.
     @Test func edgeDragWidensThePanelAndTellsThePage() throws {
         let store = AgentPaneSessionInfoStore()
