@@ -768,8 +768,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   width: 7px;
   height: 7px;
-  /* Center the seven-pixel status mark in the fourteen-pixel leading icon slot. */
-  margin: 6px 3.5px 0;
+  /* Keep the status mark's size while sharing the task glyph's leading column. */
+  margin: 6px calc((var(--acpmux-glyph-slot) - 7px) / 2) 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
