@@ -54,6 +54,20 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
   rmdir "$DEV_RUNNING/$$"
 fi
 case "$file" in
+  *pool-*)
+    # Counts the files running at once, and the browser files among them.
+    mkdir "$POOL_RUNNING/all-$$"
+    ls "$POOL_RUNNING" | grep -c '^all-' >> "$POOL_PEAK"
+    if grep -qE 'from "playwright"|requireBrowserLane\\(' "$file"; then
+      mkdir "$POOL_RUNNING/browser-$$"
+      ls "$POOL_RUNNING" | grep -c '^browser-' >> "$BROWSER_PEAK"
+      sleep 0.4
+      rmdir "$POOL_RUNNING/browser-$$"
+    else
+      sleep 0.4
+    fi
+    rmdir "$POOL_RUNNING/all-$$"
+    echo "(pass) $file"; exit 0 ;;
   *contended*)
     # Times out beside the others on its first run and passes alone, as composer-footer-plain did.
     stamp="$BUN_CALLS.$(basename "$file")"
@@ -72,6 +86,16 @@ case "$file" in
     printf '%*s' 2000000 '' | tr ' ' F
     printf '\n(fail) inspector-dead-clicks sentinel\n'
     exit 1 ;;
+  *timed-out-once*|*timed-out-then-fail*|*timed-out-slow-retry*)
+    # A timeout without the wait: exit 124 is what the runner's per-file limit reports.
+    stamp="$BUN_CALLS.$(basename "$file")"
+    if [ ! -f "$stamp" ]; then touch "$stamp"; echo "killed beside the others"; exit 124; fi
+    case "$file" in
+      *then-fail*) echo "(fail) still broken alone"; exit 1 ;;
+      # Passes alone just inside its limit; the runner's own upkeep then runs past it.
+      *slow-retry*) sleep 1.9 ;;
+    esac
+    echo "(pass) $file alone"; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -122,6 +146,10 @@ class PerFileRunner(unittest.TestCase):
         self.dev.write_text("", encoding="utf-8")
         self.peak.write_text("", encoding="utf-8")
         running.mkdir()
+        self.pool_peak, self.browser_peak, pool_running = temp / "pool-peak", temp / "browser-peak", temp / "pool-running"
+        self.pool_peak.write_text("", encoding="utf-8")
+        self.browser_peak.write_text("", encoding="utf-8")
+        pool_running.mkdir()
         (web / "node_modules").mkdir(exist_ok=True)
         if getattr(self, "web_hook", None):
             self.web_hook(web)
@@ -131,6 +159,8 @@ class PerFileRunner(unittest.TestCase):
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
+               "POOL_PEAK": str(self.pool_peak), "BROWSER_PEAK": str(self.browser_peak),
+               "POOL_RUNNING": str(pool_running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8",
                # These tests read each file's first run; scripts/ci/tests/run-webviews-tests-retry.test.sh
                # covers the rerun of a failed file.
@@ -228,6 +258,60 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("cannot fit", output)
         self.assertIn("TIMEOUT test/a-hang.test.ts (limit 2s)", output)
         self.assertIn("TIMEOUT test/b-hang.test.ts (limit 2s)", output)
+
+    def test_every_timed_out_file_gets_its_retry_by_default(self):
+        """Job 123436110075 (#27007's shard 1): 12 files timed out 32 wide, a fixed 240 s timeout
+        retry budget fit three 120 s retries, and the other 7 stayed TIMEOUT though each passed
+        alone. With no budget set, every timed-out file's whole limit is budgeted; one that still
+        fails alone stays red."""
+        files = [f"test/{index}-timed-out-once.test.ts" for index in range(3)] + ["test/timed-out-then-fail.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        # Their 250 s limits sum past the old fixed 240 s; the fake reports its timeout at once.
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_FILE_TIMEOUT": "250",
+                       "CMUX_WEB_TEST_RESULTS": str(results_path)},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)  # the file that fails alone stays red
+        for file in files:
+            self.assertEqual(calls.count(f"./{file}"), 2, output)
+        self.assertNotIn("cannot fit", output)
+        for file in files[:3]:
+            self.assertIn(f"  {file} (first run: TIMEOUT)", output)
+            self.assertNotRegex(output, rf"(FAIL|TIMEOUT) {file} \(limit")
+        self.assertIn("FAIL test/timed-out-then-fail.test.ts (limit 250s)", output)
+        self.assertIn("1 failed or timed out (4 retried alone, 3 passed alone)", output)
+        self.assertEqual(json.loads(results_path.read_text())["test/timed-out-then-fail.test.ts > still broken alone"],
+                         False, output)
+
+    def test_a_retry_running_to_its_limit_costs_the_next_file_nothing(self):
+        """A retry that passes just inside its limit plus the runner's upkeep took more than its
+        limit; a budget summed from the limits then had too little left for the last file's retry."""
+        files = ["test/a-timed-out-slow-retry.test.ts", "test/b-timed-out-slow-retry.test.ts"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_RETRIES": "60"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        for file in files:
+            self.assertEqual(calls.count(f"./{file}"), 2, output)
+            self.assertIn(f"  {file} (first run: TIMEOUT)", output)
+        self.assertNotIn("cannot fit", output)
+
+    def test_no_retry_runs_past_the_retry_deadline(self):
+        """CMUX_WEB_TEST_RETRY_DEADLINE keeps the step inside its job's timeout-minutes: a timeout
+        retry whose limit does not fit before it stays TIMEOUT, and a failed file keeps its failure."""
+        files = ["test/a-timed-out-once.test.ts", "test/b-fail.test.ts"]
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_FILE_TIMEOUT": "250",
+                       "CMUX_WEB_TEST_RETRY_DEADLINE": "0"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/a-timed-out-once.test.ts", "./test/b-fail.test.ts"], output)
+        self.assertIn("retry deadline", output)
+        self.assertIn("TIMEOUT test/a-timed-out-once.test.ts (limit 250s)", output)
+        self.assertIn("FAIL test/b-fail.test.ts (limit 250s)", output)
 
     def test_no_retries_means_no_timeout_retry(self):
         result, _, calls = self.run_runner(["test/a-contended.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "0"})
@@ -548,6 +632,41 @@ class PerFileRunner(unittest.TestCase):
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
         self.assertEqual(int(self.peak.read_text(encoding="utf-8").split()[-1]), 1, "it runs by itself")
 
+    def peaks(self):
+        def peak(path):
+            return max((int(n) for n in path.read_text(encoding="utf-8").split()), default=0)
+        return peak(self.pool_peak), peak(self.browser_peak)
+
+    def test_browser_files_run_in_a_narrow_pool_beside_the_other_plain_files(self):
+        """Started 32 at once with the jsdom files, longest first, 29 browser files (Chromium and
+        WebKit each) shared one 32 vCPU shard: eight timed out and frame-timing plays failed, and
+        every one passed alone on the base replay (job 123385326827 against 123394574731). The
+        browser files get a quarter of the jobs; the other plain files run beside them on the rest."""
+        browser = {f"test/pool-browser-{index}.test.ts": ('import { chromium } from "playwright";\n' if index % 2
+                   else 'await requireBrowserLane("x", async () => {});\n') for index in range(8)}
+        files = [*browser, *(f"test/pool-jsdom-{index}.test.ts" for index in range(8))]
+        result, _, calls = self.run_runner(files, contents=browser)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files))
+        everything, browsers = self.peaks()
+        self.assertEqual(browsers, 2, output)  # 8 jobs: a quarter for browsers
+        self.assertGreater(everything, 2, "the jsdom files run beside the browser files")
+        self.assertLessEqual(everything, 8, "both pools together stay inside the jobs")
+        self.assertIn("6 at a time, beside 8 browser files 2 at a time", output)
+
+    def test_browser_pool_width_can_be_set_and_one_job_runs_one_file_at_a_time(self):
+        browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(6)}
+        files = [*browser, "test/pool-jsdom-a.test.ts", "test/pool-jsdom-b.test.ts"]
+        result, _, _ = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_BROWSER_JOBS": "3"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.peaks()[1], 3, result.stdout)
+        # The base replay runs one file at a time: the two pools then run one after the other.
+        result, _, calls = self.run_runner(files, contents=browser, extra_env={"CMUX_WEB_TEST_JOBS": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files))
+        self.assertEqual(self.peaks(), (1, 1), result.stdout)
+
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
         # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".
@@ -673,6 +792,40 @@ class ShardHelper(unittest.TestCase):
         plan.add("dev", 20_000, "pane")
         self.assertEqual(plan.wall("dev", 5_000, "gallery"), 125_000)  # a second config warms alone too
         self.assertEqual(plan.wall("plain", 30_000), 150_000)
+
+
+    def test_the_split_spreads_browser_files_by_how_few_run_at_once(self):
+        """A 30 s plain file and 32 browser files of 10 s on two shards. Counted as plain files on 32
+        lanes, all 32 browser files fit beside nothing on the other shard in 10 s, and they went there
+        together (shard 1 of #27329's run held 34 of them). On 8 browser lanes they would take 40 s
+        there, so the plain file's shard takes about half of them beside its 30 s file."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "test").mkdir()
+        browsers = [f"test/b{index:02}.test.ts" for index in range(32)]
+        for name in browsers:
+            (temp / name).write_text('import { chromium } from "playwright";\n')
+        (temp / "test/plain.test.ts").write_text("")
+        files = ["test/plain.test.ts", *browsers]
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes(b"")
+        (temp / "d.json").write_text(json.dumps({**{name: 10 for name in browsers}, "test/plain.test.ts": 30}))
+        split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
+                                cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
+        with_plain = next(shard for shard in split if b"test/plain.test.ts" in shard)
+        without = next(shard for shard in split if b"test/plain.test.ts" not in shard)
+        # Counted on 32 plain lanes, all 32 went beside nothing: (0, 32).
+        self.assertEqual((len(with_plain) - 1, len(without)), (15, 17), split)
+
+    def test_the_plan_runs_browser_files_beside_plain_files(self):
+        spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        plan = shards.ShardPlan()
+        plan.add("plain", 50_000)
+        self.assertEqual(plan.wall("browser", 30_000), 50_000)  # beside the plain pool, not after it
+        for _ in range(8):
+            plan.add("browser", 30_000)
+        self.assertEqual(plan.wall("browser", 30_000), 60_000)  # a ninth waits for a lane
 
 
 class Workflow(unittest.TestCase):

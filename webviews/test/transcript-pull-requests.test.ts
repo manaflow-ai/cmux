@@ -12,7 +12,8 @@ import {
   transcriptPullRequests,
   transcriptSummaryVersion,
 } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
-import { OrderedRows } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, OrderedRows, type EventRecord } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { activity, assistant, tool } from "../src/gallery/fixtures/acpmux";
 
 const shell = (command: string, output = "", exitCode = 0) =>
@@ -259,6 +260,50 @@ test("prefixed and brokered PR mutations are Changes", () => {
       const rows = toolsRows(shell(`${prefix}${executable} pr edit 41 -R acme/uploader --title 'Changed'`));
       expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
     }
+});
+
+test("conditional shell forms keep successful PR mutations in Changes", () => {
+  const rows = toolsRows(shell("if true; then gh pr merge 41 -R acme/app --squash; fi"));
+  expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, state: "merged" }]);
+  expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 42 -R acme/app --squash )")))).toMatchObject([
+    { number: 42, changed: true, state: "merged" },
+  ]);
+});
+
+test("a new message stream settles the preceding reply for Sources", () => {
+  const event = (seq: number, kind: string, dir: "mux" | "in", msg: EventRecord["msg"]): EventRecord => ({
+    seq,
+    at: seq * 1000,
+    kind,
+    dir,
+    msg,
+    sessionId: "chat-1",
+  });
+  const reply = (seq: number, messageId: string, text: string) =>
+    event(seq, "agent_message_chunk", "in", {
+      method: "session/update",
+      params: {
+        update: { sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } },
+      },
+    });
+  const events = [
+    reply(1, "msg-1", "See https://github.com/acme/app/pull/41"),
+    reply(2, "msg-2", "Continue here"),
+    event(3, "turn_result", "mux", { status: "completed" }),
+  ];
+  let snapshot: AcpmuxSnapshot | undefined;
+  const client = AcpmuxDirectClient.replay("chat-1", events, (next) => {
+    snapshot = next;
+  });
+  client.seekReplay(3);
+  expect(snapshot).toBeDefined();
+  expect(snapshot!.rows.filter((row) => row.kind === "assistant")).toMatchObject([
+    { text: "See https://github.com/acme/app/pull/41", streaming: false },
+    { text: "Continue here", streaming: false },
+  ]);
+  expect(transcriptPullRequests(snapshot!.rows, { replies: true })).toMatchObject([
+    { repo: "acme/app", number: 41, mentioned: true },
+  ]);
 });
 
 test("git activity, help, comments and quoted commands do not infer PR mutations", () => {
