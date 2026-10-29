@@ -7,6 +7,7 @@ import { runAttempts } from "../db/schema";
 import {
   createRunRecord,
   readRunSnapshot,
+  readRunArtifact,
   RunAdmissionError,
   RunArtifactConflictError,
   RunIdempotencyConflictError,
@@ -130,6 +131,30 @@ describe("durable Run API database behavior", () => {
     expect(snapshot?.artifacts[0]?.payload).toEqual({ value: "first" });
     const expectedDigest = createHash("sha256").update(JSON.stringify({ value: "first" })).digest("hex");
     expect(snapshot?.artifacts[0]?.digest).toBe(`sha256:${expectedDigest}`);
+  });
+
+  dbTest("scopes Run artifact reads to the matching visible run and immutable artifact id", async () => {
+    const originalOwner = scope(randomUUID(), `team-a-${randomUUID()}`);
+    const otherOwner = scope(randomUUID(), `team-b-${randomUUID()}`);
+    const first = await create(originalOwner, `artifact-read-${randomUUID()}`);
+    const second = await create(otherOwner, `artifact-read-${randomUUID()}`);
+    const attemptId = first.snapshot.attempts[0]!.id;
+    await storeRunArtifact({
+      runId: first.snapshot.run.id,
+      attemptId,
+      name: "receipt.json",
+      payload: { status: "done", report: { alpha: 1, beta: 2 } },
+    });
+    const ownSnapshot = await readRunSnapshot(first.snapshot.run.id, originalOwner);
+    const artifactId = ownSnapshot?.artifacts[0]?.id;
+    expect(artifactId).toBeDefined();
+    const permitted = await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! });
+    expect(permitted?.payload).toEqual({ status: "done", report: { alpha: 1, beta: 2 } });
+    expect(await readRunArtifact({ ...otherOwner, runId: first.snapshot.run.id, artifactId: artifactId! })).toBeNull();
+    expect(await readRunArtifact({ ...originalOwner, runId: second.snapshot.run.id, artifactId: artifactId! })).toBeNull();
+    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: randomUUID() })).toBeNull();
+    // A run's artifact is still readable after its executor's attach window closes.
+    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! })).toMatchObject({ id: artifactId });
   });
 
   dbTest("requires the owning identity for attach tickets, enforces TTL, and allows one redemption", async () => {
