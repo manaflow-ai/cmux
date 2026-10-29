@@ -3932,8 +3932,7 @@ export class AcpmuxDirectClient {
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
       const terminalTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
       const ambiguous =
-        this.compactionFenceSeq !== undefined &&
-        (resultTurnId === undefined || resultTurnId !== this.runningTurnId);
+        this.compactionFenceSeq !== undefined && (resultTurnId === undefined || resultTurnId !== this.runningTurnId);
       const stale =
         terminalTurnId !== undefined && this.runningTurnId !== undefined && terminalTurnId !== this.runningTurnId;
       if (ambiguous || stale) {
@@ -4241,8 +4240,20 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
+        const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        // Stop grace belongs to the turn it was sent to. Once a distinct turn starts, its
+        // controls must recover even if the old turn_result is delayed or never recorded.
+        if (
+          this.stopAfterSeq !== undefined &&
+          (this.stopTurnId === undefined || startedTurnId === undefined || startedTurnId !== this.stopTurnId)
+        ) {
+          clearTimeout(this.stopTimer);
+          this.stopGaveUp = false;
+          this.stopAfterSeq = undefined;
+          this.stopTurnId = undefined;
+        }
         this.turnOpen = true;
-        if (typeof msg.turnId === "string") this.runningTurnId = msg.turnId;
+        if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
@@ -6800,7 +6811,12 @@ export class AcpmuxDirectClient {
     );
     // Ordinary whole-turn pages retain the incremental fold. Fenced pages also replay so a
     // live fence never leaks backward into history that predates the cancellation.
-    if (foldsAbove && !crossesStop && this.compactionFenceSeq === undefined && this.retiredCompactionTurnId === undefined)
+    if (
+      foldsAbove &&
+      !crossesStop &&
+      this.compactionFenceSeq === undefined &&
+      this.retiredCompactionTurnId === undefined
+    )
       this.foldOlder(older);
     else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
