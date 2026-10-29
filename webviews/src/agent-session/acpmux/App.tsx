@@ -2815,6 +2815,9 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  /// The last input that explicitly moved upward. A tiny real wheel at the old end must not
+  /// be mistaken for the browser's clamp window during a layout correction.
+  const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3282,7 +3285,9 @@ export function VirtualTranscript({
       const previousOrigin = scrollOrigin(node);
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
+      const recentUp =
+        performance.now() - readerUpAt.current <= READER_SCROLL_MS && live < scrolledTo.current.top;
+      const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
       // A reader can already be parked before the next wheel/default write. The live offset is
@@ -3291,7 +3296,7 @@ export function VirtualTranscript({
       const readerLeft =
         !clamped &&
         performance.now() - readerAt.current <= READER_SCROLL_MS &&
-        scrolledTo.current.top - live > FOLLOW_BOTTOM_DEADBAND_PX;
+        scrolledTo.current.top - live > 0;
       if (readerLeft) follow(false);
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
       // movement for this pass and mark the view away from the latest row; otherwise the stored
@@ -3921,6 +3926,7 @@ export function VirtualTranscript({
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
+      if (movingUp) readerUpAt.current = performance.now();
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
