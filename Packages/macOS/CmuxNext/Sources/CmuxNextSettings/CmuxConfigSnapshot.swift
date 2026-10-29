@@ -49,6 +49,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); an unset role keeps the bubble style's.
+    public var homeBubbleColors: [String: String] = [:]
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
@@ -123,6 +126,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
     /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
     public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel keeps a Command scroll over it.
+    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).

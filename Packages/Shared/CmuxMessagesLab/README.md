@@ -130,10 +130,10 @@ and render-server field animation, blurred header and native scrolling.
 
 ## Blocker patches
 
-Home activity uses cmux’s standard working arc: no dot-opacity or bubble-breathing loop.
-`RowCell+Working` owns rotation, with the host’s Home motion gate and Reduce Motion;
-leaving the viewport, ending typing, and recycling a row remove its loop.
-`MessagesLabHomeTests/NoBreathingDotTests` exercises the actual native Home view.
+Home activity is the Messages typing indicator: three staggered dots that pulse on the
+render server inside a breathing bubble. Reduce Motion and the host's Home motion gate
+(`MessagesLabHomeView.holdsTypingStill`) hold them still; ending typing and recycling a row
+remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual native Home view.
 
 
 | file | why |
