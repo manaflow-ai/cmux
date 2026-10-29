@@ -5304,6 +5304,9 @@ mod bell_notification;
 #[path = "terminal_host_recovery/command_activity.rs"]
 mod command_activity;
 
+#[path = "terminal_host_recovery/shell_idle.rs"]
+mod shell_idle;
+
 #[path = "terminal_host_recovery/process_support.rs"]
 mod process_support;
 use process_support::*;

@@ -21,14 +21,6 @@ enum SidebarLocalLanes {
 }
 
 public extension AgentLaneStore {
-    /// How many of `workspace`'s agent chats on this Mac need the person: their lane waits on input (a permission,
-    /// a question, a plan review). The Priority view's Needs you (`AgentPriorityRanking.state`) and the sidebar
-    /// row's waiting mark (`SidebarLaneStatus.merge`) read the same lanes; a read mark does not clear it and a failed
-    /// turn is not one.
-    func needsYou(in workspace: WorkspaceModel, turns: AgentTurnStateStore) -> Int {
-        SidebarLocalLanes.lanes(workspace, lanes: self, turns: turns).reduce(0) { $0 + ($1.state == .input ? 1 : 0) }
-    }
-
     /// Whether a workspace still has a live local acpmux session. A purged
     /// session can leave its conversation tab in the daemon tree for a short
     /// time; it must not keep a sidebar row alive. While the watch is down,

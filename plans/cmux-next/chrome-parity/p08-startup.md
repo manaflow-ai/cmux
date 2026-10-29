@@ -911,11 +911,6 @@ Change: coordinate with the bundle-size owner; A/B job `70436914a38e`'s official
 rebase the official flags onto the cmux.33 fork with `checkout_pgo_profiles=True` and the profile for that exact
 revision. Acceptance: pin only if CefInitialize and new-tab first paint are each >= 10 % faster, no STRESS soak crash, the
 profile mismatch rate < 10 %, and the shim crash-recovery test passes; flags test checks `is_official_build=true`.
-Status: gate only; the A/B was not run, and the pin and the cmux.33 rebase are still open. `cef_build_flags.py`
-refuses `require_official_pgo: true` unless the manifest records `pgo_profile` per arch (the exact name in
-`chrome/build/mac-arm.pgo.txt` / `mac.pgo.txt` at the fork's revision) and an `official_pgo_ab` record that meets
-the acceptance; the framework's `archive.json` must record that profile and the `pgo_mismatch` counts that
-`--count-pgo-mismatch` reads from the build log.
 
 **048 Toolchain spike.** Files: `plans/cmux-next/startup-DESIGN.md`, `scripts/cmux-next/pgo/probe-toolchain.sh`. Change: on
 the pinned Xcode, test `-profile-generate` + `__llvm_profile_write_file`/`reset_counters`, `llvm-profdata merge`, the

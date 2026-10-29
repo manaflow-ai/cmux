@@ -127,10 +127,6 @@ struct AppEnvironment: Sendable {
     /// This Mac's install id, read on a launch lane from `main` before the settings read. Only the
     /// real app process starts it; without it `CloudService` reads the id at its first use (tests that build `AppServices`).
     var cloudDeviceID: CloudDeviceIDSource?
-    /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
-    /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
-    var oracleRoot: String?
-    var launchHome: String?
     /// The action catalog's launch build, which the registry takes: the real app process passes the one
     /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
     var actionCatalog = ActionCatalogLaunch()
@@ -179,9 +175,7 @@ struct AppEnvironment: Sendable {
             testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment)
                 .merging(openFiles?.childEnvironment ?? [:]) { $1 },
-            resolvesShellIntegration: ghosttyResources.map { !$0.isEmpty } ?? false,
-            oracleRoot: environment["CMUX_NEXT_ORACLE_ROOT"],
-            launchHome: environment["HOME"]
+            resolvesShellIntegration: ghosttyResources.map { !$0.isEmpty } ?? false
         )
     }
 
