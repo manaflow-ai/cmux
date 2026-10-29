@@ -45,7 +45,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
 | `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
-| `layout.defaultColumnWidth` | real | `0.5` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
+| `layout.defaultColumnWidth` | real | `0.6666666666666666` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
 | `layout.closeFocus` | string | `"previousNeighbor"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
@@ -89,7 +89,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `mobile.terminalSizing` | string | `"smallest"` | `smallest`, `mac`, `latest`, `priority` | Terminal Size When Shared. Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone. |
 | `mobile.terminalSizingOrder` | array | `[]` |  | Terminal Size Priority. The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
-| `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
+| `layout.newColumnWidth` | string | `"fixed"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
 | `layout.dockColumnMode` | string | `"docked"` | `docked`, `overlay` | Dock Column Mode |
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
