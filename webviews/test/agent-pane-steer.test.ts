@@ -415,17 +415,6 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         params: { update: { sessionUpdate: "compaction", state: "running" } },
       });
       await page.locator('.cv-compaction[data-state="running"]').waitFor();
-      await page.locator(".acpmux-composer-prompt").click();
-      await page.keyboard.type("withdraw this queued prompt");
-      await page.keyboard.press("Enter");
-      await page.locator(".acpmux-queued", { hasText: "withdraw this queued prompt" }).waitFor();
-      const queuedPromptId = prompts.at(-1)?._meta?.acpmux?.promptId;
-      expect(typeof queuedPromptId).toBe("string");
-      record("queue_removed", { promptId: queuedPromptId, _meta: { acpmux: { withdrawn: true } } });
-      await page.waitForFunction(
-        (id) => !document.querySelector(`.acpmux-queued[data-prompt-id="${id}"]`),
-        queuedPromptId,
-      );
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });

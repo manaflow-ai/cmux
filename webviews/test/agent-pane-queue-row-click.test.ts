@@ -192,6 +192,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         return { ok: true };
       case "_acpmux/queue_remove":
         hear(method, params);
+        send(["mux", "queue_removed", { promptId: params.promptId, _meta: { acpmux: { withdrawn: true } } }]);
         return { removed: true };
       default:
         return null;
