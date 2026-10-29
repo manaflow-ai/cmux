@@ -1400,6 +1400,11 @@ async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
             assert!(!error.message.contains(peer), "the refusal revealed B's peer alias: {error:?}");
         }
     }
+    let web_start = ab.request(method::SESSION_NEW, json!({
+        "cwd": folder, "mcpServers": [],
+        "_meta": {"acpmux": {"peer": "private-c", "via": "web"}}
+    })).await.unwrap_err();
+    assert_eq!(web_start.data.as_ref().unwrap()["reason"], "peer.forward_refused");
     assert!(!paths("b").record.exists());
     assert!(!paths("c").record.exists(), "A wrote trust on B's private peer");
     assert!(b.sessions().is_empty());
