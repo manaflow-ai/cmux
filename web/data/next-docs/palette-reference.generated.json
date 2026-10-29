@@ -2866,12 +2866,6 @@
           "command": null
         },
         {
-          "id": "macScreen.open",
-          "title": "Screen Sharing",
-          "shortcut": null,
-          "command": "cmux tab new-mac-screen"
-        },
-        {
           "id": "newTab.default",
           "title": "New Tab",
           "shortcut": "⌘T",
@@ -3062,6 +3056,12 @@
           "title": "Save and Close Tabs to the Right",
           "shortcut": null,
           "command": "cmux tab stash-to-right"
+        },
+        {
+          "id": "macScreen.open",
+          "title": "Screen Sharing",
+          "shortcut": null,
+          "command": "cmux tab new-mac-screen"
         },
         {
           "id": "tab.screenshot",
