@@ -53,7 +53,11 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
           if (!event.id || !Number.isSafeInteger(event.editSequence) || event.editSequence < 0) return;
           const prior = editSequences.current.get(event.id);
           if (event.editSequence <= (prior?.received ?? -1)) return;
-          editSequences.current.set(event.id, { received: event.editSequence, value: event.value, applied: prior?.applied ?? 0 });
+          editSequences.current.set(event.id, {
+            received: event.editSequence,
+            value: event.value,
+            applied: prior?.applied ?? 0,
+          });
           acknowledge();
         }
         latest.current.onEvent(event);
@@ -126,7 +130,14 @@ function withEditSequences(
     }));
   return {
     ...model,
-    ...(model.search ? { search: { ...model.search, editSequence: applied(model.search.id, model.search.value, model.search.editSequence) } } : {}),
+    ...(model.search
+      ? {
+          search: {
+            ...model.search,
+            editSequence: applied(model.search.id, model.search.value, model.search.editSequence),
+          },
+        }
+      : {}),
     rows: rows(model.rows),
     ...(model.rail ? { rail: rows(model.rail) } : {}),
     ...(model.footer ? { footer: rows(model.footer) } : {}),
