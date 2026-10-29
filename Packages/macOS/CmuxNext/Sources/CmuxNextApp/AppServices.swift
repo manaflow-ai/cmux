@@ -82,7 +82,9 @@ final class AppServices {
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
-    var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
+    /// `NSApp` is nil in a process that never made the shared application (a test suite in its own
+    /// process): no key window then, rather than a trap on the implicitly unwrapped `NSApp`.
+    var keyWindowSource: @MainActor () -> NSWindow? = { NSApp?.keyWindow }
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
