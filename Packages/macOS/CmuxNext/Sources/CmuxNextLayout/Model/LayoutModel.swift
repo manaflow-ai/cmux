@@ -64,7 +64,7 @@ public final class LayoutModel {
     /// `layout.pagesHandleCommandScroll`, `LayoutRootView+PageScroll`): the override, else the live
     /// setting while `followsDesignMetrics` is on, else on.
     public var pagesHandleCommandScroll: Bool {
-        pagesHandleCommandScrollOverride ?? true
+        pagesHandleCommandScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.pagesHandleCommandScroll : true)
     }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
