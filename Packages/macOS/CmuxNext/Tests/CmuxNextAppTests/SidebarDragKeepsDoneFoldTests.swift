@@ -344,4 +344,22 @@ import Testing
         o.foldsDone = false
         #expect(!SidebarLayout.dragUnfolds([Self.ws("d", done: true)], options: o), "no fold")
     }
+
+    /// A group whose fold hides every workspace but still draws its link, tab or app rows is open: the resolver must
+    /// not read its header as folded, or a drop on it appends after the items instead of going to the group's top.
+    @Test func aFoldedGroupThatStillDrawsItemsStaysOpenForTheResolver() {
+        let fold = SidebarDoneFoldID(section: Self.section, group: Self.group)
+        func row(_ key: SidebarRowKey, _ y: CGFloat, group: GroupID?, last: Bool = false) -> SidebarRow {
+            SidebarRow(key: key, y: y, height: 24, section: Self.section, group: group, siblingIndex: 0, parentIndex: 0,
+                       isLastInGroup: last, isCollapsed: false, childCount: 0)
+        }
+        func header(_ rows: [SidebarRow]) -> RustRow? {
+            RustRow.resolvable(rows).first { $0.key.kind == "group" && $0.key.id == Self.group.rawValue }
+        }
+        let withItems = [row(.group(Self.group), 0, group: Self.group), row(.item("link"), 24, group: Self.group),
+                         row(.doneFold(fold), 48, group: Self.group, last: true)]
+        #expect(header(withItems)?.isCollapsed == false, "items still show under the header")
+        let noItems = [row(.group(Self.group), 0, group: Self.group), row(.doneFold(fold), 24, group: Self.group, last: true)]
+        #expect(header(noItems)?.isCollapsed == true, "a group that draws no member reads as folded")
+    }
 }
