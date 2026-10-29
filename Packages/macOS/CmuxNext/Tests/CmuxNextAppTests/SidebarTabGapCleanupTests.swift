@@ -48,10 +48,12 @@ struct SidebarTabGapCleanupTests {
         let session = f.services.dragSession
         session.begin(start, from: source)
         _ = session.handle(try f.event(.leftMouseDragged, at: point))
-        // Hold through the real slot dwell so the actual gap opens before the mouse-up.
-        try await Task.sleep(for: .milliseconds(500))
-        _ = session.handle(try f.event(.leftMouseDragged, at: point))
-        f.frame()
+        // The display link opens the real slot after its dwell; wait on that result, not a fixed delay.
+        let opened = try await Self.waitUntil {
+            f.frame()
+            return f.list.displayed.gapY != nil
+        }
+        try #require(opened, "the drag never opened a gap")
         let drag = try #require(session.drag)
         try #require(drag.source.context.emptiesSourceWorkspace)
         guard case .moveWorkspace = drag.outcome else {
@@ -69,9 +71,16 @@ struct SidebarTabGapCleanupTests {
             session.finish(commit: false)
         }
         session.finishLanding()
-        try await Task.sleep(for: .milliseconds(500))
-        f.frame()
+        let settled = try await Self.waitUntil {
+            f.frame()
+            guard f.list.external == nil, f.list.displayed.gapY == nil,
+                  let neighborView = f.list.rowViews[neighbor] else { return false }
+            let y = neighborView.layer?.presentation()?.frame.minY ?? neighborView.frame.minY
+            let ring = sidebar.dropOutlineView?.ring.layer
+            return abs(y - before.minY) < 0.5 && (ring?.presentation()?.opacity ?? ring?.opacity ?? 0) == 0
+        }
         try Self.capture(sidebar, phase: release ? "released" : "cancelled")
+        #expect(settled, "the gap and neighbor did not return to rest")
         #expect(!session.isDragging)
         #expect(f.list.drag == nil)
         #expect(f.list.external == nil, "the ended tab drag still owns a gap")
@@ -82,6 +91,17 @@ struct SidebarTabGapCleanupTests {
         #expect(f.model.sections.flatMap(\.workspaces).map(\.id.rawValue) == keys,
                 "dropping in the source's own slot changed the workspace rows")
         #expect(source.pane.tabs.count == 1, "the terminal moved out of its source")
+    }
+
+    /// AppKit's display-link and compositor completion have no awaitable signal here.
+    /// The deadline bounds only failure; successful runs return as soon as the rendered state settles.
+    private static func waitUntil(_ condition: () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return false }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return true
     }
 
     private static func capture(_ sidebar: SidebarView, phase: String) throws {
