@@ -252,6 +252,9 @@ pub enum Command {
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
+        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+        #[arg(long)]
+        with_tools: bool,
         /// Only sessions in this state: running, ready, idle, closed, waiting.
         #[arg(long)]
         status: Option<String>,
@@ -517,6 +520,9 @@ pub enum Command {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -929,6 +935,9 @@ pub enum DaemonCmd {
         /// the agents; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -1128,8 +1137,8 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
-            DaemonCmd::Shutdown { keep_agents, end_agents } => {
-                Command::Shutdown { keep_agents, end_agents }
+            DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
+                Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Config { show_token } => Command::Config { show_token },

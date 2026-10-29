@@ -31,7 +31,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Cancel { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             if json_out {
@@ -43,7 +43,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Kill { session, purge } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let v =
                 client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
             if json_out {
@@ -78,7 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
             let held = info["queue"]
@@ -424,8 +424,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Shutdown { end_agents, .. } => {
-            crate::cli::shutdown::run(end_agents, json_out).await
+        Command::Shutdown { end_agents, keep_agents, restart } => {
+            crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::Config { show_token } => {
@@ -499,6 +499,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
+        // This machine's join: no daemon connection (a daemon that is down is a step).
+        Command::Host(PeerCmd::Doctor { here: true, fix, .. }) => {
+            let print = if json_out {
+                crate::cli::host_join_doctor::Print::Lines
+            } else {
+                crate::cli::host_join_doctor::Print::Human
+            };
+            let code = crate::cli::host_join_doctor::run_here(fix, print, &mut std::io::stdout());
+            if code != 0 {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "unhealthy",
+                    "this machine's join needs attention",
+                )
+                .into());
+            }
+            Ok(())
         }
         // The ticket is read (stdin, or argv with a warning) and checked
         // before a daemon is reached or started.
@@ -672,7 +690,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
-                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
+                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse, .. } => {
+                    let target = target.unwrap_or_default();
                     let peers = client.request("_acpmux/peers", json!({})).await?;
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();

@@ -308,12 +308,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
-    // Only the session list before the ready line; the chat logs load right after it.
-    let hub = Hub::new_deferred(config, store, mailbox);
-    // Temporary folders of sessions this daemon no longer has, before the
-    // socket serves (`agent/session_tmp.rs`).
-    #[cfg(unix)]
-    hub.sweep_session_tmp();
+    // Start one mesh before Hub starts its saved peers. It forwards only to
+    // the WebSocket listener bound above, whose existing tokens remain mandatory.
+    let wireguard = if config.transport.wireguard {
+        let websocket =
+            ws_listener.as_ref().context("WireGuard needs a WebSocket listener")?.0.local_addr()?;
+        crate::wireguard::Transport::start(&config, &home(), websocket).await?
+    } else {
+        None
+    };
+    // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
+    let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -444,9 +449,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
-        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
+        tokio::spawn(crate::server::serve_ws_until(
+            hub.clone(),
+            l,
+            token,
+            auth,
+            ws_shutdown.clone(),
+        ))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -489,9 +501,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     lock::fork_a_child_for_tests();
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
-    {
+    // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
+    let metadata = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.load_store_async().await })
+    };
+    let startup = {
         let hub = hub.clone();
         tokio::spawn(async move {
+            hub.wait_store().await;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.
@@ -530,8 +548,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tracing::warn!("{e}");
             }
-        });
-    }
+        })
+    };
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
@@ -541,7 +559,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         {
             let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = next_signal(term.as_mut()) => {},
+                // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
+                // handoff: a stopped service causes one immediate retry, then normal backoff.
+                _ = next_signal(term.as_mut()) => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
@@ -556,9 +578,35 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    startup.abort();
+    let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
+    // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
+    // shutdown and interactive interrupt use a normal WebSocket close.
+    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        ws_shutdown.restart();
+    } else {
+        ws_shutdown.normal_shutdown();
+    }
+    let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
+    if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
+        tracing::warn!("websocket listeners did not drain before the shutdown deadline");
+    }
+    if let Some(mut task) = ws_task
+        && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
+    {
+        task.abort();
+        let _ = task.await;
+        tracing::warn!("websocket clients did not drain before the shutdown deadline");
+    }
+    // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
+    if let Some(transport) = wireguard
+        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
+    {
+        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
@@ -572,12 +620,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
-    if let Some(t) = ws_task {
-        t.abort();
-    }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
-    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
+    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
+        // A signal can arrive while metadata loads. Snapshot every stored session before
+        // detaching or ending hosts. A timeout conservatively keeps their router below.
+        let _ = metadata.await;
+        hub.shutdown_all().await
+    })
+    .await
+    {
         Ok(kept) => kept,
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
