@@ -8,7 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// The transcript fixture launches only tests/fake_agent.py.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -180,8 +181,12 @@ fn env_or(name: &str, default: u64) -> u64 {
 }
 
 fn start(scratch: &Path, home: &Path) -> (Child, PathBuf) {
+    start_with_agents(scratch, home, daemon_env::Agents::Deny)
+}
+
+fn start_with_agents(scratch: &Path, home: &Path, agents: daemon_env::Agents) -> (Child, PathBuf) {
     let socket = scratch.join("s.sock");
-    let mut child = daemon_env::acpmux(scratch)
+    let mut child = daemon_env::command(scratch, agents, &[])
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", &socket)
@@ -269,5 +274,180 @@ fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
     assert!(
         grew_mb <= budget_mb,
         "reading the log grew the daemon by {grew_mb} MB (budget {budget_mb} MB)"
+    );
+}
+
+#[cfg(target_os = "linux")]
+struct TranscriptProcess(Child);
+
+#[cfg(target_os = "linux")]
+impl TranscriptProcess {
+    fn id(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TranscriptProcess {
+    fn drop(&mut self) {
+        // SAFETY: this child was created by this test. Reap it even on assertion failure.
+        unsafe { libc::kill(self.id() as i32, libc::SIGTERM) };
+        let _ = self.0.wait();
+    }
+}
+
+/// Read the daemon only: neither the test driver nor its stand-in agent is counted.
+#[cfg(target_os = "linux")]
+fn transcript_cost(pid: u32) -> (u64, u64, u64) {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap();
+    let kb = |key: &str| -> u64 {
+        status
+            .lines()
+            .find(|l| l.starts_with(key))
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let fields: Vec<_> = stat.rsplit_once(") ").unwrap().1.split_whitespace().collect();
+    let ticks = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+    // SAFETY: sysconf has no pointer arguments.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    assert!(hz > 0);
+    (kb("VmRSS:"), kb("VmHWM:"), ticks * 1000 / hz as u64)
+}
+
+/// Same fixed history and repeated real rehydration path at every retained-session
+/// count. Run this test unchanged against base and head; its printed numbers are
+/// measurements, independent of the regression budget below.
+#[cfg(target_os = "linux")]
+#[test]
+fn repeated_transcript_construction_has_bounded_peak_memory() {
+    let mut growth = Vec::new();
+    for status in ["idle", "closed"] {
+        for retained in [0, 288, 1000] {
+            let dir = std::env::temp_dir().join(format!(
+                "amx-transcript-{}-{}-{status}-{retained}",
+                std::process::id(),
+                uuid::Uuid::now_v7()
+            ));
+            let home = dir.join("home");
+            private_dir(&home);
+            let config = json!({
+                "harnesses": {"noload": {
+                    "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")],
+                    "env": {"FAKE_NO_LOAD": "1"}
+                }},
+                "defaultHarness": "noload", "permissionPolicy": "approve-all"
+            });
+            std::fs::write(home.join("config.json"), config.to_string()).unwrap();
+            set_private(&home.join("config.json"));
+            let target = "01a15900-0000-7000-8000-000000000001";
+            for i in 0..=retained {
+                let id = format!("01a15900-0000-7000-8000-{:012x}", i + 1);
+                let session = home.join("sessions").join(&id);
+                private_dir(&session.join("events"));
+                let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": format!("fixture-{i}"),
+                    "harness": "noload", "cwd": dir, "status": status,
+                    "agentSessionId": "saved-agent", "createdAt": 1, "updatedAt": 1,
+                    "lastSeq": if i == 0 {513} else {1}, "eventCount": if i == 0 {513} else {1}});
+                serde_json::from_value::<acpmux::store::SessionMeta>(meta.clone()).unwrap();
+                std::fs::write(session.join("session.json"), meta.to_string()).unwrap();
+                set_private(&session.join("session.json"));
+                let path = session.join("events/000001.ndjson");
+                let mut out = BufWriter::new(std::fs::File::create(&path).unwrap());
+                writeln!(
+                    out,
+                    "{}",
+                    json!({"seq": 1, "at": 1, "dir": "mux", "kind": "created", "msg": {}})
+                )
+                .unwrap();
+                if i == 0 {
+                    // 32 MiB post-compaction text in fixed 64 KiB records, including
+                    // a long streamed assistant message. Input JSON stays bounded.
+                    let text = "abcd efgh ijkl  \n".repeat(4096);
+                    for seq in 2..=513 {
+                        let (kind, msg) = if seq % 128 == 2 {
+                            ("user_message", json!({"text": text}))
+                        } else {
+                            (
+                                "agent_message_chunk",
+                                json!({"params": {"update": {"content": {"text": text}}}}),
+                            )
+                        };
+                        writeln!(
+                            out,
+                            "{}",
+                            json!({"seq": seq, "at": seq, "dir": "mux", "kind": kind, "msg": msg})
+                        )
+                        .unwrap();
+                    }
+                }
+                out.flush().unwrap();
+                set_private(&path);
+            }
+            let (child, socket) = start_with_agents(&dir, &home, daemon_env::Agents::StandIn);
+            let child = TranscriptProcess(child);
+            let mut rpc = Rpc::connect(&socket);
+            rpc.call("initialize", json!({"protocolVersion": 1}));
+            // Synchronize loading without a list or a background probe workload.
+            assert_eq!(rpc.call("_acpmux/status", json!({}))["sessions"], retained + 1);
+            let (rss0, _, cpu0) = transcript_cost(child.id());
+            peak_kb(child.id(), true);
+            for _ in 0..3 {
+                rpc.call(
+                    "session/prompt",
+                    json!({"sessionId": target,
+                    "prompt": [{"type": "text", "text": "transcript-memory-probe"}]}),
+                );
+                rpc.call("_acpmux/kill", json!({"sessionId": target}));
+            }
+            let (rss, peak, cpu) = transcript_cost(child.id());
+            // Verify the daemon really used turns.rs -> transcript.rs all three times.
+            let page = rpc.call(
+                "_acpmux/events",
+                json!({"sessionId": target, "afterSeq": 513, "limit": 1000}),
+            );
+            let events = page["events"].as_array().unwrap();
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| e["kind"] == "resumed" && e["msg"]["level"] == "rehydrate")
+                    .count(),
+                3
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| e["kind"] == "agent_message_chunk"
+                        && e["msg"]
+                            .pointer("/params/update/content/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|s| s.contains("<restored_transcript")
+                                && s.contains("earlier characters omitted")))
+                    .count(),
+                3
+            );
+            println!(
+                "acpmux-transcript-cost: {}",
+                json!({"retained": retained,
+                "state": status, "iterations": 3, "payload_records": 512,
+                "rss_before_kib": rss0, "rss_kib": rss, "peak_rss_kib": peak,
+                "peak_growth_kib": peak.saturating_sub(rss0), "cpu_ms": cpu - cpu0})
+            );
+            growth.push(peak.saturating_sub(rss0));
+            drop(child);
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+    // Same 16-core Linux fixture: base grew 100–105 MiB; bounded construction
+    // grew 24–28 MiB including cold agent startup. Leave room for allocator noise
+    // while rejecting the full-history intermediate copies.
+    assert!(
+        growth.iter().all(|kb| *kb < 48 * 1024),
+        "transcript construction retained full history: peak growth KiB {growth:?}"
     );
 }
