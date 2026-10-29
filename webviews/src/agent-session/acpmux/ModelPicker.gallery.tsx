@@ -570,7 +570,9 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
         await ctx.type("on", searchField);
         await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+          () =>
+            ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === "son" &&
+            ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
         );
       },
     },
