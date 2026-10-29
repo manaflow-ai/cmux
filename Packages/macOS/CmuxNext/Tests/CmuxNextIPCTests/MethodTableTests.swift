@@ -274,20 +274,24 @@ private func dense<Entry: Hashable & Sendable>(
         var hits = 0
         // `@Sendable`: the probe's body closure takes the test's isolation, and a Release build refuses
         // to send a non-Sendable parameter into it (SendingRisksDataRace). The lookups capture nothing.
+        // Each loop runs once uncounted, then counted: a first call pays one-time setup (the loop's generic metadata,
+        // 9 allocations in Debug; the lookups' first generic instantiations, 2 in Release), and a lookup that
+        // allocated per call would still show in the counted run of about 262,000.
         func allocations(_ lookup: @Sendable (MethodTable, UInt16, String) -> Bool) -> Int? {
-            MallocProbe.allocations {
-                for table in tables {
-                    for raw in UInt16.min...UInt16.max where lookup(table, raw, "") { hits += 1 }
-                    for name in names where lookup(table, 0, name) { hits += 1 }
+            var counted: Int?
+            for _ in 0..<2 {  // the first pass warms, the second is the count
+                counted = MallocProbe.allocations {
+                    for table in tables {
+                        for raw in UInt16.min...UInt16.max where lookup(table, raw, "") { hits += 1 }
+                        for name in names where lookup(table, 0, name) { hits += 1 }
+                    }
                 }
             }
+            return counted
         }
 
         let control = MallocProbe.allocations { hits += ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
-        // Warm-up outside the count: the loop's first run instantiates its generic metadata and witness
-        // tables once (9 allocations in a Debug build), which the baseline must not include.
-        _ = allocations { _, _, _ in true }
         let baseline = try #require(allocations { _, _, _ in true })
 
         let ids = allocations { table, raw, _ in
