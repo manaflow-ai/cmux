@@ -166,6 +166,44 @@ struct TerminalAttachmentFrameTests {
         ])
     }
 
+    /// The stale view of a new terminal (felt row cp/fix-wrap-stale-view): its first line (118 bytes) is wider
+    /// than its 110-column grid, and the first resize lands while that line is still coming, so the
+    /// local-history READY of that resize is cut inside the wrapped line. The rest of the line and every later
+    /// byte must reach the view: no byte dropped, no snapshot request, no reattach.
+    @Test(arguments: [
+        // The READY's cut on an OUTPUT frame edge: the line's first 110 bytes, the READY, then the rest.
+        WrapCut(cut: 110, firstFrameEnd: 110, readyFirst: false),
+        // The READY comes before the frame its cut lies in: that frame straddles the cut.
+        WrapCut(cut: 114, firstFrameEnd: 110, readyFirst: false),
+        // The READY comes before any output of the line it cuts.
+        WrapCut(cut: 110, firstFrameEnd: 110, readyFirst: true),
+    ])
+    func outputAfterALocalHistoryReadyCutInsideAWrappedFirstLineIsAllAdmitted(_ wrap: WrapCut) async throws {
+        let line = Self.bytes(0x70, count: 118) + Self.text("\r\n")  // 120 bytes: 0 ..< 120
+        let later = Self.text("later-output-1\r\nlater-output-2\r\n$ ")
+        let localReady = TerminalSnapshotFrame(
+            phase: .ready, generation: 2, offset: wrap.cut, version: 1, cols: 110, rows: 40,
+            localHistory: TerminalLocalHistoryCheck(rows: 0, digest: Data([0xAB, 0xCD])), data: Data("LOCAL".utf8))
+        var builder = FrameBuilder()
+        builder.ready(offset: 0, generation: 1, data: "SNAPSHOT-READY-ONE")
+        if wrap.readyFirst { builder.localReady(localReady) }
+        builder.add(.output, offset: 0, payload: Array(line[0 ..< Int(wrap.firstFrameEnd)]))
+        if !wrap.readyFirst { builder.localReady(localReady) }
+        builder.add(.output, offset: wrap.firstFrameEnd, payload: Array(line[Int(wrap.firstFrameEnd)...]))
+        builder.add(.output, offset: UInt64(line.count), payload: later)
+        let hooks = Hooks()
+        let events = await run(try builder.frames().frames, hooks: hooks)
+
+        #expect(hooks.requests.withLock { $0 }.isEmpty)
+        #expect(!events.contains { if case .closed = $0 { true } else { false } })
+        let readyIndex = try #require(events.firstIndex(of: .snapshot(localReady)))
+        let after = events[(readyIndex + 1)...].reduce(into: Data()) { bytes, event in
+            if case .output(let data, _) = event { bytes.append(data) }
+        }
+        // The READY holds the screen through its cut; every byte after it reaches the view once.
+        #expect(after == Data(line[Int(wrap.cut)...]) + Data(later))
+    }
+
     @Test func aByteReplayStreamReattachesOnAGap() async throws {
         var builder = FrameBuilder()
         builder.replay(offset: 0, data: "replayed-screen-bytes")
@@ -477,6 +515,15 @@ struct TerminalAttachmentFrameTests {
     }
 }
 
+/// Where a local-history READY cuts a wrapped first line, and in which order its frames come.
+struct WrapCut: Sendable, CustomTestStringConvertible {
+    var cut: UInt64
+    var firstFrameEnd: UInt64
+    var readyFirst: Bool
+
+    var testDescription: String { "cut \(cut), first frame to \(firstFrameEnd)\(readyFirst ? ", READY first" : "")" }
+}
+
 /// What the decoder asked the attachment for; `requestFails` refuses every snapshot request at once.
 private final class Hooks: Sendable {
     let requests = Mutex<[SnapshotRequestReason]>([])
@@ -518,6 +565,15 @@ private struct FrameBuilder {
     mutating func ready(offset: UInt64, generation: UInt64, data: String) {
         let meta = #"{"event":"snapshot","surface":3,"phase":"ready","generation":\#(generation),"offset":\#(offset),"version":1,"cols":80,"rows":24,"data_len":\#(data.utf8.count)}"#
         add(.snapshot, offset: offset, payload: TerminalAttachmentFrameTests.bulk(meta: meta, raw: Array(data.utf8)))
+    }
+
+    /// A local-history READY (`history: "local"`, cut at a resize).
+    mutating func localReady(_ frame: TerminalSnapshotFrame) {
+        let check = frame.localHistory.map { check in
+            #","history":"local","history_rows":\#(check.rows),"history_digest":"\#(check.digest.map { String(format: "%02x", $0) }.joined())""#
+        } ?? ""
+        let meta = #"{"event":"snapshot","surface":3,"phase":"ready","generation":\#(frame.generation),"offset":\#(frame.offset),"version":\#(frame.version),"cols":\#(frame.cols ?? 80),"rows":\#(frame.rows ?? 24),"data_len":\#(frame.data.count)\#(check)}"#
+        add(.snapshot, offset: frame.offset, payload: TerminalAttachmentFrameTests.bulk(meta: meta, raw: Array(frame.data)))
     }
 
     mutating func grid(offset: UInt64, replay: String, pending: String) {
