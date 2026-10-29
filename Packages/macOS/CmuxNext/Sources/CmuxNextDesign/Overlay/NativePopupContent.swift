@@ -181,7 +181,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                                 trailing: accessory, layout: layout, interactive: !row.isNoninteractive)
         view.isEnabled = row.disabled != true
         view.toolTip = row.disabledReason
-        view.takesFocus = !row.isNoninteractive
+        // Menu selection owns Return/Space. Embedded controls remain focusable, but a row
+        // wrapper must not retain the keys after arrows move the menu highlight elsewhere.
+        view.takesFocus = false
         view.setAccessibilityIdentifier(row.id)
         view.onHover = { [weak self] in
             self?.selected = row.id
@@ -318,7 +320,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
-        case #selector(NSResponder.insertNewline(_:)): return handleKey(36)
+        case #selector(NSResponder.insertNewline(_:)): return control === search ? handleKey(36) : false
         case #selector(NSResponder.cancelOperation(_:)): return handleKey(53)
         default: return false
         }
