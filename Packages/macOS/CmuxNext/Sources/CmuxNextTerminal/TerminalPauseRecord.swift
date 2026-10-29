@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextWakeups
 
 /// What one draw-pause computation read and gave (`debug.surfaces` `surface.pause_record`).
