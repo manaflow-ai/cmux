@@ -7,10 +7,9 @@
     "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
     "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:fixed-waits && bun run check:design-tokens && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp fmt --check && vp lint && vp check --no-fmt --no-lint && bun run acpmux-protocol:check",
+    "check": "bun run check:effect-cleanup && bun run check:browser-lanes && bun run check:fixed-waits && bun run check:design-tokens && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp fmt --check && vp lint && vp check --no-fmt --no-lint && bun run acpmux-protocol:check",
+    "check:effect-cleanup": "vp lint --config scripts/lint/effect-cleanup.json src dev-server",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py && bun run popup-protocol:check",
-    "popup-protocol:codegen": "python3 ../scripts/cmux-next/gen-popup-protocol.py",
-    "popup-protocol:check": "python3 ../scripts/cmux-next/gen-popup-protocol.py --check",
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:motion-scale": "python3 ../scripts/cmux-next/gen-motion-scale.py --check",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
@@ -49,7 +48,9 @@
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
     "gallery:build": "node scripts/pages/gen-strings.mjs && vp build --config vite.config.gallery.ts",
-    "gallery:dev": "vp dev --config vite.config.gallery-dev.ts"
+    "gallery:dev": "vp dev --config vite.config.gallery-dev.ts",
+    "popup-protocol:codegen": "python3 scripts/cmux-next/gen-popup-protocol.py",
+    "popup-protocol:check": "python3 scripts/cmux-next/gen-popup-protocol.py --check"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
