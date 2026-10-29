@@ -249,6 +249,47 @@ import Testing
         #expect(first.container.syncedDragHostings.isEmpty)
     }
 
+    /// A docked DevTools joins the wait when it opens after the first drag move, or when its parked
+    /// tab becomes visible. Hiding it again releases only its wait, while the shared page stays synced.
+    @Test(arguments: [false, true])
+    func dockedDevToolsJoiningAResizeSyncDragWaitsUntilHidden(_ initiallyParked: Bool) throws {
+        Self.setDragResize(.resizeSync)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(first.container)
+        first.devToolsController.layout.dock = .bottom
+
+        func openDevTools() {
+            first.devToolsController.willOpen()
+            first.devToolsController.opened(browser: 20, docked: true)
+        }
+        if initiallyParked {
+            openDevTools()
+            first.container.isHidden = true
+        }
+        first.container.paneResizeGestureDidChange(active: true)
+        if initiallyParked {
+            first.container.isHidden = false
+        } else {
+            openDevTools()
+        }
+
+        let devTools = try #require(first.devToolsController.views?.host.layerHosting)
+        #expect(devTools.inPaneDrag)
+        #expect(TabSpyShim.resizeSyncs.contains { $0.browser == 20 && $0.timeoutMs > 0 })
+        first.container.layoutContent()
+        first.container.isHidden = true
+        #expect(!devTools.inPaneDrag, "hidden DevTools spends no frame wait")
+        #expect(host.hostView.layerHosting.inPaneDrag, "the shared page keeps this container's drag share")
+        first.container.paneResizeGestureDidChange(active: false)
+        #expect(!host.hostView.layerHosting.inPaneDrag)
+        #expect(!devTools.inPaneDrag, "repeated layouts did not acquire duplicate shares")
+    }
+
     /// Every other mode leaves the page window's wait alone.
     @Test func aDragInAnotherModeMakesNoPageWindowWait() throws {
         let (runtime, root) = try Self.runtime()
