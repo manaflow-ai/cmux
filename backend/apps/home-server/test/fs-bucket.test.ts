@@ -55,6 +55,42 @@ describe("self-hosted attachment bucket", () => {
     }
   })
 
+  it("rejects equal-sized bytes whose content hash does not match the metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      await bucket.put("home/v1/hash", "old bytes")
+      // Simulate a crash/torn replacement after data was published but before metadata changed.
+      writeFileSync(join(root, "home", "v1", "hash"), "new bytes")
+      expect(await bucket.head("home/v1/hash")).toBeNull()
+      expect(await bucket.get("home/v1/hash")).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a parent-directory symlink swapped after the final directory check", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const root = join(parent, "bucket")
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      const keyDir = join(root, "a")
+      let checks = 0
+      const bucket = new FsBucket(root, {
+        afterPathCheck: () => {
+          checks += 1
+          if (checks === 2) swapForLink(keyDir, outside)
+        }
+      })
+      await expect(bucket.put("a/secret", "inside")).rejects.toThrow(/symbolic link/)
+      expect(existsSync(join(outside, "secret"))).toBe(false)
+      restore(keyDir)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
   it("refuses a resumed upload whose id is forged, path-like or minted for another object", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {

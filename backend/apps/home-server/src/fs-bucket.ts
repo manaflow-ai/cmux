@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { closeSync, constants, createReadStream, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs"
+import { basename, closeSync, constants, createReadStream, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync } from "node:fs"
 import type { Stats } from "node:fs"
 import { open, opendir } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
@@ -9,6 +9,8 @@ import { Readable } from "node:stream"
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
 interface StoredMeta {
   readonly etag: string
+  /** The digest of the bytes, separate from the HTTP-facing etag so torn commits are detectable. */
+  readonly contentHash: string
   readonly size: number
   readonly contentType?: string
   readonly customMetadata?: Record<string, string>
@@ -298,20 +300,31 @@ export class FsBucket {
    * other put, completion, delete or read of the key runs in between, so the last commit wins
    * whole and a reader never pairs one write's bytes with another's metadata. With `onlyIfAbsent`,
    * an object already at `file` (one committed while this write streamed, too) wins and nothing is
-   * renamed. Metadata goes first and the data last: a crash between the two renames leaves
-   * metadata whose size the data does not match, which metaAt answers as no object until the next
-   * write (an overwrite with bytes of the same size would show the new etag on the old bytes).
+   * renamed. Data is published first and metadata last; the metadata carries a content hash, so a
+   * crash between the two renames is always rejected by metaAt, including equal-sized overwrites.
    */
   private commit(file: string, dataTmp: string, metaTmp: string, onlyIfAbsent = false): boolean {
     if (onlyIfAbsent && lstatOrNull(file)) return false
-    this.rename(metaTmp, `${file}.meta.json`, "key")
     this.rename(dataTmp, file, "key")
+    this.rename(metaTmp, `${file}.meta.json`, "key")
     return true
   }
 
   private rename(from: string, to: string, area: Area) {
-    this.checkDir(dirname(to), area)
-    renameSync(from, to)
+    const dir = dirname(to)
+    if (dirname(from) !== dir) throw new Error("bucket rename must stay in one directory")
+    // Node has no renameat wrapper, so hold the checked directory and address both names through
+    // its descriptor. A path-based rename can follow a parent that an actor swaps after checkDir.
+    this.checkDir(dir, area)
+    this.options.afterPathCheck?.(to)
+    const directory = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    try {
+      this.checkFd(directory, dir, area)
+      const fdPath = process.platform === "linux" ? `/proc/self/fd/${directory}` : `/dev/fd/${directory}`
+      renameSync(join(fdPath, basename(from)), join(fdPath, basename(to)))
+    } finally {
+      closeSync(directory)
+    }
   }
 
   /** Drain to disk with bounded memory, including short filesystem writes. */
@@ -367,10 +380,27 @@ export class FsBucket {
   private metaAt(file: string): StoredMeta | null {
     const meta = this.readJson<StoredMeta>(`${file}.meta.json`, "key")
     if (!meta) return null
-    const stat = lstatOrNull(file)
-    if (stat?.isSymbolicLink()) throw linkError()
-    // Metadata without its bytes, or for other bytes (a crash between commit's two renames), is no object.
-    return stat?.isFile() && stat.size === meta.size ? meta : null
+    if (typeof meta.contentHash !== "string" || meta.contentHash !== meta.etag) return null
+    const fd = this.openFile(file, "key")
+    if (fd === null) return null
+    try {
+      const stat = fstatSync(fd)
+      if (!stat.isFile() || stat.size !== meta.size) return null
+      // Hash in bounded chunks. A crash between the data and metadata renames, or an equal-sized
+      // overwrite, must never serve bytes under a stale etag.
+      const hash = createHash("md5")
+      const buffer = Buffer.allocUnsafe(64 * 1024)
+      let offset = 0
+      while (offset < stat.size) {
+        const count = readSync(fd, buffer, 0, Math.min(buffer.byteLength, stat.size - offset), offset)
+        if (count === 0) return null
+        hash.update(buffer.subarray(0, count))
+        offset += count
+      }
+      return hash.digest("hex") === meta.contentHash ? meta : null
+    } finally {
+      closeSync(fd)
+    }
   }
 
   private object(key: string, meta: StoredMeta, body?: ReadableStream<Uint8Array>, range?: { offset: number; length: number }): FsObject {
@@ -438,7 +468,7 @@ export class FsBucket {
       rmSync(tmp, { force: true })
       throw error
     }
-    const meta: StoredMeta = { ...stored, ...metadataOf(options), uploaded: Date.now() }
+    const meta: StoredMeta = { ...stored, contentHash: stored.etag, ...metadataOf(options), uploaded: Date.now() }
     let metaTmp: string | undefined
     try {
       metaTmp = await this.stage(`${file}.meta.json`, JSON.stringify(meta), "key")
@@ -512,7 +542,7 @@ export class FsBucket {
     }
     const etag = hash.digest("hex")
     // The object keeps the upload's metadata, as R2 does (a caller recognises its own completed upload by it).
-    const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), ...(meta.customMetadata ? { customMetadata: meta.customMetadata } : {}), uploaded: Date.now() }
+    const stored: StoredMeta = { etag, contentHash: etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), ...(meta.customMetadata ? { customMetadata: meta.customMetadata } : {}), uploaded: Date.now() }
     let metaTmp: string | undefined
     try {
       metaTmp = await this.stage(`${output}.meta.json`, JSON.stringify(stored), "key")
