@@ -163,7 +163,12 @@ function Thought({ text }: { text: string }) {
   if (!text.trim()) return null;
   return (
     <div className="acpmux-bg__thought">
-      <button type="button" className="acpmux-bg__line acpmux-bg__line--fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="acpmux-bg__line acpmux-bg__line--fold"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
         <span>{t("backgroundTasks.thought")}</span>
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
       </button>
@@ -181,7 +186,12 @@ function ToolLine({ item }: { item: AcpmuxActivity }) {
   const failed = call.status === "failed";
   return (
     <div className="acpmux-bg__tool" data-failed={failed || undefined}>
-      <button type="button" className="acpmux-bg__line acpmux-bg__line--fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="acpmux-bg__line acpmux-bg__line--fold"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
         {call.status === "in_progress" || call.status === "pending" ? <Spinner size={10} loading /> : null}
         <span className="acpmux-bg__label">{title}</span>
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />

@@ -12,7 +12,8 @@ export const backgroundTasksLook = defineExperiment({
   arms: {
     nested: {
       label: "Counts line",
-      description: "The agent's line, then \"24 tasks, 3 failed\" which opens its tasks: running first, then N finished, folded.",
+      description:
+        'The agent\'s line, then "24 tasks, 3 failed" which opens its tasks: running first, then N finished, folded.',
     },
     flat: {
       label: "Flat",

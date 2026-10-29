@@ -88,9 +88,13 @@ const attributionView = (): AcpmuxRow[] => [
 const workspaceView = (): AcpmuxRow[] => [
   user("Workspace link + copy menus", 49.4, { id: "ws-ask" }),
   ...Array.from({ length: 36 }, (_, index) =>
-    activity([done(`Step ${index + 1} of the copy menus`, 48 - index, 6 + index, index % 12 === 3 ? "failed" : "completed")], 48 - index, {
-      id: `ws-step-${index}`,
-    }),
+    activity(
+      [done(`Step ${index + 1} of the copy menus`, 48 - index, 6 + index, index % 12 === 3 ? "failed" : "completed")],
+      48 - index,
+      {
+        id: `ws-step-${index}`,
+      },
+    ),
   ),
   activity([running("Run the menu gallery on Linux", 2), running("Read the menu tokens", 1)], 2, { id: "ws-live" }),
 ];

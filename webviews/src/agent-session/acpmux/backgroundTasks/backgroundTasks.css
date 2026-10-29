@@ -36,7 +36,7 @@
   height: calc((100% - var(--acpmux-bg-top)) * var(--acpmux-bg-share));
   max-height: none;
   margin: 0;
-  z-index: 1;
+  z-index: var(--layer-raised);
   box-shadow:
     inset 1px 0 0 var(--agent-border),
     inset 0 1px 0 var(--agent-border);
@@ -85,8 +85,8 @@
   flex: 0 0 44px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px 0 14px;
+  gap: 8px;
+  padding: 0 8px 0 16px;
   box-sizing: border-box;
   box-shadow: inset 0 -1px 0 var(--cmux-hairline, var(--agent-border));
 }
@@ -106,7 +106,7 @@
 .acpmux-bg__tools {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 .acpmux-bg__list,
 .acpmux-bg__transcript {
@@ -125,7 +125,7 @@
 .acpmux-bg__group {
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-  padding: 2px;
+  padding: 4px;
 }
 .acpmux-bg__group + .acpmux-bg__group {
   margin-top: 8px;
@@ -135,12 +135,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
+  min-height: 28px;
   padding-right: 4px;
   border-radius: 8px;
 }
 .acpmux-bg__agent {
-  min-height: 38px;
+  min-height: 32px;
 }
 .acpmux-bg__name,
 .acpmux-bg__task-open,
@@ -163,9 +163,9 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   align-self: stretch;
-  padding: 0 0 0 10px;
+  padding: 0 0 0 8px;
   border-radius: 8px;
 }
 .acpmux-bg__name:disabled,
@@ -250,8 +250,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 8px;
   border-radius: 8px;
   color: var(--agent-muted);
 }
@@ -282,13 +282,13 @@
   padding-left: 16px;
 }
 .acpmux-bg__more {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 8px;
   border-radius: 8px;
   color: var(--agent-muted);
 }
 .acpmux-bg__list[data-look="flat"] .acpmux-bg__tasks {
-  padding-left: 10px;
+  padding-left: 8px;
 }
 
 /* ---------- A subagent's transcript ---------- */
@@ -296,12 +296,12 @@
   padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-anchor: none;
 }
 .acpmux-bg__sentinel {
   flex: none;
-  height: 1px;
+  height: 0;
 }
 .acpmux-bg__prompt {
   margin: 0;
@@ -321,11 +321,11 @@
 .acpmux-bg__line--fold {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
-  min-height: 26px;
-  padding: 0 6px;
-  margin-left: -6px;
+  min-height: 24px;
+  padding: 0 4px;
+  margin-left: -4px;
   border-radius: 6px;
   color: var(--agent-muted);
 }
@@ -339,7 +339,7 @@
 }
 .acpmux-bg__output {
   margin: 4px 0 0;
-  padding: 8px 10px;
+  padding: 8px 12px;
   max-height: 240px;
   overflow: auto;
   border-radius: 8px;

@@ -5817,7 +5817,15 @@ function AcpmuxPane() {
             backgroundCache.current,
           )
         : [],
-    [backgroundOpen, snapshot.rows, snapshot.subagentViews, panelCommands, childSessions, chatName, backgroundDismissed],
+    [
+      backgroundOpen,
+      snapshot.rows,
+      snapshot.subagentViews,
+      panelCommands,
+      childSessions,
+      chatName,
+      backgroundDismissed,
+    ],
   );
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.

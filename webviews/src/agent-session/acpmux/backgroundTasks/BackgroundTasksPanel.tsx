@@ -100,53 +100,53 @@ export function BackgroundTasksPanel({
     const name = drilled?.name ?? drill.agentId;
     return (
       <StopsAgents.Provider value={stopsAgents}>
-      <PanelFrame
-        title={name}
-        back={() => setDrill(undefined)}
-        backLabel={t("backgroundTasks.back")}
-        expanded={expanded}
-        onExpand={onExpand}
-        onClose={onClose}
-      >
-        <SubagentTranscript
-          key={drill.agentId}
-          rows={views?.[drill.agentId] ?? []}
-          running={drilled?.state === "running"}
-          anchor={drill.rowId}
-        />
-      </PanelFrame>
+        <PanelFrame
+          title={name}
+          back={() => setDrill(undefined)}
+          backLabel={t("backgroundTasks.back")}
+          expanded={expanded}
+          onExpand={onExpand}
+          onClose={onClose}
+        >
+          <SubagentTranscript
+            key={drill.agentId}
+            rows={views?.[drill.agentId] ?? []}
+            running={drilled?.state === "running"}
+            anchor={drill.rowId}
+          />
+        </PanelFrame>
       </StopsAgents.Provider>
     );
   }
   return (
     <StopsAgents.Provider value={stopsAgents}>
-    <PanelFrame
-      title={t("backgroundTasks.title")}
-      clear={finished.length > 0 ? () => onClearFinished(finished) : undefined}
-      expanded={expanded}
-      onExpand={onExpand}
-      onClose={onClose}
-    >
-      <div ref={list} className="acpmux-bg__list" data-look={look}>
-        {groups.length === 0 ? (
-          <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-        ) : (
-          groups.map((group, index) => (
-            <GroupBlock
-              key={group.id}
-              group={group}
-              look={look}
-              now={now}
-              startsOpen={index === 0 && group.state === "running"}
-              onDrill={open}
-              onStop={onStop}
-              onOpenSession={onOpenSession}
-              onOpenCommand={onOpenCommand}
-            />
-          ))
-        )}
-      </div>
-    </PanelFrame>
+      <PanelFrame
+        title={t("backgroundTasks.title")}
+        clear={finished.length > 0 ? () => onClearFinished(finished) : undefined}
+        expanded={expanded}
+        onExpand={onExpand}
+        onClose={onClose}
+      >
+        <div ref={list} className="acpmux-bg__list" data-look={look}>
+          {groups.length === 0 ? (
+            <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+          ) : (
+            groups.map((group, index) => (
+              <GroupBlock
+                key={group.id}
+                group={group}
+                look={look}
+                now={now}
+                startsOpen={index === 0 && group.state === "running"}
+                onDrill={open}
+                onStop={onStop}
+                onOpenSession={onOpenSession}
+                onOpenCommand={onOpenCommand}
+              />
+            ))
+          )}
+        </div>
+      </PanelFrame>
     </StopsAgents.Provider>
   );
 }
@@ -263,7 +263,6 @@ function GroupBlock({
   onOpenSession?(sessionId: string): void;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
-  const t = useT();
   const [open, setOpen] = useState(startsOpen || look === "flat");
   const agentId = group.agentId;
   const sessionId = group.sessionId;
@@ -432,7 +431,8 @@ function StopSlot({
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const stopsAgents = useContext(StopsAgents);
-  if (!target || !onStop || (target.kind === "agent" && !stopsAgents)) return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
+  if (!target || !onStop || (target.kind === "agent" && !stopsAgents))
+    return <span className="acpmux-bg__stop-slot" aria-hidden="true" />;
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">
