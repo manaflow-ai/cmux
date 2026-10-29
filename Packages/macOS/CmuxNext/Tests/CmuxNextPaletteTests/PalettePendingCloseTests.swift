@@ -84,6 +84,19 @@ struct PalettePendingCloseTests {
         #expect(source.closed.isEmpty)
     }
 
+    @Test func replacingPageWithSameQueryCancelsHeldClose() async {
+        let source = Source()
+        let model = PaletteModel(persistence: nil)
+        defer { model.send(.close) }
+        model.reset(to: source.page("tabs"))
+        #expect(model.handle(.closeItem))
+        model.replaceCurrentPage(with: source.page("other-tabs"))
+        await model.settle()
+        #expect(model.currentPageID == "other-tabs")
+        #expect(model.rows.map(\.id) == ["other-tabs:"])
+        #expect(source.closed.isEmpty)
+    }
+
     @Test func sameQueryRefreshStillClosesOnce() async {
         let source = Source()
         let model = PaletteModel(persistence: nil)
