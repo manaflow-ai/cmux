@@ -30,6 +30,7 @@ const tasks = (count: number): BackgroundCommand[] =>
     command: `bun test --filter output-${String(index + 1).padStart(4, "0")}`,
     state: "running" as const,
     processId: `process-${index + 1}`,
+    toolCallId: `tool-call-${index + 1}`,
     startedAt: now - (index + 1) * 30_000,
   }));
 
@@ -48,11 +49,11 @@ function InspectorScrollEvidence({ count = 12, height = "tall", arm = "current" 
       </p>
       <section className="acpmux-scroll-evidence__section" aria-labelledby="outputs-heading">
         <h2 id="outputs-heading">Outputs</h2>
-        <OutputsSection files={files(count)} links={[]} artifacts={0} />
+        <OutputsSection files={files(count)} links={[]} artifacts={0} onOpenFile={() => undefined} />
       </section>
       <section className="acpmux-scroll-evidence__section" aria-labelledby="tasks-heading">
         <h2 id="tasks-heading">Background tasks</h2>
-        <TasksSection commands={tasks(count)} />
+        <TasksSection commands={tasks(count)} local onShowCall={() => true} />
       </section>
     </main>
   );
