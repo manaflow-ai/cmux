@@ -18,7 +18,8 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
-              "app.hideDockIconWithoutWindows"
+              "app.hideDockIconWithoutWindows",
+              "app.showMenuBarIcon"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -100,6 +101,17 @@
             "title" : {
               "key" : "settings.group.autoArchive",
               "text" : "Auto-Archive"
+            }
+          },
+          {
+            "key" : "settings.group.workspaceHibernation",
+            "rows" : [
+              "workspaces.hibernation.enabled",
+              "workspaces.hibernation.idleMinutes"
+            ],
+            "title" : {
+              "key" : "settings.group.workspaceHibernation",
+              "text" : "Hibernation"
             }
           },
           {
@@ -487,6 +499,7 @@
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
               "sidebar.noFade",
+              "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
@@ -1207,6 +1220,7 @@
               "terminal.linkOpener.rules",
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
+              "browser.openSignInPagesInCmux",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
@@ -1480,7 +1494,8 @@
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines"
+          "machines",
+          "cloudEnvironments"
         ],
         "symbol" : "person.crop.circle",
         "title" : {
@@ -1606,6 +1621,8 @@
             "rows" : [
               "labs.previewFeatures",
               "labs.classicHome",
+              "labs.voiceRoom",
+              "labs.voiceRoomURL",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -2336,6 +2353,58 @@
       "title" : {
         "key" : "settings.app.hideDockIconWithoutWindows",
         "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.showMenuBarIcon.help",
+        "text" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.showMenuBarIcon",
+      "keywords" : [
+        "menu bar",
+        "status item",
+        "menubar",
+        "tray",
+        "icon",
+        "raycast",
+        "extra",
+        "discord",
+        "logs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "showMenuBarIcon"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.showMenuBarIcon",
+        "text" : "Show Menu Bar Icon"
       },
       "validation" : "portable"
     },
@@ -4473,7 +4542,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -8822,6 +8891,117 @@
       "title" : {
         "key" : "settings.autoArchive.idleDays",
         "text" : "Idle For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.enabled.help",
+        "text" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.enabled",
+      "keywords" : [
+        "hibernate",
+        "hibernation",
+        "sleep",
+        "pause",
+        "memory",
+        "ram",
+        "idle",
+        "evict",
+        "workspaces",
+        "saver"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.enabled",
+        "text" : "Hibernate Idle Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        10080,
+        5042.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.idleMinutes.help",
+        "text" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.idleMinutes",
+      "keywords" : [
+        "hibernate",
+        "idle",
+        "minutes",
+        "timeout",
+        "memory"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "idleMinutes"
+      ],
+      "range" : {
+        "max" : 10080,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -10070,
+        20155,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.idleMinutes",
+        "text" : "Hibernate After"
       },
       "validation" : "portable"
     },
@@ -22922,6 +23102,61 @@
         "text" : "Sidebar"
       },
       "help" : {
+        "key" : "settings.sidebar.controlsOnHover.help",
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.controlsOnHover",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "hover",
+        "hide",
+        "show",
+        "controls",
+        "buttons",
+        "search",
+        "profile",
+        "spaces",
+        "footer",
+        "clean"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "controlsOnHover"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.controlsOnHover",
+        "text" : "Show Sidebar Controls Only on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
         "key" : "settings.sidebar.minimal.help",
         "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
       },
@@ -23831,7 +24066,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.spacesVisibility.help",
-        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+        "text" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.spacesVisibility",
@@ -32996,6 +33231,57 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openSignInPages.help",
+        "text" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openSignInPagesInCmux",
+      "keywords" : [
+        "sign in",
+        "login",
+        "device code",
+        "oauth",
+        "auth",
+        "passkey",
+        "default browser",
+        "gh auth login"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openSignInPagesInCmux"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.openSignInPages",
+        "text" : "Open Sign-In Pages in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -36735,6 +37021,107 @@
       "title" : {
         "key" : "settings.labs.classicHome",
         "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoom.help",
+        "text" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoom",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "call",
+        "meeting",
+        "transcribe",
+        "screen",
+        "record",
+        "chief"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoom"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoom",
+        "text" : "Voice Room"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoomURL.help",
+        "text" : "The room's web address. Empty uses the room server on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoomURL",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "address",
+        "url",
+        "server",
+        "tailnet"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoomURL"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoomURL",
+        "text" : "Voice Room Address"
       },
       "validation" : "portable"
     },

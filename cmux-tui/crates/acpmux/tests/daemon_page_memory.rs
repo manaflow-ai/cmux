@@ -146,6 +146,35 @@ fn peak_kb(pid: u32, reset: bool) -> u64 {
     }
 }
 
+/// Linux process counters for the same replay workload; unavailable fields stay null.
+fn replay_counters(pid: u32) -> (Option<u64>, Option<u64>) {
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap();
+        let rss = status
+            .lines()
+            .find(|l| l.starts_with("VmRSS:"))
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        let fields: Vec<&str> = stat.rsplit(')').next().unwrap().split_whitespace().collect();
+        let ticks = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+        // SAFETY: sysconf reads the process clock's tick rate and takes no pointers.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        assert!(hz > 0);
+        (Some(rss), Some(ticks * 1000 / hz as u64))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        (None, None)
+    }
+}
+
 fn env_or(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
@@ -201,6 +230,7 @@ fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
     let mut rpc = Rpc::connect(&socket);
     assert_eq!(rpc.call("_acpmux/sessions", json!({}))["sessions"].as_array().unwrap().len(), 1);
     let loaded_mb = peak_kb(child.id(), true) / 1024;
+    let (before_rss_kb, cpu0) = replay_counters(child.id());
     let (mut cursor, mut seen, mut pages) = (0u64, 0u64, 0u64);
     loop {
         let page = rpc
@@ -221,10 +251,15 @@ fn a_long_log_read_from_its_start_is_paged_within_a_memory_budget() {
             break;
         }
     }
-    let grew_mb = (peak_kb(child.id(), false) / 1024).saturating_sub(loaded_mb);
+    let replay_peak_kb = peak_kb(child.id(), false);
+    let grew_mb = (replay_peak_kb / 1024).saturating_sub(loaded_mb);
+    let (after_rss_kb, cpu1) = replay_counters(child.id());
+    let replay_cpu_ms = cpu0.zip(cpu1).map(|(before, after)| after.saturating_sub(before));
     println!(
         "acpmux-page-memory: {}",
-        json!({"log_mb": mb, "records": records, "pages": pages, "loaded_mb": loaded_mb, "page_rss_growth_mb": grew_mb})
+        json!({"log_mb": mb, "records": records, "pages": pages, "loaded_mb": loaded_mb, "page_rss_growth_mb": grew_mb,
+            "before_rss_kb": before_rss_kb, "after_rss_kb": after_rss_kb,
+            "replay_peak_kb": replay_peak_kb, "replay_cpu_ms": replay_cpu_ms})
     );
     // SAFETY: the pid is this test's own child.
     unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };

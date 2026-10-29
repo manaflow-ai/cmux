@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
+import CmuxNextRemoteLocalhost
 import Foundation
 import Observation
 import os
@@ -28,6 +30,25 @@ final class CloudService {
     let codexBroker: CloudCodexBrokerAdapter
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
+    @ObservationIgnored var proOfferOpen = false
+    /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
+    /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
+    @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
+    /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
+    /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
+    @ObservationIgnored var desktopRdTokens: [String: String] = [:]
+    /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
+    /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
+    /// Nil without the hub.
+    var tunnelSocket: HubLoopbackOpener.Hub? {
+        guard let hub else { return nil }
+        let endpoint: HubLoopbackOpener.Hub = {
+            let endpoint = try await hub.endpoint()
+            return HubLoopbackOpener.Endpoint(socket: endpoint.socket, token: endpoint.clientToken)
+        }
+        return endpoint
+    }
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
@@ -400,6 +421,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
+            if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -529,12 +551,16 @@ final class CloudService {
         if configuration.linkSource == .appServer, !request.isDefault {
             throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
         }
+        // Environments live in the cmux-next backend's CloudDO: the classic `/api/vm` path has none.
+        if configuration.linkSource != .appServer, request.environment != nil {
+            throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
+        }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, onSent: onSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
                                                       // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
@@ -665,6 +691,7 @@ final class CloudService {
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
+        desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
