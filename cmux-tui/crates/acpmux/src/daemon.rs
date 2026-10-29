@@ -1054,11 +1054,12 @@ where
     if !equivalent_path(current_home, &unit_home) {
         return Ok(None);
     }
-    if let Some(unit_socket) = unit_environment_path(&env, "ACPMUX_SOCKET") {
-        if !equivalent_path(path, &unit_socket) {
-            return Ok(None);
-        }
-    } else if !equivalent_path(path, &unit_home.join("acpmux.sock")) {
+    let unit_socket = unit_environment_path(&env, "ACPMUX_SOCKET");
+    let expected_socket = crate::config::socket_path_for(
+        &unit_home,
+        unit_socket.as_deref().and_then(|path| path.to_str()),
+    );
+    if !equivalent_path(path, &expected_socket) {
         return Ok(None);
     }
 

@@ -308,6 +308,14 @@ pub(crate) struct CollectResult {
     pub permissions_denied: u64,
 }
 
+#[derive(Default)]
+struct StreamProgress {
+    /// Number of assistant characters already written to stdout. A reconnect
+    /// receives the daemon's complete accumulated assistant item again.
+    printed_assistant: usize,
+    last_tool: String,
+}
+
 /// Answer a pending permission on the caller's behalf when the run policy
 /// says so. Returns true when the turn should be treated as failed.
 async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermission) -> bool {
@@ -348,8 +356,20 @@ pub(crate) async fn stream_prompt(
     prompt: &PromptId,
 ) -> Result<()> {
     let started = tokio::time::Instant::now();
-    match stream_prompt_once(client, id, text, steer, quiet, json_out, opts, suppress_reads, prompt)
-        .await
+    let mut progress = StreamProgress::default();
+    match stream_prompt_once(
+        client,
+        id,
+        text,
+        steer,
+        quiet,
+        json_out,
+        opts,
+        suppress_reads,
+        prompt,
+        &mut progress,
+    )
+    .await
     {
         Ok(()) => Ok(()),
         Err(error) if daemon_closed_error(&error) => {
@@ -357,7 +377,10 @@ pub(crate) async fn stream_prompt(
                 .timeout
                 .map(|seconds| Duration::from_secs(seconds).saturating_sub(started.elapsed()))
                 .unwrap_or(UPDATE_RECONNECT_BUDGET);
-            let replacement = reconnect_after_update_with_budget(budget).await?;
+            let replacement =
+                reconnect_after_update_with_budget(budget).await.map_err(|reconnect| {
+                    error.context(format!("reconnecting after daemon update: {reconnect}"))
+                })?;
             let mut retry = prompt.clone();
             retry.resend = true;
             stream_prompt_once(
@@ -370,6 +393,7 @@ pub(crate) async fn stream_prompt(
                 remaining_opts(opts, started),
                 suppress_reads,
                 &retry,
+                &mut progress,
             )
             .await
         }
@@ -387,6 +411,7 @@ async fn stream_prompt_once(
     opts: CollectOpts,
     suppress_reads: bool,
     prompt: &PromptId,
+    progress: &mut StreamProgress,
 ) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
@@ -397,8 +422,6 @@ async fn stream_prompt_once(
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
-    let mut printed_assistant = 0usize;
-    let mut last_tool = String::new();
     let stdout = std::io::stdout();
     let mut turn = turn;
     let started = tokio::time::Instant::now();
@@ -483,19 +506,19 @@ async fn stream_prompt_once(
                         if quiet { continue; }
                         let mut out = stdout.lock();
                         if let Some(Item::Assistant { text }) = t.items.last() {
-                            if text.len() > printed_assistant {
-                                let _ = write!(out, "{}", &text[printed_assistant..]);
+                            if text.len() > progress.printed_assistant {
+                                let _ = write!(out, "{}", &text[progress.printed_assistant..]);
                                 let _ = out.flush();
-                                printed_assistant = text.len();
+                                progress.printed_assistant = text.len();
                             }
                         } else {
-                            printed_assistant = 0;
+                            progress.printed_assistant = 0;
                         }
                         if let Some(Item::Tool { title, status, kind, .. }) = t.items.last() {
                             let line = format!("[{kind} {status}] {title}");
-                            if line != last_tool {
+                            if line != progress.last_tool {
                                 let _ = writeln!(out, "\n\x1b[2m{line}\x1b[0m");
-                                last_tool = line;
+                                progress.last_tool = line;
                             }
                         }
                     }
@@ -728,7 +751,10 @@ pub(crate) async fn collect_reply(
                             Duration::from_secs(seconds).saturating_sub(started.elapsed())
                         })
                         .unwrap_or(UPDATE_RECONNECT_BUDGET);
-                    client = reconnect_after_update_with_budget(budget).await?;
+                    client =
+                        reconnect_after_update_with_budget(budget).await.map_err(|reconnect| {
+                            e.context(format!("reconnecting after daemon update: {reconnect}"))
+                        })?;
                     prompt.resend = true;
                     continue;
                 }
