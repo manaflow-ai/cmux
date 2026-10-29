@@ -758,11 +758,15 @@ function includeCatalogIdentity(
   return profile === undefined;
 }
 
-/** Recover family/provider metadata for a reported release that was filtered from `listed`. */
+/** Recover identity metadata even when the host's catalog predates the daemon's bundle.
+ * A newer catalog's real metadata wins; missing metadata never verifies account availability. */
 function catalogIdentity(id: string, harnessId: string, join: Join): HarnessModel | undefined {
-  return join.sourceCatalog.harnesses
-    .find((harness) => harness.id === harnessId)
-    ?.models.find((model) => model.id === id && isIdentityOnlyCurrentModel(model));
+  const model = [join.sourceCatalog, BUNDLED_MODEL_CATALOG]
+    .map((catalog) =>
+      catalog.harnesses.find((harness) => harness.id === harnessId)?.models.find((row) => row.id === id),
+    )
+    .find((row) => row !== undefined);
+  return model && isIdentityOnlyCurrentModel(model) ? model : undefined;
 }
 
 /** The daemon also returns curated fallback rows when a probe has no answer. Only its
