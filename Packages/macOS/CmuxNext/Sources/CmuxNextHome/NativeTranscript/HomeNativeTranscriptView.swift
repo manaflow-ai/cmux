@@ -127,6 +127,8 @@ public final class HomeNativeTranscriptView: NSView {
     var showsWelcome: Bool { transcript.conversationSummary.map(isOnlyWelcome) == true }
     /// Space between the first-run panel and the welcome under it.
     static let welcomeGap: CGFloat = 12
+    /// The current first-run observation chain (`followHeroTunable`).
+    var firstRunWatch: UInt64 = 0
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
