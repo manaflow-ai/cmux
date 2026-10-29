@@ -533,17 +533,21 @@ fn lock_held(path: &Path) -> bool {
     std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock
 }
 
-/// Waits until no process holds the daemon lock at `path`, at most `wait`.
+/// Waits for the daemon lock to be released or another starter's socket to
+/// answer, at most `wait`. A ready daemon keeps its lock for its lifetime.
 /// Deviation, as in acpmux's own `wait_for_lock_release`: flock gives no
 /// release event, so this checks with a short, growing interval.
-fn await_lock_release(path: &Path, wait: Duration) -> bool {
+fn await_lock_release_or_socket(path: &Path, socket: &Path, wait: Duration) -> bool {
     let deadline = Instant::now() + wait;
     let mut step = Duration::from_millis(10);
     while lock_held(path) {
+        if reachable(socket) {
+            return true;
+        }
         if Instant::now() >= deadline || STOP_ASKED.load(Ordering::SeqCst) {
             return false;
         }
-        std::thread::sleep(step);
+        std::thread::sleep(step.min(deadline.saturating_duration_since(Instant::now())));
         step = (step * 2).min(Duration::from_millis(250));
     }
     true
@@ -572,7 +576,11 @@ fn spawn(
             "acpmux daemon exited ({status}): the daemon before it still holds {}; waiting for it to stop",
             lock.display()
         ));
-        if !await_lock_release(&lock, limit.saturating_duration_since(Instant::now())) {
+        if !await_lock_release_or_socket(
+            &lock,
+            socket,
+            limit.saturating_duration_since(Instant::now()),
+        ) {
             return Err(format!(
                 "acpmux daemon exited before its socket was ready: {status}; another daemon still holds {}",
                 lock.display()
