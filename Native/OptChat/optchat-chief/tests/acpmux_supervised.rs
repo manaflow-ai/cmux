@@ -214,3 +214,56 @@ fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
     assert!(matches!(r, Ok(Some(_))), "started on the second try: {r:?}");
     assert!(second.exists(), "it started acpmux again");
 }
+
+/// Another starter can bring up the daemon while retaining daemon.lock.
+/// The host adopts its socket without waiting for that daemon to stop.
+#[test]
+fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
+    use std::os::unix::io::AsRawFd;
+    use std::sync::{atomic::Ordering, mpsc};
+
+    if std::env::var_os("ACPMUX_HOME").is_some() || std::env::var_os("ACPMUX_SOCKET").is_some() {
+        eprintln!("skipped: ACPMUX_HOME or ACPMUX_SOCKET is set");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let attempts = dir.path().join("attempts");
+    let bin = dir.path().join("fake-acpmux");
+    exe::write_executable(
+        &bin,
+        &format!("#!/bin/sh\necho run >> '{}'\nexit 1\n", attempts.display()),
+    );
+    let lock = std::fs::File::create(dir.path().join("daemon.lock")).unwrap();
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let socket = dir.path().join("acpmux.sock");
+    let path = socket.clone();
+    let (waiting_tx, waiting_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let host = std::thread::spawn(move || {
+        let seen = AtomicBool::new(false);
+        let result = ensure_with(
+            &path,
+            Mode::Local,
+            &seen,
+            Some(bin.to_str().unwrap()),
+            Duration::from_secs(1),
+            &|message| {
+                if message.contains("waiting for it to stop") {
+                    let _ = waiting_tx.send(());
+                }
+            },
+        );
+        result_tx.send((result, seen.load(Ordering::SeqCst))).unwrap();
+    });
+    waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let listener = UnixListener::bind(&socket).unwrap();
+    let result = result_rx.recv_timeout(Duration::from_secs(5));
+    // Release the lock before joining even on failure, so a broken host
+    // finishes without waiting out its full startup limit.
+    drop(lock);
+    host.join().unwrap();
+    drop(listener);
+    assert_eq!(result.unwrap(), (Ok(None), true), "adopted without owning a daemon");
+    assert_eq!(std::fs::read_to_string(attempts).unwrap().lines().count(), 1);
+}
