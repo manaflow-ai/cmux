@@ -56,6 +56,13 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         await page.goto(`http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${url}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.locator(".nt-create-strip-item").first().waitFor();
+        // The gallery imports the pane language store before installing its catalog. Refresh it
+        // through the app's language-change boundary once the catalog is available.
+        await page.evaluate(() => window.dispatchEvent(new Event("languagechange")));
+        await page.waitForFunction(
+          (label) => [...document.querySelectorAll(".nt-create-strip-item")].some((item) => item.textContent === label),
+          browserLabel,
+        );
         await page.evaluate(() => document.fonts.ready);
         const result = await page.evaluate(() => {
           const rows = document.querySelector<HTMLElement>(".nt-rows")!;
@@ -93,11 +100,7 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         }
 
         expect(result.items).toHaveLength(3);
-        expect(result.items.map((item) => item.text)).toEqual([
-          "Nouveau terminal",
-          browserLabel,
-          "Nouveau chat",
-        ]);
+        expect(result.items.map((item) => item.text)).toEqual(["Nouveau terminal", browserLabel, "Nouveau chat"]);
         for (const item of result.items) {
           expect(item.role).toBe("option");
           expect(item.top).toBeCloseTo(result.items[0]!.top, 0);
@@ -117,9 +120,10 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         const browserAction = page.locator(".nt-create-strip-item").filter({ hasText: browserLabel });
         await browserAction.hover();
         await page.waitForFunction(
-          (label) => [...document.querySelectorAll<HTMLElement>(".ui-tooltip-text")].some(
-            (tip) => tip.textContent === label && tip.getBoundingClientRect().height > 0,
-          ),
+          (label) =>
+            [...document.querySelectorAll<HTMLElement>(".ui-tooltip-text")].some(
+              (tip) => tip.textContent === label && tip.getBoundingClientRect().height > 0,
+            ),
           browserLabel,
         );
         expect(await browserAction.getAttribute("data-tooltip")).toBe(browserLabel);
