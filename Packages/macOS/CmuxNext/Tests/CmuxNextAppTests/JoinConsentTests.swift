@@ -219,26 +219,29 @@ import Testing
         #expect(await model.set(.control, on: true) == nil)
         #expect(await model.allowsMacScreen(control: true, requester: "Studio"))
         fake.status = JoinStatus(credentialPresent: false)
-        fake.record = JoinConsentRecord()
-        #expect(await model.allowsMacScreen(control: true, requester: "Studio"), "a Mac that is not joined serves as before")
+        fake.record = JoinConsentRecord(consentRequired: false)
+        #expect(await model.allowsMacScreen(control: true, requester: "Studio"), "a Mac acpmux says is not joined serves as before")
         fake.enabled = false
         fake.status = nil
         #expect(await model.allowsMacScreen(control: true, requester: "Studio"), "the Labs switch off changes nothing")
     }
 
     /// A join made since the last read (the CLI, with the app in the background) counts at once: each
-    /// request reads fresh, and acpmux's `consentRequired` wins over the join status.
+    /// request reads fresh. Only acpmux's own `consentRequired: false` lets a Mac serve as not joined:
+    /// a join status that says so may be stale (it was read before acpmux's record), and so is no answer.
     @Test func aJoinSinceTheLastReadIsReadWhenTheRequestArrives() async {
         let fake = Fake()
         fake.status = JoinStatus(credentialPresent: false)
+        fake.record.consentRequired = false
         let model = JoinConsentModel(services: fake.services())
         #expect(await model.allowsMacScreen(control: false, requester: "Studio"))
         #expect(model.permitsMacScreen(control: false))
-        fake.status = JoinStatus(credentialPresent: true, machineId: "m_1")
-        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")), "joined meanwhile: refused")
-        fake.status = JoinStatus(credentialPresent: false)
         fake.record.consentRequired = true
-        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")), "acpmux says joined")
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")), "joined meanwhile: refused")
+        fake.record.consentRequired = nil
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")),
+                "a status read as not joined, with no word from acpmux, is refused")
+        #expect(model.ask == nil, "and shows no sheet: as far as this Mac knows it has nothing to allow")
         let changes = Recorder()
         model.changed = { changes.values.append("\(model.permitsMacScreen(control: false))") }
         fake.record.consentRequired = false
@@ -251,6 +254,7 @@ import Testing
     @Test func aRequestDecidesFromItsOwnReadNeverFromAnOlderPermissiveOne() async {
         let fake = Fake()
         fake.status = JoinStatus(credentialPresent: false)
+        fake.record.consentRequired = false
         let base = fake.services()
         let ticketRead = Gate(), laterRead = Gate()
         var reads = 0
@@ -266,6 +270,7 @@ import Testing
         await model.refresh()
         #expect(model.permitsMacScreen(control: false), "not joined: serves as before")
         fake.status = JoinStatus(credentialPresent: true, machineId: "m_1")
+        fake.record.consentRequired = true
         let ticket = Task { await model.allowsMacScreen(control: false, requester: "Studio") }
         for _ in 0..<1000 where reads < 2 { await Task.yield() }
         let later = Task { await model.refresh() }
@@ -282,11 +287,43 @@ import Testing
     @Test func aFailedConsentReadAllowsNothingEvenOnAMacThatReadsNotJoined() async {
         let fake = Fake()
         fake.status = JoinStatus(credentialPresent: false)
+        fake.record.consentRequired = false
         let model = JoinConsentModel(services: fake.services())
         #expect(await model.allowsMacScreen(control: false, requester: "Studio"), "not joined, record read: as before")
         fake.readFails = true
         #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
         #expect(!model.permitsMacScreen(control: false))
+    }
+
+    /// A Deny pressed while an Allow is still writing does nothing: the Allow ends as it ends, and the
+    /// sheet never closes over a grant still landing.
+    @Test func aDenyWhileAnAllowWritesChangesNothing() async {
+        let fake = Fake()
+        let base = fake.services()
+        let held = Gate()
+        var hold = false, opened = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status,
+            openLine: {
+                if hold {
+                    opened += 1
+                    await held.wait()
+                }
+                return await base.openLine()
+            },
+            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "Studio", surface: .screen))
+        hold = true
+        let allow = Task { await model.answer(allow: true) }
+        for _ in 0..<1000 where opened < 1 { await Task.yield() }
+        #expect(model.answering)
+        #expect(await model.answer(allow: false) == nil)
+        #expect(model.ask != nil, "the Deny did not close the sheet over the Allow")
+        hold = false
+        held.open()
+        #expect(await allow.value == nil)
+        #expect(model.ask == nil && !model.answering && fake.writes == ["screen true"])
     }
 
     /// A ticket whose read said granted, answering after a revoke that acpmux already took, never serves.
@@ -350,6 +387,7 @@ import Testing
     @Test func aCaptureFixtureNeverAuthorizesALiveMacScreenSession() async {
         let fake = Fake()
         fake.status = JoinStatus(credentialPresent: false)
+        fake.record.consentRequired = false
         let base = fake.services()
         let read = Gate()
         var reads = 0

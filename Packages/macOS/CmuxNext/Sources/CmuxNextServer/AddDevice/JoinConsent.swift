@@ -143,6 +143,8 @@ public final class JoinConsentModel {
     public private(set) var ask: JoinConsentRefusal?
     /// Why the sheet's Allow did not take; the sheet stays up showing it.
     public private(set) var askError: String?
+    /// The sheet's Allow is writing: another press does nothing until it ends.
+    public private(set) var answering = false
     /// Shows and hides the sheet; the app sets the panel, tests record it.
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
     /// After each read: the app stops a Mac Screen session the consent no longer allows.
@@ -239,8 +241,8 @@ public final class JoinConsentModel {
     }
 
     /// What the last read allows Mac Screen (no read, no sheet). With the Labs switch off, everything, as
-    /// before. With it on: a Mac acpmux (or else the join status) reports not joined serves as before,
-    /// which is acpmux's own rule; a joined one serves View Only with Screen sharing on and Full Control
+    /// before. With it on: a Mac acpmux reports not joined (`consentRequired: false`) serves as before,
+    /// which is acpmux's own rule; any other serves View Only with Screen sharing on and Full Control
     /// with Control on too.
     /// SECURITY: an acpmux without `machine-consent-v1`, or no read, never allows.
     public func permitsMacScreen(control: Bool) -> Bool {
@@ -249,10 +251,18 @@ public final class JoinConsentModel {
     }
 
     private static func permits(_ reading: Reading, control: Bool) -> Bool {
-        // SECURITY: no record read from acpmux (a failed read included), nothing allowed, not even "not joined".
+        // SECURITY: no record read from acpmux (a failed read included), nothing allowed. "Not joined"
+        // serves as before only when acpmux itself says so (`consentRequired: false`): a join status read
+        // a moment earlier may be stale.
         guard reading.supported == true, let consent = reading.consent else { return false }
-        if (consent.consentRequired ?? reading.status?.credentialPresent) == false { return true }
+        if consent.consentRequired == false { return true }
         return consent.screen && (!control || consent.control)
+    }
+
+    /// The reading says this Mac is joined (acpmux's word first, else the join status): only then does a
+    /// refusal show the sheet, since an unjoined Mac has nothing to allow.
+    private static func joined(_ reading: Reading) -> Bool {
+        (reading.consent?.consentRequired ?? reading.status?.credentialPresent) == true
     }
 
     /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. It
@@ -264,7 +274,7 @@ public final class JoinConsentModel {
         // only while what this Mac holds now (a newer read, a revoke made meanwhile) allows it too.
         let reading = await readAndKeep()
         if Self.permits(reading, control: control), permitsMacScreen(control: control) { return true }
-        if reading.supported != nil {
+        if reading.supported != nil, Self.joined(reading) {
             refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
         }
         return false
@@ -281,10 +291,11 @@ public final class JoinConsentModel {
     }
 
     /// The sheet's Deny or Allow. Allow writes through the same person path as the switch; when it does
-    /// not take, the sheet stays up with the reason (Deny still closes it).
+    /// not take, the sheet stays up with the reason (Deny still closes it). While an Allow writes, another
+    /// press (a Deny included) does nothing, so a Deny never closes the sheet over a grant still landing.
     @discardableResult
     public func answer(allow: Bool) async -> String? {
-        guard let refusal = ask else { return nil }
+        guard let refusal = ask, !answering else { return nil }
         guard allow else {
             dismissAsk()
             return nil
@@ -293,6 +304,8 @@ public final class JoinConsentModel {
             dismissAsk()
             return nil
         }
+        answering = true
+        defer { answering = false }
         if let error = await set(refusal.surface, on: true) {
             guard ask == refusal else { return error }
             askError = error
