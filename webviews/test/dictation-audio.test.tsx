@@ -251,17 +251,25 @@ test("a long recording goes to a local chat as its saved file, of any size", () 
 test("a recording that finishes in another chat never attaches, splices or auto-sends there", async () => {
   const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
   configureDictation({ dictation: { autoSend: true } });
-  for (const origin of ["chat-a", ""]) {
+  for (const [origin, writeFails] of [
+    ["chat-a", false],
+    ["", false],
+    ["chat-a", true],
+    ["", true],
+  ] as const) {
     let shown = origin;
     const pane = await mount(true, () => shown || undefined);
-    await act(async () => deliverDictation({ state: "starting", text: "", level: 0 }));
+    await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
     shown = "chat-b";
     await act(async () =>
       deliverDictation({
         state: "idle",
         text: "private words",
         level: 0,
-        audio: { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080, session: origin },
+        cancelled: false,
+        session: origin,
+        audio: writeFails ? undefined : { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080 },
+        audioOmitted: writeFails ? "writeFailed" : undefined,
       }),
     );
     expect(pane.attached).toEqual([]);

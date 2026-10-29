@@ -12,14 +12,11 @@ public struct DictationAudio: Equatable, Sendable {
     public var byteCount: Int
     /// The WAV's bytes, when it fits in a prompt as an audio block.
     public var data: Data?
-    /// The chat the pane showed when recording began; an empty value means no chat yet.
-    public var chat: String?
 
-    public init(file: URL? = nil, byteCount: Int, data: Data? = nil, chat: String? = nil) {
+    public init(file: URL? = nil, byteCount: Int, data: Data? = nil) {
         self.file = file
         self.byteCount = byteCount
         self.data = data
-        self.chat = chat
     }
 }
 

@@ -2,6 +2,8 @@
 export type DictationState = "idle" | "starting" | "listening" | "finalizing" | "failed" | "denied";
 export type DictationUpdate = {
   state: DictationState;
+  /// The chat at start, including omitted audio; empty means no chat yet.
+  session?: string;
   /// The session's whole text so far: committed segments, then the live hypothesis.
   text: string;
   /// Input level, 0...1.
@@ -27,7 +29,6 @@ export type DictationRecording = {
   data?: string;
   path?: string;
   byteCount?: number;
-  session?: string;
 };
 
 /// Where one session's text sits in the prompt. The session owns `value[start, start + length)`;

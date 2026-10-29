@@ -152,14 +152,10 @@ export function useDictation(
       applied = isActive(update.state) ? update : null;
       // The final recording and transcript belong to the chat where recording began.
       // Never splice or auto-send either into a chat the pane navigated to while closing.
-      if (
-        update.audio?.session !== undefined &&
-        shownChat.current &&
-        update.audio.session !== (shownChat.current() ?? "")
-      ) {
+      if (update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "")) {
         anchor.current = null;
         owner = null;
-        audioElsewhere.current?.();
+        if (update.state === "idle" && !update.cancelled) audioElsewhere.current?.();
         return;
       }
       // The recording joins the composer before the words do, so an auto-send takes both.

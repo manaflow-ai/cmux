@@ -231,7 +231,7 @@ final class AgentPaneDictation {
 
     private func deliver(_ update: DictationUpdate) {
         var update = update
-        update.audio?.chat = recordingChat
+        update.chat = recordingChat
         if update.phase.isStartable {
             endHold()
             endSleepWatch()
@@ -251,6 +251,7 @@ final class AgentPaneDictation {
             "level": (Double(update.level) * 1000).rounded() / 1000,
             "cancelled": update.cancelled,
         ]
+        if let chat = update.chat { value["session"] = chat }
         switch update.phase {
         case .denied(let permission):
             value["permission"] = permission.rawValue
@@ -267,7 +268,6 @@ final class AgentPaneDictation {
             var sent: [String: any Sendable] = ["mimeType": "audio/wav", "byteCount": audio.byteCount]
             if let data = audio.data { sent["data"] = data.base64EncodedString() }
             if let file = audio.file { sent["path"] = file.path }
-            if let chat = audio.chat { sent["session"] = chat }
             value["audio"] = sent
         }
         if let omitted = update.audioOmitted {
