@@ -9,7 +9,7 @@ public struct ComposerFileCopy: Sendable {
     public let inlineData: Data?
     public static let inlineBytes = 256 << 10
 
-    public init(source: URL) throws {
+    public init(source: URL, inlineLimit: Int = Self.inlineBytes) throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-paste-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -20,7 +20,7 @@ public struct ComposerFileCopy: Sendable {
             defer { try? handle.close() }
             byteCount = Int(try handle.seekToEnd())
             try handle.seek(toOffset: 0)
-            inlineData = byteCount <= Self.inlineBytes ? try handle.read(upToCount: Self.inlineBytes) ?? Data() : nil
+            inlineData = byteCount <= inlineLimit ? try handle.read(upToCount: inlineLimit) ?? Data() : nil
             url = destination
         } catch {
             try? FileManager.default.removeItem(at: folder)

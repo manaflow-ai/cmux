@@ -290,7 +290,7 @@ struct TerminalComposer: View {
         let pasted = await ComposerPastedFiles.load(providers)
         if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
         for file in pasted.files {
-            let image = file.type.conforms(to: .image) ? file.data.flatMap(UIImage.init(data:)) : nil
+            let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
             let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
             model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
                                                    thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: file.byteCount, data: file.data, fileURL: file.fileURL))

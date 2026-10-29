@@ -90,7 +90,7 @@ public extension ComposerPastedFiles {
             let name = fileName(provider.suggestedName, type: type)
             let read: Read = await withCheckedContinuation { continuation in
                 _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
-                    continuation.resume(returning: Read(url))
+                    continuation.resume(returning: Read(url, inlineLimit: type.conforms(to: .image) ? 24 << 20 : ComposerFileCopy.inlineBytes))
                 }
             }
             switch read {
@@ -113,8 +113,8 @@ public extension ComposerPastedFiles {
         case file(ComposerFileCopy), unreadable
 
         /// Called on the provider's queue, while `url` still exists.
-        init(_ url: URL?) {
-            guard let url, let copy = try? ComposerFileCopy(source: url) else { self = .unreadable; return }
+        init(_ url: URL?, inlineLimit: Int) {
+            guard let url, let copy = try? ComposerFileCopy(source: url, inlineLimit: inlineLimit) else { self = .unreadable; return }
             self = .file(copy)
         }
     }
