@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest"
 import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { githubRepos } from "../src/integrations/github-tokens.ts"
+import type { Env } from "../src/env.ts"
+import type { ConnectionsState } from "../src/domains/connections.ts"
+import type { Connection } from "@cmux/protocol"
+import type { Principal } from "@cmux/ownership"
 
 /**
  * POST /v1/integrations/github/token, /token/revoke and GET /status (gh-app-product contract):
@@ -86,6 +91,78 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Status: configured, the connection and its repositories.
     const res = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
     expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+  })
+
+  it("pins repository pagination to the selected connection and refuses a stale account list", async () => {
+    const firstId = "conn_01234567890123456789"
+    const secondId = "conn_98765432109876543210"
+    const connection = (id: string, installation: number): Connection => ({
+      id,
+      owner: "team_fixture",
+      created_by: "user_fixture",
+      provider: "github",
+      account: { key: `github:installation:${installation}`, name: "acme" },
+      scopes_requested: [],
+      scopes_granted: [],
+      status: "active",
+      sharing: "team",
+      resources: { repos: ["acme/web", "acme/api"] },
+      created_at: 1,
+      updated_at: 1,
+    })
+    let state: ConnectionsState = {
+      owner: "team_fixture",
+      connections: { [firstId]: connection(firstId, 901), [secondId]: connection(secondId, 902) },
+    }
+    const principal = { kind: "session", user: "user_fixture", team: "team_fixture", identity: "session:user_fixture" } as Principal
+    const host = {
+      env: testEnv as Env,
+      state: () => state,
+      http: async (request: Request): Promise<Response> => {
+        if (request.url.endsWith("/access_tokens"))
+          return ok({ token: "synthetic_installation_token", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
+        if (request.url.startsWith("https://api.github.com/installation/repositories?"))
+          return ok({
+            repositories: Array.from({ length: 100 }, (_, i) => ({
+              full_name: i % 2 ? "acme/web" : "acme/api",
+              private: true,
+            })),
+            total_count: 101,
+          })
+        return new Response("unexpected synthetic endpoint", { status: 404 })
+      },
+    }
+    const first = await githubRepos(host, principal, {})
+    if (!first.ok) throw new Error(`synthetic repository-list fixture failed: ${first.code}: ${first.message}`)
+    expect(first.ok).toBe(true)
+    expect(first.value.repos).toHaveLength(100)
+    const selected = first.value.repos[0]!.connection_id
+    expect(first.value.repos.every((repo) => repo.connection_id === selected)).toBe(true)
+    expect(typeof first.value.cursor).toBe("string")
+
+    const next = await githubRepos(host, principal, { cursor: first.value.cursor! })
+    expect(next.ok).toBe(true)
+    if (!next.ok) throw new Error(next.message)
+    expect(next.value.repos.every((repo) => repo.connection_id === selected)).toBe(true)
+
+    const differentSearch = await githubRepos(host, principal, { cursor: first.value.cursor!, query: "other" })
+    expect(differentSearch.ok).toBe(false)
+    if (!differentSearch.ok) expect([differentSearch.status, differentSearch.code]).toEqual([409, "cursor_stale"])
+
+    state = {
+      ...state,
+      connections: {
+        ...state.connections,
+        [selected]: { ...state.connections[selected]!, status: "revoked", updated_at: 2 },
+      },
+    }
+    const stale = await githubRepos(host, principal, { cursor: first.value.cursor! })
+    expect(stale.ok).toBe(false)
+    if (!stale.ok) expect([stale.status, stale.code]).toEqual([409, "cursor_stale"])
+
+    const oversized = await githubRepos(host, principal, { cursor: "x".repeat(2048) })
+    expect(oversized.ok).toBe(false)
+    if (!oversized.ok) expect([oversized.status, oversized.code]).toEqual([400, "request.invalid"])
   })
 
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {
