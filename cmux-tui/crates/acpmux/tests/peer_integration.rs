@@ -3329,3 +3329,67 @@ async fn a_peers_display_line_never_reaches_a_client() {
         assert!(reply.to_string().contains("the tool's own input"), "{reply}");
     }
 }
+
+/// A first explicit no-history attach is a live subscription, not a request
+/// to replay the entire existing journal after its first connection drop.
+#[tokio::test]
+async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, token) = listen_with_peer_token(b.clone(), "no-history-reconnect").await;
+    let mut cb = client(b.clone()).await;
+    let session = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "baseline"}}}),
+        )
+        .await
+        .unwrap();
+    let sid = session["sessionId"].as_str().unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": sid,
+        "prompt": [{"type": "text", "text": "old history before subscription"}]}),
+    )
+    .await
+    .unwrap();
+    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached = ca
+        .call(method::MUX_ATTACH, json!({"session": "b/baseline", "limit": 0, "eventStream": true}))
+        .await
+        .unwrap();
+    assert_eq!(attached["events"], json!([]));
+    let baseline = attached["pageThrough"].as_u64().unwrap();
+    assert!(baseline > 0, "the peer already has a journal");
+    let peer = a.peer_by_name("b").unwrap();
+    let epoch = peer.link_epoch();
+    let mut settled = peer.settled();
+    flap.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while peer.link_epoch() == epoch
+            || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            settled.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("peer reconnects and replays");
+    // Nothing ran between attach and reconnect. Retain all notifications still
+    // queued on A's client while sending the first new turn after the reconnect.
+    let (answer, events) = prompt_with_events(&mut ca, sid, "new turn after reconnect", None).await;
+    assert_eq!(answer["stopReason"], "end_turn");
+    assert!(!events.is_empty(), "new turn must still stream");
+    assert!(
+        events.iter().all(|event| event["seq"].as_u64().unwrap() > baseline),
+        "no-history attachment received old journal records: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|event| event.to_string().contains("old history before subscription"))
+    );
+    peer.stop();
+}
