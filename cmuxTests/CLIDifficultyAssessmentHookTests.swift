@@ -232,6 +232,29 @@ struct CLIDifficultyAssessmentHookTests {
         #expect(prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true, "saw \(prompts)")
     }
 
+    /// Auto-naming's call ran first; meanwhile the reply reached the transcript and the user sent
+    /// the next prompt. The Stop input's reply is rated with its own prompt, not the next one.
+    @Test func pairsTheStopInputReplyWithItsOwnPromptAfterANewerOne() throws {
+        let reply = "Planned the cut-over for step 7."
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: Fixture.sixExchanges + [
+                Fixture.userLine("Redesign the sync engine, step 7"),
+                Fixture.assistantLine(reply),
+                Fixture.userLine("Now rename the README title."),
+            ]
+        )
+        defer { run.cleanup() }
+        try run.stop(lastAssistantMessage: reply)
+        let prompts = run.classifierPrompts()
+        #expect(prompts.count == 1)
+        #expect(
+            prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true,
+            "the reply must be rated with its own prompt; saw \(prompts)"
+        )
+    }
+
     @Test func ratesAFirstTurnFromTheStopInput() throws {
         let run = try Fixture(
             probe: Probe(),

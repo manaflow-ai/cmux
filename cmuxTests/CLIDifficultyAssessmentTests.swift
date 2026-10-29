@@ -124,6 +124,41 @@ import Testing
         #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "assistant", text: "a1")], stopReply: "a2") == nil)
     }
 
+    /// The transcript is read after auto-naming's call, which can take a minute. By then the
+    /// reply may be on disk and the user may have sent the next prompt: the rated prompt is the
+    /// one before the reply, never the newer one.
+    @Test func stopReplyExcerptTakesThePromptBeforeTheReplyOnDisk() {
+        func message(_ role: String, _ text: String) -> AutoNamingTranscriptMessage {
+            AutoNamingTranscriptMessage(role: role, text: text)
+        }
+        let nextPromptSent = [message("user", "u1"), message("assistant", "a1"), message("user", "u2"), message("assistant", "a2"), message("user", "u3")]
+        let fromNextPrompt = Engine.excerpt(from: nextPromptSent, stopReply: "a2")
+        #expect(fromNextPrompt?.user == "u2")
+        #expect(fromNextPrompt?.assistant == "a2")
+
+        // The next turn already wrote text of its own; the payload's reply still anchors the prompt.
+        let nextTurnRunning = nextPromptSent + [message("assistant", "Looking at u3.")]
+        #expect(Engine.excerpt(from: nextTurnRunning, stopReply: "a2")?.user == "u2")
+
+        // Compared as trimmed text.
+        #expect(Engine.excerpt(from: nextPromptSent, stopReply: "  a2\n")?.user == "u2")
+
+        // The reply on disk as the last message: its own prompt.
+        #expect(Engine.excerpt(from: Array(nextPromptSent.prefix(4)), stopReply: "a2")?.user == "u2")
+    }
+
+    /// Before Claude Code writes the reply, no later prompt can exist: the last user message is it.
+    @Test func stopReplyExcerptTakesTheLastPromptWhileTheReplyIsNotOnDisk() {
+        let messages = [
+            AutoNamingTranscriptMessage(role: "user", text: "u1"),
+            AutoNamingTranscriptMessage(role: "assistant", text: "a1"),
+            AutoNamingTranscriptMessage(role: "user", text: "u2"),
+        ]
+        let pair = Engine.excerpt(from: messages, stopReply: "a2")
+        #expect(pair?.user == "u2")
+        #expect(pair?.assistant == "a2")
+    }
+
     @Test func throttleWaitsTheMinInterval() {
         let min = DifficultyAssessmentConfig.minInterval
         let stamp = t0.timeIntervalSince1970
