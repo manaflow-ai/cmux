@@ -26,6 +26,15 @@ use super::mirror::{self, Op, Source};
 use super::supervisor::{Out, Supervisor};
 use crate::panic_free::RecoverPoison;
 
+#[cfg(test)]
+std::thread_local! {
+    /// Runs once on the reloading thread right after `reload_local_apps` read
+    /// the catalog: a test writes a package there, the moment a file write
+    /// can land while a reload runs.
+    pub(super) static AFTER_CATALOG_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
 
@@ -83,6 +92,10 @@ impl Supervisor {
     /// `prints`; returns the new fingerprints.
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
         let catalog = catalog::load(&self.config.sources);
+        #[cfg(test)]
+        if let Some(hook) = AFTER_CATALOG_READ.with(|hook| hook.borrow_mut().take()) {
+            hook();
+        }
         let next = local_prints(catalog.packages.values());
         let changed: Vec<String> = next
             .iter()
