@@ -41,3 +41,12 @@ test('acpmux\'s "Working on: <prompt>" line repeats the prompt (hub/subsession_s
   expect(repeatsPrompt("Working on: You are net-retries\u2026", prompt)).toBe(false);
   expect(repeatsPrompt("Working on: Read src/net/RetryBanner.tsx", prompt)).toBe(false);
 });
+
+test('a prompt that itself starts with "Working on:" is still recognized when the line is the raw prompt', () => {
+  const own = "Working on: inspect the parser and report what breaks.";
+  expect(repeatsPrompt("Working on: inspect the parser\u2026", own)).toBe(true);
+  expect(repeatsPrompt("Working on: inspect the parser and report what breaks.", own)).toBe(true);
+  // And acpmux's prefix on top of such a prompt.
+  expect(repeatsPrompt("Working on: Working on: inspect the parser\u2026", own)).toBe(true);
+  expect(repeatsPrompt("Working on: fix the lexer", own)).toBe(false);
+});
