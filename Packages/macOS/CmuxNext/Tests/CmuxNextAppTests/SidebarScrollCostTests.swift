@@ -21,6 +21,17 @@ struct SidebarScrollCostTests {
         return frames
     }
 
+    /// The default scroll at 500 workspaces stays a few hundred frames, so the budget test holds the
+    /// main thread for seconds, not minutes. Over the whole list each pass was about 1,200 frames, the
+    /// budget test scrolled four such lists three passes each, and on a loaded CI Mac (about 50 ms a
+    /// frame) it held the main actor past the swift-test stall watchdog (300 s with no test finished)
+    /// with every other main-actor test queued behind it: five full runs in a row on 2026-10-29
+    /// (391 to 439 tests open when the watchdog killed the run).
+    @Test func aDefaultScrollAtFiveHundredWorkspacesStaysAFewHundredFrames() {
+        let frames = Self.measure(500)
+        #expect(frames.count <= 400, "a default scroll at 500 workspaces took \(frames.count) frames")
+    }
+
     /// A scroll keeps few row views in the list: the visible rows, a short overscan and a pool of
     /// parked views for the next rows, not tenfold the visible rows (each view's subtree costs
     /// every frame).
