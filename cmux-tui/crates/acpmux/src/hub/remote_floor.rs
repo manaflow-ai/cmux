@@ -160,7 +160,20 @@ impl Hub {
             return;
         };
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        #[cfg(test)]
+        let cancel_write_seam = self.cancel_write_seam.clone();
         rt.spawn(async move {
+            // A session-wide cancel has no turn id. Share the prompt/Stop handoff gate so a
+            // delayed policy cancellation cannot overtake the next prompt's transport write.
+            let input_handoff = s.input_handoff.clone().lock_owned().await;
+            #[cfg(test)]
+            {
+                let seam = cancel_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
             let child = s.child.lock().await.clone();
             // Only the turn the floor cancelled, never a newer one.
             if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {
@@ -169,6 +182,7 @@ impl Hub {
             if let (Some(c), Some(sid)) = (child, s.meta().agent_session_id) {
                 let _ = c.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
             }
+            drop(input_handoff);
         });
     }
 }

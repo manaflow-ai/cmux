@@ -37,6 +37,7 @@
     "cloud-conversations-v1",
     "cloud-host-replica-v1",
     "cloud-selfhost-v1",
+    "column-left-v1",
     "column-move-v1",
     "conversation-draft-events-v1",
     "conversation-inbox-state-v1",
