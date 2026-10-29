@@ -13,7 +13,7 @@ import Testing
 @Suite("Drag-out live ownership", .serialized)
 struct DragOutWindowTransferTests {
     private final class RejectTabCreation: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Tab, inPane pane: PaneID) -> Bool { false }
+        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool { false }
     }
 
     @Test func failedAttachRestoresSamePanelInOriginalSplit() throws {
