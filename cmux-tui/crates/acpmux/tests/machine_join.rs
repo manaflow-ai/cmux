@@ -17,6 +17,7 @@ use tokio::process::Command;
 mod machine_consent_home;
 
 const TOKEN: &str = "cmj_test_secret_never_print";
+const FRESH_TOKEN: &str = "cmj_fresh_test_secret_never_print";
 const CREDENTIAL: &str = "cmm_test_secret_never_print";
 const PENDING: &str = "machine-join.pending.json";
 const FINAL: &str = "machine-credential.json";
@@ -108,12 +109,13 @@ fn hub(steps: Vec<Step>, home: &Path, consent: &Path) -> (String, std::thread::J
     let consent = consent.to_owned();
     let mut proposal: Option<Value> = None;
     let mut generation = 1;
+    let mut revoked = false;
     response_server(steps.len(), move |index, request, bearer, body| {
         let step = &steps[index];
         if matches!(step, Step::Redeem(_) | Step::LostReply) {
             assert!(request.starts_with("POST /v1/machines/join-tokens/redeem "));
             assert!(bearer.is_empty());
-            assert!(body["token"] == TOKEN);
+            assert!(body["token"] == TOKEN || body["token"] == FRESH_TOKEN);
             assert!(
                 consent.join("enrolled.json").is_file(),
                 "consent requirement must precede redeem"
@@ -128,13 +130,19 @@ fn hub(steps: Vec<Step>, home: &Path, consent: &Path) -> (String, std::thread::J
                 if previous["proposedCredential"] == body["proposedCredential"] {
                     assert!(previous == body, "replay metadata must be immutable");
                 } else {
-                    assert!(body["replaceCredential"] == previous["proposedCredential"]);
+                    if revoked {
+                        assert!(body["token"] == FRESH_TOKEN);
+                        assert!(body.get("replaceCredential").is_none());
+                    } else {
+                        assert!(body["replaceCredential"] == previous["proposedCredential"]);
+                    }
                     generation += 1;
                 }
             } else {
                 assert!(body.get("replaceCredential").is_none());
             }
             proposal = Some(body.clone());
+            revoked = false;
             return match step {
                 Step::LostReply => None,
                 Step::Redeem(status) => Some((
@@ -159,7 +167,10 @@ fn hub(steps: Vec<Step>, home: &Path, consent: &Path) -> (String, std::thread::J
                 ))
             }
             Step::Unknown => Some((401, json!({"code":"machine.unknown"}))),
-            Step::Revoked => Some((401, json!({"code":"machine.revoked"}))),
+            Step::Revoked => {
+                revoked = true;
+                Some((401, json!({"code":"machine.revoked"})))
+            }
             Step::Unavailable => Some((503, json!({"error":TOKEN}))),
             _ => unreachable!(),
         }
@@ -181,16 +192,22 @@ fn assert_no_join_token_on_disk(home: &Path) {
         if path.is_dir() {
             assert_no_join_token_on_disk(&path);
         } else {
-            assert!(
-                !std::fs::read(&path)
-                    .unwrap()
-                    .windows(TOKEN.len())
-                    .any(|bytes| bytes == TOKEN.as_bytes())
-            );
+            let bytes = std::fs::read(&path).unwrap();
+            for token in [TOKEN, FRESH_TOKEN] {
+                assert!(!bytes.windows(token.len()).any(|part| part == token.as_bytes()));
+            }
         }
     }
 }
 async fn join(home: &Path, origin: Option<&str>, token: bool, replace: bool) -> Output {
+    join_with_input(home, origin, token.then_some(TOKEN), replace).await
+}
+async fn join_with_input(
+    home: &Path,
+    origin: Option<&str>,
+    token: Option<&str>,
+    replace: bool,
+) -> Output {
     let mut command = cli(home);
     command.args(["host", "join", "--json"]);
     if let Some(origin) = origin {
@@ -201,12 +218,12 @@ async fn join(home: &Path, origin: Option<&str>, token: bool, replace: bool) -> 
     }
     let mut child = command.stdin(Stdio::piped()).spawn().unwrap();
     let mut input = child.stdin.take();
-    if token {
-        input.as_mut().unwrap().write_all(format!("{TOKEN}\n").as_bytes()).await.unwrap();
+    if let Some(token) = token {
+        input.as_mut().unwrap().write_all(format!("{token}\n").as_bytes()).await.unwrap();
         #[cfg(target_os = "linux")]
         for file in ["cmdline", "environ"] {
             let bytes = std::fs::read(format!("/proc/{}/{file}", child.id().unwrap())).unwrap();
-            assert!(!bytes.windows(TOKEN.len()).any(|part| part == TOKEN.as_bytes()));
+            assert!(!bytes.windows(token.len()).any(|part| part == token.as_bytes()));
         }
         drop(input.take());
     }
@@ -285,9 +302,9 @@ async fn unknown_pending_requires_original_token_and_replays_the_same_proposal()
     );
     assert_exit(&join(home.path(), Some(&origin), true, false).await, 4);
     let original = std::fs::read(home.path().join(PENDING)).unwrap();
-    assert_exit(&join(home.path(), None, false, false).await, 2);
+    assert_exit(&join(home.path(), None, false, true).await, 2);
     assert!(std::fs::read(home.path().join(PENDING)).unwrap() == original);
-    assert_exit(&join(home.path(), None, true, false).await, 0);
+    assert_exit(&join(home.path(), None, true, true).await, 0);
     assert_complete(home.path(), &origin);
     server.join().unwrap();
 }
@@ -363,12 +380,37 @@ async fn pending_network_failure_and_revocation_preserve_proof_and_never_redeem(
         hub(vec![Step::LostReply, Step::Unavailable, Step::Revoked], home.path(), &consent.root);
     assert_exit(&join(home.path(), Some(&origin), true, false).await, 4);
     let original = std::fs::read(home.path().join(PENDING)).unwrap();
-    assert_exit(&join(home.path(), None, false, false).await, 4);
+    assert_exit(&join(home.path(), None, true, true).await, 4);
+    assert!(std::fs::read(home.path().join(PENDING)).unwrap() == original);
     let output = join(home.path(), None, false, false).await;
     assert_exit(&output, 3);
     assert!(String::from_utf8_lossy(&output.stderr).contains("revoked"));
     assert!(std::fs::read(home.path().join(PENDING)).unwrap() == original);
+
     assert!(!home.path().join(FINAL).exists());
+    server.join().unwrap();
+}
+
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn explicit_replace_resets_only_a_definitively_revoked_pending_proposal() {
+    let consent = machine_consent_home::ConsentHome::isolated();
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = hub(
+        vec![Step::LostReply, Step::Revoked, Step::Revoked, Step::Redeem(200), Step::Live(None)],
+        home.path(),
+        &consent.root,
+    );
+    assert_exit(&join(home.path(), Some(&origin), true, false).await, 4);
+    let original = std::fs::read(home.path().join(PENDING)).unwrap();
+    assert_exit(&join(home.path(), None, false, false).await, 3);
+    assert!(std::fs::read(home.path().join(PENDING)).unwrap() == original);
+    let output = join_with_input(home.path(), None, Some(FRESH_TOKEN), true).await;
+    assert_exit(&output, 0);
+    let old: Value = serde_json::from_slice(&original).unwrap();
+    let final_record = read_json(&home.path().join(FINAL));
+    assert!(final_record["credential"] != old["credential"]);
+    assert_complete(home.path(), &origin);
     server.join().unwrap();
 }
 
