@@ -312,7 +312,7 @@ struct LaunchPictureInputTests {
         let tabModel = try #require(store.tab(surface: SurfaceID(rawValue: 1)))
         let attachment = TerminalAttachment.Target(surface: tabModel.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
-                                  visible: false, endpoint: { throw CancellationError() })
+                                  visible: false, connection: { throw CancellationError() })
         services.cache.terminals[tab]?.session.view.removeFromSuperview()
         services.cache.terminals[tab] = TerminalEntry(validity: "test", session: session, io: io,
                                                       themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tabModel),
