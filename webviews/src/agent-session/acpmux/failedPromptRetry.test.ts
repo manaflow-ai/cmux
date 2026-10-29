@@ -231,3 +231,48 @@ test("Trust in a chat sends its trust-refused prompt even after a switch away an
     pane.client.close?.();
   }
 });
+
+// #24144 review: the snapshot a held chat switch still shows takes Remove and Edit after the switch
+// cleared the failed prompts. A prompt removed or taken back there is not brought back by Trust.
+test("a failed prompt removed or edited after a switch cleared it stays gone after Trust", async () => {
+  const { failedRowTrustRetry } = await import("./failedRowTrustRetry");
+  const { MockAcpmuxSocket } = await import("./mock");
+  const trustPending = () =>
+    Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+      data: { reason: "trust.pending", cwd: "/home/dev/parity-demo" },
+    });
+  const pane = await paneWith((attempt) => (attempt <= 2 ? trustPending() : undefined));
+  try {
+    const client = pane.client;
+    const home = client.selectedSession!;
+    const other = MockAcpmuxSocket.live!.seedLoadSession(2);
+    const replays: (() => void)[] = [];
+    const rowRetry = failedRowTrustRetry({
+      retry: (rowIds, ticket, anchor) => client.retryPrompts(rowIds, ticket, anchor),
+      runOf: (row) => [row],
+      hold: () => undefined,
+      takeTicket: () => undefined,
+      copy: (rowIds) => client.failedPromptCopies(rowIds),
+      restore: (copies) => client.restoreFailedPrompts(copies),
+    });
+    const route = (_error: unknown, again: () => void) => {
+      replays.push(again);
+      return true;
+    };
+    for (const text of ["remove me", "edit me"])
+      await client.send(text).catch((error: unknown) => rowRetry.replayAfterTrust(error, route));
+    const rowOf = (text: string) => pane.rows().find((row) => row.kind === "user" && row.text === text)!.id;
+    const removed = rowOf("remove me");
+    const edited = rowOf("edit me");
+    await client.select(other);
+    // The held snapshot's Remove and Edit land after the switch cleared the client's failed prompts.
+    client.removeFailedPrompt(removed);
+    client.takeFailedPrompt(edited);
+    await client.select(home);
+    for (const again of replays) again();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(pane.prompts).toEqual(["remove me", "edit me"]);
+  } finally {
+    pane.client.close?.();
+  }
+});

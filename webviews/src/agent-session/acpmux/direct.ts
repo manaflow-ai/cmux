@@ -5437,6 +5437,8 @@ export class AcpmuxDirectClient {
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
+    // The person's Edit, also on the snapshot a held chat switch still shows: no replay brings it back.
+    this.clearedBySwitch.delete(rowId);
     const failed = this.failedPrompts.get(rowId);
     if (!failed) return undefined;
     this.dropFailedPrompt(rowId, failed.promptId);
@@ -5444,6 +5446,8 @@ export class AcpmuxDirectClient {
   }
   /// Remove on a prompt that was not sent: its row goes.
   removeFailedPrompt(rowId: string): void {
+    // The person's Remove, also on the snapshot a held chat switch still shows: no replay brings it back.
+    this.clearedBySwitch.delete(rowId);
     const failed = this.failedPrompts.get(rowId);
     if (failed) this.dropFailedPrompt(rowId, failed.promptId);
   }
