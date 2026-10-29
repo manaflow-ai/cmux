@@ -85,7 +85,8 @@ impl Hub {
     /// Holds the other agents' messages queued now, and those that come until the hold ends: a
     /// completed turn (`release_held_agent_messages`), a resume, or a held message's own retry
     /// (`resume_held`). None is dropped: each stays queued, as `held`, and is logged so
-    /// (`queue_paused` with `reason: "stop"`), so a restarted daemon holds it too.
+    /// (`queue_paused` with `reason: "stop"`): a restarted daemon holds it until its
+    /// `autoResumeDelaysMs` wait (`digest.rs` `retry_held_agent_messages`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
         session.stop_holds_agents.store(true, Ordering::SeqCst);
         let held: Vec<String> = session
@@ -151,12 +152,17 @@ impl Hub {
             json!({"turnId": turn.turn_id, "step": "interrupt"}),
         );
         let heard = session.heard.load(Ordering::SeqCst);
-        if let Some(sid) = session.meta().agent_session_id
-            && let Err(e) = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await
-        {
-            tracing::debug!(session = %session.id, "second cancel: {e}");
+        let deadline = tokio::time::Instant::now() + INTERRUPT_GRACE;
+        // Bounded: an agent that stopped reading its input is ended all the same.
+        if let Some(sid) = session.meta().agent_session_id {
+            let cancel = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid}));
+            match tokio::time::timeout_at(deadline, cancel).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::debug!(session = %session.id, "second cancel: {e}"),
+                Err(_) => tracing::debug!(session = %session.id, "second cancel: not written"),
+            }
         }
-        tokio::time::sleep(INTERRUPT_GRACE).await;
+        tokio::time::sleep_until(deadline).await;
         let Some(current) = open() else { return };
         if !working(heard) || !self.runs_agent(&session, &child).await {
             Self::force_cancel(&session, &current);

@@ -249,7 +249,8 @@ async fn a_failed_turn_of_agent_messages_is_continued_not_sent_again() {
             .wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid && p["queued"] == true)
             .await;
     }
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    // An agent's Stop: a person's would hold the agent messages behind it (`hub/cancel.rs`).
+    hub.cancel(&hub.resolve(&id).unwrap()).await.unwrap();
     // The cancelled turn, then the failed turn of both messages.
     until(&hub, &id, |k| turn_results(k) == 2).await;
     for _ in 0..200 {
