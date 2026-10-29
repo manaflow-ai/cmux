@@ -65,6 +65,7 @@ export function SummaryCard({
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
+  /// The chat's project folder; Outputs excludes files outside it.
   cwd?: string;
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
