@@ -29,6 +29,9 @@ pub struct MeshRelayConfig {
     pub url: String,
     /// The program that prints a cmux access token, and its own arguments.
     pub token_command: Vec<String>,
+    /// Labs gate for team-scoped addresses and inboxes. Off unless explicitly enabled.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub team_messaging: bool,
 }
 
 impl MeshRelayConfig {
@@ -393,6 +396,7 @@ mod tests {
         let config = |url: &str, cmd: &[&str]| MeshRelayConfig {
             url: url.into(),
             token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
+            team_messaging: false,
         };
         let hub = "https://cmux-platform-development.debussy.workers.dev/";
         assert_eq!(
@@ -422,6 +426,7 @@ mod tests {
         let config = MeshRelayConfig {
             url: "http://127.0.0.1:9".into(),
             token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
+            team_messaging: false,
         };
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();

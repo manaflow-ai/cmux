@@ -27,6 +27,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ls { .. }
             | Command::New(..)
             | Command::Send { .. }
+            | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Process(..)
@@ -812,6 +813,41 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 (sent, _) => sent,
             }
+        }
+        Command::Inbox(args) => {
+            let client = connect(true).await?;
+            let (method, params) = match args.command.unwrap_or(crate::cli::command::InboxCmd::List) {
+                crate::cli::command::InboxCmd::List => (method::MUX_TEAM_INBOX, json!({})),
+                crate::cli::command::InboxCmd::Read { id } => {
+                    (method::MUX_TEAM_READ, json!({"id": id}))
+                }
+                crate::cli::command::InboxCmd::Ack { id } => {
+                    (method::MUX_TEAM_ACK, json!({"id": id}))
+                }
+            };
+            let value = client.request(method, params).await?;
+            if json_out {
+                print_json(&value);
+            } else if method == method::MUX_TEAM_INBOX {
+                let messages = value.get("messages").and_then(Value::as_array);
+                if messages.map_or(true, Vec::is_empty) {
+                    println!("team inbox is empty");
+                } else {
+                    for message in messages.into_iter().flatten() {
+                        let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
+                        let from = message
+                            .pointer("/from/user")
+                            .and_then(Value::as_str)
+                            .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
+                            .unwrap_or("teammate");
+                        let body = message.get("body").and_then(Value::as_str).unwrap_or("");
+                        println!("{id}\t@{from}\t{}", body.lines().next().unwrap_or(""));
+                    }
+                }
+            } else {
+                println!("ok");
+            }
+            Ok(())
         }
         Command::Deliver { target, prompt, id, audience } => {
             if !target.starts_with("reports:") {

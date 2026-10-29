@@ -152,6 +152,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
+                "team-address" | "teamAddress" => {
+                    if val.trim().is_empty()
+                        || !val
+                            .split_once('/')
+                            .is_some_and(|(scope, role)| {
+                                !scope.is_empty()
+                                    && !role.is_empty()
+                                    && scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                                    && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                            })
+                    {
+                        return Err(anyhow!("team-address must be scope/role"));
+                    }
+                    client
+                        .request(
+                            method::MUX_TAG,
+                            json!({"sessionId": id, "set": {"teamAddress": val}}),
+                        )
+                        .await?
+                }
                 "mode" => {
                     client
                         .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": val}))

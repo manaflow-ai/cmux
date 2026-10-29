@@ -1625,7 +1625,7 @@ mod forum;
 mod media_forward;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
-mod team_messaging;
+mod team;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;

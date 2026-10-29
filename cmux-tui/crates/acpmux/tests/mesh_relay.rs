@@ -217,6 +217,8 @@ impl MeshHub for FakeHub {
                     created_at: 1000,
                     leased_until: None,
                     acked_at: None,
+                    resolution: None,
+                    start_work: None,
                 };
                 s.receipts.insert(id.clone(), receipt.clone());
                 s.waiting.push_back(InMessage {
@@ -633,6 +635,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         harness: "fake".into(),
         state: "ready".into(),
         stuck_reason: None,
+        team_address: None,
     };
     fake.with(|s| s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row] }));
     let _ = a.mesh.set(fake.clone());

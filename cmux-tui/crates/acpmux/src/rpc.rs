@@ -310,6 +310,11 @@ pub mod method {
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
+    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
+    pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
+    pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
+    pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
