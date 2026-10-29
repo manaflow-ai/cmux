@@ -32,11 +32,15 @@ use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
 };
 use crate::mesh_http::MeshControlFrom;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
+
+#[path = "mesh_control_ledger.rs"]
+mod control_ledger;
+use control_ledger::{Claim, ControlLedger};
 
 /// The loops' timings.
 #[derive(Debug, Clone)]
@@ -391,57 +395,21 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
 /// request path as a connected daemon. The relay hub only selected this daemon; it does not grant
 /// ownership, and the request handlers below still apply their normal peer-origin and owner checks.
 pub struct MeshControlHook {
-    /// Owner-configured grants. The hub's sender claims are not authority; only its stamped
-    /// daemon id may match one of these entries.
+    /// Owner-configured grants. Only the hub-stamped daemon id can match an entry.
     pub allowed: Vec<MeshControlFrom>,
     ledger: ControlLedger,
+    // A delivery lease can end before a start does. Retain its execution until its actual
+    // outcome, independently of the 50 s ack wait; dropping this hook aborts all such tasks.
+    tasks: StdMutex<tokio::task::JoinSet<()>>,
 }
 
 impl MeshControlHook {
     pub fn new(allowed: Vec<MeshControlFrom>, path: Option<PathBuf>) -> Self {
-        Self { allowed, ledger: ControlLedger::open(path) }
-    }
-}
-
-/// Durable message-id results prevent a lost ack from repeating a lifecycle side effect after
-/// the hub leases the same control again, including after a daemon restart.
-#[derive(Clone)]
-struct ControlLedger {
-    path: Option<PathBuf>,
-    rows: Arc<StdMutex<BTreeMap<String, Ack>>>,
-}
-
-impl ControlLedger {
-    fn open(path: Option<PathBuf>) -> Self {
-        let rows = path
-            .as_ref()
-            .and_then(|file| std::fs::read(file).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
-        Self { path, rows: Arc::new(StdMutex::new(rows)) }
-    }
-
-    fn get(&self, id: &str) -> Option<Ack> {
-        self.rows.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
-    }
-
-    fn record(&self, id: &str, ack: &Ack) {
-        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
-        rows.insert(id.to_owned(), ack.clone());
-        // Keep the ledger bounded while retaining the newest message ids. The hub expires
-        // messages after seven days, so stale entries cannot be needed indefinitely.
-        while rows.len() > 4096 {
-            let Some(oldest) = rows.keys().next().cloned() else { break };
-            rows.remove(&oldest);
+        Self {
+            allowed,
+            ledger: ControlLedger::open(path),
+            tasks: StdMutex::new(Default::default()),
         }
-        let Some(path) = &self.path else { return };
-        let Some(parent) = path.parent() else { return };
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
-        let Ok(bytes) = serde_json::to_vec(&*rows) else { return };
-        let tmp = path.with_extension("json.tmp");
-        let _ = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path));
     }
 }
 
@@ -452,31 +420,79 @@ impl ControlHook for MeshControlHook {
         message: &'a InMessage,
     ) -> futures::future::BoxFuture<'a, Option<Ack>> {
         Box::pin(async move {
-            if let Some(ack) = self.ledger.get(&message.message_id) {
-                return Some(ack);
+            // Authorize every delivery before consulting a cached result. Revoking an owner
+            // grant takes effect even for a message whose earlier result remains in the ledger.
+            let sender = message.from.daemon_id.as_deref().filter(|id| !id.is_empty());
+            let op = message.op.as_deref().unwrap_or_default();
+            if !sender
+                .is_some_and(|sender| self.allowed.iter().any(|entry| entry.allows(sender, op)))
+            {
+                return Some(Ack::refused("mesh.control_not_allowed"));
             }
-            let ack = run_control(hub, &self.allowed, message).await;
-            if let Some(ack) = &ack {
-                self.ledger.record(&message.message_id, ack);
+            if !crate::mesh::is_message_id(&message.message_id) {
+                return None;
             }
-            ack
+            let claim = self.ledger.claim(sender.unwrap_or_default(), message);
+            let receiver = match claim {
+                Claim::Done(ack) => return Some(ack),
+                Claim::Unknown => return None,
+                Claim::Conflict => return Some(Ack::refused("mesh.control_id_conflict")),
+                Claim::Waiting(receiver) => receiver,
+                Claim::New { key, receiver } => {
+                    let (hub, message, ledger) =
+                        (hub.clone(), message.clone(), self.ledger.clone());
+                    let mut tasks = self.tasks.lock_or_recover();
+                    while tasks.try_join_next().is_some() {}
+                    tasks.spawn(async move {
+                        let shutdown = hub.shutdown.notified();
+                        tokio::pin!(shutdown);
+                        shutdown.as_mut().enable();
+                        if hub.is_stopping() {
+                            return;
+                        }
+                        let outcome = tokio::select! {
+                            ack = run_control(&hub, &message) => ack,
+                            () = &mut shutdown => None,
+                        };
+                        if let Some(ack) = outcome {
+                            ledger.finish(&key, clip(ack));
+                        }
+                    });
+                    receiver
+                }
+            };
+            // A 60 s lease need not contain a 90 s agent startup. No ack means pending, never
+            // refused; the retained task stores the later result for the next lease to replay.
+            wait_control_result(receiver, Duration::from_secs(50)).await
         })
     }
 }
 
-async fn run_control(
-    hub: &Arc<Hub>,
-    allowed: &[MeshControlFrom],
-    message: &InMessage,
+async fn wait_control_result(
+    mut receiver: watch::Receiver<Option<Ack>>,
+    wait: Duration,
 ) -> Option<Ack> {
+    tokio::time::timeout(wait, async move {
+        loop {
+            if let Some(ack) = receiver.borrow_and_update().clone() {
+                return Some(ack);
+            }
+            if receiver.changed().await.is_err() {
+                return None;
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
     };
-    let Some(daemon_id) = message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) else {
-        return Some(Ack::refused("mesh.control_not_allowed"));
-    };
-    if !allowed.iter().any(|entry| entry.allows(daemon_id, op)) {
-        return Some(Ack::refused("mesh.control_not_allowed"));
+    if message.body.len() > 64 * 1024 {
+        return Some(Ack::refused("control body exceeds 64 KiB"));
     }
     let body: serde_json::Value = match serde_json::from_str(&message.body) {
         Ok(body) => body,
@@ -503,11 +519,20 @@ async fn run_control(
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
-        let Some(id) = message.to.session_id.as_deref().filter(|id| !id.is_empty()) else {
-            return Some(Ack::refused("resume and stop require a session id target"));
+        // Only exact sessions owned here. Resolving locally before RPC also prevents a
+        // qualified target from being forwarded by the general request dispatcher.
+        let target = crate::mesh::Target {
+            session_id: message.to.session_id.clone(),
+            name: message.to.name.clone(),
+            ..Default::default()
         };
-        params["sessionId"] = serde_json::Value::String(id.to_owned());
+        let session = match hub.mesh_target(&target, None) {
+            Ok(session) => session,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
+    let session_id = params.get("sessionId").cloned();
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,
@@ -521,8 +546,8 @@ async fn run_control(
         }),
     )
     .await;
-    if let Err(e) = initialized {
-        return Some(Ack::refused(format!("control initialize failed: {e}")));
+    if let Err(error) = initialized {
+        return error.ack();
     }
     let result = match op {
         "start" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, params).await,
@@ -533,13 +558,7 @@ async fn run_control(
         "resume" => {
             let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
                 Ok(info) => info,
-                Err(e) => {
-                    return Some(Ack {
-                        state: AckState::Refused,
-                        prompt_id: Some(message.message_id.clone()),
-                        detail: Some(e),
-                    });
-                }
+                Err(error) => return error.ack(),
             };
             let held = info["queue"]
                 .as_array()
@@ -556,7 +575,7 @@ async fn run_control(
                         3,
                         crate::rpc::method::MUX_QUEUE_EDIT,
                         serde_json::json!({
-                            "sessionId": message.to.session_id.clone(),
+                            "sessionId": session_id,
                             "promptId": prompt_id,
                             "op": "resume"
                         }),
@@ -574,11 +593,23 @@ async fn run_control(
                 result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
             Some(Ack::delivered(&message.message_id, detail))
         }
-        Err(e) => Some(Ack {
-            state: AckState::Refused,
-            prompt_id: Some(message.message_id.clone()),
-            detail: Some(e),
-        }),
+        Err(error) => error.ack(),
+    }
+}
+
+enum ControlFailure {
+    /// An RPC error proves that the target handler refused this operation.
+    Refused(String),
+    /// Lost response/connection: execution may have happened; retain the pending fence.
+    Unknown,
+}
+
+impl ControlFailure {
+    fn ack(self) -> Option<Ack> {
+        match self {
+            Self::Refused(reason) => Some(Ack::refused(reason)),
+            Self::Unknown => None,
+        }
     }
 }
 
@@ -588,24 +619,20 @@ async fn rpc_call(
     id: i64,
     method: &str,
     params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+) -> Result<serde_json::Value, ControlFailure> {
     tx.send(crate::rpc::Message::request(id, method, params).to_line())
         .await
-        .map_err(|_| "control connection closed".to_owned())?;
+        .map_err(|_| ControlFailure::Unknown)?;
     loop {
-        let line = tokio::time::timeout_at(deadline, rx.recv())
-            .await
-            .map_err(|_| "control request timed out".to_owned())?
-            .ok_or_else(|| "control connection closed".to_owned())?;
-        let response = crate::rpc::Message::parse(&line).map_err(|e| e.to_string())?;
+        let line = rx.recv().await.ok_or(ControlFailure::Unknown)?;
+        let response = crate::rpc::Message::parse(&line).map_err(|_| ControlFailure::Unknown)?;
         if let crate::rpc::Message::Response { id: got, result, error } = response
             && got == serde_json::json!(id)
         {
             return match (result, error) {
                 (Some(result), None) => Ok(result),
-                (_, Some(error)) => Err(error.to_string()),
-                _ => Err("control response had no result".to_owned()),
+                (_, Some(error)) => Err(ControlFailure::Refused(error.to_string())),
+                _ => Err(ControlFailure::Unknown),
             };
         }
     }
@@ -732,6 +759,64 @@ mod tests {
         let limited =
             HubError { retry_after: Some(Duration::from_secs(9)), ..HubError::unavailable("") };
         assert_eq!(after_failure(&mut backoff, &limited), Duration::from_secs(9));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_late_rpc_result_survives_the_delivery_lease() {
+        let ledger = ControlLedger::open(None);
+        let mut message = from("", "");
+        message.kind = Kind::Control;
+        message.op = Some("start".into());
+        let Claim::New { key, receiver } = ledger.claim("sender", &message) else {
+            panic!("a new operation must be admitted");
+        };
+        let (tx, mut requests) = mpsc::channel(1);
+        let (replies, mut rx) = mpsc::channel(1);
+        let target = tokio::spawn(async move {
+            requests.recv().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(90)).await;
+            replies
+                .send(
+                    crate::rpc::Message::ok(json!(2), json!({"sessionId": "stable-id"})).to_line(),
+                )
+                .await
+                .unwrap();
+        });
+        let worker_ledger = ledger.clone();
+        let worker = tokio::spawn(async move {
+            let result =
+                rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, json!({})).await;
+            if let Ok(result) = result {
+                worker_ledger.finish(
+                    &key,
+                    Ack::delivered("m", result["sessionId"].as_str().map(str::to_owned)),
+                );
+            }
+        });
+        assert!(wait_control_result(receiver, Duration::from_secs(50)).await.is_none());
+        let Claim::Waiting(receiver) = ledger.claim("sender", &message) else {
+            panic!("redelivery must join the running operation");
+        };
+        let ack = wait_control_result(receiver, Duration::from_secs(50)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered);
+        assert_eq!(ack.detail.as_deref(), Some("stable-id"));
+        target.await.unwrap();
+        worker.await.unwrap();
+        assert!(matches!(ledger.claim("sender", &message), Claim::Done(_)));
+    }
+
+    #[tokio::test]
+    async fn a_lost_rpc_response_is_indeterminate_not_refused() {
+        let (tx, mut requests) = mpsc::channel(1);
+        let (replies, mut rx) = mpsc::channel(1);
+        let target = tokio::spawn(async move {
+            requests.recv().await.unwrap();
+            // The handler may have executed before the connection dropped.
+            drop(replies);
+        });
+        let result = rpc_call(&tx, &mut rx, 1, crate::rpc::method::SESSION_NEW, json!({})).await;
+        assert!(matches!(result, Err(ControlFailure::Unknown)));
+        target.await.unwrap();
     }
 
     #[test]

@@ -41,16 +41,21 @@ pub struct MeshRelayConfig {
 #[serde(rename_all = "camelCase")]
 pub struct MeshControlFrom {
     pub daemon_id: String,
-    /// Empty means all lifecycle operations. Unknown names never grant an operation.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
+    #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
+}
+
+fn lifecycle_ops() -> Vec<String> {
+    ["start", "resume", "stop"].map(str::to_owned).to_vec()
 }
 
 impl MeshControlFrom {
     pub fn allows(&self, daemon_id: &str, op: &str) -> bool {
         !self.daemon_id.is_empty()
             && self.daemon_id == daemon_id
-            && (self.ops.is_empty() || self.ops.iter().any(|allowed| allowed == op))
+            && matches!(op, "start" | "resume" | "stop")
+            && self.ops.iter().any(|allowed| allowed == op)
     }
 }
 
@@ -441,8 +446,16 @@ mod tests {
 
     #[test]
     fn control_sender_allowlist_uses_only_the_stamped_daemon_and_selected_ops() {
-        let all = MeshControlFrom { daemon_id: "d1".into(), ops: vec![] };
-        assert!(all.allows("d1", "start"));
+        let default: MeshControlFrom = serde_json::from_value(json!({"daemonId":"d1"})).unwrap();
+        for op in ["start", "resume", "stop"] {
+            assert!(default.allows("d1", op));
+        }
+        let all: MeshControlFrom =
+            serde_json::from_value(json!({"daemonId":"d1", "ops":[]})).unwrap();
+        let round_trip: MeshControlFrom =
+            serde_json::from_value(serde_json::to_value(&all).unwrap()).unwrap();
+        assert!(!round_trip.allows("d1", "start"));
+        assert!(!all.allows("d1", "start"));
         assert!(!all.allows("d2", "start"));
         let resume = MeshControlFrom { daemon_id: "d1".into(), ops: vec!["resume".into()] };
         assert!(resume.allows("d1", "resume"));
