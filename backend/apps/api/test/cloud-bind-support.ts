@@ -104,14 +104,14 @@ export const post = async (path: string, token: string | undefined, body: unknow
 const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 /** A signed-in person with a registered mac install and an install token for it. */
-export const signedInWithInstall = async (sub: string, kind = "mac") => {
+export const signedInWithInstall = async (sub: string, kind = "mac", op_classes?: ReadonlyArray<string>) => {
   const session = await sessionToken(sub)
   const ensured = (await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const reg = await post("/v1/ops", session, {
     op: "install.register",
-    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos" },
+    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos", ...(op_classes ? { op_classes } : {}) },
     idempotency_key: crypto.randomUUID(),
     origin: "user"
   })
