@@ -1,14 +1,17 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
+import Darwin
 import Testing
 
 /// Owns each daemon a test launch ensured, including one whose first handshake never completed.
 actor AppTestDaemonOwner {
     private let launcher: DaemonLauncher
     private var endpoints: Set<DaemonEndpoint> = []
+    private var processes: [DaemonEndpoint: AcpmuxUnresponsiveWatch.Daemon] = [:]
     private var ensureFailed = false
     private var stopping = false
     private var ensures: [UUID: Task<DaemonEndpoint, any Error>] = [:]
@@ -35,7 +38,7 @@ actor AppTestDaemonOwner {
         let launcher = launcher
         do {
             let endpoint = try await launcher.endpointProvider()
-            endpoints.insert(endpoint)
+            record(endpoint)
             return endpoint
         } catch {
             ensureFailed = true
@@ -43,45 +46,108 @@ actor AppTestDaemonOwner {
         }
     }
 
-    @MainActor func stop(_ services: AppServices) async {
+    /// False preserves the caller's state directory for an owner whose exit is unconfirmed.
+    @MainActor @discardableResult func stop(_ services: AppServices) async -> Bool {
         // task-owner: joined teardown; runs even when the test's task is already cancelled
         await Task { @MainActor in
             await services.daemon.shutdownConnectionAndWait()
             await services.windows.prepareForTermination()
-            await self.reap()
+            return await self.reap()
         }.value
     }
 
-    func reap() async {
+    @discardableResult func reap() async -> Bool {
         stopping = true
-        // A discarded startup connection may still be delivering an endpoint. Reject new
-        // requests and join every already-admitted ensure before taking the ownership census.
+        // Reject new requests and join admitted ensures before taking the ownership census.
         for ensure in Array(ensures.values) { _ = try? await ensure.value }
+        var resolved = true
         if let running = await launcher.runningOwner() {
-            endpoints.insert(running.endpoint)
+            record(running.endpoint)
         } else if ensureFailed {
             Issue.record("daemon ensure failed and its final owner could not be established; cleanup is incomplete")
+            resolved = false
         }
-        for endpoint in endpoints {
-            let connection = DaemonConnection(endpoint: endpoint)
-            do {
-                _ = try await connection.start()
-                await connection.closeAndWait()
-                let reply = try await connection.shutdownDaemon(endTerminals: true)
-                #expect(reply.accepted == true)
-            } catch {
-                await connection.closeAndWait()
-                // A prior reconnect may have replaced an already-exited owner. Only an owner
-                // still alive after the exit wait is a teardown failure.
+        for endpoint in Array(endpoints) {
+            let exited = await Self.reap(endpoint, process: processes[endpoint]) {
+                let connection = DaemonConnection(endpoint: endpoint)
+                do {
+                    _ = try await connection.start()
+                    // endTerminals uses its own socket and retains this identity. Close the
+                    // subscribed connection first so EOF cannot start a replacement owner.
+                    await connection.closeAndWait()
+                    let reply = try await connection.shutdownDaemon(endTerminals: true)
+                    return reply.accepted == true
+                } catch {
+                    await connection.closeAndWait()
+                    throw error
+                }
             }
-            if let pid = endpoint.pid {
-                let exited = await ProcessExit.exitEvent(pid: pid, within: .seconds(60), clock: ContinuousClock())
-                #expect(exited, "test daemon outlived teardown: \(pid)")
-            } else {
-                Issue.record("test daemon endpoint has no owned pid to verify teardown")
+            #expect(exited, "test daemon exit was not confirmed: \(String(describing: endpoint.pid)); preserving its state directory")
+            if exited {
+                endpoints.remove(endpoint)
+                processes[endpoint] = nil
+            } else { resolved = false }
+        }
+        return resolved
+    }
+
+    /// Remember the process while ensure's endpoint still belongs to the configured binary
+    /// and socket. The audit token includes the kernel pid version: a recycled pid is never
+    /// signalled, even if it changes between verification and the signal syscall.
+    private func record(_ endpoint: DaemonEndpoint) {
+        endpoints.insert(endpoint)
+        guard processes[endpoint] == nil, let pid = endpoint.pid, pid > 1, pid != getpid(),
+              endpoint.bridge == nil,
+              let before = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid),
+              AcpmuxVersionHandoff.executablePath(pid: pid) == launcher.configuration.binary.resolvingSymlinksInPath().path,
+              Self.listenerPID(socketPath: endpoint.socketPath) == pid,
+              AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) == before else { return }
+        processes[endpoint] = before
+    }
+
+    /// A full listen backlog must not block ownership recording or teardown. If this
+    /// nonblocking peer check cannot finish now, retain the endpoint without signal authority.
+    private static func listenerPID(socketPath: String) -> Int32? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        guard socketPath.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: socketPath.utf8)
+            buffer[socketPath.utf8.count] = 0
+        }
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { return nil }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        endpoints.removeAll()
+        guard connected == 0 else { return nil }
+        var pid: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
+    }
+
+    /// Shared with the failure-path regression: graceful shutdown may throw before identify.
+    /// Its fallback uses the existing audit-token signaler and bounded TERM/KILL exit watches.
+    static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxUnresponsiveWatch.Daemon?,
+                     grace: Duration = .seconds(10),
+                     shutdown: @Sendable () async throws -> Bool) async -> Bool {
+        guard let pid = endpoint.pid, pid > 1 else { return false }
+        if (try? await shutdown()) == true,
+           await ProcessExit.exitEvent(pid: pid, within: .seconds(60), clock: ContinuousClock()) { return true }
+        guard let process, process.pid == pid else {
+            // An unverified live pid is evidence to preserve, never permission to signal it.
+            return await ProcessExit.exitEvent(pid: pid, within: .seconds(1), clock: ContinuousClock())
+        }
+        let watch = AcpmuxUnresponsiveWatch(clock: ContinuousClock(), process: { pid in
+            // Unreadable identity is not proof of exit. The retained audit token still lets
+            // the kernel refuse a signal to any replacement process without a pid-only fallback.
+            AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) ?? process
+        })
+        return await watch.stop(process, grace: grace)
     }
 }
 
@@ -145,7 +211,8 @@ struct PinnedPageTests {
     static func withApp(_ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-pinned-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
@@ -174,7 +241,7 @@ struct PinnedPageTests {
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
-        await owner.stop(services)
+        reaped = await owner.stop(services)
         try result.get()
     }
 }
