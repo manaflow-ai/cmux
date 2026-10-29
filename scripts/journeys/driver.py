@@ -30,6 +30,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -43,7 +44,10 @@ import build_names  # noqa: E402
 
 PROMPT = "J> "
 # The prompt every journey's shell gets (neutral: no host, user or path in any frame).
-NEUTRAL_PROMPT = "PS1='J> '; PROMPT='J> '; RPROMPT=''; unset PROMPT_COMMAND; cd /tmp; printf '\\033[H\\033[2J\\033[3J'\r"
+# The shell also writes its tty to {tty_file}: one terminal host runs the shells of every terminal (one tty
+# each), and process checks look only at this terminal's tty.
+NEUTRAL_PROMPT = ("PS1='J> '; PROMPT='J> '; RPROMPT=''; unset PROMPT_COMMAND; cd /tmp; tty >| {tty_file}; "
+                  "printf '\\033[H\\033[2J\\033[3J'\r")
 RPC_TIMEOUT = 30.0
 SNAPSHOT_TIMEOUT = 30.0
 POLL_SECONDS = 0.05
@@ -393,6 +397,8 @@ class Journey:
         self.nonce = "".join(random.choice("23456789") for _ in range(6))
         self.vars = {"nonce": self.nonce, "prompt": PROMPT}
         self.marks, self.binds = {}, {}
+        # {terminal id: its tty as ps names it (ttys004)}, written by the shell at neutral_prompt.
+        self.ttys = {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
         # The window keys go to (a main window id; None: debug.key's default, the first window), and
@@ -526,13 +532,37 @@ class Journey:
 
     def step_neutral_prompt(self, step):
         # Set-up, not under test: written into the PTY by the daemon, as a paste would be.
-        self.app.cmux("terminal", self.need_term(), "write", "--text", NEUTRAL_PROMPT)
+        term = self.need_term()
+        tty_file = self.out / f"tty-{len(self.ttys) + 1}.txt"
+        if tty_file.exists():
+            tty_file.unlink()
+        self.app.cmux("terminal", term, "write", "--text", NEUTRAL_PROMPT.format(tty_file=shlex.quote(str(tty_file))))
         end = now() + float(step.get("timeout", 15))
         while now() < end:
             if last_line(self.app.screen(self.term)["text"]) == PROMPT.rstrip():
-                return {"prompt": PROMPT}
+                tty = self.read_tty(tty_file, float(step.get("tty_timeout", 2)))
+                if tty:
+                    self.ttys[term] = tty
+                else:
+                    self.ttys.pop(term, None)
+                return {"prompt": PROMPT, "tty": tty}
             time.sleep(0.1)
         raise StepError(f"the neutral prompt never showed; screen ends {last_line(self.app.screen(self.term)['text'])!r}")
+
+    @staticmethod
+    def read_tty(path, timeout):
+        """The tty the shell wrote (/dev/ttys004 -> ttys004, as ps names it), or None."""
+        end = now() + timeout
+        while True:
+            try:
+                text = path.read_text().strip()
+            except OSError:
+                text = ""
+            if text.startswith("/dev/"):
+                return text[len("/dev/"):]
+            if now() >= end:
+                return None
+            time.sleep(0.05)
 
     def step_type(self, step):
         # The mark is the moment the command is entered (Return), else the first key.
@@ -1254,14 +1284,24 @@ class Journey:
                 if name == "process_present":
                     scope = descendants(table, self.app.roots(table, self.host_pid))
                     hits = [table[p] for p in sorted(scope) if re.search(want["match"], table[p]["command"])]
+                    tty = self.ttys.get(self.term) if self.term else None
+                    detail = {"matches": hits[:3], "count": len(hits), "tty": tty, "scope_root": self.host_pid or "bundle"}
                     if want.get("foreground"):
                         # A controlling tty, and the process in its foreground group (ps `+`): Ctrl+C can reach it.
                         good = [h for h in hits if h["tty"] not in ("??", "-", "") and "+" in h["stat"]]
+                        # This terminal's tty: the host also runs the other terminals' shells and jobs.
+                        if tty:
+                            good = [h for h in good if h["tty"] == tty]
+                        elif want.get("bind") and len({h["tty"] for h in good}) > 1:
+                            # Which one is this terminal's is unknown: a guess would bind another terminal's.
+                            detail["error"] = f"matches on ttys {sorted({h['tty'] for h in good})}; this terminal's tty is unknown"
+                            return False, detail
                     else:
                         good = hits
                     if good and want.get("bind"):
                         self.binds[want["bind"]] = good[0]
-                    return bool(good), {"matches": hits[:3], "scope_root": self.host_pid or "bundle"}
+                        detail["bound"] = good[0]
+                    return bool(good), detail
                 if name == "process_gone":
                     bound = self.binds.get(want)
                     if not bound:

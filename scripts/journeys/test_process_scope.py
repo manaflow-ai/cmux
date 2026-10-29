@@ -45,7 +45,7 @@ class Host:
         term, text = args[1], args[4]
         self.writes.append((term, text))
         # The shell runs the line: a `tty >| FILE` in it writes this terminal's device.
-        match = re.search(r"tty >\| ('[^']*'|\S+)", text)
+        match = re.search(r"tty >\| ('[^']*'|[^\s;]+)", text)
         if match and self.write_tty:
             Path(shlex.split(match.group(1))[0]).write_text(f"/dev/{self.ttys[term]}\n")
         return {}
