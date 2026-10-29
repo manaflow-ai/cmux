@@ -17,6 +17,18 @@ import Testing
         return model
     }
 
+    /// A saved key reads signed in by its presence alone, so a key Connect would refuse
+    /// (`CredentialResolver.isWellFormedKey`) is refused at Save instead of saved.
+    @Test func aMalformedKeyIsNotSavedToTheKeychain() {
+        let services = MockAccountsServices()
+        let model = AccountsModel(services: services)
+        #expect(model.saveKey("short", for: .openAI) != nil)
+        #expect(model.saveKey("abcdefghijklmnopqrstuvwxyz0123", for: .anthropic) != nil)
+        #expect(!services.calls.contains { $0.hasPrefix("saveKey:") })
+        #expect(model.saveKey("  sk-ant-api03-abcdefghijklmnopqrstuvwxyz \n", for: .anthropic) == nil)
+        #expect(services.calls.contains("saveKey:anthropic"))
+    }
+
     @Test func aRemoveBeforeTheScreenEverOpenedRemovesTheAccount() async throws {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)

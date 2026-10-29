@@ -70,6 +70,8 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
 #[cfg(unix)]
+mod machine_doctor;
+#[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -132,6 +134,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
+    "settings",
+    "config",
     "raw",
 ];
 
@@ -427,6 +431,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -520,6 +525,12 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);
     }
+    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
+    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // equivalents on this surface.
+    if daemon_settings_scope(&command_args) {
+        return None;
+    }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
             "usage.invalid",
@@ -539,6 +550,33 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
             global.output,
             2,
         )),
+    }
+}
+
+#[cfg(unix)]
+fn daemon_settings_scope(command_args: &[String]) -> bool {
+    // Help belongs to the app's documented settings scope even when it is
+    // attached to a daemon-owned CRUD verb.
+    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return false;
+    }
+    if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
+        return false;
+    }
+    match command_args.get(1).map(String::as_str) {
+        // `get` without a path is the legacy app snapshot; keep it until the
+        // daemon gains an equivalent empty-target read.
+        Some("get") if command_args.len() == 2 => false,
+        // Person-only settings still need the app's native confirmation
+        // sheet. The daemon CLI deliberately has no fake approval path. Only
+        // options before `--` are flags; after it, every argument is literal.
+        Some("set" | "reset" | "unset")
+            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+        {
+            false
+        }
+        Some("get" | "set" | "reset" | "unset") => true,
+        _ => false,
     }
 }
 
@@ -1173,6 +1211,11 @@ const CLOUD_HELP: &str = "\
 USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
 
+Most machine actions need --target machine:MACHINE_ID, even with one machine.
+Run `cmux cloud list-machines` to get its id and target.
+hand-off-machine returns hand-off text; move sends a chat tab to Cloud and
+bring-back returns a previously moved chat to this Mac.
+
 CLI actions (the live action catalog is authoritative):
   new-workspace             new-machine
   fork-machine              snapshot-machine
@@ -1202,6 +1245,13 @@ CLI actions (the live action catalog is authoritative):
   open-desktop              apply-machine-config
   deliver-secrets           start-session
 
+Secrets (stored in this Mac's Keychain):
+  cmux cloud secret set NAME [--repo OWNER/NAME]
+  cmux cloud secret ls
+  cmux cloud secret rm NAME [--repo OWNER/NAME]
+set reads the value from a hidden prompt or stdin, never a command argument.
+deliver-secrets sends the secrets declared by a finished machine config.
+
 Client sessions (a scoped token for one of your machines, no app needed):
   cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
@@ -1213,6 +1263,11 @@ Run `cmux action list --category cloud --json` for the current catalog and
 const CLOUD_HELP_JA: &str = "\
 使い方
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
+
+マシンを操作する大半のアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
+`cmux cloud list-machines` で ID と target を確認できます。
+hand-off-machine は引き継ぎ用のテキストを返します。move はチャットタブを Cloud に移し、
+bring-back は以前移したチャットをこの Mac に戻します。
 
 CLI アクション（現在の一覧はアクションカタログを参照）:
   new-workspace             new-machine
@@ -1242,6 +1297,13 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   machine-link              enroll-machine
   open-desktop              apply-machine-config
   deliver-secrets           start-session
+
+シークレット（この Mac のキーチェーンに保存）:
+  cmux cloud secret set NAME [--repo OWNER/NAME]
+  cmux cloud secret ls
+  cmux cloud secret rm NAME [--repo OWNER/NAME]
+set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
+deliver-secrets は適用が完了したマシン設定で宣言されたシークレットを送信します。
 
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
   cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]

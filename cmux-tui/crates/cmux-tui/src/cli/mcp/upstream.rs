@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::computer_use_gate::{self, Gate};
+use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -87,14 +88,14 @@ const RULES_LABEL: &str = " rules: ";
 /// server shares (they name terminals, messages, files and passwords).
 pub(super) fn without_rules(description: &str) -> &str {
     let mut from = 0;
-    while let Some(at) = description[from..].find(RULES_BREAK) {
+    while let Some(at) = description.get(from..).and_then(|tail| tail.find(RULES_BREAK)) {
         let start = from + at;
-        let rest = &description[start + RULES_BREAK.len()..];
-        if let Some(end) = rest.find(RULES_LABEL)
-            && end > 0
-            && !rest[..end].contains(char::is_whitespace)
+        let rest = description.get(start + RULES_BREAK.len()..).unwrap_or_default();
+        if let Some((server, _)) = rest.split_once(RULES_LABEL)
+            && !server.is_empty()
+            && !server.contains(char::is_whitespace)
         {
-            return &description[..start];
+            return description.get(..start).unwrap_or(description);
         }
         from = start + RULES_BREAK.len();
     }
@@ -216,8 +217,8 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}{rules}"));
-                tool["name"] = json!(name);
+                tool.set("description", json!(format!("[{server}] {description}{rules}")));
+                tool.set("name", json!(name));
                 Some(tool)
             })
             .collect()
@@ -516,8 +517,13 @@ impl<B: super::Backend> super::Server<B> {
             return None;
         }
         let inner = proxied.inner.clone();
-        let computer_use = (proxied.name == computer_use_gate::SERVER)
-            .then(|| name[proxied.prefix.len() + 1..].to_owned());
+        let computer_use = if proxied.name == computer_use_gate::SERVER {
+            name.strip_prefix(proxied.prefix.as_str())
+                .and_then(|rest| rest.strip_prefix('_'))
+                .map(str::to_owned)
+        } else {
+            None
+        };
         let arguments = Value::Object(arguments.clone());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(
