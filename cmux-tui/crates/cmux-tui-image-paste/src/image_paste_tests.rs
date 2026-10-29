@@ -441,8 +441,10 @@ fn cloud_image_paste_an_expired_receipt_is_never_revived() {
         .append(&owner(), ID, PNG.len(), &base64::engine::general_purpose::STANDARD.encode(PNG))
         .unwrap_err();
     assert_eq!(refused.to_string(), "image-upload-expired");
-    assert_eq!(receipt(&path).0, 1_000_000 + 720, "daemon A revived an expired receipt");
+    // A ended the upload (its bytes are gone) rather than reviving the receipt
+    // and growing a file B is about to remove.
     assert!(daemon_a.shared.state.lock().unwrap().uploads.is_empty());
+    assert!(!path.exists());
     assert!(stale.remove_owned());
     drop(stale);
     assert!(!path.parent().unwrap().exists());
