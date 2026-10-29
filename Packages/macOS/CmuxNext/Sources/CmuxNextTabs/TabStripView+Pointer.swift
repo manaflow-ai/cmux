@@ -192,7 +192,14 @@ extension TabStripView {
             return
         }
         if pressedNewTab {
-            newTabButton.isPressed = isInNewTabButton(point)
+            let inside = isInNewTabButton(point)
+            newTabButton.isPressed = inside
+            if !inside {
+                // Leaving + cancels the long-press gesture. Keep the release from
+                // creating a tab or allowing the 450 ms task to present a menu.
+                pressedNewTab = false
+                _ = newTabHold.end()
+            }
             return
         }
         if let id = pressedAudioID {
