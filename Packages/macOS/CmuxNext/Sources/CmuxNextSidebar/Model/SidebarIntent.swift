@@ -9,6 +9,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case select(WorkspaceID)
     /// Activate a tab listed beneath a workspace.
     case selectTab(workspace: WorkspaceID, tab: TabID)
+    /// Close a tab listed beneath a workspace (a middle-click on its row): the App runs Close Tab on it alone, so
+    /// Reopen Closed brings it back. No local change; the store drops the row.
+    case closeTab(workspace: WorkspaceID, tab: TabID)
     /// Move a listed tab into another workspace.
     case moveTab(TabID, from: WorkspaceID, to: WorkspaceID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving

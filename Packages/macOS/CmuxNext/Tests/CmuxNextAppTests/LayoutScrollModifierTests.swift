@@ -362,9 +362,9 @@ struct LayoutScrollModifierTests {
         #expect(!w.scroll(at: top, phase: .ended))
     }
 
-    /// One column whose rows overflow and a strip that fits: Command + a sideways swipe has nothing
-    /// to move that way, but it began where the layout scrolls, so it stays the layout's (the pane
-    /// never saw its start, and a web page must not go Back or Forward on it).
+    /// One column whose rows overflow and a strip that fits: Command + a sideways swipe stays the
+    /// layout's (the pane never saw its start, and a web page must not go Back or Forward on it);
+    /// the strip only rubber-bands and springs back.
     @Test func aCommandSwipeWithNothingToMoveItsWayStaysTheLayoutsAndMovesNothing() throws {
         let rows = [LayoutRow(id: "r1", height: 750, root: .leaf("top")),
                     LayoutRow(id: "r2", height: 750, root: .leaf("bottom"))]
@@ -392,12 +392,15 @@ struct LayoutScrollModifierTests {
         #expect(Self.scroll(root, at: point, dx: -10, momentum: .begin), "nor its coast")
         #expect(Self.scroll(root, at: point, momentum: .end))
         #expect(!root.ownsCurrentScrollGesture)
+        for _ in 0..<600 { if !root.advanceFrame(1.0 / 120) { break } }
         #expect(root.frame(of: "top") == frame, "nothing moved")
     }
 
-    /// Nothing to scroll at all (one column, no rows): Command + scroll is the pane's, so a web
-    /// page goes Back or Forward on it, Chromium and WebKit alike.
-    @Test func aCommandSwipeWhereTheLayoutHasNothingToScrollIsThePanes() throws {
+    /// Nothing to scroll at all (one column, no rows, the strip fits): Command + scroll is still the
+    /// layout's, from a Chromium page's window as from the layout's own (a terminal), so a browser
+    /// pane never goes Back or Forward on it and the strip only rubber-bands (Lawrence 2026-10-28,
+    /// browser focus mode included; CommandScrollColumnsTests).
+    @Test func aCommandSwipeWhereTheStripFitsIsTheLayoutsFromAPageWindowToo() throws {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
             LayoutColumn(id: "c1", width: 1, root: .leaf("a")),
         ]))], activeScreenID: "s", focusedPane: "a")
@@ -411,11 +414,16 @@ struct LayoutScrollModifierTests {
         root.layoutSubtreeIfNeeded()
         let frame = try #require(root.frame(of: "a"))
         let point = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
-        #expect(!Self.scroll(root, at: point, phase: .mayBegin, command: true))
-        #expect(!Self.scroll(root, at: point, dx: -20, phase: .began, command: true))
-        #expect(!root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(root, at: point, dx: -20, phase: .changed, command: true))
-        #expect(!Self.scroll(root, at: point, phase: .ended, command: true))
+        let page = Self.pageWindow()
+        Self.attach(page, to: window, over: root.convert(frame, to: nil))
+        defer { window.removeChildWindow(page); page.close() }
+        #expect(Self.scroll(root, from: page, at: point, phase: .mayBegin, command: true))
+        #expect(Self.scroll(root, from: page, at: point, dx: -20, phase: .began, command: true))
+        #expect(root.ownsCurrentScrollGesture)
+        #expect(Self.scroll(root, from: page, at: point, dx: -20, phase: .changed, command: true))
+        #expect(Self.scroll(root, from: page, at: point, phase: .ended, command: true))
+        #expect(Self.scroll(root, at: point, dx: -20, phase: .began, command: true), "the layout's own window: the layout's")
+        #expect(Self.scroll(root, at: point, phase: .ended, command: true))
     }
 
     /// Multi-view: two layouts in one window, each with its own monitor. Both see a touch; the one
@@ -567,21 +575,28 @@ struct LayoutScrollModifierTests {
         }
     }
 
-    /// A scroll area in one column claims a Command gesture only over itself: over a pane outside
-    /// every area, where the strip fits and no rows overflow, the layout has nothing to scroll, so
-    /// the gesture is the pane's (a web page swipes Back or Forward on it), as the wheel is.
-    @Test func aCommandGestureOutsideEveryScrollAreaWhereNothingElseScrollsIsThePanes() throws {
+    /// Over a page outside every scroll area, where the strip fits and no rows overflow, a Command
+    /// gesture is still the layout's (the strip rubber-bands), as the wheel is: a browser pane never
+    /// swipes Back or Forward on it (Lawrence 2026-10-28).
+    @Test func aCommandGestureOutsideEveryScrollAreaIsTheLayoutsFromAPageWindowToo() throws {
         let w = try AreaWindow()
         let q = try w.center("q")
-        #expect(!Self.scroll(w.root, at: q, phase: .mayBegin, command: true), "the touch goes on to the pane")
-        #expect(!w.root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .began, command: true))
-        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .changed, command: true))
-        #expect(!w.root.ownsCurrentScrollGesture)
-        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
-        #expect(!Self.scroll(w.root, at: q, dy: -30, phase: .began, command: true), "up and down alike")
-        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
-        #expect(!Self.scroll(w.root, at: q, dx: -1, units: .line, command: true), "the wheel agrees")
+        let page = Self.pageWindow()
+        Self.attach(page, to: w.window, over: w.root.convert(try #require(w.root.frame(of: "q")), to: nil))
+        defer { w.window.removeChildWindow(page); page.close() }
+        func scroll(at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
+                    units: CGScrollEventUnit = .pixel, command: Bool) -> Bool {
+            Self.scroll(w.root, from: page, at: point, dx: dx, dy: dy, phase: phase, units: units, command: command)
+        }
+        #expect(scroll(at: q, phase: .mayBegin, command: true), "the page never sees the touch")
+        #expect(w.root.ownsCurrentScrollGesture)
+        #expect(scroll(at: q, dx: -20, phase: .began, command: true))
+        #expect(scroll(at: q, dx: -20, phase: .changed, command: true))
+        #expect(scroll(at: q, phase: .ended, command: true))
+        #expect(scroll(at: q, dy: -30, phase: .began, command: true), "up and down alike")
+        #expect(scroll(at: q, phase: .ended, command: true))
+        #expect(scroll(at: q, dx: -1, units: .line, command: true), "the wheel agrees")
+        #expect(!scroll(at: q, dx: -1, units: .line, command: false), "a plain notch is the page's")
         // Over the area itself, which can move toward its end, Command + scroll is the layout's.
         let p1 = try w.center("p1")
         #expect(Self.scroll(w.root, at: p1, dx: -20, phase: .began, command: true))

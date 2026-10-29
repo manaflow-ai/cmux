@@ -33,6 +33,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/full_access_guards.rs"]
 mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -81,6 +83,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]

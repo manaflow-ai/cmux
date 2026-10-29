@@ -167,10 +167,11 @@ fn text(r: &Rig, id: &str, task: &str) -> String {
 }
 
 /// Output a child writes after the leader exited is kept (the task runs until the pipe ends);
-/// a task that ignores SIGTERM is killed after the grace.
+/// a task that ignores SIGTERM is killed after the grace; a purge stops the chat's tasks and
+/// removes their folder.
 #[cfg(unix)]
 #[tokio::test]
-async fn late_output_is_kept_and_a_stubborn_task_is_killed() {
+async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_folder() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "late").await;
@@ -190,6 +191,10 @@ async fn late_output_is_kept_and_a_stubborn_task_is_killed() {
     assert_eq!(stopped["state"], "stopped");
     assert_eq!(stopped["signal"], libc::SIGKILL, "{stopped}");
     assert!(!alive(pid as u32), "a task that ignored SIGTERM outlived its stop");
+    let running = start(&mut r, &id, "sleep 600").await["pid"].as_u64().unwrap();
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    r.until("a purge left its task running", || !alive(running as u32)).await;
+    assert!(!acpmux::config::home().join("bg").join(&id).exists(), "a purge left the folder");
 }
 
 /// A child that ignores SIGTERM and sends its output elsewhere holds no pipe, so the pipe ends
@@ -231,7 +236,7 @@ async fn a_task_sees_the_agents_environment() {
     }
 }
 
-/// A record of another generation of the chat's folder (a runner of an earlier folder, writing
+/// A record of another generation of the chat's folder (a runner that outlived a purge, writing
 /// under the old path) is neither listed nor reached.
 #[cfg(unix)]
 #[tokio::test]
@@ -251,4 +256,95 @@ async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
     assert_eq!(ids, [json!(task)], "{list}");
     let stop = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": old.id})).await;
     assert!(stop.is_err(), "an earlier folder's task was reached");
+}
+
+/// A purge never waits for a task that ignores SIGTERM: the chat is gone at once, the task is
+/// killed after the grace, and its moved folder goes once it exited.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "stubborn-purge").await;
+    let task = start(&mut r, &id, "trap '' TERM; echo ready; while :; do sleep 0.1; done").await;
+    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
+    r.until("the task never set its trap", || text(&r, &id, &task_id) == "ready\n").await;
+    let at = std::time::Instant::now();
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    assert!(at.elapsed() < acpmux::bg_run::GRACE, "the purge waited for the task");
+    let home = acpmux::config::home().join("bg");
+    assert!(!home.join(&id).exists(), "a purge left the folder");
+    r.until("the stubborn task outlived the purge", || !alive(pid as u32)).await;
+    let moved = || {
+        std::fs::read_dir(home.join(".purged"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with(&format!("{id}-")))
+    };
+    r.until("the moved folder stayed after its task exited", || !moved()).await;
+}
+
+/// A purge stops a task whose record cannot be read: it finds tasks by their files.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_purge_stops_a_task_whose_record_is_unreadable() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "unreadable").await;
+    let task = start(&mut r, &id, "sleep 600").await;
+    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
+    let dir = acpmux::config::home().join("bg").join(&id);
+    std::fs::write(dir.join(format!("{task_id}.json")), "not json").unwrap();
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    r.until("a purge left a task with an unreadable record running", || !alive(pid as u32)).await;
+}
+
+/// A runner of an earlier folder of the chat id, whose stop FIFO sits in a later folder of that
+/// id (a purge moved its folder aside while it started), is never stopped by the later chat: its
+/// stops carry the later folder's generation, which the runner ignores. A stop that carries the
+/// runner's own generation still ends it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_purge_never_stops_a_runner_of_another_generation() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "other-generation").await;
+    let task = start(&mut r, &id, "sleep 600").await;
+    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
+    let dir = acpmux::config::home().join("bg").join(&id);
+    let own = acpmux::bg_run::read_record(&dir, &task_id).unwrap().generation;
+    // The folder is now a later one of this id; the runner still belongs to the earlier one.
+    std::fs::write(dir.join(".generation"), "a-later-folder").unwrap();
+    assert!(acpmux::bg_run::request_stop(&dir, &task_id, "a-later-folder"));
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    let aside = acpmux::config::home().join("bg").join(".purged");
+    let moved = std::fs::read_dir(&aside)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{id}-")))
+        .expect("the purge moved no folder aside");
+    // The runner's one reader took both stops off the FIFO, and a stop it acted on would have
+    // sent SIGTERM right then (a plain `sleep` ends at once); the margin covers that.
+    let ctl = acpmux::bg_run::ctl_path(&moved, &task_id);
+    r.until("the runner never read the stops", || unread(&ctl) == Some(0)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(alive(pid as u32), "a stop of another generation ended the task");
+    // Its own generation stops it, in the folder the purge moved aside.
+    assert!(acpmux::bg_run::request_stop(&moved, &task_id, &own), "the runner left its FIFO");
+    r.until("a stop of the runner's own generation did not end it", || !alive(pid as u32)).await;
+}
+
+/// The bytes written to the FIFO at `path` that its reader has not read yet (`None`: no reader).
+#[cfg(unix)]
+fn unread(path: &std::path::Path) -> Option<usize> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let f =
+        std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(path).ok()?;
+    let mut n: libc::c_int = 0;
+    // SAFETY: FIONREAD into a c_int this function owns, on a descriptor it holds.
+    let r = unsafe { libc::ioctl(f.as_raw_fd(), libc::FIONREAD as _, &mut n) };
+    (r == 0).then_some(n as usize)
 }
