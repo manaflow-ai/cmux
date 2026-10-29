@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSwiftRender
 @testable import CmuxSwiftRenderUI
 import Testing
@@ -52,15 +53,15 @@ struct SidebarJSRuntimeTests {
     }
 
     @Test func bundledImageResolvesOnlyAgentIcons() {
-        let present: (String) -> Bool = { _ in true }
-        #expect(DSLBundledImage.assetName("AgentIcons/Codex", exists: present) == "AgentIcons/Codex")
+        let resolver = DSLBundledImageResolver(loadImage: { _ in NSImage(size: NSSize(width: 14, height: 14)) })
+        #expect(resolver.assetName("AgentIcons/Codex") == "AgentIcons/Codex")
         // Outside the allowed namespace (or the bare namespace) stays a symbol.
-        #expect(DSLBundledImage.assetName("AppIcon", exists: present) == nil)
-        #expect(DSLBundledImage.assetName("AgentIcons/", exists: present) == nil)
-        #expect(DSLBundledImage.assetName("star.fill", exists: present) == nil)
-        #expect(DSLBundledImage.assetName(nil, exists: present) == nil)
+        #expect(resolver.assetName("AppIcon") == nil)
+        #expect(resolver.assetName("AgentIcons/") == nil)
+        #expect(resolver.assetName("star.fill") == nil)
+        #expect(resolver.assetName(nil) == nil)
         // A name in the namespace that the bundle lacks also stays a symbol.
-        #expect(DSLBundledImage.assetName("AgentIcons/Nope", exists: { _ in false }) == nil)
+        #expect(DSLBundledImageResolver(loadImage: { _ in nil }).assetName("AgentIcons/Nope") == nil)
     }
 
     @Test func fixedSizeReachesTheNode() {
