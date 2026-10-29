@@ -1490,16 +1490,6 @@ repositories.
   duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
   child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
   (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
-- 043 notes (Q8 slot B; manaflow-ai/cef `cp/p14-energy-043`, 4ab03f16dd2b, on the bundle tip ce8526971c0b): patch
-  `cmux_cpu_health_tracker_hidden_ui`. Location: `CpuHealthTracker`'s `cpu_probe_timer_`
-  (chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc). `PerformanceDetectionManager` makes it on
-  every desktop platform, with no feature gate, and it samples system CPU every 15 s (`kCPUSampleFrequency`) for
-  Chrome's toolbar performance intervention button. With `--cmux-tabbed-windows` the tracker makes no `CpuProbe`
-  (Chromium already handles a null probe), so it starts no timer. per_s from the source: CrBrowserMain 0.067 timer +
-  0.067 reply, a ThreadPool worker 0.067 (`cpu_probe_mac.cc` `CpuProbeMac::Update`); after, 0. No API number and no
-  cmux gate: cmux passes `cmux-tabbed-windows` for every fork API >= 1 (`CEFCpuHealthTrackerSwitchTests`). Not
-  claimed here, because other branches have them: HangWatcher, sync and OptimizationHints (p13-webui-084), and the
-  PartitionAlloc memory reclaimer (042).
 
 #### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
 - Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
