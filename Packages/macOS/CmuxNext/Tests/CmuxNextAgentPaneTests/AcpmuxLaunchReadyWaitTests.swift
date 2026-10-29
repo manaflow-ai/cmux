@@ -57,6 +57,25 @@ struct AcpmuxLaunchReadyWaitTests {
         #expect(AcpmuxReadyLine.refusal(#"{"ready":false,"lockHeld":true}"#) == nil)
     }
 
+    /// A launch that lost the lock race relays the winner's readiness with `lockHeld` (acpmux#27336):
+    /// the launcher says it did not start that daemon, and the enroll after it never hands the
+    /// winner off, so it is never shut down under the client that started it.
+    @Test func aRelayedLockHeldEndpointIsNeverHandedOff() async throws {
+        let relayed = try Self.environment("""
+        echo '{"ready":true,"lockHeld":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=w"}' >&3
+        """)
+        let winner = try await AcpmuxDaemonLauncher.launchReporting(relayed, deadline: .seconds(20))
+        #expect(winner.endpoint.token == "w")
+        #expect(!winner.startedHere)
+        #expect(!AcpmuxHost.mayHandOff(after: winner))
+
+        let own = try Self.environment("echo '\(Self.readyLine)' >&3")
+        let started = try await AcpmuxDaemonLauncher.launchReporting(own, deadline: .seconds(20))
+        #expect(started.startedHere)
+        #expect(AcpmuxHost.mayHandOff(after: started))
+        #expect(AcpmuxReadyLine.parse(#"{"ready":true,"lockHeld":true}"#)?.lockHeld == true)
+    }
+
     @Test func aDaemonThatExitsFailsAtOnce() async throws {
         let environment = try Self.environment("echo bye; exit 3")
         await #expect(throws: AcpmuxDaemonLauncher.Failure.self) {
