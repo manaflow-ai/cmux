@@ -3535,6 +3535,17 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
+    const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
+    const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+    const from = Math.min(events[0]?.seq ?? Infinity, this.turnOpener?.seq ?? Infinity);
+    // Preserve a checkpoint only when it precedes the retained event window and the seek point.
+    // Otherwise replay must derive retirement/fencing in sequence, not inherit its future state.
+    const retiredAt = this.retiredCompactionTurnId
+      ? this.rows.get(`summary-${this.retiredCompactionTurnId}`)?.seq
+      : undefined;
+    if (retiredAt === undefined || retiredAt >= from || retiredAt > through) this.retiredCompactionTurnId = undefined;
+    if (this.compactionFenceSeq !== undefined && (this.compactionFenceSeq >= from || this.compactionFenceSeq > through))
+      this.compactionFenceSeq = undefined;
     const previous = new Map(this.rows);
     this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
@@ -3568,8 +3579,6 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
-    const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
-    const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     const opener = this.turnOpener;
     if (opener && (events[0]?.seq ?? Number.POSITIVE_INFINITY) <= opener.seq) this.turnOpener = undefined;
     // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
@@ -3918,6 +3927,22 @@ export class AcpmuxDirectClient {
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
+    const resultTurnId =
+      event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+    if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
+      const terminalTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+      const ambiguous =
+        this.compactionFenceSeq !== undefined &&
+        (resultTurnId === undefined || resultTurnId !== this.runningTurnId);
+      const stale =
+        terminalTurnId !== undefined && this.runningTurnId !== undefined && terminalTurnId !== this.runningTurnId;
+      if (ambiguous || stale) {
+        // The old Stop can be acknowledged independently, before any turn-scoped side effects
+        // (including foreground subagents) see a result that belongs to a different turn.
+        if (resultTurnId !== undefined && resultTurnId === this.stopTurnId) this.stopAnswered(event);
+        return;
+      }
+    }
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -4246,28 +4271,6 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
-        // A result can be replayed after the next turn has already started. Once the daemon gives
-        // both turns stable identities, an older result is transcript history only: it must not
-        // close the new turn, clear its asks, or settle its compaction.
-        const resultTurnId =
-          event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
-        // Stop's acknowledgement is independent of the currently running turn. A delayed result
-        // may answer the old cancel even though it has no authority over the new turn's rows.
-        if (resultTurnId !== undefined && resultTurnId === this.stopTurnId) this.stopAnswered(event);
-        // A fenced session has lost attribution for source completions. Only a scoped result
-        // for its live turn may settle it; legacy turn_end and unscoped results are ambiguous.
-        if (
-          this.compactionFenceSeq !== undefined &&
-          (resultTurnId === undefined || resultTurnId !== this.runningTurnId)
-        )
-          return;
-        if (
-          event.kind === "turn_result" &&
-          resultTurnId !== undefined &&
-          this.runningTurnId !== undefined &&
-          resultTurnId !== this.runningTurnId
-        )
-          return;
         // Only this turn's unfinished compaction needs a delayed-boundary fence. An unrelated
         // historical inferred row must not turn an ordinary forced Stop into a compaction Stop.
         const compactionWasRunning =
@@ -4490,6 +4493,10 @@ export class AcpmuxDirectClient {
             (row.compaction?.inferred === true &&
               (compaction.state !== "running" ||
                 event.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW))) &&
+          (compaction.state !== "running" ||
+            row.turnId === undefined ||
+            this.runningTurnId === undefined ||
+            row.turnId === this.runningTurnId) &&
           (row.seq ?? 0) < event.seq &&
           (row.seq ?? 0) > (running?.seq ?? -1) &&
           (this.compactionFenceSeq === undefined || (row.seq ?? 0) >= this.compactionFenceSeq)
@@ -6782,8 +6789,19 @@ export class AcpmuxDirectClient {
     const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
     this.events = mergeEventRecords(older, this.events);
     this.sawPrompts(older);
-    // Held events that start mid-turn (or a read with no turn start) fold everything once.
-    if (foldsAbove) this.foldOlder(older);
+    // A page exposing a forced result can establish a fence at a prompt already drawn below it.
+    // Replay that boundary chronologically; merging rows cannot recover the held prompt's effect.
+    const crossesStop = older.some(
+      (event) =>
+        event.dir === "mux" &&
+        event.kind === "turn_result" &&
+        event.msg?.cancelForced === true &&
+        typeof event.msg?.turnId === "string",
+    );
+    // Ordinary whole-turn pages retain the incremental fold. Fenced pages also replay so a
+    // live fence never leaks backward into history that predates the cancellation.
+    if (foldsAbove && !crossesStop && this.compactionFenceSeq === undefined && this.retiredCompactionTurnId === undefined)
+      this.foldOlder(older);
     else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
@@ -6828,6 +6846,7 @@ export class AcpmuxDirectClient {
       awaiting: this.awaiting,
     };
     const held = new Map(this.rows);
+    this.runningTurnId = undefined;
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
@@ -6889,6 +6908,7 @@ export class AcpmuxDirectClient {
         if (continued) continue;
         continued = true;
         const onTime = openRows()
+          .filter((row) => row.turnId === undefined || next.turnId === undefined || row.turnId === next.turnId)
           .filter((row) => next.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW)
           .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
         const [into, ...rest] = onTime;
@@ -6913,7 +6933,9 @@ export class AcpmuxDirectClient {
         }
         continue;
       }
-      const open = openRows().sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))[0];
+      const open = openRows()
+        .filter((row) => row.turnId === undefined || next.turnId === undefined || row.turnId === next.turnId)
+        .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))[0];
       if (!open || !next.compaction) continue;
       this.rows.set(open.id, { ...open, version: open.version + 1, compaction: next.compaction });
       held.delete(next.id);
