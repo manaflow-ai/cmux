@@ -36,13 +36,13 @@ struct AgentPaneCaptureTests {
             model.onUploadStage = { [weak self] in
                 { request, asked in
                     guard let self, asked == nil || asked == session else { return AgentPaneReply.failure(code: "upload_failed", message: "") }
-                    requests.append(request)
-                    sessions.append(asked)
+                    self.requests.append(request)
+                    self.sessions.append(asked)
                     switch request {
                     case .begin(_, let size, _, _): return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
                     case .chunk(_, _, let data):
-                        received.append(data)
-                        return AgentPaneReply.success(["offset": received.count])
+                        self.received.append(data)
+                        return AgentPaneReply.success(["offset": self.received.count])
                     case .finish: return AgentPaneReply.success(["path": AgentPaneCaptureTests.saved])
                     case .cancel: return AgentPaneReply.success()
                     }
