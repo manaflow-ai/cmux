@@ -426,12 +426,13 @@ extension CMUXCLI {
         return nil
     }
 
-    /// See ``RecentTextFileLines/read(path:maxBytes:)``.
+    /// See ``RecentTextFileLines/read(path:maxBytes:endingAt:)``.
     func readRecentTextFileLines(
         path: String,
-        maxBytes: UInt64
+        maxBytes: UInt64,
+        endingAt end: UInt64? = nil
     ) -> [String]? {
-        RecentTextFileLines.read(path: path, maxBytes: maxBytes)
+        RecentTextFileLines.read(path: path, maxBytes: maxBytes, endingAt: end)
     }
 
     func firstString(in object: [String: Any], keys: [String]) -> String? {

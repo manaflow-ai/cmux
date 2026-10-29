@@ -1,22 +1,25 @@
 import CMUXAgentLaunch
 import Foundation
 
-/// What the difficulty pass takes from the turn when the `Stop` hook starts,
-/// before auto-naming's call, which can run a minute.
+/// What the difficulty pass notes about the turn when the `Stop` hook starts,
+/// before auto-naming's call, which can run a minute. It reads no transcript
+/// content: the hook runs for every cmux Claude user, session priority on or
+/// off.
 struct ClaudeDifficultyTurnStart {
     /// The reply the `Stop` input carries; `nil` when it carries none, and the
     /// pass then waits for the reply in the transcript.
     var stopReply: String?
-    /// With a `stopReply`: this turn's prompt and that reply, from the
-    /// transcript as it was when the hook started; `nil` when it held no user
-    /// message. A prompt the user sends during naming's call is not in it.
-    var stopInputExcerpt: (user: String, assistant: String)?
+    /// With a `stopReply`: the transcript and its byte size at hook start. The
+    /// transcript is append-only, so its bytes up to that size are what was on
+    /// disk then; a prompt the user sends during naming's call lies past them.
+    var transcriptPath: String?
+    var transcriptSize: UInt64?
 }
 
 extension CMUXCLI {
-    /// Reads what the difficulty pass needs from the turn before auto-naming
-    /// runs. The transcript is read only when the `Stop` input carries the
-    /// reply; the polling path reads it later, as before.
+    /// Notes what the difficulty pass needs from the turn before auto-naming
+    /// runs: with the `Stop` input's reply, the transcript's path and size,
+    /// from its metadata.
     func claudeDifficultyTurnStart(
         parsedInput: ClaudeHookParsedInput,
         mappedSession: ClaudeHookSessionRecord?
@@ -25,14 +28,11 @@ extension CMUXCLI {
         guard let reply = DifficultyAssessmentEngine.stopReply(fromHookInput: parsedInput.rawObject) else {
             return ClaudeDifficultyTurnStart()
         }
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
-              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024) else {
-            return ClaudeDifficultyTurnStart(stopReply: reply)
-        }
-        let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
+        let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath
         return ClaudeDifficultyTurnStart(
             stopReply: reply,
-            stopInputExcerpt: DifficultyAssessmentEngine.excerpt(from: messages, stopReply: reply)
+            transcriptPath: transcriptPath,
+            transcriptSize: transcriptPath.flatMap { RecentTextFileLines.byteSize(path: $0) }
         )
     }
 
@@ -89,8 +89,15 @@ extension CMUXCLI {
         }
 
         let excerpt: (user: String, assistant: String)
-        if turnStart.stopReply != nil {
-            guard let fromStart = turnStart.stopInputExcerpt else { return }
+        if let stopReply = turnStart.stopReply {
+            // This turn's prompt: the last user message in the transcript as it was at hook start.
+            // A transcript now shorter than then was truncated or replaced: nothing is rated.
+            guard let transcriptPath = turnStart.transcriptPath, let size = turnStart.transcriptSize,
+                  let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024, endingAt: size),
+                  let fromStart = DifficultyAssessmentEngine.excerpt(
+                      from: AutoNamingEngine().extractMessages(fromTranscriptLines: lines),
+                      stopReply: stopReply
+                  ) else { return }
             excerpt = fromStart
         } else {
             guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,

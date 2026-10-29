@@ -8,6 +8,11 @@ enum RecentTextFileLines {
     /// 8 times `maxBytes`) until the window holds a whole line, without the
     /// partial line the window starts in. `nil` when the file cannot be read,
     /// is empty, or is not UTF-8.
+    ///
+    /// With `endingAt`, the window ends at that byte offset instead of the
+    /// file's end: for an append-only file such as a Claude transcript, exactly
+    /// what it held when its size was `endingAt`. A file now shorter than that
+    /// was truncated or replaced, and gives `nil`.
     static func read(path: String, maxBytes: UInt64, endingAt end: UInt64? = nil) -> [String]? {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
@@ -25,12 +30,19 @@ enum RecentTextFileLines {
             return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
         }
 
+        func readWindow(from start: UInt64, to stop: UInt64) throws -> Data? {
+            try handle.seek(toOffset: start)
+            guard end != nil else { return try handle.readToEnd() }
+            return try handle.read(upToCount: Int(stop - start))
+        }
+
         let size: UInt64
         do {
-            size = try handle.seekToEnd()
+            let fileSize = try handle.seekToEnd()
+            if let end, end > fileSize { return nil }
+            size = end ?? fileSize
             var readStart = size > maxBytes ? size - maxBytes : 0
-            try handle.seek(toOffset: readStart)
-            guard var data = try handle.readToEnd(), !data.isEmpty else {
+            guard var data = try readWindow(from: readStart, to: size), !data.isEmpty else {
                 return nil
             }
             let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
@@ -43,8 +55,7 @@ enum RecentTextFileLines {
                 guard expansionBytes > 0 else { break }
 
                 readStart -= expansionBytes
-                try handle.seek(toOffset: readStart)
-                guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
+                guard let expandedData = try readWindow(from: readStart, to: size), !expandedData.isEmpty else {
                     return nil
                 }
                 data = expandedData

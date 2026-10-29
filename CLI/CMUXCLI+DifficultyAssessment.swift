@@ -114,8 +114,9 @@ enum DifficultyAssessmentEngine {
     /// The excerpt with the reply Claude Code passed to the `Stop` hook: the
     /// turn's prompt, the last user message in `messages`, and `reply`.
     ///
-    /// `messages` is the transcript as the hook read it when it started, before
-    /// auto-naming's call, which can take a minute. Claude Code writes the reply
+    /// `messages` is the transcript as it was when the hook started (its bytes
+    /// up to the size noted then), before auto-naming's call, which can take a
+    /// minute. Claude Code writes the reply
     /// only after the hook starts, so no later prompt can be in that read, and
     /// an earlier reply with the same text cannot move the prompt.
     static func excerpt(
