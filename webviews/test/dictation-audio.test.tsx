@@ -268,7 +268,9 @@ test("a recording that finishes in another chat never attaches, splices or auto-
         level: 0,
         cancelled: false,
         session: origin,
-        audio: writeFails ? undefined : { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080 },
+        audio: writeFails
+          ? undefined
+          : { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080 },
         audioOmitted: writeFails ? "writeFailed" : undefined,
       }),
     );
