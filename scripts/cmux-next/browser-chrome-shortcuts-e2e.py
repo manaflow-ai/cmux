@@ -8,12 +8,15 @@ act on the page:
   - Cmd-Shift-R reloads the page bypassing the cache (the request carries `Cache-Control:
     no-cache`, a plain Cmd-R reload `max-age=0`).
 
-For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page
-with a rich-text source and a contenteditable target, copies the source with Cmd-C, pastes it
-into the target with each paste chord and reads what landed (bold kept or not), then presses
-Cmd-Shift-R and reads the reload request's headers from its own server. Keys go through
-`debug.key` (the app's own dispatch: router, window, page, main menu), into the Chromium page
-window for a Chromium tab. `--sweep` also prints the router's decision (`debug.key` dry_run)
+For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page and
+checks, without taking the person's focus: the router delivers Cmd-V, Cmd-Shift-V and
+Cmd-Opt-Shift-V to the page and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
+Reload (`browserHardReload`, what the chord runs) reloads with `Cache-Control: no-cache`, read
+from the script's own server, and Reload Page does not. With `--keys` (the app active, its page
+window key) it also copies a rich-text source with Cmd-C, pastes it into a contenteditable with
+each paste chord and reads what landed (bold kept or not), and presses Cmd-Shift-R. Keys go
+through `debug.key` (the app's own dispatch: router, window, page, main menu), into the Chromium
+page window for a Chromium tab. `--sweep` also prints the router's decision (`debug.key` dry_run)
 for every Command chord on a letter, digit or punctuation key while the page has the keyboard:
 the chords cmux takes from the page, which a reviewer compares with Chrome's own list.
 
@@ -21,7 +24,7 @@ The script attaches to an app already running through its debug socket and never
 quits the app.
 
 Usage: browser-chrome-shortcuts-e2e.py --socket /tmp/cmux-debug-<tag>.sock [--engines chromium,webkit]
-       [--sweep] [--out DIR]
+       [--sweep] [--keys] [--out DIR]
 Exit status 0 when every check passes.
 """
 import argparse, http.server, json, os, socket, sys, threading, time
@@ -30,6 +33,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--engines", default="chromium,webkit")
 parser.add_argument("--sweep", action="store_true", help="print the router's decision for every Command chord")
+parser.add_argument("--keys", action="store_true",
+                    help="also press the paste and reload chords (the app must be active: it copies to the clipboard)")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
@@ -141,6 +146,20 @@ def target_html():
     return evaluate("document.getElementById('dst').innerHTML") or ""
 
 
+def reload_request(run, label):
+    """The request the next reload sends, after `run` starts it (None: no reload in 10 s)."""
+    wait(lambda: evaluate("document.readyState === 'complete'"), 20, 0.5)
+    count = len(REQUESTS)
+    sent = run()
+    reloaded = wait(lambda: len(REQUESTS) > count or None, 10)
+    page = [r for r in REQUESTS[count:] if r["path"] == "/"]
+    return (page[0] if reloaded and page else None), sent
+
+
+def bypassed(request):
+    return bool(request) and "no-cache" in (request.get("cache_control") or "") + (request.get("pragma") or "")
+
+
 def check_engine(engine, base_url):
     before = len(REQUESTS)
     opened = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": base_url}, "focus": True}, timeout=120)
@@ -155,7 +174,30 @@ def check_engine(engine, base_url):
     if opts.sweep:
         sweep(engine)
 
-    # Copy the rich source with Cmd-C, so each paste below reads the same clipboard.
+    # The router: the page gets every paste chord; Cmd-Shift-R is Hard Reload (offered to a
+    # Chromium page first, as Chrome lets a page preventDefault it).
+    for label, key, modifiers, want in [("Cmd-V", "v", ["cmd"], "deliver"), ("Cmd-Shift-V", "V", ["cmd", "shift"], "deliver"),
+                                        ("Cmd-Opt-Shift-V", "V", ["cmd", "shift", "option"], "deliver"),
+                                        ("Cmd-Shift-R", "R", ["cmd", "shift"], "browserHardReload")]:
+        reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "dry_run": True}) or {}
+        routed = f"{reply.get('decision')}"
+        row(f"{engine}: {label} routes", want, routed, want in routed)
+
+    # Hard Reload as the chord runs it (the same action, without OS key focus): a request past the cache.
+    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserHardReload", "args": {}, "focus": True}), "hard")
+    row(f"{engine}: Hard Reload (browserHardReload) bypasses the cache", "a request with Cache-Control: no-cache",
+        f"request={request} ran={sent}", bypassed(request))
+    # Reload Page still reloads (Chromium revalidates with max-age=0; WebKit's own reload headers vary).
+    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserReload", "args": {}, "focus": True}), "plain")
+    row(f"{engine}: Reload (browserReload) reloads", "a reload request", f"request={request} ran={sent}", bool(request))
+
+    if opts.keys:
+        check_keys(engine, keys)
+
+
+def check_keys(engine, keys):
+    """Real paste chords through `debug.key`. Only meaningful while the app is active and the page
+    window is key: Chromium's page view takes key equivalents only in the key window."""
     select_source()
     copied = keys.press("c", ["cmd"])
     for label, key, modifiers, want_bold in [("Cmd-V", "v", ["cmd"], True),
@@ -164,30 +206,14 @@ def check_engine(engine, base_url):
         focused = focus_target()
         sent = keys.press(key, modifiers)
         html = wait(lambda: target_html() or None, 5) or ""
-        pasted = "bold27619" in html
         bold = "<b" in html.lower() or "font-weight" in html.lower()
         row(f"{engine}: {label} pastes {'with' if want_bold else 'without'} formatting",
             f"bold27619 in the field, bold={want_bold}",
             f"focused={focused} html={html[:120]!r} sent={sent} copy={copied}",
-            bool(focused) and pasted and bold == want_bold)
-
-    # Cmd-Shift-R: a reload whose request bypasses the cache.
-    loads = evaluate("window.__loads")
-    count = len(REQUESTS)
-    sent = keys.press("R", ["cmd", "shift"])
-    reloaded = wait(lambda: len(REQUESTS) > count or None, 10)
-    request = REQUESTS[count] if reloaded else None
-    bypassed = bool(request) and "no-cache" in (request.get("cache_control") or "") + (request.get("pragma") or "")
-    row(f"{engine}: Cmd-Shift-R hard reloads", "a request with Cache-Control: no-cache",
-        f"request={request} loads_before={loads} sent={sent}", bypassed)
-
-    # Cmd-R stays a plain reload (it may revalidate, it must not bypass the cache).
-    wait(lambda: evaluate("document.readyState === 'complete'"), 20, 0.5)
-    count = len(REQUESTS)
-    sent = keys.press("r", ["cmd"])
-    reloaded = wait(lambda: len(REQUESTS) > count or None, 10)
-    request = REQUESTS[count] if reloaded else None
-    row(f"{engine}: Cmd-R reloads", "a reload request", f"request={request} sent={sent}", bool(request))
+            bool(focused) and "bold27619" in html and bold == want_bold)
+    request, sent = reload_request(lambda: keys.press("R", ["cmd", "shift"]), "hard key")
+    row(f"{engine}: Cmd-Shift-R hard reloads", "a request with Cache-Control: no-cache", f"request={request} sent={sent}",
+        bypassed(request))
 
 
 def sweep(engine):
