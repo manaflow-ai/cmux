@@ -12,6 +12,8 @@ import { FilesStore } from "./store";
 const wide: MockTree = Object.fromEntries(
   Array.from({ length: 40 }, (_, index) => [`module-${String(index + 1).padStart(2, "0")}.ts`, null]),
 );
+const emptyFolder: MockTree = {};
+const emptyChild: MockTree = { empty: {} };
 
 type Props = { tree?: MockTree; expand?: string[]; failure?: { code: string; message: string } };
 
@@ -39,6 +41,11 @@ export default componentEntry<Props>({
     await import("./styles.css");
   },
   variants: {
+    "empty-root": { note: "An empty repository folder explains what to do next.", props: { tree: emptyFolder } },
+    "empty-child": {
+      note: "An expanded folder with no children keeps the tree action clear.",
+      props: { tree: emptyChild, expand: ["empty"] },
+    },
     folder: { note: "A repository's top level: folders first, then files.", props: {} },
     expanded: {
       note: "src and src/components open, as Right or a click opens them.",
