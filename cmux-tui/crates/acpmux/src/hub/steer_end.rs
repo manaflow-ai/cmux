@@ -168,10 +168,18 @@ impl Hub {
             let author = crate::author::of_provenance(opts.provenance.as_ref());
             now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
             // The turn it starts if its agent reads it after this one ended (`carried_turn.rs`).
+            // A family message's continuation speaks for its sender (`turns.rs`).
+            let from = opts
+                .provenance
+                .as_ref()
+                .filter(|p| super::subsession_guard::is_family(Some(p)))
+                .and_then(|p| p["from"].as_str())
+                .map(str::to_owned);
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
                 text: text.clone(),
                 control,
+                continues: super::carried_turn::Continues { from, trust_gate },
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now

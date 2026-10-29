@@ -294,3 +294,26 @@ async fn a_forced_stop_of_a_carried_turn_answers_its_unread_steers() {
     assert_eq!(ended.last().unwrap()["turnId"], turns[1]["turnId"], "{ended:#?}");
     assert_eq!(ended.last().unwrap()["cancelForced"], true, "{ended:#?}");
 }
+
+/// A carried turn a connection error cuts off goes on by itself, as a prompt's own turn does
+/// (`auto_resume.rs`), continuing the steer that started it.
+#[tokio::test]
+async fn a_carried_turn_a_connection_error_cut_off_goes_on_by_itself() {
+    let (hub, mut c, id) = claude_hub().await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
+    let gates = Gates::new();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gates.text(), false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "gated turn 1").await;
+    let (_a, _steer) = steer_in(&hub, &id, "p-late", "LATE-1").await;
+    gates.open(1, "end");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let turns = started(&hub, &id, 2).await;
+    gates.open(2, "fail");
+    let turns_now = started(&hub, &id, 3).await;
+    let scheduled = records(&hub, &id, "auto_resume_scheduled");
+    assert_eq!(scheduled.len(), 1, "{scheduled:#?}");
+    assert_eq!(scheduled[0]["turnId"], turns[1]["turnId"], "{scheduled:#?}");
+    let resumed = turns_now[2]["promptId"].as_str().unwrap_or_default();
+    assert!(resumed.starts_with("p-late~resume"), "{:#?}", turns_now[2]);
+}

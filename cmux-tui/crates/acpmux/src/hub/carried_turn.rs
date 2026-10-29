@@ -27,6 +27,16 @@ pub(super) struct SteerSent {
     pub(super) client: String,
     pub(super) text: String,
     pub(super) control: Control,
+    /// What a continuation of the turn it starts needs (`auto_resume.rs`).
+    pub(super) continues: Continues,
+}
+
+/// What a cut carried turn's continuation needs, as a prompt's own turn has it (`turns.rs`
+/// `CutTurn`): the family sender its first steer spoke for, and its trust gate.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Continues {
+    pub(super) from: Option<String>,
+    pub(super) trust_gate: bool,
 }
 
 /// An answer that ended its turn while the agent runs on with steers it read after.
@@ -42,6 +52,7 @@ pub(super) struct Carried {
 pub(super) struct NextTurn {
     pub(super) carried: Carried,
     pub(super) next: TurnInfo,
+    pub(super) continues: Continues,
 }
 
 /// The carries' turns a session keeps for the steers read in them: only the newest can still be
@@ -101,7 +112,7 @@ impl NextTurn {
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
         let next =
             TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
-        Some(Self { carried, next })
+        Some(Self { carried, next, continues: Continues::default() })
     }
 }
 
@@ -119,8 +130,8 @@ impl Hub {
         if self.shutting_down() {
             return None;
         }
-        let next = self.carried_turn(session, Some(&running), &carried);
-        Some(Box::new(NextTurn { carried, next }))
+        let (next, continues) = self.carried_turn(session, Some(&running), &carried);
+        Some(Box::new(NextTurn { carried, next, continues }))
     }
 
     /// The turn after `from` (the session's turn still) for what `carried` names: a new turn id,
@@ -131,7 +142,7 @@ impl Hub {
         session: &Session,
         from: Option<&TurnInfo>,
         carried: &Carried,
-    ) -> TurnInfo {
+    ) -> (TurnInfo, Continues) {
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut now = session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let first = carried.prompt_ids.first();
@@ -158,12 +169,16 @@ impl Hub {
             Some(s) => s.control,
             None => from_control,
         };
-        let (client, text) = match sent {
-            Some(s) => (s.client, s.text),
-            None => (from.map(|t| t.client.clone()).unwrap_or_default(), String::new()),
+        let (client, text, continues) = match sent {
+            Some(s) => (s.client, s.text, s.continues),
+            None => (
+                from.map(|t| t.client.clone()).unwrap_or_default(),
+                String::new(),
+                Continues::default(),
+            ),
         };
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control)
+        (TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control), continues)
     }
 
     /// After `finish_turn` put `turn` in place of `from`: the turn starts, and its task runs it.
@@ -182,7 +197,10 @@ impl Hub {
         }
         turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
-        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn, slot).await }));
+        let continues = Some(next.continues.clone());
+        tokio::spawn(Box::pin(async move {
+            hub.run_carried(session, child, turn, continues, slot).await
+        }));
     }
 
     /// A carried turn a restart cut before its prompt went to the agent host, whose Claude Code
@@ -212,9 +230,22 @@ impl Hub {
             drop(now);
             turn.turn_seq = self.begin_carried(session, from, &turn, carried);
         }
+        // As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox
+        // did not start, or in a mode only a machine's Full-access setting allows, does not go on.
+        let control = turn.control;
+        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
+            self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+        }
+        if self.full_access_hold(&session.meta(), control, None).is_err() {
+            self.remote_floor_cancel(session, "remote.full_access_ended");
+        }
         self.set_status(session, SessionStatus::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
-        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn, None).await }));
+        // A recovered turn is not continued (`auto_resume.rs`).
+        tokio::spawn(Box::pin(
+            async move { hub.run_carried(session, child, turn, None, None).await },
+        ));
     }
 
     /// The carried turn's start: counted, and logged as `turn_started` after `from`'s end.
@@ -252,6 +283,9 @@ impl Hub {
         session: Arc<Session>,
         child: Arc<ChildAgent>,
         mut turn: TurnInfo,
+        // What a cut turn's continuation needs; `None` for a recovered turn, which is not
+        // continued (`auto_resume.rs`).
+        mut continues: Option<Continues>,
         // The run slot the first turn held (`subsession_runs.rs`): the agent runs until the
         // last of these turns ends.
         slot: Option<RunSlot>,
@@ -285,7 +319,11 @@ impl Hub {
             };
             let next = self.next_carried(&session, &turn.turn_id, &result);
             let (prompt_id, turn_id) = (&turn.prompt_id, &turn.turn_id);
-            let _ = self
+            // As a prompt's own turn (`turns.rs`): what the agent said, and whether a model
+            // switch ended the turn already.
+            let agent_error = result.as_ref().err().map(|e| e.message.clone());
+            let detached = session.turn().is_none_or(|t| &t.turn_id != turn_id);
+            let finished = self
                 .finish_turn(
                     &session,
                     &child,
@@ -297,9 +335,27 @@ impl Hub {
                     next.as_deref(),
                 )
                 .await;
-            self.schedule_auto_resume(&session, turn_id, None);
+            // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+            let cut = match (&finished, &continues) {
+                (Err(e), Some(c)) if !detached && next.is_none() => {
+                    Some(super::auto_resume::CutTurn {
+                        from: c.from.as_deref(),
+                        prompt_id,
+                        turn_id,
+                        control: turn.control,
+                        trust_gate: c.trust_gate,
+                        error: super::turn_errors::continuation_error(
+                            agent_error.as_deref(),
+                            &e.message,
+                        ),
+                    })
+                }
+                _ => None,
+            };
+            self.schedule_auto_resume(&session, turn_id, cut);
             let Some(next) = next else { break };
-            let NextTurn { carried, next: mut next_turn } = *next;
+            let NextTurn { carried, next: mut next_turn, continues: next_continues } = *next;
+            continues = Some(next_continues);
             if session.turn().is_none_or(|t| t.turn_id != next_turn.turn_id) {
                 break;
             }
@@ -401,9 +457,9 @@ mod tests {
         set(Some(one.clone()));
         let on = |t: &TurnInfo| Hub::carried_on(&s, t).map(|t| t.turn_id);
         assert_eq!(on(&one).as_deref(), Some("t-1"));
-        let two = hub.carried_turn(&s, Some(&one), &Carried { seq: 1, prompt_ids: vec![] });
+        let two = hub.carried_turn(&s, Some(&one), &Carried { seq: 1, prompt_ids: vec![] }).0;
         set(Some(two.clone()));
-        let three = hub.carried_turn(&s, Some(&two), &Carried { seq: 2, prompt_ids: vec![] });
+        let three = hub.carried_turn(&s, Some(&two), &Carried { seq: 2, prompt_ids: vec![] }).0;
         set(Some(three.clone()));
         assert_eq!(on(&one), Some(three.turn_id.clone()), "carried on twice");
         assert_eq!(on(&two), Some(three.turn_id.clone()));

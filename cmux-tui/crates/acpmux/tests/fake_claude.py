@@ -34,8 +34,8 @@ cancel_async_message drops a waiting line by its uuid.
 wait. A gate that says "read" reads them at a tool boundary (each echoed), then the turn ends and
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
 next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
-does the same with only the first waiting line, and the rest stay unread. An interrupt is
-answered and changes nothing.
+does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
+with a connection error. An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -373,6 +373,10 @@ def gated(prompt, base):
             how = f.read().strip()
         said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
                                   if isinstance(b, dict)) for m in waiting)
+        if how == "fail":
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                  "result": "API Error: Connection error.", "duration_api_ms": 5})
+            return
         if how == "read":
             for m in waiting:
                 send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
