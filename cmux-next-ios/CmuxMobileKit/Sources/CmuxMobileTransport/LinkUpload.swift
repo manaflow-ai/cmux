@@ -86,24 +86,36 @@ public enum LinkUpload {
         } catch let error as LinkError {
             throw Failure(code: error.code, message: error.message)
         }
-        // The Mac may refuse before reading (a folder it won't write to): a
-        // failed send is not the answer, the reply is.
-        var offset = 0
-        while offset < size {
-            let chunk = (try? nextChunk(offset, min(chunkBytes, size - offset))) ?? Data()
-            // The file shrank or stopped reading: cancel rather than hand the Mac a short file.
-            guard !chunk.isEmpty else {
-                await channel.close(code: "cancelled", reason: "unreadable")
-                throw unreadable(name)
+        // Cancelling the upload closes its channel, which ends a wait for the
+        // Mac's reply; the stream stops at its next chunk. The caller's file
+        // handle and scope then close as the upload returns.
+        return try await withTaskCancellationHandler {
+            // The Mac may refuse before reading (a folder it won't write to): a
+            // failed send is not the answer, the reply is.
+            var offset = 0
+            while offset < size {
+                if Task.isCancelled {
+                    await channel.close(code: "cancelled", reason: "cancelled")
+                    throw CancellationError()
+                }
+                let chunk = (try? nextChunk(offset, min(chunkBytes, size - offset))) ?? Data()
+                // The file shrank or stopped reading: cancel rather than hand the Mac a short file.
+                guard !chunk.isEmpty else {
+                    await channel.close(code: "cancelled", reason: "unreadable")
+                    throw unreadable(name)
+                }
+                do { try await channel.send(chunk) } catch { break }
+                offset += chunk.count
             }
-            do { try await channel.send(chunk) } catch { break }
-            offset += chunk.count
+            var reply = Data()
+            while let chunk = try await channel.receive() {
+                reply.append(chunk)
+            }
+            try Task.checkCancellation()
+            return try path(fromReply: reply)
+        } onCancel: {
+            Task { await channel.close(code: "cancelled", reason: "cancelled") }
         }
-        var reply = Data()
-        while let chunk = try await channel.receive() {
-            reply.append(chunk)
-        }
-        return try path(fromReply: reply)
     }
 
     /// The path in the Mac's reply, or its refusal.

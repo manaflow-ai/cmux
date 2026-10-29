@@ -74,6 +74,58 @@ import Testing
         func close(code: String, reason: String) async {}
     }
 
+    /// The Mac takes the bytes and never answers. A close ends the wait for its
+    /// reply, as the link's does (closing a channel drops its receiver's sender).
+    final class StalledLink: MacLink, @unchecked Sendable {
+        let transport: TransportKind = .webRTC
+        let states = AsyncStream<LinkState> { $0.finish() }
+        let channel = StalledChannel()
+
+        func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel { channel }
+        func ping() async throws -> UInt32 { 1 }
+        func close() async {}
+    }
+
+    final class StalledChannel: LinkChannel, @unchecked Sendable {
+        let id: UInt32 = 2
+        /// Yields once the upload waits for the Mac's reply.
+        let waits: AsyncStream<Void>
+        private let waitsContinuation: AsyncStream<Void>.Continuation
+        private let lock = NSLock()
+        private var bytes = 0
+        private var closeCode: String?
+        private var waiting: CheckedContinuation<Data?, Never>?
+
+        init() { (waits, waitsContinuation) = AsyncStream.makeStream() }
+
+        var sent: Int { lock.withLock { bytes } }
+        var closedWith: String? { lock.withLock { closeCode } }
+
+        func send(_ data: Data) async throws {
+            lock.withLock { bytes += data.count }
+        }
+
+        func receive() async throws -> Data? {
+            await withCheckedContinuation { continuation in
+                let closed = lock.withLock { () -> Bool in
+                    if closeCode != nil { return true }
+                    waiting = continuation
+                    return false
+                }
+                if closed { continuation.resume(returning: nil) } else { waitsContinuation.yield() }
+            }
+        }
+
+        func close(code: String, reason: String) async {
+            let waiter = lock.withLock { () -> CheckedContinuation<Data?, Never>? in
+                if closeCode == nil { closeCode = code }
+                defer { waiting = nil }
+                return waiting
+            }
+            waiter?.resume(returning: nil)
+        }
+    }
+
     /// A sparse file of `size` bytes: no disk or memory spent on its zeros.
     static func sparseFile(size: Int) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-big.bin")
@@ -168,6 +220,43 @@ import Testing
         }
         #expect(scope.starts == 1)
         #expect(scope.stops == 1)
+    }
+
+    // MARK: Cancellation (a large upload can be abandoned)
+
+    /// Cancelling an upload whose reply never comes closes its channel, and
+    /// the file's handle and scope close with it.
+    @Test(.timeLimit(.minutes(1))) func cancellingAStalledUploadClosesItsChannelAndScope() async throws {
+        let size = LinkUpload.chunkBytes + 1
+        let url = try Self.sparseFile(size: size)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scope = RecordingScope()
+        let link = StalledLink()
+        let upload = Task { try await LinkUpload.upload(.file(url), name: "big.bin", cwd: nil, over: link, scope: scope) }
+
+        for await _ in link.channel.waits { break }
+        #expect(link.channel.sent == size)
+        upload.cancel()
+
+        await #expect(throws: CancellationError.self) { _ = try await upload.value }
+        #expect(link.channel.closedWith == "cancelled")
+        #expect(scope.starts == 1)
+        #expect(scope.stops == 1)
+    }
+
+    /// An upload cancelled before its first chunk sends nothing more.
+    @Test(.timeLimit(.minutes(1))) func aCancelledUploadStopsStreaming() async throws {
+        let url = try Self.sparseFile(size: LinkUpload.chunkBytes * 4)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let link = StalledLink()
+        let upload = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await LinkUpload.upload(.file(url), name: "big.bin", cwd: nil, over: link, scope: RecordingScope())
+        }
+
+        await #expect(throws: CancellationError.self) { _ = try await upload.value }
+        #expect(link.channel.sent == 0)
+        #expect(link.channel.closedWith == "cancelled")
     }
 
     /// Bytes held in memory open no scope.
