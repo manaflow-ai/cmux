@@ -89,7 +89,7 @@ cmux.json, the palette's settings rows (Cmd+Shift+P, the `,` scope) and `cmux se
 | `sidebar.hoverCards.sections.git` | `true` | branch and pull request |
 | `sidebar.hoverCards.sections.ports` | `true` | listening ports |
 | `sidebar.hoverCards.maxRows` | `20` | 1 to 100 history lines |
-| `sidebar.hoverCards.delay` | `250` | (existing) ms before a card opens |
+| `sidebar.hoverCards.delay` | `1300` | (existing) ms before a card opens (Chrome's, 2026-10-28) |
 
 Example:
 
