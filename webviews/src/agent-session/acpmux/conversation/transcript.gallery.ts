@@ -1268,6 +1268,11 @@ export default agentPaneEntry({
       note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
       snapshot: chat(
         [
+          // Prior history exercises the followed composer boundary, including narrow panes.
+          assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+            id: "grid-history",
+          }),
+          user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
           user("Review the current verification results", 3, {
             id: "grid-header",
             incoming: {
