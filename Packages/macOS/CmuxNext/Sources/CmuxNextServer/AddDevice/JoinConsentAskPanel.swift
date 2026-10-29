@@ -10,6 +10,10 @@ public final class JoinConsentAskPanel: NSPanel {
     /// Weak: the model's `present` owns this panel.
     weak var model: JoinConsentModel?
     let content: JoinConsentAskView
+    /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
+    public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
+    /// The person's own click on this sheet is being dispatched now: only then may Allow answer.
+    private(set) var dispatchingPersonPress = false
 
     public init(model: JoinConsentModel) {
         self.model = model
@@ -30,6 +34,21 @@ public final class JoinConsentAskPanel: NSPanel {
         setAccessibilityIdentifier("cmux.joinConsentAsk")
         glass.autoresizingMask = [.width, .height]
         contentView = glass
+    }
+
+    /// The sheet's own events: a mouse press the person made is marked for the length of its dispatch
+    /// (the button's action runs inside it), so Allow can tell it from an Accessibility press or a call
+    /// made outside it, which find no mark.
+    override public func sendEvent(_ event: NSEvent) {
+        dispatch(event) { super.sendEvent(event) }
+    }
+
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
+        let press = [.leftMouseDown, .leftMouseUp].contains(event.type) && isPersonEvent(event)
+        let outer = dispatchingPersonPress
+        dispatchingPersonPress = outer || press
+        defer { dispatchingPersonPress = outer }
+        body()
     }
 
     /// Shows or hides the sheet (``JoinConsentModel/present``). It opens at once, with no fade.
@@ -112,10 +131,10 @@ public final class JoinConsentAskView: NSView {
 
     // task-owner: one answer per press; the sheet hides at once and the write ends on its own
     @objc func allowPressed() {
-        // SECURITY: only the person's own click or key on this sheet allows. An Accessibility press, a
-        // click another process posts, or a call from outside an event grants nothing.
-        guard let model, let event = NSApp.currentEvent, event.window === window,
-              [.leftMouseUp, .leftMouseDown, .keyDown].contains(event.type), model.isPersonInput() else { return }
+        // SECURITY: only the person's own click on this sheet, while the sheet dispatches it, allows. An
+        // Accessibility press, a click another process (or DEBUG automation) posts, or a call from outside
+        // that dispatch grants nothing, whatever event happens to be current.
+        guard let model, (window as? JoinConsentAskPanel)?.dispatchingPersonPress == true else { return }
         Task { [weak model] in await model?.answer(allow: true) }
     }
     @objc private func denyPressed() { Task { [weak model] in await model?.answer(allow: false) } }

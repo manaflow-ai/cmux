@@ -110,7 +110,9 @@ public final class MacScreenHubHost {
         // task-owner: one consent read per ticket; the ticket serves after it or is ended
         Task { [weak self] in
             let allowed = await consentGate(ticket)
-            guard let self, awaitingConsent.removeValue(forKey: ticket.sessionId) != nil, let hub = hub() else { return }
+            // Only this delivery's own entry: a newer delivery of the same session replaced it, and answers itself.
+            guard let self, awaitingConsent[ticket.sessionId] == arrival, let hub = hub() else { return }
+            awaitingConsent.removeValue(forKey: ticket.sessionId)
             guard allowed else {
                 logger.info("session ticket refused: this Mac's consent does not allow it")
                 end(ticket.sessionId, reason: .failed, hub: hub)

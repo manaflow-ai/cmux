@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.join.unread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac could not read what it allows. Your team's machines are refused until it can."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على هذا الـ Mac قراءة ما يسمح به. سيتم رفض أجهزة فريقك إلى أن يتمكن من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac nije mogao pročitati šta dozvoljava. Računari vašeg tima se odbijaju dok to ne uspije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac kunne ikke læse, hvad den tillader. Dit teams maskiner afvises, indtil den kan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac konnte nicht lesen, was er erlaubt. Die Geräte deines Teams werden abgewiesen, bis er es kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac no pudo leer lo que permite. Las máquinas de tu equipo se rechazan hasta que pueda hacerlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac n'a pas pu lire ce qu'il autorise. Les machines de votre équipe sont refusées jusqu'à ce qu'il y parvienne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac non è riuscito a leggere cosa consente. Le macchine del tuo team vengono rifiutate finché non ci riesce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac が許可している内容を読み取れませんでした。読み取れるまで、チームのマシンは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះមិនអាចអានអ្វីដែលវាអនុញ្ញាតបានទេ។ ម៉ាស៊ីនរបស់ក្រុមអ្នកត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac이 허용하는 항목을 읽지 못했습니다. 읽을 수 있을 때까지 팀의 컴퓨터는 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac-en kunne ikke lese hva den tillater. Maskinene i teamet ditt avvises til den kan det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac nie mógł odczytać, na co zezwala. Komputery Twojego zespołu są odrzucane, dopóki mu się to nie uda."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac não conseguiu ler o que permite. As máquinas da sua equipe são recusadas até que ele consiga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac не смог прочитать, что он разрешает. Компьютеры вашей команды отклоняются, пока он не сможет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้อ่านสิ่งที่อนุญาตไม่ได้ เครื่องในทีมของคุณจะถูกปฏิเสธจนกว่าจะอ่านได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac neye izin verdiğini okuyamadı. Okuyabilene kadar ekibinizin makineleri reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac не зміг прочитати, що він дозволяє. Комп'ютери вашої команди відхиляються, доки він не зможе."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac này không đọc được những gì nó cho phép. Các máy trong nhóm của bạn bị từ chối cho đến khi đọc được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 无法读取它所允许的内容。在能够读取之前，你团队的机器将被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 無法讀取它所允許的內容。在能夠讀取之前，你團隊的機器將被拒絕。"
+          }
+        }
+      }
+    },
     "devices.join.busy": {
       "extractionState": "manual",
       "localizations": {

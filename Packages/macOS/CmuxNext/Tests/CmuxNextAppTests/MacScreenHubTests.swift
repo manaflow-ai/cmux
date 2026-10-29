@@ -778,6 +778,38 @@ struct MacScreenHubHostOrderTests {
         host.sessionOver("s2")
     }
 
+    /// Two deliveries of one session, their consent reads answering in either order: the newer delivery
+    /// decides it, and the older one never ends or serves it.
+    @Test(arguments: [true, false])
+    func twoDeliveriesOfOneSessionAreDecidedByTheNewer(newerFirst: Bool) async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        var gates: [JoinConsentTests.Gate] = []
+        host.consentGate = { _ in
+            let gate = JoinConsentTests.Gate()
+            gates.append(gate)
+            await gate.wait()
+            return gates.count == 2 && gate === gates[1] // only the newer delivery's read allows
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where gates.count < 2 { await Task.yield() }
+        let order = newerFirst ? [gates[1], gates[0]] : [gates[0], gates[1]]
+        for gate in order {
+            gate.open()
+            for _ in 0..<50 { await Task.yield() }
+        }
+        #expect(host.session?.id == "s1", "served once, by the newer delivery")
+        #expect(ends.items.isEmpty, "the older delivery ends nothing")
+        host.sessionOver("s1")
+    }
+
     @Test func stopSharingEndsATicketStillWaitingForConsent() async {
         let (host, _) = serving()
         let ends = CallLog()

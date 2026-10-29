@@ -339,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
+        services.joinConsent.follow(services, settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.

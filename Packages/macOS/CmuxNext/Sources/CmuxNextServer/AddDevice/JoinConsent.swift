@@ -87,8 +87,8 @@ public protocol JoinConsentLine: AnyObject {
     var supportsConsent: Bool { get }
     /// `_acpmux/machine_consent_get`; nil when it failed.
     func read() async -> JoinConsentRecord?
-    /// `_acpmux/machine_consent_set`; true when acpmux took it.
-    func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool
+    /// `_acpmux/machine_consent_set`: the record acpmux holds after it, nil when it did not take it.
+    func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord?
     func close()
 }
 
@@ -157,9 +157,6 @@ public final class JoinConsentModel {
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
     /// Redraws a showing sheet (its buttons follow ``writing``).
     @ObservationIgnored public var redraw: @MainActor () -> Void = {}
-    /// Whether the event AppKit is dispatching now is the person's own (the app's check of its source:
-    /// a click another process posts is not). The sheet's Allow needs it; with none set, nothing is.
-    @ObservationIgnored public var isPersonInput: @MainActor () -> Bool = { false }
     /// After each change applied: the app stops a Mac Screen session the consent no longer allows.
     @ObservationIgnored public var changed: @MainActor () -> Void = {}
     @ObservationIgnored private let services: JoinConsentServices
@@ -169,6 +166,9 @@ public final class JoinConsentModel {
     public init(services: JoinConsentServices) {
         self.services = services
     }
+
+    /// The Labs switch (`labs.machineJoin`).
+    public var enabled: Bool { services.enabled() }
 
     /// The switches show: the Labs switch is on and this Mac holds a join credential that is not revoked.
     public var shown: Bool { services.enabled() && status?.credentialPresent == true && status?.revoked != true }
@@ -184,11 +184,25 @@ public final class JoinConsentModel {
         _ = await read()
     }
 
+    /// The Labs switch turned on or off: what was read before no longer counts. Nothing is allowed
+    /// until the next read (a running Mac Screen session stops when the switch turns on), then it reads.
+    public func featureChanged() async {
+        generation += 1
+        status = nil
+        consent = nil
+        consentSupported = nil
+        changed()
+        if !enabled, ask != nil { dismissAsk() }
+        await refresh()
+    }
+
     /// Takes the next generation and reads. The result is applied, and `current` is true, only while no
     /// newer request started meanwhile and no write is in flight (a write's own read after it lands
-    /// excepted, `afterWrite`); the reading comes back either way.
+    /// excepted, `afterWrite`); the reading comes back either way. A read started during a write takes
+    /// no generation, so it never displaces the write's own read.
     private func read(afterWrite: Bool = false) async -> (reading: Reading, current: Bool) {
-        generation += 1
+        let duringWrite = writing && !afterWrite
+        if !duringWrite { generation += 1 }
         let mine = generation
         var reading = Reading()
         if services.enabled() {
@@ -199,7 +213,7 @@ public final class JoinConsentModel {
                 line.close()
             }
         }
-        guard mine == generation, afterWrite || !writing else { return (reading, false) }
+        guard !duringWrite, mine == generation, afterWrite || !writing else { return (reading, false) }
         apply(reading)
         return (reading, true)
     }
@@ -209,8 +223,10 @@ public final class JoinConsentModel {
         consent = reading.consent
         consentSupported = reading.supported
         changed()
-        // The Labs switch went off (or the join went away): an open sheet can no longer allow.
-        if !shown, ask != nil { dismissAsk() }
+        // The Labs switch went off, or the join went away or was revoked (said so, not merely unread): an
+        // open sheet can no longer allow.
+        let gone = !enabled || reading.status?.credentialPresent == false || reading.status?.revoked == true
+        if gone, ask != nil { dismissAsk() }
         // acpmux refused a team machine for a surface still off: the first such refusal shows the sheet.
         if shown, let surface = reading.consent?.lastRefusal, reading.consent?.allows(surface) == false {
             refused(JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: surface))
@@ -233,28 +249,37 @@ public final class JoinConsentModel {
             consent = record
             changed()
         }
-        lastError = await write(surface, on: on)
+        let written: JoinConsentRecord?
+        (lastError, written) = await write(surface, on: on)
         // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied.
-        _ = await read(afterWrite: true)
+        // When that read fails, the record acpmux answered the write with stands in for it.
+        let (reading, current) = await read(afterWrite: true)
+        if current, reading.consent == nil, reading.supported == true, let written {
+            consent = written
+            changed()
+        }
         return lastError
     }
 
-    /// The write itself; the error to show, nil when acpmux took it.
-    private func write(_ surface: JoinConsentSurface, on: Bool) async -> String? {
+    /// The write itself: the error to show (nil when acpmux took it) and the record acpmux answered with.
+    private func write(_ surface: JoinConsentSurface, on: Bool) async -> (String?, JoinConsentRecord?) {
         let failed = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
         if on {
             // An on only for a joined, unrevoked Mac with the Labs switch on, as this read finds it (acpmux
             // checks the person itself; this keeps a grant off a Mac that shows no switches).
             let (reading, _) = await read()
-            guard services.enabled(), reading.status?.credentialPresent == true, reading.status?.revoked != true else { return failed }
+            guard enabled, reading.status?.credentialPresent == true, reading.status?.revoked != true else { return (failed, nil) }
         }
-        guard let line = await services.openLine() else { return failed }
+        guard let line = await services.openLine() else { return (failed, nil) }
         defer { line.close() }
         // SECURITY: only the person at this Mac turns a surface on (acpmux also takes a revoke only from
         // the person's connection; the page asks no gesture for one, since it narrows).
-        if on, !line.isPerson { return failed }
-        guard line.supportsConsent else { return on ? JoinConsentStrings.unsupported : failed }
-        return await line.set(surface, granted: on) ? nil : failed
+        if on, !line.isPerson { return (failed, nil) }
+        guard line.supportsConsent else { return (on ? JoinConsentStrings.unsupported : failed, nil) }
+        // The Labs switch may have turned off while the line opened: a grant is sent only while it is on.
+        if on, !enabled { return (failed, nil) }
+        let written = await line.set(surface, granted: on)
+        return (written == nil ? failed : nil, written)
     }
 
     private func setWriting(_ on: Bool) {
@@ -341,7 +366,8 @@ public final class JoinConsentModel {
         let name = status.name ?? status.machineId ?? ""
         let page = JoinConsentPage(
             title: JoinConsentStrings.section, joined: JoinConsentStrings.joined(team: team, name: name), help: JoinConsentStrings.help,
-            error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : nil), busy: writing,
+            error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : consent == nil ? JoinConsentStrings.unread : nil),
+            busy: writing,
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
                                        on: consent?.allows($0) == true)
@@ -394,6 +420,9 @@ public nonisolated struct JoinConsentStrings {
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
     static var offFailed: String { s("devices.join.offFailed", "It could not be turned off. Try again.") }
+    static var unread: String {
+        s("devices.join.unread", "This Mac could not read what it allows. Your team's machines are refused until it can.")
+    }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
     static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }
     /// Who asked, when acpmux recorded only the refusal.

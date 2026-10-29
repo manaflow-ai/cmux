@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextDevices
@@ -19,7 +20,8 @@ import Testing
         let isPerson: Bool
         let supportsConsent: Bool
         let takes: Bool
-        let owner: Fake
+        /// Unowned: the fake keeps its lines (``Fake/lines``), not the other way round.
+        unowned let owner: Fake
         var writes: [String] = []
         var closed = false
         init(_ owner: Fake) {
@@ -29,12 +31,12 @@ import Testing
             takes = owner.takes
         }
         func read() async -> JoinConsentRecord? { owner.readFails ? nil : owner.record }
-        func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
+        func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
             writes.append("\(surface.rawValue) \(granted)")
             // acpmux takes a grant and a revoke only from the person's connection.
-            guard takes, isPerson else { return false }
+            guard takes, isPerson else { return nil }
             if surface == .screen { owner.record.screen = granted } else { owner.record.control = granted }
-            return true
+            return owner.record
         }
         func close() { closed = true }
     }
@@ -439,6 +441,9 @@ import Testing
         // And one set before.
         #expect(!(await model.macScreenGate(ticket)))
         #expect(!model.macScreenPermits(.view))
+        // With the Labs switch off a fixture changes nothing: Mac Screen serves as it did.
+        fake.enabled = false
+        #expect(await model.macScreenGate(ticket) && model.macScreenPermits(.full))
     }
     #endif
 
@@ -535,22 +540,157 @@ import Testing
         #expect(image.size.width >= 300 && image.size.height >= 80)
     }
 
-    /// An agent's Accessibility press, or any press outside the person's own click on the sheet, grants
-    /// nothing, even with the app's person check answering yes.
-    @Test func anAccessibilityOrPostedPressOnAllowGrantsNothing() async throws {
+    /// Allow answers only inside the sheet's own dispatch of a press its strict check calls the person's:
+    /// not an Accessibility press, not a programmatic click, not a press the check refuses (another
+    /// process's, or DEBUG automation's), not a key, and not an Accessibility press right after a real one.
+    @Test func allowAnswersOnlyThePersonsOwnPressOnTheSheet() async throws {
         _ = NSApplication.shared
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())
         await model.refresh()
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
-        let view = JoinConsentAskView(model: model)
-        let allow = try #require(AddDeviceShotsTests.find(view, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let panel = JoinConsentAskPanel(model: model)
+        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                    context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                                characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        let settle = { for _ in 0..<50 { await Task.yield() } }
         _ = allow.accessibilityPerformPress()
         allow.performClick(nil)
-        model.isPersonInput = { true }
-        view.allowPressed()
-        for _ in 0..<50 { await Task.yield() }
-        #expect(fake.writes.isEmpty && model.ask != nil && model.consent?.screen == false)
+        panel.dispatch(press) { allow.performClick(nil) } // the check refuses it (no check set: none is the person's)
+        panel.isPersonEvent = { _ in true }
+        panel.dispatch(key) { allow.performClick(nil) }
+        panel.dispatch(press) {}
+        _ = allow.accessibilityPerformPress() // right after a real press, outside its dispatch
+        await settle()
+        #expect(fake.writes.isEmpty && model.ask != nil)
+        panel.dispatch(press) { allow.performClick(nil) }
+        for _ in 0..<1000 where model.ask != nil { await Task.yield() }
+        #expect(fake.writes == ["screen true"] && model.ask == nil)
+    }
+
+    /// The strict check: this process's own posted events (DEBUG automation) are not the person's, in DEBUG
+    /// builds too; the HID system's are.
+    @Test func theStrictPersonCheckRefusesThisProcesssOwnEvents() throws {
+        let own = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: .zero, mouseButton: .left))
+        own.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()))
+        let hid = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: .zero, mouseButton: .left))
+        hid.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let check = PersonInputCheck()
+        #expect(!check.isPerson(try #require(NSEvent(cgEvent: own))))
+        #expect(check.isPerson(try #require(NSEvent(cgEvent: hid))))
+    }
+
+    /// Turning the Labs switch on drops what was read: nothing is allowed (a running session stops) until
+    /// the next read allows it.
+    @Test func turningTheLabsSwitchOnStopsUntilAReadAllows() async {
+        let fake = Fake()
+        fake.enabled = false
+        fake.record = JoinConsentRecord(screen: true)
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        let changes = Recorder()
+        model.changed = { changes.values.append("\(model.permitsMacScreen(control: false))") }
+        fake.enabled = true
+        await model.featureChanged()
+        #expect(changes.values == ["false", "true"], "stopped at once, then the read allows it")
+    }
+
+    /// A read made while a write is in flight never displaces the write's own read after it lands: the
+    /// write's read is held, a refresh starts and ends meanwhile, and the write's read still applies.
+    @Test func aReadDuringAWriteNeverDiscardsTheWritesConfirmation() async {
+        let fake = Fake()
+        let base = fake.services()
+        let held = Gate()
+        var opens = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status,
+            openLine: {
+                opens += 1
+                // 1: the first read; 2: the grant's read before it; 3: its write; 4: its read after.
+                if opens == 4 { await held.wait() }
+                return await base.openLine()
+            },
+            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        let grant = Task { await model.set(.screen, on: true) }
+        for _ in 0..<1000 where opens < 4 { await Task.yield() }
+        #expect(opens == 4 && fake.writes == ["screen true"])
+        await model.refresh()
+        held.open()
+        #expect(await grant.value == nil)
+        #expect(model.consent?.screen == true && model.permitsMacScreen(control: false))
+    }
+
+    /// When the read after a write fails, the record acpmux answered the write with stands in for it, and
+    /// an unread record says so on the page rather than showing a revoke.
+    @Test func aFailedReadAfterAWriteKeepsTheWritesRecord() async throws {
+        let fake = Fake()
+        let base = fake.services()
+        let held = Gate()
+        var opens = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status,
+            openLine: {
+                opens += 1
+                if opens == 4 { await held.wait() } // the grant's read after its write
+                return await base.openLine()
+            },
+            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        let grant = Task { await model.set(.screen, on: true) }
+        for _ in 0..<1000 where opens < 4 { await Task.yield() }
+        fake.readFails = true
+        held.open()
+        #expect(await grant.value == nil)
+        #expect(model.consent?.screen == true, "the write's record, acpmux's answer to it")
+        await model.refresh()
+        let data = try #require(model.pageData())
+        let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(page["error"] as? String == JoinConsentStrings.unread)
+        #expect(!model.permitsMacScreen(control: false), "unread: refused")
+    }
+
+    /// The Labs switch turned off while a grant's line opens: the grant is never sent.
+    @Test func aGrantIsNeverSentAfterTheLabsSwitchTurnsOff() async {
+        let fake = Fake()
+        let base = fake.services()
+        let held = Gate()
+        var opens = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status,
+            openLine: {
+                opens += 1
+                if opens == 3 { await held.wait() }
+                return await base.openLine()
+            },
+            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        let grant = Task { await model.set(.screen, on: true) }
+        for _ in 0..<1000 where opens < 3 { await Task.yield() }
+        fake.enabled = false
+        held.open()
+        #expect(await grant.value == JoinConsentStrings.onFailed)
+        #expect(fake.writes.isEmpty)
+    }
+
+    /// A join status that fails to read leaves an open sheet up; only the Labs switch off, a join gone or
+    /// revoked closes it.
+    @Test func anUnreadJoinStatusNeverClosesTheSheet() async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        fake.status = nil
+        await model.refresh()
+        #expect(model.ask != nil)
+        fake.takes = false
+        #expect(await model.answer(allow: true) == JoinConsentStrings.onFailed)
+        #expect(model.ask != nil && model.askError == JoinConsentStrings.onFailed)
+        fake.status = JoinStatus(credentialPresent: true, machineId: "m_1", revoked: true)
+        await model.refresh()
+        #expect(model.ask == nil)
     }
 
     @Test func pageScriptAloneNeverTurnsAConsentOnAndOffNeedsNoClick() async throws {

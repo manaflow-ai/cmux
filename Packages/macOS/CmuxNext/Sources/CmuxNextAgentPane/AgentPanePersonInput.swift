@@ -19,11 +19,12 @@ enum AgentPanePersonInput {
         "/System/Library/CoreServices/AssistiveControl.app/",
     ]
 
-    static func isPerson(_ event: NSEvent) -> Bool {
+    /// `debugAutomation` false: this process's own events never count, in DEBUG builds too.
+    static func isPerson(_ event: NSEvent, debugAutomation: Bool = true) -> Bool {
         guard let source = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) else { return false }
         if source == 0 { return true }
         #if DEBUG
-        if source == Int64(getpid()) { return true }
+        if debugAutomation, source == Int64(getpid()) { return true }
         #endif
         guard let path = executablePath(pid_t(truncatingIfNeeded: source)) else { return false }
         return personServices.contains { path.hasPrefix($0) }
@@ -47,10 +48,11 @@ enum AgentPanePersonInput {
     }
 }
 
-/// ``AgentPanePersonInput``'s check for code outside the agent pane (the join consent sheet's Allow): a
-/// click or key another process posts, or an Accessibility press, is not the person's.
+/// ``AgentPanePersonInput``'s check for code outside the agent pane (the join consent sheet's Allow),
+/// strict: a click or key another process posts is not the person's, and neither is this process's own
+/// DEBUG automation (`debug.key`, `debug.agent_pane click`), which may not stand in for the person here.
 public struct PersonInputCheck: Sendable {
     public nonisolated init() {}
-    /// Whether the event AppKit is dispatching now is the person's.
-    @MainActor public var currentIsPerson: Bool { AgentPanePersonInput.currentIsPerson }
+    /// Whether `event` is the person's own input.
+    @MainActor public func isPerson(_ event: NSEvent) -> Bool { AgentPanePersonInput.isPerson(event, debugAutomation: false) }
 }

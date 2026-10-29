@@ -15,6 +15,8 @@ enum DebugJoinConsent {
     static let line = FixtureLine()
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        // Only behind the Labs switch, as the feature itself: with it off, Mac Screen stays as it was.
+        guard services.joinConsent.enabled else { return .object(["error": .string("labs.machineJoin is off")]) }
         if params["joined"]?.boolValue == false {
             status = JoinStatus(credentialPresent: false)
         } else if status?.credentialPresent != true {
@@ -40,9 +42,9 @@ enum DebugJoinConsent {
         var isPerson: Bool { true }
         var supportsConsent: Bool { true }
         func read() async -> JoinConsentRecord? { record }
-        func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
+        func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
             if surface == .screen { record.screen = granted } else { record.control = granted }
-            return true
+            return record
         }
         func close() {}
     }

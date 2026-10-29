@@ -4,7 +4,10 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
 import CmuxNextRemote
+import CmuxNextCompat
 import CmuxNextServer
+import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// This Mac's join consent in the app (contract §5): the join status from the bundled cmux-tui's acpmux
@@ -58,8 +61,8 @@ final class JoinConsentPersonLine: JoinConsentLine {
         (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)
     }
 
-    func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
-        await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted]) != nil
+    func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
+        (await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted])).flatMap(JoinConsentRecord.parse)
     }
 
     func close() { line.close() }
@@ -74,11 +77,14 @@ extension JoinConsentModel {
         var panel: JoinConsentAskPanel?
         model.present = { [weak model] shown in
             guard let model else { return }
-            if shown, panel == nil { panel = JoinConsentAskPanel(model: model) }
+            if shown, panel == nil {
+                let made = JoinConsentAskPanel(model: model)
+                let person = PersonInputCheck()
+                made.isPersonEvent = { person.isPerson($0) }
+                panel = made
+            }
             panel?.setShown(shown)
         }
-        let person = PersonInputCheck()
-        model.isPersonInput = { person.currentIsPerson }
         model.redraw = { [weak model] in
             guard let model, model.ask != nil else { return }
             panel?.setShown(true)
@@ -86,8 +92,37 @@ extension JoinConsentModel {
         return model
     }
 
+    /// Follows the Labs switch (a change drops what was read and reads again; turning it on stops a Mac
+    /// Screen session until a read allows it) and, while it is on, acpmux's home folder, where a join, a
+    /// consent change or a refusal lands: each burst of changes there is one read. Event-driven, never a
+    /// poll; both loops end with the model (the folder watch also when the switch turns off).
+    func follow(_ services: AppServices, settings: SettingsController) {
+        // task-owner: lives as long as the model; one read per Labs change or burst of folder changes
+        Task { [weak self, weak services, weak settings] in
+            var watch: Task<Void, Never>?
+            defer { watch?.cancel() }
+            var last: Bool?
+            guard let settings else { return }
+            for await on in ObservationStream({ settings.snapshot.machineJoin }) {
+                guard let self else { return }
+                watch?.cancel()
+                watch = nil
+                if let last, last != on { await featureChanged() }
+                last = on
+                guard on, let services, let home = QuitAgents.environment(services)?.home else { continue }
+                watch = Task { [weak self] in
+                    for await _ in FolderChanges(folders: [home]).events() {
+                        guard let self else { return }
+                        await refresh()
+                    }
+                }
+            }
+        }
+    }
+
     /// Mac Screen's gate (``MacScreenHubHost/consentGate``): a fresh read, then what it allows.
     func macScreenGate(_ ticket: SessionTicket) async -> Bool {
+        guard enabled else { return true }
         // SECURITY: a capture fixture (debug.join_consent) never authorizes a live session.
         // Checked again after the read: a fixture set while it ran never authorizes either.
         if Self.fixtureActive { return false }
@@ -97,7 +132,8 @@ extension JoinConsentModel {
 
     /// What the last read allows a running Mac Screen session of `scope`.
     func macScreenPermits(_ scope: SessionScope) -> Bool {
-        !Self.fixtureActive && permitsMacScreen(control: scope == .full)
+        guard enabled else { return true }
+        return !Self.fixtureActive && permitsMacScreen(control: scope == .full)
     }
 
     private static var fixtureActive: Bool {

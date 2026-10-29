@@ -17,7 +17,7 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(line.isPerson && line.supportsConsent)
-        #expect(await line.set(.screen, granted: true))
+        #expect(await line.set(.screen, granted: true) == JoinConsentRecord(screen: true, control: false))
         #expect(await line.read() == JoinConsentRecord(screen: true, control: false))
         line.close()
         #expect(daemon.connections == 1, "one connection")
@@ -32,7 +32,7 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(!line.isPerson)
-        #expect(!(await line.set(.control, granted: true)))
+        #expect(await line.set(.control, granted: true) == nil)
         line.close()
         #expect(daemon.methods == ["initialize", "_acpmux/machine_consent_set"], "no prove step")
         #expect(daemon.refused == ["control"] && daemon.granted.isEmpty)
@@ -45,7 +45,7 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(!line.isPerson)
-        #expect(!(await line.set(.screen, granted: true)))
+        #expect(await line.set(.screen, granted: true) == nil)
         line.close()
         #expect(daemon.methods == ["initialize", "_acpmux/person_prove", "_acpmux/machine_consent_set"])
         #expect(daemon.refused == ["screen"] && daemon.granted.isEmpty)
