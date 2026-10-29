@@ -43,13 +43,6 @@ extension AgentLaunchSanitizer {
                 continue
             }
 
-            // A required-value option with nothing after it cannot launch, so drop it. Records captured before an
-            // option was known can end this way (https://github.com/manaflow-ai/cmux/issues/26318).
-            if index + 1 == args.count, policy.valueOptions.contains(arg),
-               !policy.optionalValueOptions.contains(arg), !policy.booleanOptions.contains(arg) {
-                break
-            }
-
             let runtimeOnlyWidth = runtimeOnlyOptionWidth(arg)
             let width = runtimeOnlyWidth ?? optionWidth(args, index: index, policy: policy)
             if runtimeOnlyWidth != nil || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
