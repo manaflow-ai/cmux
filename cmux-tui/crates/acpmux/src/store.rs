@@ -542,15 +542,26 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
-    /// How many records follow `after`, and the last one's `seq` (`after` when none): the
-    /// catch-up of a log that ran ahead of its saved meta. A file store reads only the tail
-    /// past `after`, never the whole log (daemon start, 2026-10-20).
-    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+    /// How many records follow `after` and the last one's `seq` (`after` when none), and, to
+    /// `visit` in order, those of them whose `kind` is in `kinds`: the catch-up of a log that
+    /// ran ahead of its saved meta (`Hub::catch_up`, `hub/meta_replay.rs`). A file store reads
+    /// only the tail past `after`, never the whole log (daemon start, 2026-10-20), once, and
+    /// parses only the lines of `kinds`: the others count on their header.
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> Result<(u64, u64)> {
         let mut count = 0;
         let mut last = after;
         self.scan(id, after, &mut |rec| {
             count += 1;
             last = last.max(rec.seq);
+            if kinds.contains(&rec.kind.as_str()) {
+                visit(rec);
+            }
             true
         })?;
         Ok((count, last))
@@ -1106,24 +1117,54 @@ impl Store for LocalStore {
         Ok(())
     }
 
-    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+    /// One pass over the tail, newest first, so it ends at the first record at or before
+    /// `after` (a start whose log did not run ahead reads one block). A line whose header names
+    /// its `seq` and a kind not in `kinds` counts unparsed; any other line is parsed, and so is
+    /// the log's newest line, which a crash may have torn: as before, it counts only if it
+    /// parses. The records of `kinds` go to `visit` oldest first after the pass.
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> Result<(u64, u64)> {
         let mut count = 0;
         let mut last = after;
+        let mut found = Vec::new();
+        let mut newest = true;
         let mut done = false;
         for (_, path) in self.segments(id)?.into_iter().rev() {
             for_each_line_rev(&path, &mut |line| {
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
-                if rec.seq <= after {
+                let maybe_torn = std::mem::take(&mut newest);
+                let head = record_seq(line).zip(record_kind(line)).filter(|_| !maybe_torn);
+                let seq = match head {
+                    Some((seq, kind)) if !kinds.iter().any(|k| k.as_bytes() == kind) => seq,
+                    _ => {
+                        let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else {
+                            return true;
+                        };
+                        let seq = rec.seq;
+                        if seq > after && kinds.contains(&rec.kind.as_str()) {
+                            found.push(rec);
+                        }
+                        seq
+                    }
+                };
+                if seq <= after {
                     done = true;
                     return false;
                 }
                 count += 1;
-                last = last.max(rec.seq);
+                last = last.max(seq);
                 true
             })?;
             if done {
                 break;
             }
+        }
+        for rec in found.into_iter().rev() {
+            visit(rec);
         }
         Ok((count, last))
     }

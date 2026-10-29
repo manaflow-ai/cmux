@@ -1089,6 +1089,9 @@ impl Hub {
     }
 
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {
+        // A restart's names are the logs' (it replays their renames, `meta_replay.rs`): the name
+        // is checked against those, once a deferred start has read them.
+        self.wait_logs().await;
         if self
             .sessions
             .lock_or_recover()
@@ -1097,13 +1100,12 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
-        let old = {
-            let mut m = session.meta.lock_or_recover();
+        self.change_logged(session, "renamed", |m| {
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
-            super::titles::title_renamed(&mut m);
-            std::mem::replace(&mut m.name, name.clone())
-        };
-        self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
+            super::titles::title_renamed(m);
+            let old = std::mem::replace(&mut m.name, name.clone());
+            Some(json!({"from": old, "to": name}))
+        });
         self.save_meta(session);
         Ok(())
     }
@@ -1111,8 +1113,10 @@ impl Hub {
     /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
     /// itself (an aside's, a handoff target's) holds as one a client sets does.
     pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
-        self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
-        self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
+        self.permission_policy_changed(session, "policy", |m| {
+            m.permission_policy = Some(policy.to_string());
+            json!({"policy": policy.to_string()})
+        });
         self.save_meta(session);
         self.follow_policy(session).await;
     }

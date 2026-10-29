@@ -458,8 +458,8 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
 }
 
 /// A store that counts the records it hands a reader (`scan`, `scan_back`, `scan_kinds`,
-/// `events`): a file store parses each of those, and passes a line `scan_back`'s skip names on its
-/// header. Every other call goes to the store it wraps.
+/// `tail_after`, `events`): a file store parses each of those, and passes a line `scan_back`'s
+/// skip names on its header. Every other call goes to the store it wraps.
 struct Counting {
     inner: Box<dyn acpmux::store::Store>,
     parsed: Arc<std::sync::atomic::AtomicUsize>,
@@ -518,8 +518,17 @@ impl acpmux::store::Store for Counting {
             visit(rec)
         })
     }
-    fn tail_after(&self, id: &str, after: u64) -> anyhow::Result<(u64, u64)> {
-        self.inner.tail_after(id, after)
+    fn tail_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(acpmux::store::EventRecord),
+    ) -> anyhow::Result<(u64, u64)> {
+        self.inner.tail_after(id, after, kinds, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
     }
     fn scan_kinds(
         &self,
