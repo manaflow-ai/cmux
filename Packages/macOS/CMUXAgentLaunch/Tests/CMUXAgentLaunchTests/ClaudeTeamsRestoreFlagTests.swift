@@ -493,17 +493,20 @@ struct ClaudeTeamsRestoreFlagTests {
         )
     }
 
-    @Test(arguments: ["claudeTeams", "claude"])
-    func dropsTrailingValueOptionLeftByTruncatedRecord(launcher: String) {
+    @Test("Keeps truncated Claude records invalid instead of resuming with missing restrictions", arguments: ["claudeTeams", "claude"])
+    func preservesTrailingValueOptionLeftByTruncatedRecord(launcher: String) {
         let launch = launcher == "claudeTeams"
             ? ["/Applications/cmux.app/Contents/Resources/bin/cmux", "claude-teams", "--model", "opus"]
             : ["/usr/local/bin/claude", "--model", "opus"]
+        // The lost suffix may include restrictions such as --disallowed-tools Bash. Keep Claude's
+        // missing-value error rather than silently treating the incomplete configuration as valid.
+        let truncated = launch + ["--autocompact"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                launch + ["--autocompact"],
+                truncated,
                 launcher: launcher,
                 fallbackKind: "claude"
-            ) == launch
+            ) == truncated
         )
     }
 }
