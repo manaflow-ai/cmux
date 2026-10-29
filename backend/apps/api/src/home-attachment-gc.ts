@@ -134,6 +134,10 @@ export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: st
 const deletePrefix = async (env: Env, entity: string): Promise<Array<string>> => {
   const bucket = env.HOME_ATTACHMENTS
   if (!bucket) return []
+  // The self-hosted bucket (home-server's FsBucket) has no lifecycle rule to end abandoned
+  // multipart uploads, as R2 does, so it ends those under the prefix here; R2 has no such method.
+  const selfHosted = bucket as Partial<{ abortMultipartUploads(prefix: string): Promise<number> }>
+  await selfHosted.abortMultipartUploads?.(conversation.attachmentPrefix(entity))
   const deleted: Array<string> = []
   let cursor: string | undefined
   do {

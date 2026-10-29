@@ -16,7 +16,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     let sync: WorkspaceSync
     private let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
-    private weak var acpmux: AcpmuxHub?
+    weak var acpmux: AcpmuxHub?
 
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
@@ -396,7 +396,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             let folder = (cwd as NSString).lastPathComponent
             throw WorkspaceCreationError(error.reason == "trust.untrusted"
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
-                : Self.trustSteps(folder: folder),
+                : Self.trustSteps(folder: folder, agent: choice.name, family: choice.family),
                 isForPerson: true)
         } catch let error as AcpmuxConnection.RPCError where error.reason == "route.unavailable" {
             throw WorkspaceCreationError(Self.routeUnavailable(error.message), isForPerson: true)
@@ -428,11 +428,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent."
     }
 
-    /// What to do when acpmux waits for the person to trust a new folder: it
-    /// asks only on the Mac (a phone may not answer `acp.trust.set`), and
-    /// Claude's own trust answer counts too.
-    nonisolated static func trustSteps(folder: String) -> String {
-        "Claude hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+    /// What to do when acpmux waits for the person to trust a new folder for the agent
+    /// being started: it asks only on the Mac (a phone may not answer `acp.trust.set`).
+    /// Claude's own trust answer counts too, so a Claude chat gets that second way.
+    nonisolated static func trustSteps(folder: String, agent: String = "Claude", family: String = "claude") -> String {
+        guard family == "claude" else {
+            return "\(agent) hasn't been trusted in \(folder) yet. On the Mac, open this workspace in cmux and choose Trust when it asks, "
+                + "then start the chat again."
+        }
+        return "\(agent) hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
             + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
             + "Then start the chat again."
     }
@@ -472,7 +476,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),
     /// after its tabs closed. A refusal leaves the reap to the daemon: the tabs are closed.
-    private func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
+    func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
         for terminal in terminals {
             do {
                 try WorkspaceSync.check(await client.request("close-terminal", params: Self.closeParams(terminal)))
@@ -578,6 +582,33 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw WorkspaceCreationError("The new tab didn't appear on the Mac")
             }
             return copy
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// A web link tapped in a terminal (the Mac's Cmd-click, `TerminalHostDelegate.openWeb`):
+    /// `new-browser-tab {url, pane}` in the terminal's own pane, so the page opens beside it in
+    /// the same workspace. Only `http` and `https` (the mobile host refuses any other scheme).
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            throw WorkspaceCreationError("Only web links open in a browser tab.", isForPerson: true)
+        }
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        do {
+            let reply = try await client.request("new-browser-tab", params: ["url": url.absoluteString, "pane": place.pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            let tree = try await sync.listNow()
+            guard let opened = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return opened
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
@@ -726,7 +757,140 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             try await run(client, "save-tab-group", ["group": try group(of: tab)])
         case .unsave:
             try await run(client, "unsave-tab-group", ["group": try group(of: tab)])
+        case .setColor(let color):
+            try await run(client, "update-tab-group", ["group": try group(of: tab), "color": color])
+        case .setIcon(let icon):
+            // `null` removes the icon (`tab-group-icon-v1`), as the Mac's Remove Tab Group Icon.
+            try await run(client, "update-tab-group", ["group": try group(of: tab), "icon": icon.map { $0 as Any } ?? NSNull()])
+        case .setCollapsed(let collapsed):
+            try await run(client, "update-tab-group", ["group": try group(of: tab), "collapsed": collapsed])
+        case .moveLeft, .moveRight:
+            let id = try group(of: tab)
+            let pane = try groupPane(id)
+            guard let index = DaemonTree.tabGroupMoveIndex(of: id, forward: edit == .moveRight, in: sync.tree?.paneSlots[pane] ?? []) else {
+                throw WorkspaceCreationError(Self.groupAtEdge, isForPerson: true)
+            }
+            try await run(client, "move-tab-group", ["group": id, "pane": pane, "index": index])
+        case .moveToSplit(let edge):
+            let id = try group(of: tab)
+            let pane = try groupPane(id)
+            // The chat dock never splits (the Mac's ChatDockRules), from any entry point.
+            guard sync.tree?.chatDockPanes.contains(pane) != true else { throw WorkspaceCreationError(Self.chatDockCannotSplit, isForPerson: true) }
+            try await run(client, "move-tab-group-to-split", ["group": id, "pane": pane, "edge": edge.wire])
+        case .moveToColumn:
+            let id = try group(of: tab)
+            try await run(client, "move-tab-group-to-column", ["group": id, "pane": try groupPane(id)])
+        case .moveToNewWorkspace:
+            try await run(client, "move-tab-group-to-new-workspace", ["group": try group(of: tab)])
+        case .moveToWorkspace(let destination):
+            // The Mac's tabGroup.moveToWorkspace: the destination's first screen's default pane
+            // (never its chat dock: then that screen's first other pane), at the end of its tabs.
+            let id = try group(of: tab)
+            guard let target = sync.tree?.workspaces.first(where: { $0.id == destination }) else {
+                throw WorkspaceCreationError("That workspace is no longer on this Mac.", isForPerson: true)
+            }
+            let screen = target.screens.first
+            let docks = sync.tree?.chatDockPanes ?? []
+            let preferred = screen?.activePane.flatMap { docks.contains($0) ? nil : $0 }
+            guard let pane = preferred ?? screen?.panes.first(where: { !docks.contains($0) }) else {
+                throw WorkspaceCreationError("\(target.title) has no pane to move the group into.", isForPerson: true)
+            }
+            try await run(client, "move-tab-group", ["group": id, "pane": pane, "index": sync.tree?.paneSlots[pane]?.count ?? 0])
         }
+    }
+
+    /// Whether Move Tab Group Left / Right can move `tab`'s group (`TabGroupReorder`).
+    public func canMoveTabGroup(of tab: WorkspaceTab, forward: Bool, in workspace: Workspace) -> Bool {
+        guard canManage(on: workspace.macID), let id = tab.group?.id, let pane = sync.tree?.groupPanes[id],
+              let slots = sync.tree?.paneSlots[pane] else { return false }
+        return DaemonTree.tabGroupMoveIndex(of: id, forward: forward, in: slots) != nil
+    }
+
+    /// The Mac's `tabGroup.newTab`: a terminal in the group's pane (hostd picks the pane's
+    /// folder; the phone sends none), then into the group.
+    public func newTabInGroup(of tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        let (client, _) = try target(tab, in: workspace)
+        let id = try group(of: tab)
+        let pane = try groupPane(id)
+        do {
+            let reply = try await client.request("new-tab", params: ["pane": pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            try WorkspaceSync.check(await client.request("add-tabs-to-tab-group", params: Self.addParams(group: id, surface: surface)))
+            return try await listedTab(surface)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    nonisolated static func addParams(group: String, surface: Int) -> sending [String: Any] {
+        ["group": group, "surfaces": [surface]]
+    }
+
+    /// The tab of `surface` once the Mac lists it.
+    private func listedTab(_ surface: Int) async throws -> WorkspaceTab {
+        let id = DaemonTree.tabID(surface: surface)
+        let tree = try await sync.listNow()
+        guard let tab = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+            throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+        }
+        return tab
+    }
+
+    private func groupPane(_ group: String) throws -> Int {
+        guard let pane = sync.tree?.groupPanes[group] else { throw WorkspaceCreationError("The Mac doesn't list this tab group") }
+        return pane
+    }
+
+    /// The Mac's refusals (`RefusalStrings.groupAtEdge`, `chatDockCannotSplit`), as sentences.
+    nonisolated static let groupAtEdge = "The group is already at the edge."
+    nonisolated static let chatDockCannotSplit = "The agent chat can't be split."
+
+    // MARK: Screens (the Mac's ScreenActionCatalog)
+
+    /// Select Screen: the screen becomes the workspace's active screen on the Mac. The daemon's
+    /// `select-screen` picks among the screens of whichever workspace the daemon has active (it
+    /// names no workspace), so the phone focuses the screen's own active pane instead
+    /// (`focus-pane`: "that pane, its screen and workspace active"), one request naming this
+    /// workspace's screen exactly. Like any focus change it also makes this workspace the
+    /// daemon's active one (what a terminal frontend following the session shows); the Mac's
+    /// windows keep their own shown workspace and screen.
+    public func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard let pane = screen.activePane ?? screen.panes.first else {
+            throw WorkspaceCreationError("The Mac doesn't list this screen's panes")
+        }
+        try await run(client, "focus-pane", ["pane": pane])
+    }
+
+    /// New Screen: the Mac's `new-screen` in this workspace (a new terminal in it, the Mac's
+    /// login shell; the phone names no program or folder).
+    public func newScreen(in workspace: Workspace) async throws -> WorkspaceTab {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard let number = sync.tree?.workspaceNumbers[workspace.id] else { throw WorkspaceCreationError("The Mac doesn't list this workspace") }
+        do {
+            let reply = try await client.request("new-screen", params: ["workspace": number])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            return try await listedTab(surface)
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        try await run(client, "rename-screen", ["screen": screen.id, "name": name])
+    }
+
+    /// Close Screen: the phone has no Reopen Closed Screen, so the screen's terminals end with it
+    /// (`end_terminals`), as a phone tab close ends its terminal.
+    public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard workspace.screens.count > 1 else { throw WorkspaceCreationError("This is the workspace's only screen.", isForPerson: true) }
+        try await run(client, "close-screen", ["screen": screen.id, "end_terminals": true])
     }
 
     // MARK: Saved tab groups (Reopen / Delete Saved Tab Group…)
@@ -816,7 +980,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
             let id = DaemonTree.tabID(surface: surface)
             let tree = try await sync.listNow()
-            guard let copy = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+            // A chat of the Mac's Home forks there too (its tabs are listed apart).
+            guard let copy = (tree.workspaces + tree.homeWorkspaces).flatMap(\.tabs).first(where: { $0.id == id }) else {
                 throw WorkspaceCreationError("The new tab didn't appear on the Mac")
             }
             return copy
@@ -844,7 +1009,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await run(client, "close-surface", ["surface": surface])
     }
 
-    private func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
+    func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
         }
