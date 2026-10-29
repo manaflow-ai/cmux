@@ -289,7 +289,7 @@ async function jpeg(source: CanvasImageSource, width: number, height: number, ed
 
 /** An image's size and small preview (none for a GIF, which would stop moving, or a type the
  * browser cannot decode). */
-async function imageFacts(file: File): Promise<Facts> {
+async function imageFacts(file: File, mimeType: string): Promise<Facts> {
   const size = await imageSize(file).catch(() => undefined);
   if (
     size &&
@@ -298,7 +298,7 @@ async function imageFacts(file: File): Promise<Facts> {
       (size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height))
   )
     return {};
-  const heic = file.type.toLowerCase() === "image/heic";
+  const heic = mimeType === "image/heic";
   // Follow the shared unsized-image decode budget. This limits only optional preview work;
   // the original is still hashed and uploaded in slices, regardless of its byte count.
   if (!size && (!heic || file.size > MAX_UNSIZED_DECODE_BYTES)) return {};
@@ -307,7 +307,7 @@ async function imageFacts(file: File): Promise<Facts> {
   const facts = { width: bitmap.width, height: bitmap.height };
   const small = file.size <= PREVIEW_BYTES_LIMIT && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;
   const preview =
-    file.type === "image/gif" || (small && !heic)
+    mimeType === "image/gif" || (small && !heic)
       ? undefined
       : await jpeg(bitmap, bitmap.width, bitmap.height, PREVIEW_EDGE, PREVIEW_BYTES_LIMIT).catch(() => undefined);
   bitmap.close();
@@ -390,7 +390,8 @@ export class AttachmentService {
     const prefix = new Uint8Array(await file.slice(0, Math.min(SNIFF_BYTES, file.size)).arrayBuffer());
     const mimeType = resolvedType(file, prefix);
     const kind = attachmentClass(mimeType);
-    const facts: Facts = kind === "image" ? await imageFacts(file) : kind === "video" ? await videoFacts(file) : {};
+    const facts: Facts =
+      kind === "image" ? await imageFacts(file, mimeType) : kind === "video" ? await videoFacts(file) : {};
     const derived = facts.preview ?? facts.poster;
     const part: HomeAttachment = {
       type: "attachment",

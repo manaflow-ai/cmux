@@ -145,9 +145,11 @@ describe("Channels attachments: any file", () => {
   test("non-square HEIC originals keep their dimensions and always get a compatible preview", async () => {
     const previousDocument = globalThis.document;
     try {
-      for (const [byteCount, width, height] of [
-        [100_000, 1600, 900],
-        [600_000, 600, 300],
+      for (const [byteCount, width, height, type] of [
+        [100_000, 1600, 900, "image/heic"],
+        [600_000, 600, 300, "image/heic"],
+        [100_000, 1600, 900, ""],
+        [600_000, 600, 300, "application/octet-stream"],
       ] as const) {
         let closed = false;
         const draws: number[][] = [];
@@ -171,7 +173,7 @@ describe("Channels attachments: any file", () => {
             toBlob: (callback: BlobCallback) => callback(new Blob(["jpeg-preview"], { type: "image/jpeg" })),
           }),
         } as unknown as Document;
-        const file = new File([new Uint8Array(byteCount)], "photo.heic", { type: "image/heic" });
+        const file = new File([new Uint8Array(byteCount)], "photo.heic", { type });
         let declared: Record<string, unknown> = {};
         const original: number[] = [];
         const client = {
