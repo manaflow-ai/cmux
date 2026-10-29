@@ -7,7 +7,7 @@ import Testing
 /// expired at `expiresAt`, the list read on a trigger (the line shown, the focus, a mesh change) and
 /// never on a timer, and the countdown and mesh watch stopped on close, on the flip and at expiry.
 @MainActor @Suite(.serialized) struct MachineJoinLineFlowTests {
-    final class Fake: @unchecked Sendable {
+    nonisolated final class Fake: @unchecked Sendable {
         var now = Date(timeIntervalSince1970: 1_000_000)
         var rows: [JoinedMachine] = []
         var lists = 0
