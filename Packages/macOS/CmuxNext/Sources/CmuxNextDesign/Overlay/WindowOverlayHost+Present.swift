@@ -41,6 +41,10 @@ public extension WindowOverlayHost {
                 self?.updateMouseRouting()
             }
         }
+        // Before the panel attaches: ordering it in displays and commits its layers at once, and the
+        // window server showed one frame of the whole dialog and scrim before the fade began
+        // (debug.dialog_strip: half the opens, the base build too).
+        if options.kind == .dialog { hideForEntrance([scrim, content].compactMap(\.self)) }
         syncPanel()
         layout(handle)
         if options.kind == .dialog { animateIn(content, scrim: scrim) }
@@ -49,6 +53,20 @@ public extension WindowOverlayHost {
         updateEscapeMonitor()
         onBlockingChange?()
         return handle
+    }
+
+    /// A dialog's card and scrim at their first entrance frame (transparent), with no implicit
+    /// animation, so nothing of them shows until `animateIn` fades them in. A dialog presented
+    /// again while its close still runs keeps what is on screen.
+    private func hideForEntrance(_ views: [NSView]) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        for view in views {
+            view.wantsLayer = true
+            guard let layer = view.layer, layer.animation(forKey: "sublayerTransform") == nil else { continue }
+            layer.opacity = 0
+        }
     }
 
     /// A dialog arrives (POLISH: no flash, no cut): its card fades in and grows from
