@@ -436,61 +436,6 @@ Paths are in chromium/src at main, read 2026-10-25 (p14-energy.md sec. 1 has the
 | Power notifications are handled on the UI thread | Power inputs arrive on a utility queue; main hears only an edge | Fewer main wakes on battery | 058 |
 | The browser process can not App Nap | The Chromium Host may App Nap while every page it hosts is hidden; idle agent harnesses of hidden sessions freeze | The same rule as `FreezingPolicy`, applied to processes Chrome does not have | 128, 117 |
 
-### 9.9 The built-in uBlock Origin (cef-extension, p14-energy-108)
-
-The built-in uBlock Origin 1.75.0 (Manifest V2, `fetch-ublock.sh`) runs its background page in one extension
-renderer, the `cef-extension` kind (budget 0.1 wakeups/s per process, tabs-static). Its timers are profiled with
-`cef-idle-probe.py --extension-timers` (with `--app`, in place of the trace and pump window, since its
-debugger pauses run on the browser main thread; window 120 s, at least 60 s) or `--cdp-port PORT` (any running
-Chromium, Chrome in chrome-static too): `extension_timers.py` sets DevTools' timer instrumentation breakpoints on
-the background target and counts each callback (a JS wake), each arm by the stack that armed it (the owner) and
-each `chrome.alarms` fire.
-
-Measured 2026-10-26 on Linux (no Mac here): Chrome for Testing 138.0.7204.183 (the last one that loads an MV2
-extension with `--load-extension`), the same staged uBlock Origin, headless, 11 static tabs from a local server,
-settled 120-150 s, no input. Fresh profile = first start of uBlock Origin; warm = a profile it ran in before.
-
-| Window | uBlock Origin JS wakes/s | extension process wakes/s (Linux context switches) | by thread |
-| --- | --- | --- | --- |
-| fresh, 660 s | 0.0515 (34 in 660 s) | 0.23 (300 s) | main 0.10, HangWatcher 0.10, IO 0.023, MemoryInfra 0.007 |
-| warm, 660 s | 0.0182 (12 in 660 s) | 0.157 (300 s) | HangWatcher 0.10, main 0.047, IO 0.01 |
-| warm, `--disable-features=EnableHangWatcher` | not profiled | 0.06 (300 s) | main 0.05, IO 0.01 |
-
-The JS owners (every one is code, none is a setting):
-
-| Owner (uBlock Origin 1.75.0 source) | Period | Rate with 11 tabs | When |
-| --- | --- | --- | --- |
-| `js/traffic.js` `gc` (behind-the-scene journal cache) | 30.011 s, re-arms itself | 0.033/s | until a tab opens or closes (the page-store token changes) |
-| `js/tab.js` `TabContext.onGC` (one per tab; `vAPI.tabs.get` to the browser) | 10 min per tab | 0.017/s | always, one per open tab |
-| `js/tab.js` `pageStoreJanitor` | 15 min | 0.0011/s | always |
-| alarm `assetUpdater` (`js/storage.js` `scheduleAssetUpdater`, hidden setting `autoUpdatePeriod` 1 h) | 1 h | 0.0003/s | always; a list is fetched only when its `updateAfter` (days) has passed |
-| `js/storage.js` `saveLocalSettings` (request counters), `selfieManager` | once, 3.6 min and 53 s after activity | 0 at idle | after page loads, after a list change |
-
-Results:
-
-- uBlock Origin itself is under the budget: 0.018-0.052 JS wakes/s with 11 tabs. Its asset updates already run on
-  the hourly `assetUpdater` alarm, and an update check with nothing due writes no cache (`js/assets.js`
-  `updateNext`: no list due, no fetch and no list written). The only idle write in the window was the one-shot request-counter save.
-- No admin setting can remove more. uBlock Origin reads admin settings only from `chrome.storage.managed`
-  (`js/vapi-background.js` `vAPI.adminStorage`), which Chromium fills from enterprise policy
-  (`chrome/browser/extensions/api/storage/managed_value_store_cache.cc`; on macOS a managed-preferences profile),
-  so a bundle can not ship them; and the owners above are not settings. Changing the staged code was not done: the
-  copy stays the unmodified release (SOURCE.txt) and the same build as Chrome's in chrome-static.
-- Remaining owner above 0.1/s: Chromium's `HangWatcher` thread (base/threading/hang_watcher.cc, `kEnableHangWatcher`,
-  `kMonitoringPeriod` 10 s), 0.10/s in the extension process alone. It runs in every Chromium child that has it on,
-  so each hidden renderer pays the same 0.1/s (D4's hidden-renderer limit is 0.1/s). It is a Q8 item, not a uBlock
-  Origin one: `--disable-features=EnableHangWatcher` removes it (0.157/s to 0.06/s above), and costs Chromium's own
-  hang dumps of its children; cmux's HangMonitor watches the app, not the Chromium children. The decision and the
-  switch belong to the Q8 slot that owns CEFSwitches.swift.
-- Option, not taken: uBlock Origin Lite (Manifest V3, `declarativeNetRequest`) in Energy Saver. It has no background
-  page: its service worker stops after 30 s idle (content/browser/service_worker/service_worker_version.cc), so its
-  idle cost is 0 and filtering runs in the network service. Costs: a different extension id
-  (ddkjiahejlhfcafbddmgiahcphecmpfh), so the person's uBlock Origin settings do not carry over; less filtering power
-  (no dynamic filtering, fewer scriptlets, lists fixed per release); and `--load-extension` is read at Chromium's
-  start, so a saver change needs a Chromium restart.
-- The macOS numbers (interrupt wakeups, the idle-budget `cef-extension` row) come from the test phase:
-  `idle-budget.py --sessions tabs-static,chrome-static` on a measure host.
-
 ## 10. Hidden main wakes (p14-energy-095)
 
 speed-of-sound-DESIGN.md sec. 5/7 measured the Release app's main thread at 107 wakes/s while the app was hidden,
