@@ -210,7 +210,16 @@ async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
         r#"#!/usr/bin/env python3
 import json, os, subprocess, sys
 
-lock_fd = int(os.environ['CMUX_BROKER_LOCK_FD'])
+lock_fd = None
+for fd in os.listdir('/proc/self/fd'):
+    try:
+        if os.path.basename(os.readlink('/proc/self/fd/' + fd)) == 'broker.lock':
+            lock_fd = int(fd)
+            break
+    except OSError:
+        pass
+if lock_fd is None:
+    raise RuntimeError('broker lock fd was not inherited')
 child = subprocess.Popen(
     ['sleep', '30'],
     stdin=subprocess.DEVNULL,
