@@ -1,0 +1,10 @@
+{
+  "title": "Restart to Update gets the newest build; a pulled build says one line",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Restart to Update found a newer build: Getting the Newest Build…", "cmux": ["app", "call", "debug.updater", "{\"action\": \"newest\"}"], "wait": 2},
+    {"title": "The running build was pulled: one line, no buttons", "cmux": ["app", "call", "debug.updater", "{\"action\": \"newest\", \"pulled\": true}"], "wait": 2},
+    {"title": "A light theme", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2},
+    {"title": "Unstage", "cmux": ["app", "call", "debug.updater", "{\"action\": \"unstage\"}"], "wait": 1, "shot": false}
+  ]
+}
