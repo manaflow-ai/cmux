@@ -263,6 +263,12 @@ public final class FeedStore {
         }
     }
 
+    #if DEBUG
+    public func setRefreshErrorForDemo() {
+        refreshError = Self.notConnectedMessage
+    }
+    #endif
+
     public func clearRefreshError() { refreshError = nil }
 
     /// No Mac to send to: the item keeps its question and says why.
