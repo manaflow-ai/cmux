@@ -192,12 +192,16 @@ extension NSWindow {
         guard windowNumber > 0 else { return nil }
         let floating = floatingWindowNumbers()
         let children = visibleChildWindows.map(\.windowNumber)
+        // A capture backdrop (``captureBackdrop``) goes behind everything, so the window's
+        // translucency and glass show it as on screen.
+        let backdrop = captureBackdropNumber
         let image: CGImage?
-        if children.isEmpty && floating.isEmpty {
+        if children.isEmpty && floating.isEmpty && backdrop == nil {
             image = Self.windowServerImage(of: windowNumber)
         } else {
             guard let primary = NSScreen.screens.first else { return nil }
-            image = Self.windowServerImage(ofNumbers: Self.frontToBack([windowNumber] + children + floating),
+            let front = Self.frontToBack([windowNumber] + children + floating)
+            image = Self.windowServerImage(ofNumbers: Self.compositeOrder(front: front, backdrop: backdrop),
                                            rect: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY))
         }
         guard let image, image.width > 0, image.height > 0, !image.isFullyTransparent else { return nil }
