@@ -2131,7 +2131,11 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await cloudDb().update(cloudVms).set({
         providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
           || jsonb_build_object(${VM_IDLE_PROBED_AT_KEY}::text, greatest(${metadataMillis(VM_IDLE_PROBED_AT_KEY)}, ${input.probedAt}::bigint))`,
-      }).where(and(eq(cloudVms.id, input.id), eq(cloudVms.providerVmId, input.providerVmId)));
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        eq(cloudVms.status, "running"),
+      ));
     }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()

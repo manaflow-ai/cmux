@@ -481,7 +481,7 @@ function cronFakes(
       .sort((a, b) => Number(a.providerMetadata?.cmuxIdleProbedAt ?? 0) - Number(b.providerMetadata?.cmuxIdleProbedAt ?? 0))
       .slice(0, limit)),
     recordIdleCheck: (input: { id: string; providerVmId: string; probedAt: number }) => Effect.sync(() => {
-      update(input.id, (row) => row.providerVmId !== input.providerVmId ? row : {
+      update(input.id, (row) => row.status !== "running" || row.providerVmId !== input.providerVmId ? row : {
         ...row, providerMetadata: { ...row.providerMetadata, cmuxIdleProbedAt: Math.max(Number(row.providerMetadata?.cmuxIdleProbedAt ?? 0), input.probedAt) },
       });
     }),
