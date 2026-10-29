@@ -1,4 +1,4 @@
-import CmuxNextServer
+@testable import CmuxNextServer
 import Foundation
 import Testing
 @testable import CmuxNextApp
