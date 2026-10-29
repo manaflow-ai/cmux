@@ -308,7 +308,10 @@ let uiLayerPreviewTargets: [Target] = [
     .testTarget(
         name: "CmuxNextUiLayerPreviewTests",
         dependencies: ["CmuxNextUiLayerPreview"],
-        swiftSettings: uiSwiftSettings
+        // The preview exists only in Debug (its target's define), so its tests compile only there too.
+        swiftSettings: uiSwiftSettings + [
+            .define("CMUX_UI_LAYER_PREVIEW", .when(configuration: .debug)),
+        ]
     ),
 ]
 
