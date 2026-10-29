@@ -90,9 +90,9 @@ enum AgentPaneHandshakeReply {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
             var details: [String: Any] = [:]
-            // The web pane keeps an update's socket handoff neutral, but still shows actionable
-            // host refusals (missing binary, stopped daemon, unsupported peer) with their next step.
-            if case .daemonRestarting = error as? AgentPaneHostError { details["reconnecting"] = true }
+            // The web pane shows nothing while a daemon starts or restarts and its retries can
+            // outlast it (``AgentPaneHostError/isTransient``); a refusal they cannot is said at once.
+            if (error as? AgentPaneHostError)?.isTransient == true { details["reconnecting"] = true }
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: the page offers Restart acpmux
