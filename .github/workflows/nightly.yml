@@ -3737,10 +3737,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # A different Blacksmith Linux size than the primary's, so a stalled 4 vCPU
-    # queue does not hold the fallback too; never GitHub-hosted (Leo, 2026-10-27:
-    # "just put it on blacksmith / 16vcpu blacksmiths do exist").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Another runner-set size than the primary's: one stalled size never holds
+    # both (Leo, 2026-10-27: "16vcpu blacksmiths do exist").
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER != 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false

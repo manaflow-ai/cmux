@@ -185,6 +185,19 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
+    def test_prepare_fallback_takes_another_size_than_the_primary(self):
+        # One stalled runner-set size never holds both the primary and its fallback.
+        def label(job, runner):
+            source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
+            context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner}
+            return evaluate(parse_expression(source), context)
+        for runner in ('', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'):
+            with self.subTest(runner=runner):
+                primary = label('prepare-nightly-variant-primary', runner)
+                fallback = label('prepare-nightly-variant-fallback', runner)
+                self.assertNotEqual(primary, fallback)
+                self.assertIn(fallback, ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'))
+
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
             {'github.event_name': 'workflow_dispatch'},

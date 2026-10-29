@@ -110,7 +110,7 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /^    runs-on: .*vars\.LINUX_RUNNER.*blacksmith-4vcpu-ubuntu-2404/ { saw_runner_override=1 }
+  in_decide && /^    runs-on: .*vars\.LINUX_RUNNER.*blacksmith-32vcpu-ubuntu-2404/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: the short nightly decide gate must use the pooled Linux route with a Blacksmith fallback"
@@ -149,7 +149,7 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-4vcpu-ubuntu-2404/ { saw_blacksmith=1 }
+  in_prepare && /blacksmith-(16|32)vcpu-ubuntu-2404/ { saw_blacksmith=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
@@ -266,7 +266,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
