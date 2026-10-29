@@ -693,7 +693,7 @@ class ClaimGateTests(unittest.TestCase):
 
             def gate(**env: str) -> subprocess.CompletedProcess:
                 output.write_text("")
-                return subprocess.run(["bash", "-e", "-c", CLAIM_GATE],
+                return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", CLAIM_GATE],
                                       env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
                                            "ASKED": os.fspath(asked), "SERVED": os.fspath(served), "WANT": want,
                                            **run_env, **env},
