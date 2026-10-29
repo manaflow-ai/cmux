@@ -9,7 +9,7 @@ import Testing
 
 /// A Mac that streams browser tabs: each open records the tab and keeps its stream,
 /// whose `rb.*` messages are what the phone asked the Mac to do.
-private final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
+final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
     let lock = NSLock()
     private var sinks: [String: any BrowserStreamSink] = [:]
     private var streams: [String: Stream] = [:]
@@ -120,6 +120,57 @@ private final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
         #expect(!mac.sent(tab).contains { $0["t"] as? String == "rb.navigate" })
     }
 
+    /// A page that moves by itself on the phone (a mobile site, a sign-in page for a phone
+    /// with no session) never moves the Mac's page.
+    @Test func aRedirectThePhoneTookByItselfIsNotCarried() async throws {
+        let (source, mac, _) = try await linked(at: "https://example.com/mac", native: NativeBrowserTabs(defaults: defaults()))
+        source.openOnPhone(tab)
+        let phone = try #require(try page(source) as? BrowserTabModel)
+        phone.load(try #require(URL(string: "https://accounts.example.com/signin?continue=mac")))
+        source.mirrorFromMac(tab)
+        #expect(try page(source) is StreamedBrowserModel)
+        #expect(!mac.sent(tab).contains { $0["t"] as? String == "rb.navigate" })
+    }
+
+    /// Back from the "is on <Mac>" card shows the page under it, on the phone.
+    @Test func backFromARefusedAddressShowsThePageUnderIt() async throws {
+        let (source, _, _) = try await linked(at: "https://example.com/mac", native: NativeBrowserTabs(defaults: defaults()))
+        var left = false
+        source.exit = { left = true }
+        source.openOnPhone(tab)
+        let phone = try #require(try page(source) as? BrowserTabModel)
+        source.navigate(tab, to: "localhost:5173")
+        #expect(phone.problem != nil && phone.canGoBack)
+        source.goBack(tab)
+        #expect(phone.problem == nil)
+        #expect(phone.url?.host() != "localhost")
+        #expect(!left, "Back clears the card; it does not leave the workspace")
+        #expect(try page(source) is BrowserTabModel)
+    }
+
+    /// Unlinked, there is no mirror to go back to: the page stays on the phone.
+    @Test func withoutALinkThePageStaysOnThePhone() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        let (source, _, _) = try await linked(at: "https://example.com/mac", native: native)
+        source.openOnPhone(tab)
+        source.streamed.opener = nil
+        source.mirrorFromMac(tab)
+        #expect(native.isNative(tab: tab, macID: "mac-studio"))
+        #expect(!(try menuIDs(source).contains("browser.mirrorFromMac")))
+    }
+
+    /// Tabs closed on the Mac lose their phone page; a placeholder tab that became real keeps it.
+    @Test func phonePagesFollowTheMacsTabList() {
+        let native = NativeBrowserTabs(defaults: defaults())
+        native.open(tab: "pending-1", macID: "mac-studio", at: URL(string: "https://example.com"))
+        native.open(tab: "s9", macID: "mac-studio", at: URL(string: "https://example.org"))
+        native.rename(tab: "pending-1", to: "s12")
+        #expect(native.isNative(tab: "s12", macID: "mac-studio") && !native.isNative(tab: "pending-1", macID: "mac-studio"))
+        native.retain(tabs: ["s12"])
+        #expect(native.isNative(tab: "s12", macID: "mac-studio"))
+        #expect(!native.isNative(tab: "s9", macID: "mac-studio"))
+    }
+
     @Test func theMacsLocalhostStaysMirrored() async throws {
         let (source, _, _) = try await linked(at: "http://localhost:3000/", native: NativeBrowserTabs(defaults: defaults()))
         source.openOnPhone(tab)
@@ -170,6 +221,8 @@ private final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
         ("http://studio.local:5000", .privateNetwork),
         ("http://devbox:8080", .privateNetwork),
         ("http://8.8.8.8", .web),
+        ("mailto:someone@example.com", .web),
+        ("tel:+15555550100", .web),
     ])
     func whereAnAddressPoints(_ address: String, _ reach: PhoneReach) {
         #expect(PhoneReach(URL(string: address)) == reach)

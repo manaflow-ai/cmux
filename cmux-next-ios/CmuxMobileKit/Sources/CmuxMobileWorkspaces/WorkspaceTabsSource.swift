@@ -1362,7 +1362,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let model = browser(tab)
             // Linked: the page is the Mac's, mirrored; Open on iPhone loads it here instead.
             let placement: [TabsKitMenuItem] = nativeBrowser(tab) != nil
-                ? [TabsKitMenuItem(id: "browser.mirrorFromMac", title: "Mirror from \(macName)", systemImage: "macbook") { [weak self] in
+                ? !canMirror(tab) ? [] : [TabsKitMenuItem(id: "browser.mirrorFromMac", title: "Mirror from \(macName)", systemImage: "macbook") { [weak self] in
                     self?.mirrorFromMac(tab.id)
                 }]
                 : canOpenOnPhone(tab)
@@ -1454,7 +1454,7 @@ struct WorkspaceTabPage: View {
                 NativeBrowserPage(model: model, macName: source.macName, insets: insets,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  mirror: { source.mirrorFromMac(tab.id) })
+                                  canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
             } else if let model = source.browser(tab) as? StreamedBrowserModel {
                 StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {

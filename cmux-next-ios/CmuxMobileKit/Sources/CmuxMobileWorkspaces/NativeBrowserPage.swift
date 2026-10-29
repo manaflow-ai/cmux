@@ -10,6 +10,8 @@ struct NativeBrowserPage: View {
     var insets: EdgeInsets
     var isZoomGestureActive: Bool
     var reportScroll: @MainActor (CGFloat) -> Void
+    /// Linked to the Mac: the page can go back to its mirror.
+    var canMirror: Bool
     var mirror: @MainActor () -> Void
 
     var body: some View {
@@ -20,7 +22,7 @@ struct NativeBrowserPage: View {
                 card(problem)
                     .padding(.top, insets.top)
                     .padding(.bottom, insets.bottom)
-            } else {
+            } else if canMirror {
                 // Where the mirrored page has its keyboard button.
                 Button(action: mirror) {
                     Image(systemName: "macbook")
@@ -36,6 +38,8 @@ struct NativeBrowserPage: View {
                 .accessibilityIdentifier("browser.mirror")
             }
         }
+        // Another tab or the workspace list: the page's sound and video stop.
+        .onDisappear { model.webView.pauseAllMediaPlayback() }
     }
 
     private func card(_ problem: BrowserTabModel.Problem) -> some View {
@@ -44,7 +48,7 @@ struct NativeBrowserPage: View {
             Image(systemName: problem.isMacOnly ? "macbook" : "wifi.exclamationmark")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.secondary)
-            Text(problem.isMacOnly ? "\(label) is on \(macName)" : "This iPhone can't reach \(label)")
+            Text(Self.title(problem, label: label, macName: macName))
                 .font(.headline)
                 .multilineTextAlignment(.center)
             Text(Self.detail(problem, macName: macName))
@@ -57,9 +61,11 @@ struct NativeBrowserPage: View {
                         .buttonStyle(.glass)
                         .accessibilityIdentifier("browser.native.retry")
                 }
-                Button("Mirror from \(macName)", action: mirror)
-                    .buttonStyle(.glassProminent)
-                    .accessibilityIdentifier("browser.native.mirror")
+                if canMirror {
+                    Button("Mirror from \(macName)", action: mirror)
+                        .buttonStyle(.glassProminent)
+                        .accessibilityIdentifier("browser.native.mirror")
+                }
             }
             .padding(.top, 4)
         }
@@ -70,7 +76,16 @@ struct NativeBrowserPage: View {
         .accessibilityIdentifier("browser.native.problem")
     }
 
+    static func title(_ problem: BrowserTabModel.Problem, label: String, macName: String) -> String {
+        if problem.isMacOnly { return String(localized: "\(label) is on \(macName)") }
+        if problem.isInsecure { return String(localized: "This iPhone can't open \(label)") }
+        return String(localized: "This iPhone can't reach \(label)")
+    }
+
     static func detail(_ problem: BrowserTabModel.Problem, macName: String) -> String {
+        if problem.isInsecure {
+            return String(localized: "It isn't a secure (https) page, and iOS opens only secure pages in cmux. \(macName)'s mirrored page can show it.")
+        }
         if problem.isMacOnly {
             return String(localized: "It runs on \(macName) itself, so only the mirrored page can show it.")
         }

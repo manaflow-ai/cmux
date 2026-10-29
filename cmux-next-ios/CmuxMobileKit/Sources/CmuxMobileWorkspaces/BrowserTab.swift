@@ -14,7 +14,9 @@ import CmuxTabsKit
 public final class BrowserTabModel: BrowserTabState {
     public private(set) var url: URL?
     public private(set) var title: String = ""
-    public private(set) var canGoBack = false
+    /// The web view's own history; a problem card is a step of its own (Back clears it).
+    private var historyBack = false
+    public var canGoBack: Bool { historyBack || problem != nil }
     public private(set) var canGoForward = false
     public private(set) var isLoading = false
     public private(set) var progress: Double = 1
@@ -26,6 +28,9 @@ public final class BrowserTabModel: BrowserTabState {
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     /// The page's address changed (a tab opened on the iPhone remembers where it is).
     @ObservationIgnored var urlChanged: (@MainActor (URL) -> Void)?
+    /// The person navigated (typed an address, followed a link, went back or forward),
+    /// as opposed to the page redirecting by itself.
+    @ObservationIgnored var personNavigated: (@MainActor () -> Void)?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
@@ -36,6 +41,8 @@ public final class BrowserTabModel: BrowserTabState {
         public var isMacOnly: Bool
         /// A private, LAN or tailnet host (the Mac may reach it when the phone can't).
         public var isPrivateNetwork: Bool
+        /// iOS refused a plain `http://` page (App Transport Security).
+        public var isInsecure = false
         public var message: String
     }
 
@@ -67,6 +74,7 @@ public final class BrowserTabModel: BrowserTabState {
         problem = nil
         // The address bar shows where the page is going at once (as Safari's does).
         url = target
+        urlChanged?(target)
         webView.load(URLRequest(url: target))
     }
 
@@ -76,7 +84,9 @@ public final class BrowserTabModel: BrowserTabState {
     }
 
     func unreachable(_ target: URL, _ error: any Error) {
+        let code = (error as NSError).code
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
+                          isInsecure: (error as NSError).domain == NSURLErrorDomain && code == NSURLErrorAppTransportSecurityRequiresSecureConnection,
                           message: error.localizedDescription)
     }
 
@@ -104,7 +114,7 @@ public final class BrowserTabModel: BrowserTabState {
             model.urlChanged?(value)
         }
         watch(\.title) { model, value in model.title = value ?? "" }
-        watch(\.canGoBack) { model, value in model.canGoBack = value }
+        watch(\.canGoBack) { model, value in model.historyBack = value }
         watch(\.canGoForward) { model, value in model.canGoForward = value }
         watch(\.isLoading) { model, value in model.isLoading = value }
         watch(\.estimatedProgress) { model, value in model.progress = value }
@@ -112,8 +122,21 @@ public final class BrowserTabModel: BrowserTabState {
 
     public var host: String { url.map(TabsKitAddress.displayLabel(for:)) ?? "" }
 
-    public func goBack() { _ = webView.goBack() }
-    public func goForward() { _ = webView.goForward() }
+    public func goBack() {
+        // Back from a card: the page under it (the address the person asked for never loaded).
+        if problem != nil {
+            problem = nil
+            url = webView.url
+            return
+        }
+        personNavigated?()
+        _ = webView.goBack()
+    }
+
+    public func goForward() {
+        personNavigated?()
+        _ = webView.goForward()
+    }
     public func reloadOrStop() {
         if isLoading {
             webView.stopLoading()
@@ -129,6 +152,7 @@ public final class BrowserTabModel: BrowserTabState {
     public func navigate(to text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let target = Self.url(for: trimmed) else { return }
+        personNavigated?()
         load(target)
     }
 
@@ -164,11 +188,26 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
 
     init(model: BrowserTabModel) { self.model = model }
 
+    /// What a page loads itself; anything else belongs to another app.
+    static let pageSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript"]
+
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        if action.targetFrame?.isMainFrame != false, let target = action.request.url, PhoneReach(target) == .macOnly {
+        guard action.targetFrame?.isMainFrame != false, let target = action.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+        if [.linkActivated, .formSubmitted, .backForward].contains(action.navigationType) { model?.personNavigated?() }
+        if PhoneReach(target) == .macOnly {
             model?.refuse(target)
             decisionHandler(.cancel)
+            return
+        }
+        // mailto:, tel:, an App Store or app link: iOS opens it, as Safari does.
+        let scheme = target.scheme?.lowercased() ?? ""
+        if !Self.pageSchemes.contains(scheme) {
+            decisionHandler(.cancel)
+            if action.navigationType == .linkActivated { UIApplication.shared.open(target) }
             return
         }
         decisionHandler(.allow)

@@ -36,16 +36,19 @@ extension WorkspaceTabsSource {
 
     /// Mirror from the Mac again. When the person browsed on the iPhone, the Mac's
     /// tab goes to that page, so the mirror continues where they were.
+    /// Not linked, the tab stays on the phone (nothing to mirror; its page is the newest there is).
     public func mirrorFromMac(_ id: TabsKitTab.ID) {
-        guard let tab = workspaceTab(id), tab.kind == .browser else { return }
-        let carried = native.close(tab: tab.id, macID: workspace?.macID)
-        guard let mirror = streamed.model(tab: tab.id, url: tab.url, macID: workspace?.macID) else { return }
-        if let carried { mirror.navigate(to: carried.absoluteString) }
+        guard let tab = workspaceTab(id), tab.kind == .browser, canMirror(tab),
+              let mirror = streamed.model(tab: tab.id, url: tab.url, macID: workspace?.macID) else { return }
+        if let carried = native.close(tab: tab.id, macID: workspace?.macID) { mirror.navigate(to: carried.absoluteString) }
     }
 
     /// Whether the tab can switch between the Mac's page and this iPhone's (linked to its Mac).
-    func canOpenOnPhone(_ tab: WorkspaceTab) -> Bool {
-        tab.kind == .browser && streamed.model(tab: tab.id, url: tab.url, macID: workspace?.macID) != nil
+    func canOpenOnPhone(_ tab: WorkspaceTab) -> Bool { canMirror(tab) }
+
+    /// Linked to the tab's Mac: its page can be mirrored.
+    func canMirror(_ tab: WorkspaceTab) -> Bool {
+        tab.kind == .browser && streamed.isLive
     }
 
     /// `localhost:3000`, `example.com`, or a file's name.
