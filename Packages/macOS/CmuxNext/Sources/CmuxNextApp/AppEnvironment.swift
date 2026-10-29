@@ -174,13 +174,9 @@ struct AppEnvironment: Sendable {
 
     /// `CMUX_CAPTURE_SHELL_HOME`: the folder a PR capture slot (cmuxterm-hq capture-host) writes neutral shell
     /// startup files into and names in the clone's `LSEnvironment`. Nil unless it is an absolute path to a folder.
+    /// The check itself is `MacName.captureShellHome`, which this Mac's names under capture read too.
     nonisolated static func captureShellHome(_ environment: [String: String],
-                                             isFolder: (String) -> Bool = { path in
-                                                 var folder: ObjCBool = false
-                                                 return FileManager.checked.fileExists(atPath: path, isDirectory: &folder)
-                                                     && folder.boolValue
-                                             }) -> String? {
-        guard let path = environment["CMUX_CAPTURE_SHELL_HOME"], path.hasPrefix("/"), isFolder(path) else { return nil }
-        return path
+                                             isFolder: (String) -> Bool = MacName.existingFolder) -> String? {
+        MacName.captureShellHome(environment, isFolder: isFolder)
     }
 }
