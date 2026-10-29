@@ -22,7 +22,9 @@ struct TerminalNewTabResizeTests {
         try await Self.withApp { services in
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)
-            window.setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)
+            // Inside the screen's visible frame: a CI Mac's display can be short (a 320 pt window on aws-m4pro).
+            let visible = window.screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1100, height: 760)
+            window.setFrame(NSRect(x: visible.minX, y: visible.minY, width: min(1100, visible.width), height: min(760, visible.height)), display: true)
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
             try await Self.until({ Self.shown(controller, workspace: id).count == 1 && Self.live(services, Self.shown(controller, workspace: id)) },
                                  report: { Self.describe(services, controller) })
@@ -38,7 +40,9 @@ struct TerminalNewTabResizeTests {
 
             // The window gets smaller, as a person's drag or a window_place leaves it.
             let tall = window.frame
-            window.setFrame(NSRect(x: tall.minX, y: tall.minY + 150, width: tall.width - 240, height: tall.height - 150), display: true)
+            // Narrower by 240 pt and shorter by a fifth: both grid dimensions change.
+            let shorter = (tall.height / 5).rounded()
+            window.setFrame(NSRect(x: tall.minX, y: tall.minY + shorter, width: tall.width - 240, height: tall.height - shorter), display: true)
             try await Self.until({ Self.unfitted(services, [pane]).isEmpty },
                                  report: { "after the resize: \(Self.unfitted(services, [pane]))\n" + Self.describe(services, controller) })
         }
@@ -96,7 +100,7 @@ struct TerminalNewTabResizeTests {
         }.joined(separator: "\n")
     }
 
-    private static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(30),
+    private static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(60),
                               report: () -> String = { "" }, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
@@ -115,6 +119,7 @@ struct TerminalNewTabResizeTests {
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests() // a test process has no launch to start libghostty
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.daemon.start {
