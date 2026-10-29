@@ -422,6 +422,21 @@ class RedispatchTests(unittest.TestCase):
         self.assertIn("nightly, DEV or promote run that has started", results[1])
         self.assertEqual(saved.history, [])
 
+    def test_a_pool_that_changes_after_planning_does_not_cancel_the_run(self) -> None:
+        queued = run(1)
+        planner = PlanTests()
+        runs, jobs = planner.inventory(queued, [job(B16, created=40)])
+        decisions = planner.plan(runs, jobs)
+        self.assertIsNone(decisions[0].why_not)
+        github = FakeGitHub()
+        github.add(queued, jobs[1])
+        # The pool can change independently of the run, even while its named downstream job stays queued.
+        github.pool_value = json.dumps({"linux": B16, "_dead": {B32: "2026-10-28T22:31:00Z"}})
+        (results, _), saved = self.move(github, decisions)
+        self.assertEqual(github.calls, [])
+        self.assertEqual(saved.history, [])
+        self.assertIn("RUNNER_POOLS changed", results[1])
+
     def test_a_run_that_reaches_a_gate_after_planning_is_never_cancelled(self) -> None:
         queued = run(1)
         planner = PlanTests()
