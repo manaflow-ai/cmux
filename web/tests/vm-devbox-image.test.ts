@@ -833,10 +833,10 @@ test "$daemon_pid" = fixture
     const url = devboxBubblewrapUrl(dockerfile);
     const sha256 = devboxBubblewrapSha256(dockerfile);
     const version = devboxBubblewrapVersion(dockerfile);
-    const instructions = dockerfile.replace(/\\\n/g, " ").split("\n");
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
     const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
     expect(install).toBeDefined();
-    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256).replace(/\s+/g, " ")).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
     expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
