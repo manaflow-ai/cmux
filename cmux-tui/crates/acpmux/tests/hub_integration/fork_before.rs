@@ -424,11 +424,36 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
             }
         };
         let original = hub.events(&id, 0, 10_000).unwrap();
+        let incomplete_answers: Vec<_> = if codex {
+            Vec::new()
+        } else {
+            ["thinking-only", "sidechain", "nonterminal"]
+                .into_iter()
+                .map(|request| {
+                    let mut altered = records.clone();
+                    let answer = altered.iter_mut().find(|record| complete(record)).unwrap();
+                    match request {
+                        "thinking-only" => {
+                            answer["message"]["content"] =
+                                json!([{"type": "thinking", "thinking": "unfinished"}])
+                        }
+                        "sidechain" => answer["isSidechain"] = json!(true),
+                        _ => answer["message"]["stop_reason"] = Value::Null,
+                    }
+                    (request, altered)
+                })
+                .collect()
+        };
         let mut corruptions = vec![
             ("truncated", "third", records[..second].iter().collect::<Vec<_>>()),
             ("start-only", "third", records[..=second].iter().collect::<Vec<_>>()),
             ("unfinished", "second", records.iter().filter(|record| !complete(record)).collect()),
         ];
+        corruptions.extend(
+            incomplete_answers
+                .iter()
+                .map(|(request, records)| (*request, "third", records.iter().collect::<Vec<_>>())),
+        );
         if !codex {
             let first_answer = records.iter().position(complete).unwrap();
             corruptions.push((
