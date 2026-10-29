@@ -52,7 +52,7 @@ const LABELS: &str = include_str!("../rules/secrets/labels.toml");
 const ASSIGNMENT_KEY_PATTERN: &str =
     r"api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key";
 static SENSITIVE_FIELD: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    compile(&format!(r"(?i)(?:{ASSIGNMENT_KEY_PATTERN}|auth|cookie|key|pass)")).ok()
+    compile(&format!(r"(?i)(?:{ASSIGNMENT_KEY_PATTERN}|auth|cookie|key|pass)"))
 });
 
 /// Structured field names supply secret context even for short/non-string values.
