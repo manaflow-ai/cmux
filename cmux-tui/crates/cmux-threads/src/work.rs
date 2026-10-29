@@ -363,6 +363,10 @@ pub struct LaneStats {
     pub workers_exited: u64,
     /// Times a worker woke from its wait, for an item, a timeout or spuriously.
     pub wakeups: u64,
+    /// Idle workers above [`WorkConfig::keep_alive`] waiting with their exit deadline: each of
+    /// them wakes once more (an item, or its deadline: then it exits, or waits with no timeout
+    /// when the others above `keep_alive` exited first). 0 once the lane is settled.
+    pub timed_waiters: usize,
     pub spawn_failures: u64,
     /// Items whose body panicked, [`Work::post`] and [`Work::run`] ones alike.
     pub panics: u64,
@@ -570,6 +574,8 @@ struct ClassWorkers {
     idle: usize,
     /// Workers inside a condvar wait.
     waiting: usize,
+    /// Of `waiting`, the ones waiting with an exit deadline.
+    timed_waiting: usize,
 }
 
 struct LaneState {
@@ -849,11 +855,13 @@ impl LaneShared {
                     state.workers[index].waiting -= 1;
                     break;
                 };
+                state.workers[index].timed_waiting += 1;
                 // wakeup-allow: deadline the idle worker's one exit deadline (set at its first idle wait); work ends the wait first
                 state = self.ready_signal[index]
                     .wait_timeout(state, left)
                     .unwrap_or_else(PoisonError::into_inner)
                     .0;
+                state.workers[index].timed_waiting -= 1;
             } else {
                 idle_deadline = None;
                 state =
@@ -962,6 +970,7 @@ impl LaneShared {
             workers_started: state.workers_started,
             workers_exited: state.workers_exited,
             wakeups: state.wakeups,
+            timed_waiters: state.workers.iter().map(|class| class.timed_waiting).sum(),
             spawn_failures: state.spawn_failures,
             panics: state.panics,
             shutdown_raises: state.raises.raised,
