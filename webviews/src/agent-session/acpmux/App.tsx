@@ -357,7 +357,7 @@ import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
-import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
+import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -1490,34 +1490,6 @@ function drawnHeightOf(node: HTMLElement): number | undefined {
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// Assistant and summary rows already expose the turn's copy action in TurnFooter, and a prompt
-/// drawn as the person's bubble has its Copy in the row under the bubble. Keep the floating action
-/// for tool rows and the user rows drawn as a line (another agent's message, a task's result); it
-/// shows only for keyboard focus and a selected range. A prompt's floating Copy sat alone at the
-/// row's top left, far from the bubble (Leo, 2026-10-21: "top left??? just remove it"); a selected
-/// range and Cmd-C still copy the prompt. The child view's "Subagent of" pill
-/// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
-/// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
-/// a selected range still copies it.
-/// A render row has none: the row's Copy sits at its top right, over the card's Open, and the card's
-/// panel copies the page.
-const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
-  row.kind !== "assistant" &&
-  !isPromptBubbleRow(row) &&
-  row.kind !== RENDER &&
-  row.kind !== "turnSummary" &&
-  row.kind !== SUBAGENT_OF &&
-  // Each message in a card of waiting messages has its own Copy.
-  row.kind !== WAITING_MESSAGES &&
-  rowKind(row) !== "editedFiles" &&
-  // A row that draws nothing has nothing to copy, and its Copy would give it a box.
-  !onlyQuietThoughts(row) &&
-  hasTranscriptCopyText(row);
-
-/// A user row MessageRow draws as the person's bubble (`.cv-user`): not a task's result nor another
-/// agent's message or notice.
-const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
-
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
 const CHAT_OPEN_FADE_MS = 150; // motion-allow: a ceiling on the host's fade-in token (micro, 120 ms), not a duration of its own
 
@@ -1660,8 +1632,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopyRow,
-  copyable,
   referenceScope,
   children,
 }: {
@@ -1697,8 +1667,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopyRow: (id: string) => Promise<void>;
-  copyable: boolean;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1714,20 +1682,11 @@ const RowFrame = React.memo(function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [olderFade] = useState(older);
-  const copyRowResult = useCallback(
-    (id: string) =>
-      onCopyRow(id).then(
-        () => true,
-        () => false,
-      ),
-    [onCopyRow],
-  );
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
   );
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
+  const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -1777,7 +1736,6 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      data-floating-copy={copyable ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -1792,16 +1750,6 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: top + THREAD_TOP }}
       onFocus={() => onFocus(row.id)}
     >
-      {copyable && (
-        // The row's id stands for its text: `onCopyRow` reads and copies what the row shows.
-        <CopyButton
-          text={row.id}
-          label={t("turn.copy")}
-          className="acpmux-row__copy cv-iconbtn"
-          copy={copyRowResult}
-          {...copyTabStop}
-        />
-      )}
       <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
       {/* The row's own trailing padding is the only row-local empty surface owned by transcript
           selection. Keeping it as a separate hit target means content controls (including native
@@ -3078,7 +3026,7 @@ export function VirtualTranscript({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        (mounted.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? mounted).focus();
+        mounted.focus();
         pendingFocus.current = undefined;
         return;
       }
@@ -3101,7 +3049,7 @@ export function VirtualTranscript({
       (row) => row.dataset.rowId === id,
     );
     if (target) {
-      (target.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? target).focus();
+      target.focus();
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -3149,16 +3097,7 @@ export function VirtualTranscript({
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
-  // Rows get stable callbacks that read the latest rows and selection, so a snapshot does not hand
-  // every memoized RowFrame a new function.
-  const copyRowsRef = useRef(copyRows);
-  copyRowsRef.current = copyRows;
-  const selectedRowIdsRef = useRef(selectedRowIds);
-  selectedRowIdsRef.current = selectedRowIds;
-  const copyRow = useCallback(async (rowId: string) => {
-    const selected = selectedRowIdsRef.current;
-    await copyRowsRef.current(selected.includes(rowId) ? selected : [rowId]);
-  }, []);
+  // Keep the keyboard callback stable across transcript snapshots.
   const rowKeyDownRef = useRef(rowKeyDown);
   rowKeyDownRef.current = rowKeyDown;
   const handleRowKeyDown = useCallback(
@@ -4193,8 +4132,6 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
-                      copyable={transcriptHasFloatingCopy(row)}
-                      onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
