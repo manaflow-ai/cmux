@@ -60,6 +60,9 @@ import PackageDescription
 //   CmuxNextOracle -> system frameworks only (debug.oracle.snapshot's overlays facet, the one immutable list the
 //     composition root builds and the snapshot capture; every source is under DEBUG || CMUX_BENCH_HOOKS, so
 //     Release builds an empty module)
+//   CmuxNextInvariants -> Compat only (the one invariant framework: rule declarations, the registry, the append-only
+//     ledger and the turn observer behind debug.invariants; plans/cmux-next/invariants-DESIGN.md. Only the ids, keys,
+//     subjects and the probe compile in Release, where the probe's calls are empty and inlined)
 //   CmuxNextInput -> InputCore, Signposts, Wakeups (the one input tap: typed subscriptions by class, phase and window;
 //     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C);
 //     InputLatencyTracker, Chrome's EventLatency over CommitBoundary and PresentationClock, the input.latency signpost,
@@ -1861,6 +1864,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextOracleTests",
             dependencies: ["CmuxNextOracle", "CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The one invariant framework (plans/cmux-next/invariants-DESIGN.md): every rule declared once, checked after
+        // each action and each committed turn in Debug and opted-in bench builds, served by debug.invariants. Only the
+        // ids, keys, subjects and the probe compile in Release.
+        .target(
+            name: "CmuxNextInvariants",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextInvariantsTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextInvariants"],
             swiftSettings: daemonSwiftSettings
         ),
         // oracle-replay (p15-oracle-104): saved input journals replayed against CmuxNextInputModel's reducers, the
