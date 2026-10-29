@@ -373,16 +373,18 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         const location = ctx.document.querySelector<HTMLElement>(".nt-location");
-        const project = ctx.document.querySelector<HTMLElement>(".acpmux-project-button");
+        const project = ctx.document.querySelector<HTMLElement>(
+          ".nt-location .acpmux-location-leading > .acpmux-location-picker:first-child button",
+        );
         if (!location || !project || !project.textContent?.includes("atlas-web"))
           throw new Error("the inherited project is not shown in the established location slot");
-        const before = location.getBoundingClientRect();
+        const before = project.getBoundingClientRect();
         if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
         await ctx.type("keep this project", { selector: ".nt-field" });
         await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
-        const after = location.getBoundingClientRect();
+        const after = project.getBoundingClientRect();
         if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
-          throw new Error("the inherited location slot moved after hydration/input");
+          throw new Error("the inherited location slot moved after input");
       },
     },
     // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it

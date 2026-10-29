@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { playFailures } from "./support/galleryPlay";
 
 await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -28,6 +29,24 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
     await browser?.close();
     await vite?.close();
   });
+
+  for (const theme of ["Apple System Colors Light", "Apple System Colors"])
+    test(`${theme}: modern New Tab keeps its inherited project`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+      try {
+        const port = (vite!.httpServer!.address() as { port: number }).port;
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "inherited-project", theme })}`,
+        );
+        await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+        const report = await page.evaluate(() =>
+          JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+        );
+        expect(playFailures(report)).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
 
   for (const theme of ["Apple System Colors Light", "Apple System Colors"])
     for (const width of [260, 360, 720])
