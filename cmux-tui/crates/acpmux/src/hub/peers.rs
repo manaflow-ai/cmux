@@ -946,7 +946,7 @@ impl Hub {
                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
                 .filter(|(_, r)| created(r) == generation)
                 .map(|(key, _)| key.clone());
-            let removed = key.and_then(|key| map.take(&key));
+            let removed = key.and_then(|key| map.remove(&key));
             // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge
             // that names no generation and found no such row removes no copy of another.
             if generation.is_some() || removed.is_some() {

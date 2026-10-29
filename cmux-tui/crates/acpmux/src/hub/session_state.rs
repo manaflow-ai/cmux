@@ -170,7 +170,7 @@ mod tests {
                 }));
                 assert!(tap(Direction::In, &msg, None).is_some());
                 if let Message::Notification { params, .. } = &msg {
-                    hub.on_update(&session, params.as_ref());
+                    hub.on_update(&session, params.as_ref(), false);
                 }
             }
             let call = update(json!({

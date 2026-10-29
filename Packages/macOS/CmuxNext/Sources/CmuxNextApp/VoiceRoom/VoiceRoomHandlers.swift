@@ -9,8 +9,9 @@ enum VoiceRoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         // Keyframes stay on this Mac: ~/Library/Application Support/cmux/voice-room/frames.
-        let host = VoiceRoomHost(frames: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appending(path: "cmux/voice-room/frames", directoryHint: .isDirectory))
+        let frames = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appending(path: "cmux/voice-room/frames", directoryHint: .isDirectory)
+        let host = VoiceRoomHost(frames: frames, deadlines: services.mainDeadlines)
         let off: @MainActor () -> String? = { [weak services] in
             services?.settings?.snapshot.voiceRoom == true ? nil : VoiceRoomStrings.off
         }

@@ -106,6 +106,8 @@ impl Conn {
             subs: StdMutex::new(Default::default()),
             mailbox_bindings: StdMutex::new(Default::default()),
             watch_all: AtomicBool::new(false),
+            list_pace: Default::default(),
+            notices: Arc::new(AtomicU64::new(0)),
             watch_inventory: StdMutex::new(false),
             peer,
             requests: std::sync::atomic::AtomicU64::new(0),
@@ -128,6 +130,7 @@ impl Conn {
             },
             remote_media: super::media_forward::RemoteMedia::default(),
             memory_vote: std::sync::OnceLock::new(),
+            client_requests: Default::default(),
         }
     }
 }

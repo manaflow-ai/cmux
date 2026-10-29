@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -6,7 +7,7 @@ import Observation
 /// Labs switch turns off.
 ///
 /// ```swift
-/// let host = VoiceRoomHost(frames: framesFolder)
+/// let host = VoiceRoomHost(frames: framesFolder, deadlines: services.mainDeadlines)
 /// host.open(address) { settings.snapshot.voiceRoom }
 /// ```
 @MainActor
@@ -19,13 +20,15 @@ public final class VoiceRoomHost {
 
     /// - Parameters:
     ///   - frames: Where screen keyframes stay on this Mac; nil keeps none.
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`), for the
+    ///     system session's dictation (``DictationSession/init(deadlines:authorizer:makeTranscriber:locale:stopDeadline:)``).
     ///   - claims: The app's microphone owners.
-    ///   - makeSession: Makes the session for an address; tests pass fakes.
-    public init(frames: URL?, claims: DictationMicrophoneClaims = .shared,
-                makeSession: @escaping @MainActor (VoiceRoomAddress, URL?) -> VoiceRoomSession = { VoiceRoomHost.systemSession($0, frames: $1) }) {
+    ///   - makeSession: Makes the session for an address; tests pass fakes. Nil: the system session.
+    public init(frames: URL?, deadlines: MainDeadlineScheduler, claims: DictationMicrophoneClaims = .shared,
+                makeSession: (@MainActor (VoiceRoomAddress, URL?) -> VoiceRoomSession)? = nil) {
         self.frames = frames
         self.claims = claims
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { VoiceRoomHost.systemSession($0, frames: $1, deadlines: deadlines) }
     }
 
     /// True while a room listens or is paused by its people.
@@ -66,13 +69,13 @@ public final class VoiceRoomHost {
 
     /// The real session: on-device speech (a recorded clip in Debug when
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one), HTTP lines, the room's socket and the screen.
-    public static func systemSession(_ address: VoiceRoomAddress, frames: URL?) -> VoiceRoomSession {
+    public static func systemSession(_ address: VoiceRoomAddress, frames: URL?, deadlines: MainDeadlineScheduler) -> VoiceRoomSession {
         VoiceRoomSession(
             dictation: {
                 #if DEBUG
-                if let recorded = DictationSession.recorded() { return recorded }
+                if let recorded = DictationSession.recorded(deadlines: deadlines) { return recorded }
                 #endif
-                return DictationSession()
+                return DictationSession(deadlines: deadlines)
             },
             poster: VoiceRoomHTTPPoster(address: address),
             events: VoiceRoomWebSocketEvents(address: address),

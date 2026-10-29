@@ -523,11 +523,12 @@ impl Hub {
         }
         // The group and the pending replies are separate fields: one borrow each.
         let state = &mut *state;
-        let g = state
+        let index = state
             .groups
-            .iter_mut()
-            .find(|g| g.id == id)
+            .iter()
+            .position(|g| g.id == id)
             .ok_or_else(|| RpcError::not_found("not_found"))?;
+        let g = &state.groups[index];
         let value = g.value(&session.id);
         if g.terminal() {
             return Err(conflict("already_resolved", value));
@@ -589,6 +590,7 @@ impl Hub {
             state.chat_allowed = true;
             self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
         }
+        let g = &mut state.groups[index];
         for item in &mut g.items {
             if item.state == "pending" {
                 item.state = if replies

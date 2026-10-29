@@ -172,6 +172,9 @@ impl Hub {
                         hub.register_agent_request(&s, &id, host_incarnation.as_deref());
                     }
                     let request_id = id.clone();
+                    // Counted until its task ends: the idle exit never ends an agent that
+                    // waits on an answer to one of its own requests (`idle.rs`).
+                    let busy = super::idle::AgentRequest::new(&session);
                     self.supervise(
                         "hub.agent-request",
                         Fatal,
@@ -195,6 +198,7 @@ impl Hub {
                                 &request_id,
                                 host_incarnation.as_deref(),
                             );
+                            drop(busy);
                         },
                     );
                 }
@@ -252,15 +256,22 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
-                    let intentional =
-                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
                             &session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                         );
                     }
                     if !intentional {
@@ -1230,7 +1241,9 @@ impl Hub {
             // (`ANSWER_FENCE`), here under the prompt's lock, where it won, so a losing answer
             // never takes it away (review 81 of #23322).
             if let Some(fence) = answerer.fence {
-                self.answer_fences.lock_or_recover().insert(permission_id.to_owned(), fence.clone());
+                self.answer_fences
+                    .lock_or_recover()
+                    .insert(permission_id.to_owned(), fence.clone());
             }
             // A person's answer names them beside any device (`author.rs`), after the person
             // rule above, which it never satisfies.

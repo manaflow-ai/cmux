@@ -10,7 +10,7 @@ public import Observation
 /// (``State/failed(_:)``) when it ends three times in a row with no words, or is denied.
 ///
 /// ```swift
-/// let session = VoiceRoomSession(dictation: { DictationSession() },
+/// let session = VoiceRoomSession(dictation: { DictationSession(deadlines: deadlines) },
 ///                                poster: VoiceRoomHTTPPoster(address: address),
 ///                                events: VoiceRoomWebSocketEvents(address: address),
 ///                                screen: VoiceRoomScreenReader(frames: framesFolder))

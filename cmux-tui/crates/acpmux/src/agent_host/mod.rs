@@ -518,10 +518,9 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
 #[cfg(unix)]
 pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let path = live_path(dir, session_id, start_nonce);
     #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
     let opened = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
-        std::fs::OpenOptions::new().read(true).write(true).open(&path)
+        std::fs::OpenOptions::new().read(true).write(true).open(path)
     });
     let file = match opened {
         Ok(f) => f,

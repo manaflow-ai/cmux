@@ -31,7 +31,7 @@
    "cmux-tui-core": 23
   },
   "unwrap": {
-   "acpmux": 139,
+   "acpmux": 137,
    "cmux-remote": 4,
    "cmux-tui": 429,
    "cmux-tui-core": 1131,
@@ -76,7 +76,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 5,
+    "acpmux": 7,
     "cmux-browser-host": 4,
     "cmux-tui-core": 5
    },
@@ -135,7 +135,7 @@
     "CmuxNextControl": 2,
     "CmuxNextCrashReporting": 4,
     "CmuxNextDaemon": 2,
-    "CmuxNextDesign": 4,
+    "CmuxNextDesign": 5,
     "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,
@@ -156,7 +156,7 @@
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
     "CmuxSafeConcurrency": 2,
-    "CmuxVNC": 2,
+    "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 7,
     "MessagesLabHome": 5,

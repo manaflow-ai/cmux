@@ -428,8 +428,13 @@ fn fetch_missing(
 }
 
 /// [`remove_worktree`] on a thread of its own: the caller (a drop) does not wait for git.
-pub fn remove_worktree_in_background(folder: PathBuf, worktree: Worktree) {
-    let remove = move || remove_worktree(&folder, &worktree);
+/// `held` is `folder` held open (unix): removed from that very folder ([`Dir::held`]).
+pub fn remove_worktree_in_background(
+    folder: PathBuf,
+    held: Option<std::sync::Arc<std::fs::File>>,
+    worktree: Worktree,
+) {
+    let remove = move || remove_worktree(Dir::held(&folder, held.as_deref()), &worktree);
     if let Err(e) = crate::supervised::scoped_thread(
         "acpmux-worktree-remove",
         cmux_threads::ThreadQos::Utility,
