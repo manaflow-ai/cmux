@@ -186,7 +186,10 @@ mod tests {
         let rows: Vec<Value> = (0..3000)
             .map(|i| json!({"sessionId": format!("session-{i}"), "status": "idle"}))
             .collect();
+        let reply_bytes = serde_json::to_vec(&json!({"sessions": &rows})).unwrap().len();
         let maximum = Arc::new(AtomicUsize::new(0));
+        let retained_bytes = Arc::new(AtomicUsize::new(0));
+        let peak_bytes = Arc::new(AtomicUsize::new(0));
         let overflow = Arc::new(AtomicBool::new(false));
         let overflow_seen = Arc::new(Notify::new());
         let first = Arc::new(Barrier::new(MAX_CONCURRENT + 1));
@@ -195,6 +198,8 @@ mod tests {
         let (_client_read, mut client_write) = tokio::io::split(client);
         let (server_read, server_write) = tokio::io::split(server);
         let call_maximum = maximum.clone();
+        let call_retained_bytes = retained_bytes.clone();
+        let call_peak_bytes = peak_bytes.clone();
         let call_overflow = overflow.clone();
         let call_overflow_seen = overflow_seen.clone();
         let call_first = first.clone();
@@ -208,6 +213,8 @@ mod tests {
             None,
             move |_params| {
                 let maximum = call_maximum.clone();
+                let retained_bytes = call_retained_bytes.clone();
+                let peak_bytes = call_peak_bytes.clone();
                 let overflow = call_overflow.clone();
                 let overflow_seen = call_overflow_seen.clone();
                 let first = call_first.clone();
@@ -215,6 +222,9 @@ mod tests {
                 let rows = call_rows.clone();
                 async move {
                     let now = maximum.fetch_add(1, Ordering::SeqCst) + 1;
+                    let retained =
+                        retained_bytes.fetch_add(reply_bytes, Ordering::SeqCst) + reply_bytes;
+                    peak_bytes.fetch_max(retained, Ordering::SeqCst);
                     if now > MAX_CONCURRENT {
                         overflow.store(true, Ordering::SeqCst);
                         overflow_seen.notify_waiters();
@@ -224,6 +234,7 @@ mod tests {
                     }
                     release.notified().await;
                     maximum.fetch_sub(1, Ordering::SeqCst);
+                    retained_bytes.fetch_sub(reply_bytes, Ordering::SeqCst);
                     json!({"sessions": rows})
                 }
             },
@@ -248,6 +259,12 @@ mod tests {
             "more than {MAX_CONCURRENT} large MCP replies were retained concurrently"
         );
         assert!(!overflow.load(Ordering::SeqCst));
+        assert!(peak_bytes.load(Ordering::SeqCst) <= reply_bytes * MAX_CONCURRENT);
+        eprintln!(
+            "MCP retained-byte fixture: reply={reply_bytes} peak={} bound={}",
+            peak_bytes.load(Ordering::SeqCst),
+            reply_bytes * MAX_CONCURRENT
+        );
         release.notify_waiters();
         requests.abort();
         server.abort();
