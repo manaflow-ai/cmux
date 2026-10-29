@@ -13,7 +13,7 @@
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
 //! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
-//! | [`Tier::Background`] | housekeeping inside the daemon (retention, upload sweeps, probe cleanup) | the thread in `PRIO_DARWIN_BG` for the pass (CPU and I/O throttled) | unchanged |
+//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread in `PRIO_DARWIN_BG` for the pass (CPU and I/O throttled) | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
@@ -29,8 +29,13 @@
 //! it starts any thread, and its harness, shells and tools inherit it. The I/O
 //! policy is process wide and inherited across exec, so it needs no re-exec.
 //!
+//! A pass that holds a lock chat traffic takes (log retention's compaction
+//! holds the store's writers lock; the upload sweep holds the in-use set) stays
+//! at the daemon's own priority: throttling it would stall every stream.
+//!
 //! `ACPMUX_QOS=off` turns all of it off (a process started with it set starts
-//! as before). Best effort: a call that fails leaves the process as it was.
+//! as before); agent hosts get it through their environment allowlist
+//! (`agent::host_environment`). Best effort: a call that fails leaves the process as it was.
 
 use std::ffi::OsString;
 
@@ -123,7 +128,7 @@ mod imp {
     const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
     /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
     /// numbers, not a `qos_class_t` (0x11 is accepted and does nothing; a fleet-mini probe).
-    const POSIX_SPAWN_PROC_CLAMP_UTILITY: libc::c_uint = 1;
+    const POSIX_SPAWN_PROC_CLAMP_UTILITY: u64 = 1;
 
     unsafe extern "C" {
         fn setiopolicy_np(
@@ -133,7 +138,8 @@ mod imp {
         ) -> libc::c_int;
     }
 
-    type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, libc::c_uint) -> libc::c_int;
+    /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
+    type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
 
     pub(super) fn disk_utility() {
         // SAFETY: plain syscall wrapper with constant arguments.
@@ -158,45 +164,60 @@ mod imp {
         if std::env::var_os(CLAMPED_ENV).is_some() {
             return;
         }
-        let Some(set_clamp) = clamp_fn() else { return };
         let Ok(exe) = std::env::current_exe() else { return };
-        let cstr = |b: &[u8]| CString::new(b).ok();
-        let Some(path) = cstr(exe.as_os_str().as_bytes()) else { return };
-        let Some(argv) =
-            std::env::args_os().map(|a| cstr(a.as_bytes())).collect::<Option<Vec<_>>>()
-        else {
-            return;
-        };
-        let Some(envp) = reexec_env(std::env::vars_os().collect())
-            .into_iter()
+        let argv: Vec<OsString> = std::env::args_os().collect();
+        let envp = reexec_env(std::env::vars_os().collect());
+        // Returns only when the re-exec did not happen.
+        if let Err(rc) = spawn_clamped(&exe, &argv, &envp, true) {
+            tracing::debug!("in-place re-exec under the utility clamp failed: {rc}");
+        }
+    }
+
+    /// `posix_spawn` of `path` under the utility clamp: in place of this
+    /// process (`in_place`, which returns only on failure) or as a child, whose
+    /// pid it returns. Errors are the call's code (-1: no clamp setter here, or
+    /// a NUL in an argument).
+    pub(super) fn spawn_clamped(
+        path: &std::path::Path,
+        argv: &[OsString],
+        envp: &[(OsString, OsString)],
+        in_place: bool,
+    ) -> Result<libc::pid_t, libc::c_int> {
+        let set_clamp = clamp_fn().ok_or(-1)?;
+        let cstr = |b: &[u8]| CString::new(b).map_err(|_| -1);
+        let path = cstr(path.as_os_str().as_bytes())?;
+        let argv = argv.iter().map(|a| cstr(a.as_bytes())).collect::<Result<Vec<_>, _>>()?;
+        let envp = envp
+            .iter()
             .map(|(k, v)| {
                 let mut kv = k.as_bytes().to_vec();
                 kv.push(b'=');
                 kv.extend_from_slice(v.as_bytes());
                 cstr(&kv)
             })
-            .collect::<Option<Vec<_>>>()
-        else {
-            return;
-        };
+            .collect::<Result<Vec<_>, _>>()?;
         let mut argv_ptrs: Vec<*mut libc::c_char> =
             argv.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
         let mut envp_ptrs: Vec<*mut libc::c_char> =
             envp.iter().map(|a| a.as_ptr().cast_mut()).chain([std::ptr::null_mut()]).collect();
         // SAFETY: attr is initialized before use and destroyed on every path;
-        // the argument vectors are NUL-terminated and outlive the call. On
-        // success posix_spawn with SETEXEC does not return (the image is
+        // the argument vectors are NUL-terminated and outlive the call. With
+        // SETEXEC a successful posix_spawn does not return (the image is
         // replaced in place, like execve).
         unsafe {
             let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
-            if libc::posix_spawnattr_init(&mut attr) != 0 {
-                return;
+            let rc = libc::posix_spawnattr_init(&mut attr);
+            if rc != 0 {
+                return Err(rc);
             }
-            let ready = set_clamp(&mut attr, POSIX_SPAWN_PROC_CLAMP_UTILITY) == 0
-                && libc::posix_spawnattr_setflags(&mut attr, POSIX_SPAWN_SETEXEC) == 0;
-            if ready {
-                let mut pid: libc::pid_t = 0;
-                let rc = libc::posix_spawn(
+            let flags = if in_place { POSIX_SPAWN_SETEXEC } else { 0 };
+            let mut rc = set_clamp(&mut attr, POSIX_SPAWN_PROC_CLAMP_UTILITY);
+            if rc == 0 {
+                rc = libc::posix_spawnattr_setflags(&mut attr, flags);
+            }
+            let mut pid: libc::pid_t = 0;
+            if rc == 0 {
+                rc = libc::posix_spawn(
                     &mut pid,
                     path.as_ptr(),
                     std::ptr::null(),
@@ -204,9 +225,9 @@ mod imp {
                     argv_ptrs.as_mut_ptr(),
                     envp_ptrs.as_mut_ptr(),
                 );
-                tracing::debug!("in-place re-exec under the utility clamp failed: {rc}");
             }
             libc::posix_spawnattr_destroy(&mut attr);
+            if rc == 0 { Ok(pid) } else { Err(rc) }
         }
     }
 
@@ -275,6 +296,33 @@ mod tests {
         assert_eq!(tier(Role::AgentHost), Tier::Agent);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
+    }
+
+    /// The clamp takes effect: a child spawned under it, and the shell it
+    /// starts, run at priority 20 (utility), not 31 (cmux#27587's first cut
+    /// passed `QOS_CLASS_UTILITY`, which the setter takes and ignores).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_clamped_child_and_what_it_starts_run_at_utility() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("pri");
+        let script = format!(
+            "/bin/sh -c 'ps -o pri= -p $$' > '{}'; ps -o pri= -p $$ >> '{}'",
+            out.display(),
+            out.display()
+        );
+        let argv: Vec<OsString> = vec!["sh".into(), "-c".into(), script.into()];
+        let pid = imp::spawn_clamped(std::path::Path::new("/bin/sh"), &argv, &[], false)
+            .expect("spawn under the clamp");
+        let mut status = 0;
+        // SAFETY: waits for the child this test started.
+        unsafe { libc::waitpid(pid, &mut status, 0) };
+        let text = std::fs::read_to_string(&out).unwrap();
+        let pris: Vec<&str> = text.split_whitespace().collect();
+        assert_eq!(pris.len(), 2, "{text:?}");
+        for pri in pris {
+            assert!(pri.starts_with("20"), "expected priority 20, got {text:?}");
+        }
     }
 
     #[test]
