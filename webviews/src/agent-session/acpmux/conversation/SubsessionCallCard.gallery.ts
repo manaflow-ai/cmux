@@ -266,8 +266,12 @@ export default agentPaneEntry({
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
-        await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
+        await ctx.waitFor(() => {
+          const avatars = ctx.document.querySelectorAll<HTMLImageElement>(".cv-disclosure__panel img.cv-agent-avatar");
+          return avatars.length === 3 && [...avatars].every((avatar) => avatar.complete && avatar.naturalWidth > 0);
+        });
       },
     },
     messages: {
