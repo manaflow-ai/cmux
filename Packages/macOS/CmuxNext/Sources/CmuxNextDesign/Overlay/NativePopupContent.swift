@@ -13,6 +13,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var targets: [NativePopupControlTarget] = []
     var fields: [String: NSTextField] = [:]
     var inputState = NativePopupInputState()
+    var allocateEditSequence: ((Int) -> Int)?
     var lastEditSequence: Int? { inputState.lastSequence }
     var emittingRevision: Int?
     private var editableControls: [String: NSControl] = [:]

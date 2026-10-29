@@ -6,9 +6,10 @@ struct NativePopupInputState {
     private var sequence = 0
     private(set) var lastSequence: Int?
 
-    mutating func record(id: String, value: String, model: NativePopupModel?) {
+    mutating func record(id: String, value: String, model: NativePopupModel?, allocate: ((Int) -> Int)? = nil) {
         guard let model, let field = fields(in: model)[id] else { lastSequence = nil; return }
-        sequence = max(sequence, field.acknowledgment) + 1
+        let floor = max(sequence, field.acknowledgment)
+        sequence = allocate?(floor) ?? (floor + 1)
         pending[id] = (sequence, value, field.identity)
         lastSequence = sequence
     }

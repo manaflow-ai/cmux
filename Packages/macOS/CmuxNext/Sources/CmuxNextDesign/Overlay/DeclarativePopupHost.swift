@@ -21,6 +21,7 @@ final class DeclarativePopupHost {
     private weak var returnWindow: NSWindow?
     private var sideBySide = false
     private var retired: [String: Int] = [:]
+    private var editSequence = 0
 
     init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
          isAppActive: @escaping () -> Bool = { NSApp?.isActive ?? false }) {
@@ -54,6 +55,11 @@ final class DeclarativePopupHost {
         content.openSubmenu = { [weak self] row, view in self?.open(row, from: view) }
         content.dismiss = { [weak self] in self?.dismiss(reason: "escape") }
         content.commit = { [weak self] in self?.root.dismiss(reason: "commit") }
+        content.allocateEditSequence = { [weak self] floor in
+            guard let owner = self?.root else { return floor + 1 }
+            owner.editSequence = max(owner.editSequence, floor) + 1
+            return owner.editSequence
+        }
     }
 
     var shownFrame: CGRect? { popup.isShown && model != nil ? popup.cardFrame : nil }
@@ -78,6 +84,7 @@ final class DeclarativePopupHost {
             deliver(NativePopupEvent(type: .dismiss, popupId: current.id, revision: current.revision, reason: "replaced"))
         }
         if opening {
+            if parent == nil { editSequence = 0 }
             content.beginPresentation()
             child?.hide()
             child = nil

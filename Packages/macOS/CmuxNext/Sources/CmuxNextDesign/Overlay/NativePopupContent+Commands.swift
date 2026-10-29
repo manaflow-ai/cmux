@@ -47,7 +47,7 @@ extension NativePopupContent {
         emittingRevision = model?.revision
         defer { emittingRevision = nil }
         let value = field.stringValue
-        inputState.record(id: id, value: value, model: model)
+        inputState.record(id: id, value: value, model: model, allocate: allocateEditSequence)
         let isSearch = field === search
         if isSearch, model?.search?.autoHighlight != nil {
             searchHasInput = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
