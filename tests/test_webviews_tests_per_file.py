@@ -86,6 +86,16 @@ case "$file" in
     printf '%*s' 2000000 '' | tr ' ' F
     printf '\n(fail) inspector-dead-clicks sentinel\n'
     exit 1 ;;
+  *timed-out-once*|*timed-out-then-fail*|*timed-out-slow-retry*)
+    # A timeout without the wait: exit 124 is what the runner's per-file limit reports.
+    stamp="$BUN_CALLS.$(basename "$file")"
+    if [ ! -f "$stamp" ]; then touch "$stamp"; echo "killed beside the others"; exit 124; fi
+    case "$file" in
+      *then-fail*) echo "(fail) still broken alone"; exit 1 ;;
+      # Passes alone just inside its limit; the runner's own upkeep then runs past it.
+      *slow-retry*) sleep 1.9 ;;
+    esac
+    echo "(pass) $file alone"; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -248,6 +258,60 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("cannot fit", output)
         self.assertIn("TIMEOUT test/a-hang.test.ts (limit 2s)", output)
         self.assertIn("TIMEOUT test/b-hang.test.ts (limit 2s)", output)
+
+    def test_every_timed_out_file_gets_its_retry_by_default(self):
+        """Job 123436110075 (#27007's shard 1): 12 files timed out 32 wide, a fixed 240 s timeout
+        retry budget fit three 120 s retries, and the other 7 stayed TIMEOUT though each passed
+        alone. With no budget set, every timed-out file's whole limit is budgeted; one that still
+        fails alone stays red."""
+        files = [f"test/{index}-timed-out-once.test.ts" for index in range(3)] + ["test/timed-out-then-fail.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        # Their 250 s limits sum past the old fixed 240 s; the fake reports its timeout at once.
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_FILE_TIMEOUT": "250",
+                       "CMUX_WEB_TEST_RESULTS": str(results_path)},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)  # the file that fails alone stays red
+        for file in files:
+            self.assertEqual(calls.count(f"./{file}"), 2, output)
+        self.assertNotIn("cannot fit", output)
+        for file in files[:3]:
+            self.assertIn(f"  {file} (first run: TIMEOUT)", output)
+            self.assertNotRegex(output, rf"(FAIL|TIMEOUT) {file} \(limit")
+        self.assertIn("FAIL test/timed-out-then-fail.test.ts (limit 250s)", output)
+        self.assertIn("1 failed or timed out (4 retried alone, 3 passed alone)", output)
+        self.assertEqual(json.loads(results_path.read_text())["test/timed-out-then-fail.test.ts > still broken alone"],
+                         False, output)
+
+    def test_a_retry_running_to_its_limit_costs_the_next_file_nothing(self):
+        """A retry that passes just inside its limit plus the runner's upkeep took more than its
+        limit; a budget summed from the limits then had too little left for the last file's retry."""
+        files = ["test/a-timed-out-slow-retry.test.ts", "test/b-timed-out-slow-retry.test.ts"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_RETRIES": "60"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        for file in files:
+            self.assertEqual(calls.count(f"./{file}"), 2, output)
+            self.assertIn(f"  {file} (first run: TIMEOUT)", output)
+        self.assertNotIn("cannot fit", output)
+
+    def test_no_retry_runs_past_the_retry_deadline(self):
+        """CMUX_WEB_TEST_RETRY_DEADLINE keeps the step inside its job's timeout-minutes: a timeout
+        retry whose limit does not fit before it stays TIMEOUT, and a failed file keeps its failure."""
+        files = ["test/a-timed-out-once.test.ts", "test/b-fail.test.ts"]
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_FILE_TIMEOUT": "250",
+                       "CMUX_WEB_TEST_RETRY_DEADLINE": "0"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/a-timed-out-once.test.ts", "./test/b-fail.test.ts"], output)
+        self.assertIn("retry deadline", output)
+        self.assertIn("TIMEOUT test/a-timed-out-once.test.ts (limit 250s)", output)
+        self.assertIn("FAIL test/b-fail.test.ts (limit 250s)", output)
 
     def test_no_retries_means_no_timeout_retry(self):
         result, _, calls = self.run_runner(["test/a-contended.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "0"})

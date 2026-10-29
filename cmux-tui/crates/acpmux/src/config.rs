@@ -341,10 +341,17 @@ pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    socket_path_for(&home(), configured.as_deref())
+}
+
+/// Resolve a daemon socket using the same short-path rules as [`socket_path`],
+/// for a home and optional configured path supplied by a managed unit.
+#[cfg(unix)]
+pub(crate) fn socket_path_for(home: &Path, configured: Option<&str>) -> PathBuf {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     let cwd = std::env::current_dir().ok();
-    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
+    let (configured, home) = socket_inputs(configured, home, cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
         &home,
@@ -970,7 +977,7 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<crate::cli::send_relay::SendRelay>,
-    /// `meshRelay`: `{"url", "tokenCommand"}`, the team hub this daemon heartbeats its sessions to,
+    /// `meshRelay`: `{"url", "tokenCommand", "controlFrom"}`, the team hub this daemon heartbeats its sessions to,
     /// takes messages for them from, and sends a message to a name nobody here resolves through
     /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
     #[serde(default, skip_serializing_if = "Option::is_none")]

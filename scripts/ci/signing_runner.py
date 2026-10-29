@@ -52,6 +52,7 @@ import datetime as dt
 import json
 import os
 import sys
+import urllib.error
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -73,7 +74,13 @@ SIGNING_JOBS = {
 # whole, so each one held is a mini's worth of PR and nightly work sent elsewhere.
 MAX_OWNED_SIGNING = 1
 # The run statuses that are not finished (GitHub's `status` filter for workflow runs).
-ACTIVE_RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
+# Not "queued": a run is queued until its first job starts, so none of its jobs has a pick, and nothing of it carries a
+# pin. Reading those failed every pick closed: nightly.yml and cmux-next-dev-daily.yml each keep over 100 queued runs
+# (2026-10-29: 21 and 106 by 16:06Z; picks in runs 40897459413 and 40905688542 gave up on "more queued runs than one
+# page lists"), so no owned Mac was ever offered.
+ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
+# A GitHub 5xx is retried this many times before the count gives up (run 40899583793's pick gave up on one 502).
+READ_RETRIES = 2
 
 
 def member(name: str) -> str:
@@ -136,27 +143,53 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
             f"`{name}` on {mini}, which runs no job now ({len(drained)} drained mini(s))")
 
 
+PAGE = 100  # per_page of every listing owned_signing_jobs reads
+# A listing longer than this many pages fails the count closed (no owned Mac is offered).
+MAX_PAGES = 5
+
+
+def every_page(read: Callable[[str], Any], path: str, key: str) -> list[Any]:
+    """Every item of a listing, read page by page until GitHub returns an empty page. Neither a page's length nor
+    total_count is trusted: total_count can run ahead of the items (run 40913618519's pick, 2026-10-29 16:54Z, failed
+    closed on "more waiting runs than one page lists" while nightly.yml had no waiting run), and per_page is only a
+    maximum. More than MAX_PAGES pages raises, so the caller offers no owned Mac."""
+    items: list[Any] = []
+    for number in range(1, MAX_PAGES + 2):
+        page = read(f"{path}&per_page={PAGE}&page={number}").get(key) or []
+        if not page:
+            return items
+        if number > MAX_PAGES:
+            break
+        items.extend(page)
+    raise RuntimeError(f"{path} lists more than {MAX_PAGES} pages")
+
+
 def owned_signing_jobs(read: Callable[[str], Any]) -> int:
     """How many signing jobs (SIGNING_JOBS) are queued or running on an owned Mac now: pinned by a
     `glaeda-runner-<name>` label, which only the owned pick adds to a signing job's runs-on. `read` GETs a path
     under the repository (actions: read). Raises on any read it cannot make, so the caller offers no owned Mac."""
     count, seen = 0, set()
+    plain = read
+
+    def read(path: str) -> Any:  # noqa: F811 - the same read, retried on a GitHub 5xx
+        for attempt in range(READ_RETRIES + 1):
+            try:
+                return plain(path)
+            except urllib.error.HTTPError as error:
+                if error.code < 500 or attempt == READ_RETRIES:
+                    raise
+        raise AssertionError("unreachable")
+
     for workflow, names in SIGNING_JOBS.items():
-        # Every run status GitHub has that is not finished: a run waiting on an environment, or pending a
-        # concurrency slot, can still hold a signing job that already carries its pin.
+        # Every run status GitHub has that is not finished, but queued (ACTIVE_RUN_STATUSES): a run waiting on an
+        # environment, or pending a concurrency slot, can still hold a signing job that already carries its pin.
         for status in ACTIVE_RUN_STATUSES:
-            page = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=100")
-            runs = page.get("workflow_runs") or []
-            if int(page.get("total_count") or 0) > len(runs):
-                raise RuntimeError(f"{workflow} has more {status} runs than one page lists")
+            runs = every_page(read, f"/actions/workflows/{workflow}/runs?status={status}", "workflow_runs")
             for run in runs:
                 if run["id"] in seen:
                     continue
                 seen.add(run["id"])
-                listed = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
-                jobs = listed.get("jobs") or []
-                if int(listed.get("total_count") or 0) > len(jobs):
-                    raise RuntimeError(f"run {run['id']} has more jobs than one page lists")
+                jobs = every_page(read, f"/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")

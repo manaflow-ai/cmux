@@ -116,6 +116,12 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** The model a new chat starts on before its first prompt. */
+  model?: string;
+  /** Explicit startup harness; omitted uses the existing daemon default. */
+  harness?: string;
+  /** Validated peer selected by the host's New Agent Chat action. */
+  peer?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
   /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
@@ -1331,6 +1337,10 @@ export class AcpmuxDirectClient {
   }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
+  /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
+  /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
+  private clearedBySwitch = new Set<string>();
   /// Prompts sent from this page that acpmux has not taken yet: they live only here until then.
   private untakenSends = 0;
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
@@ -1917,6 +1927,11 @@ export class AcpmuxDirectClient {
     this.rows.clear();
     this.queueAuthors.clear();
     this.forkedAtSeq = undefined;
+    for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
+    for (const id of this.clearedBySwitch) {
+      if (this.clearedBySwitch.size <= 256) break;
+      this.clearedBySwitch.delete(id);
+    }
     this.failedPrompts.clear();
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
@@ -4882,7 +4897,10 @@ export class AcpmuxDirectClient {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
-      const sessionId = await (this.creating ?? this.create());
+      // A rejected seeded peer start stays sessionless. The next Send retries that peer,
+      // with its own folder, instead of silently falling back to a local session.
+      const sessionId = await (this.creating ??
+        this.create(this.host.harness, this.host.peer ? this.host.cwd : undefined, this.host.peer));
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
@@ -5249,7 +5267,7 @@ export class AcpmuxDirectClient {
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
-      this.routeTrustRefusal(error);
+      if (here) this.routeTrustRefusal(error);
       if (held) {
         // Refused before acpmux took it, back in the composer: it never ran, so its turn is free for
         // the next Send (an ambiguous failure keeps the claim: acpmux may run it).
@@ -5444,8 +5462,23 @@ export class AcpmuxDirectClient {
     }
     return this.retryPrompt(kept, ticket);
   }
+  /// What a run of failed rows holds now, for a Trust replay to keep across a chat switch.
+  failedPromptCopies(rowIds: readonly string[]): FailedPromptCopy[] {
+    return rowIds.flatMap((rowId) => {
+      const failed = this.failedPrompts.get(rowId);
+      return failed ? [{ rowId, ...failed }] : [];
+    });
+  }
+  /// Puts back the failed prompts of `copies` that a chat switch cleared, so a Trust replay sends
+  /// them. One the person removed or took back into the composer stays gone, and each comes back once.
+  restoreFailedPrompts(copies: readonly FailedPromptCopy[]): void {
+    for (const { rowId, ...failed } of copies)
+      if (!this.failedPrompts.has(rowId) && this.clearedBySwitch.delete(rowId)) this.failedPrompts.set(rowId, failed);
+  }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
+    // The person's Edit, also on the snapshot a held chat switch still shows: no replay brings it back.
+    this.clearedBySwitch.delete(rowId);
     const failed = this.failedPrompts.get(rowId);
     if (!failed) return undefined;
     this.dropFailedPrompt(rowId, failed.promptId);
@@ -5453,6 +5486,8 @@ export class AcpmuxDirectClient {
   }
   /// Remove on a prompt that was not sent: its row goes.
   removeFailedPrompt(rowId: string): void {
+    // The person's Remove, also on the snapshot a held chat switch still shows: no replay brings it back.
+    this.clearedBySwitch.delete(rowId);
     const failed = this.failedPrompts.get(rowId);
     if (failed) this.dropFailedPrompt(rowId, failed.promptId);
   }
@@ -6094,24 +6129,27 @@ export class AcpmuxDirectClient {
     this.trustRoute = route;
     const waiting = this.waitingTrust;
     this.waitingTrust = undefined;
-    if (route && waiting) route(waiting.refusal, waiting.again);
+    if (route && waiting && !this.closed && waiting.generation === this.selectionGeneration)
+      route(waiting.refusal, waiting.again);
   }
   private trustRoute?: TrustRoute;
-  private waitingTrust?: { refusal: TrustRefusal; again?: () => void };
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; generation: number };
   /// True when `error` is a trust refusal, which then went to the route.
   routeTrustRefusal(error: unknown, again?: () => void): boolean {
     const refusal = trustRefusal(error);
     if (!refusal) return false;
+    if (this.closed) return true;
     if (this.trustRoute) this.trustRoute(refusal, again);
-    else this.waitingTrust = { refusal, again };
+    else this.waitingTrust = { refusal, again, generation: this.selectionGeneration };
     return true;
   }
   /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
   private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+    const generation = this.selectionGeneration;
     try {
       return await this.request("session/new", params);
     } catch (error) {
-      this.routeTrustRefusal(error, again);
+      if (generation === this.selectionGeneration) this.routeTrustRefusal(error, again);
       throw error;
     }
   }
@@ -6119,11 +6157,11 @@ export class AcpmuxDirectClient {
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
   create(
-    harness?: string,
+    harness: string | undefined = this.host.harness,
     cwd?: string,
     peer?: string,
     noProject = false,
-    model?: string,
+    model: string | undefined = this.host.model,
   ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
@@ -6159,9 +6197,24 @@ export class AcpmuxDirectClient {
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
     );
-    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
-    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
+    // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
+    // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
+    // keeps its existing first-chat behavior for local starts. A peer's explicit folder is
+    // remote, so it must leave with the startup peer before a later local chat can inherit it.
+    if (result?.sessionId) {
+      this.host = {
+        ...this.host,
+        ...(cwd && !peer && !this.host.peer ? {} : { cwd: undefined }),
+        harness: undefined,
+        model: undefined,
+        peer: undefined,
+      };
+    }
     return result?.sessionId ? String(result.sessionId) : undefined;
+  }
+  /// Fences delayed Trust answers/replays when selection changes before the next snapshot paints.
+  get trustGeneration(): number {
+    return this.selectionGeneration;
   }
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
   /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
@@ -6311,21 +6364,26 @@ export class AcpmuxDirectClient {
     return this.origin === "remote";
   }
   get prewarmSupported(): boolean {
-    return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
+    return !this.host.peer && this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }
   /// Hints acpmux's session pool that `harness` is likely next, in `cwd` when known. Never
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
   prewarm(harness: string, cwd?: string): void {
     if (!this.prewarmSupported) return;
+    const generation = this.selectionGeneration;
     // A prewarm in a folder without a Trust answer asks the question early (nothing to re-run).
     void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
-      this.routeTrustRefusal(error);
+      if (generation === this.selectionGeneration) this.routeTrustRefusal(error);
     });
   }
   /// The folder a new chat's bare start goes to (`startSession` with no folder: the pane's
   /// inherited one); undefined when acpmux picks it or the chat starts on another machine.
   newChatCwd(): string | undefined {
     return this.startsOnSend ? undefined : this.host.cwd;
+  }
+  /// A seeded peer remains the destination until its first chat starts successfully.
+  newChatPeer(): string | undefined {
+    return this.host.peer;
   }
   /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
   /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
@@ -6988,6 +7046,9 @@ const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticke
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 /// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
+/// A failed prompt row's prompt, kept by a Trust replay (``failedPromptCopies``).
+export type FailedPromptCopy = { rowId: string; input: string; attachments: ComposerAttachment[]; promptId?: string };
+
 export function isTrustRefusal(error: unknown): boolean {
   // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
   const reason = (error as { reason?: unknown } | null)?.reason;
