@@ -148,18 +148,22 @@ import Testing
         for seed in 0..<5000 {
             guard await Self.run(seed: UInt64(seed)) else { return }
         }
-        #expect(Self.servedChecked > 80, "the schedules serve tickets, so the serve invariant is exercised")
+        #expect(Self.servedChecked > 300, "the schedules serve tickets, so the serve invariant is exercised")
     }
 
     /// One seeded run; false when it could not finish (the test stops at the first such run).
     private static func run(seed: UInt64) async -> Bool {
         var random = Seeded(state: seed)
         let joined = Bool.random(using: &random)
-        let truth = Truth(screen: .random(using: &random), control: .random(using: &random), joined: joined,
+        // acpmux starts with Screen sharing granted three runs in four, so tickets often find a grant and the
+        // serve invariant fires often (it can't pass by never firing).
+        let truth = Truth(screen: Int.random(in: 0..<4, using: &random) != 0, control: .random(using: &random), joined: joined,
                           consentRequired: joined ? [true, nil].randomElement(using: &random)! : [false, nil].randomElement(using: &random)!,
                           readFails: Int.random(in: 0..<6, using: &random) == 0,
                           capable: Int.random(in: 0..<8, using: &random) != 0, person: Int.random(in: 0..<8, using: &random) != 0)
-        let ops = (0..<Int.random(in: 2...5, using: &random)).map { _ in Op.allCases.randomElement(using: &random)! }
+        // Tickets are drawn twice as often as each other request, for the same reason.
+        let pool = Op.allCases + [.ticketView, .ticketFull]
+        let ops = (0..<Int.random(in: 2...5, using: &random)).map { _ in pool.randomElement(using: &random)! }
         let world = World(truth: truth)
         var timing = Seeded(state: seed &+ 0x5EED)
         world.early = { Bool.random(using: &timing) }
