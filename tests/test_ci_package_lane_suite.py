@@ -67,7 +67,9 @@ def main() -> int:
         (bin_dir / "xcrun").chmod(0o755)
         log = scratch / "swift.log"
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_LOG": str(log),
-               "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp")}
+               "DEVELOPER_DIR": "/Applications/Xcode_26.6.app/Contents/Developer", "RUNNER_TEMP": str(scratch / "tmp"),
+               # The macOS path, on any host (on Linux the lane runs only swift-linux-packages.txt).
+               "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
         (scratch / "tmp").mkdir()
         for name in ("GITHUB_OUTPUT", "GITHUB_ACTIONS", "EVENT_NAME", "FULL_SUITE", "CMUX_SWIFT_TEST_DEBUG_INFO",
                      "CMUX_SWIFT_SANITIZE", "CMUX_SWIFT_SUITE_CONFIGURATION"):

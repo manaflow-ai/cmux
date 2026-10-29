@@ -312,7 +312,9 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         let placed = arrange(width: bounds.width)
         let line = Self.lineHeight
         let labelSize = toLabel.intrinsicContentSize
-        toLabel.frame = NSRect(x: Self.inset, y: 5 + (line - labelSize.height) / 2, width: ceil(labelSize.width), height: labelSize.height)
+        // The text box starts at the inset; the frame adds the label's padding around it.
+        toLabel.frame = toLabel.frame(forAlignmentRect: NSRect(x: Self.inset, y: 5 + (line - labelSize.height) / 2,
+                                                               width: ceil(labelSize.width), height: labelSize.height))
         for (chip, frame) in zip(chips, placed.chips) { chip.frame = frame.offsetBy(dx: 0, dy: 5) }
         text.frame = placed.text.offsetBy(dx: 0, dy: 5)
         addButton.frame = NSRect(x: bounds.width - Self.inset - 22, y: 5 + (line - 22) / 2, width: 22, height: 22)

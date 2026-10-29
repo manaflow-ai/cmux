@@ -18,6 +18,24 @@ import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGi
 import { mockFileSearch } from "./mockFiles";
 import { loadTurn, streamedReply, streamedTool } from "./loadFixture";
 
+/** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
+export type MockSessionAuth = {
+  state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+  source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+  evidenceAt: number | null;
+  detail?: string;
+  harness: string;
+  host: string | null;
+  routeId: string | null;
+  fromSessionId: string | null;
+  login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+};
+type MockAuthGlobals = {
+  cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  cmuxAcpmuxMockNative?: Record<string, unknown>;
+  cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+};
+
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
@@ -383,6 +401,7 @@ export class MockAcpmuxSocket {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               handoff: { maxCapsuleBytes: 65536 },
+              ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
             },
           },
         };
@@ -451,9 +470,50 @@ export class MockAcpmuxSocket {
         );
         return this.sessions.find((session) => session.sessionId === target);
       }
-      // This Mac's agent CLIs as last checked: every listed harness signed in.
-      case "_acpmux/harness/health":
-        return { harnesses: harnesses.map((harness) => ({ id: harness.id, auth: "signedIn" })) };
+      // Gallery data may override this mock daemon's health, never the real direct client.
+      case "_acpmux/harness/health": {
+        const fixture = globalThis as MockAuthGlobals;
+        const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
+          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "unknown"; login?: string } }
+          | undefined;
+        const fromNative = native?.health;
+        const overrides = fixture.cmuxAcpmuxMockHarnessHealth;
+        const resolved = {
+          harnesses: harnesses.map((harness) => ({
+            id: harness.id,
+            auth:
+              overrides?.[harness.id]?.auth ??
+              (fromNative?.id === harness.id ? fromNative.auth : undefined) ??
+              "signedIn",
+            ...(overrides?.[harness.id]?.login
+              ? { login: overrides[harness.id]!.login }
+              : fromNative?.id === harness.id && fromNative.login
+                ? { login: fromNative.login }
+                : {}),
+          })),
+        };
+        (globalThis as { cmuxGalleryLog?: { method: string; params?: unknown }[] }).cmuxGalleryLog?.push({
+          method: "acpmux health resolved",
+          params: resolved,
+        });
+        return resolved;
+      }
+      // A session-scoped auth reply remains distinct from host-wide CLI health. The fixture's
+      // "expired" state never turns a harness-wide signedOut bit on.
+      case "_acpmux/session/auth":
+        return (
+          (globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ?? {
+            state: "unknown",
+            source: "none",
+            evidenceAt: null,
+            harness: String(
+              params.target?.harness ?? this.sessions.find((session) => session.sessionId === target)?.harness ?? "",
+            ),
+            host: null,
+            routeId: null,
+            fromSessionId: params.target ? null : target,
+          }
+        );
       case "_acpmux/markUnread":
         if (!this.sessions.some((session) => session.sessionId === target))
           throw Object.assign(new Error("no such session"), { code: -32001 });

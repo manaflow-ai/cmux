@@ -1,0 +1,47 @@
+/* Several other sessions' waiting messages as one card (WaitingMessagesCard.tsx): its head is a
+   received line (`.cv-received__line` and its toggle, conversation.css: 26px, the note's gutter),
+   in `.cv-received`'s 2px margins (model.ts estimates that): the chevron in the icon column, the
+   count, the senders muted and cut with an ellipsis (none in a narrow pane), the quiet delivery
+   note at the end. Open, the messages sit under it, each as its own received card in its own place
+   (an indent would push a steer's line, its hover actions and its note past a narrow pane's edge).
+   Never an opaque or bordered box, and nothing animates in: only the chevron turns (`.cv-rotor`). */
+.cv-waiting {
+  margin: 2px 0;
+}
+.cv-waiting__line {
+  container-type: inline-size;
+}
+.cv-received__toggle.cv-waiting__toggle {
+  gap: 8px;
+}
+.cv-waiting__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  margin-right: -1.5px;
+}
+.cv-waiting__count {
+  flex: none;
+  color: var(--cv-text);
+}
+.cv-waiting__senders {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-waiting__sender + .cv-waiting__sender::before {
+  content: ", ";
+}
+/* A narrow pane keeps the count and the note whole: the names, cut to a letter or two, would say
+   nothing there. The line's tooltip still names them, and opening it shows each. */
+@container (max-width: 480px) {
+  .cv-waiting__senders {
+    display: none;
+  }
+}
+.cv-waiting__messages[hidden] {
+  display: none;
+}

@@ -632,6 +632,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     steer = false;
                 }
                 if no_wait {
+                    announce_machine_wake(&client, &session).await;
                     return super::send_async::queue(
                         &client,
                         &session,
@@ -647,6 +648,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
                 let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                announce_machine_wake_value(&info);
                 let running = info.get("status").and_then(Value::as_str) == Some("running")
                     || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
                 let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
@@ -853,6 +855,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+async fn announce_machine_wake(client: &Arc<crate::client::Client>, session: &str) {
+    if !machine_wake_enabled() {
+        return;
+    }
+    if let Ok(info) = client.request(method::MUX_INFO, json!({"sessionId": session})).await {
+        announce_machine_wake_value(&info);
+    }
+}
+
+fn announce_machine_wake_value(info: &Value) {
+    if machine_wake_enabled() && crate::machine_wake::has_paused_lease(info) {
+        eprintln!("Waking machine…");
+    }
+}
+
+fn machine_wake_enabled() -> bool {
+    crate::config::Config::load()
+        .ok()
+        .and_then(|config| config.machine_wake)
+        .is_some_and(|config| config.enabled)
 }
 
 async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Result<()> {

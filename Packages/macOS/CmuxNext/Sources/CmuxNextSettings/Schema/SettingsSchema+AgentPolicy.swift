@@ -55,6 +55,7 @@ extension SettingsSchema {
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
+        "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
@@ -314,6 +315,10 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // Voice Room records mic and screen text and posts it to the configured room.
+        "labs.voiceRoom": .privacy,
+        // The room address chooses the network endpoint that receives that capture.
+        "labs.voiceRoomURL": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
