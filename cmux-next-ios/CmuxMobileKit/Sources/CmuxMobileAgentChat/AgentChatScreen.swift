@@ -473,7 +473,7 @@ struct AgentChatJumpButton: View {
                         .overlay {
                             if store.isRunning {
                                 ProgressView()
-                                    .controlSize(.large)
+                                    .controlSize(.small)
                                     .tint(.primary)
                                     .allowsHitTesting(false)
                                     .accessibilityHidden(true)
