@@ -3,8 +3,6 @@ import Foundation
 /// Stable key for notification settings that belong to one machine's workspace.
 /// Legacy bare workspace ids remain readable for the local machine only.
 public nonisolated enum NotificationWorkspaceKey {
-    private init() {}
-
     /// Keep existing local settings at their original key. Bare ids never apply remotely;
     /// qualification happens on every remote read and write, so migration needs no disk rewrite.
     public static func settingsKey(machine: String, workspace: String, localMachine: String) -> String {
