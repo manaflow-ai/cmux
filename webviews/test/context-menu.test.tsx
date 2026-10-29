@@ -5,6 +5,9 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextMenu } from "../src/ui/ContextMenu";
+import { UiProvider } from "../src/ui/UiProvider";
+import type { PopupHost } from "../src/ui/popupHost";
+import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -92,6 +95,79 @@ function openContextMenu(target: HTMLElement) {
     }),
   );
 }
+
+const nativeModel = {
+  side: "bottom" as const,
+  align: "start" as const,
+  width: 220,
+  rows: [{ id: "open", kind: "action" as const, label: "Open" }],
+};
+
+test("a declarative context menu keeps the page fallback without a native transport", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ContextMenu native={{ model: nativeModel }} items={[{ id: "open", label: "Open", onSelect() {} }]}>
+        <button type="button" data-target>Target</button>
+      </ContextMenu>,
+    );
+  });
+  await act(async () => openContextMenu(container.querySelector<HTMLButtonElement>("[data-target]")!));
+  expect(document.querySelector('[role="menuitem"]')?.textContent).toBe("Open");
+});
+
+test("a native context menu anchors nested SVG targets and routes picks without page rows", async () => {
+  const container = installDom();
+  const shown: NativePopupModel[] = [];
+  const listeners = new Set<(event: NativePopupEvent) => void>();
+  const picked: string[] = [];
+  let dismissed = 0;
+  const host: PopupHost = {
+    show: async () => ({ shown: false }),
+    update() {},
+    hide() {},
+    owner: () => null,
+    listen: () => () => {},
+    native: {
+      show: async (model) => { shown.push(model); return { shown: true }; },
+      update() {},
+      hide() {},
+      listen(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    },
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <ContextMenu
+          native={{ model: nativeModel, onDismiss: () => { dismissed++; } }}
+          items={[{ id: "open", label: "Open", onSelect: () => picked.push("open") }]}
+        >
+          <button type="button"><svg><g><path data-target d="M0 0h1" /></g></svg></button>
+        </ContextMenu>
+      </UiProvider>,
+    );
+  });
+  const button = container.querySelector("button")!;
+  button.getBoundingClientRect = () => new window.DOMRect(20, 30, 40, 24);
+  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+  await act(async () => { container.querySelector("[data-target]")!.dispatchEvent(event); });
+  expect(event.defaultPrevented).toBe(true);
+  expect(shown).toHaveLength(1);
+  expect(shown[0]?.anchor).toEqual({ left: 20, top: 30, right: 60, bottom: 54 });
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "open" });
+  });
+  expect(picked).toEqual(["open"]);
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision });
+  });
+  expect(dismissed).toBe(1);
+  expect(listeners.size).toBe(0);
+});
 
 test("opens at the pointer, skips disabled rows, selects by keyboard, and restores focus", async () => {
   const container = installDom();
