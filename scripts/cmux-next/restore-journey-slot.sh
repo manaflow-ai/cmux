@@ -23,7 +23,9 @@ elif [ $# -gt 0 ]; then
   shift
   if [ "${1:-}" = "--" ]; then shift; fi
 fi
-args=$(printf '%q ' "$@")
+# No args: nothing (printf '%q ' with no arguments prints '' and passed restore-journey.py an empty argument).
+args=
+[ $# -eq 0 ] || args=$(printf '%q ' "$@")
 here=$(cd "$(dirname "$0")" && pwd)
 # capture-host and the ssh routes to the capture minis (capture-host-env.sh).
 . "$here/capture-host-env.sh"

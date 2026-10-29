@@ -50,8 +50,10 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
 
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
 pub(crate) fn run(rest: &[String]) -> i32 {
+    // Output flags may come before the verb too (`cmux device --quiet list`).
+    let (rest, quiet) = output_flags(rest);
     let verb = rest.first().map(String::as_str).unwrap_or("help");
-    let (args, quiet) = output_flags(&rest[1.min(rest.len())..]);
+    let args = rest[1.min(rest.len())..].to_vec();
     if quiet && matches!(verb, "remove" | "rm") && !args.iter().any(|a| a == "--yes" || a == "-y") {
         eprintln!("cmux device {verb}: --quiet cannot ask; pass --yes\n{USAGE}");
         return 2;
