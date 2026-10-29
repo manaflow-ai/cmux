@@ -239,6 +239,25 @@ enum Pane { static func opens() -> Bool { false } }
         result = self.check(self.head(extra={runtime: source.replace("{ false }", "{ true }")}))
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_extension_and_generic_tunable_factory_calls_require_review(self):
+        factory = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        defaults = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory+Defaults.swift"
+        self.repo.write(factory, """struct Factory<T> {}
+extension Factory {
+    static func points(_ value: Double) -> Tunable<Double> {
+        .number("factory.gap", .status, "Gap", default: value)
+    }
+}
+""")
+        for call in ("points", "Self.points", "Factory<Double>.points"):
+            with self.subTest(call=call):
+                source = f"extension Factory {{ static let gap = {call}(2) }}\n"
+                self.repo.write(defaults, source)
+                self.base = self.repo.commit("extension defaults")
+                result = self.check(self.head(extra={defaults: source.replace("(2)", "(3)")}))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory+Defaults.swift:gap", result.stdout)
+
     def test_backticked_static_default_dependency_is_snapshotted(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
         source = """enum DevTunables {

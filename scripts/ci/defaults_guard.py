@@ -467,8 +467,21 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     helper_names = {name for key, (_, kind, name, _) in nodes.items()
                     if key in selected and kind == "func"}
     for key, (_, _, _, tokens) in nodes.items():
-        if any(token in helper_names for token in tokens):
+        for i, token in enumerate(tokens):
+            if token not in helper_names:
+                continue
+            # Ignore an unambiguously qualified instance member, such as sidebar.toggle().
+            # Bare/Self calls may use helpers from another extension; generic-qualified
+            # calls have a closing angle bracket here. Keep both conservative, as before.
+            if i > 1 and tokens[i - 1] == ".":
+                qualifier = tokens[i - 2]
+                if re.fullmatch(r"[A-Za-z_]\w*", qualifier) and qualifier != "Self":
+                    if not any(candidate in selected and nodes[candidate][1] == "func"
+                               for owner in types.get(qualifier, ())
+                               for candidate in by_file_name.get((owner, token), ())):
+                        continue
             selected.add(key)
+            break
     pending = list(selected)
     while pending:
         key = pending.pop()
