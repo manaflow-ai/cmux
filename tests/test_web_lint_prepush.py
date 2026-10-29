@@ -451,23 +451,32 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("not linted here", result.stderr)
         self.assertIn("webviews/check-lanes.sh", result.stderr)
 
+    # webviews' check, cut down: a light python3 check, a nested script that mixes an allowlisted bun source check
+    # with a type-aware lint (as check:effect-cleanup is), the formatter check, and the type check.
+    HEAVY_CHECK = ('"python3 check_lanes.py && bun run check:nested && vp fmt --check && vp check --no-fmt --no-lint"')
+    NESTED = '"bun scripts/check-design.ts && vp lint --config scripts/lint/x.json src"'
+    CHECK_LANES_PY = "import pathlib, sys\nsys.exit(1 if 'BAD_LANE' in pathlib.Path('src/app.ts').read_text() else 0)\n"
+
     def heavy_fixture(self):
-        """webviews' check gains a type-aware lint piece (`vp lint`, tsgolint: ~9 GB on webviews) whose stand-in logs
-        each call with its niceness and Go thread cap. Seeded on origin, so the push under test changes only source;
-        returns that push's env (outside CI) and the log."""
+        """webviews' check gains the heavy pieces; stand-ins for vp and bun log each call with its niceness and Go
+        thread cap. Seeded on origin, so the push under test changes only source; returns that push's env (outside
+        CI) and the log."""
         self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
-            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-lanes.sh && vp lint && sh check-format.sh"'))
-        self.commit("a heavy piece")
-        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the heavy piece on origin first")
+            '"sh check-lanes.sh && sh check-format.sh"', self.HEAVY_CHECK).replace(
+            '"check:fix": "sh fix-format.sh"', f'"check:fix": "vp check --fix", "check:nested": {self.NESTED}'))
+        self.write("webviews/check_lanes.py", self.CHECK_LANES_PY)
+        self.commit("heavy pieces")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the heavy pieces on origin first")
         self.assertEqual(seeded.returncode, 0, seeded.stderr)
-        vp = self.repo / "webviews/node_modules/.bin/vp"
-        vp.parent.mkdir(parents=True)
-        vp.write_text('#!/bin/sh\necho "vp $* nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
-        vp.chmod(0o755)
+        bin_dir = self.repo / "webviews/node_modules/.bin"
+        bin_dir.mkdir(parents=True)
+        for name in ("vp", "bun"):
+            (bin_dir / name).write_text(f'#!/bin/sh\necho "{name} $* nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
+            (bin_dir / name).chmod(0o755)
         self.write("webviews/src/app.ts", "export const app = 7;\n")
         self.commit("source change")
         log = self.root / "vp.log"
-        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
+        env = {key: value for key, value in self.env.items() if key not in ("GITHUB_ACTIONS", "CI")}
         env["VP_LOG"] = str(log)
         return env, log
 
@@ -475,52 +484,128 @@ class WebLintPrePushTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
                               env=env, text=True, capture_output=True)
 
-    def test_a_host_that_runs_no_heavy_checks_pushes_without_starting_the_type_checker(self):
+    def logged(self, log):
+        return [line.split(" nice=")[0] for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_a_host_that_runs_no_heavy_checks_runs_only_the_allowlist(self):
         env, log = self.heavy_fixture()
 
         result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(log.exists(), "the type-aware lint ran on a host that runs no heavy checks")
-        self.assertIn("webviews: not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint", result.stderr)
+        self.assertEqual(sorted(self.logged(log)), ["bun scripts/check-design.ts", "vp fmt --check"])
+        self.assertIn("not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint --config scripts/lint/x.json src, "
+                      "vp check --no-fmt --no-lint", result.stderr)
         self.assertIn("cmux-ci test", result.stderr, "must say where to run it instead")
         self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
 
     def test_light_pieces_still_refuse_a_bad_push_on_a_host_that_runs_no_heavy_checks(self):
         env, log = self.heavy_fixture()
-        self.write("webviews/test/app.test.ts", "export const t = BAD_LANE;\n")
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
         self.commit("bad lane")
 
         result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
 
         self.assertNotEqual(result.returncode, 0, result.stderr)
-        self.assertIn("browser lane import", result.stderr)
-        self.assertFalse(log.exists())
+        self.assertIn("python3 check_lanes.py", result.stderr)
+        self.assertNotIn("vp check --no-fmt --no-lint", self.logged(log))
 
-    def test_a_build_host_runs_the_heavy_piece_niced_and_capped(self):
+    def test_a_build_host_runs_every_piece_niced_and_capped(self):
         env, log = self.heavy_fixture()
 
         result = self.push_with(env)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = log.read_text().splitlines()
-        self.assertEqual(len(calls), 1, calls)
-        self.assertRegex(calls[0], r"^vp lint nice=\d+ GOMAXPROCS=\d+$")
-        self.assertGreaterEqual(int(calls[0].split("nice=")[1].split()[0]), 10, calls[0])
+        self.assertIn("bun run check:nested", [c.split(" nice=")[0] for c in calls])
+        self.assertIn("vp check --no-fmt --no-lint", [c.split(" nice=")[0] for c in calls])
+        for call in calls:
+            self.assertRegex(call, r" nice=\d+ GOMAXPROCS=\d+$")
+            self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
 
-    def fake_tools(self, **scripts):
-        """Stand-in executables first on PATH, each logging its call to TOOL_LOG; returns (env, the log)."""
-        tools = self.root / "fake-bin"
-        tools.mkdir(exist_ok=True)
-        for name, body in scripts.items():
-            (tools / name).write_text(f'#!/bin/sh\necho "{name} $*" >> "$TOOL_LOG"\n{body}\n')
-            (tools / name).chmod(0o755)
-        log = self.root / "tools.log"
-        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
-        env.update(PATH=f"{tools}{os.pathsep}{env['PATH']}", TOOL_LOG=str(log))
-        return env, log
+    def spawned(self, argv, heavy):
+        """Run the lint in process with every subprocess.run recorded and none but git executed (a stand-in answers
+        the rest, failing the python3 check when the tree it runs in has BAD_LANE); returns (exit code, the commands
+        spawned, nice stripped)."""
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        seen = []
 
-    def test_new_only_reruns_a_heavy_piece_on_the_base_niced_and_capped(self):
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if words and Path(words[0]).name == "nice":
+                words = words[3:]
+            if words and Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            seen.append(" ".join(Path(words[0]).name if i == 0 else w for i, w in enumerate(words)))
+            cwd = Path(kwargs.get("cwd") or ".")
+            failed = words[:1] == ["python3"] and "BAD_LANE" in (cwd / "src/app.ts").read_text()
+            return subprocess.CompletedProcess(command, 1 if failed else 0,
+                                               "src/app.ts:1:1: error lane\n" if failed else "", "")
+
+        env = {"CMUX_LOCAL_HEAVY_CHECKS": "1" if heavy else "0", "GITHUB_ACTIONS": "", "CI": ""}
+        with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            code = lint.main(["--repo", str(self.repo), *argv])
+        return code, seen
+
+    def test_no_mode_spawns_more_than_the_allowlist_on_a_host_that_runs_no_heavy_checks(self):
+        self.heavy_fixture()
+        (self.repo / "web/node_modules").mkdir(exist_ok=True)
+        self.write("web/app/page.tsx", "export const page = 3;\n")
+        self.commit("web change")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.write("webviews/package.json", (self.repo / "webviews/package.json").read_text().replace(
+            '"name": "webviews-fixture"', '"name": "webviews-changed"'))  # a base tree cannot share node_modules
+        self.commit("red change")
+        red = self.git("rev-parse", "HEAD").stdout.strip()
+        allowed = {"python3 check_lanes.py", "bun scripts/check-design.ts", "vp fmt --check",
+                   "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
+                   "app/page.tsx", "eslint --quiet --no-warn-ignored app/page.tsx",
+                   "eslint --quiet --no-warn-ignored --cache --cache-location node_modules/.cache/eslint-web-lint/ "
+                   "--fix app/page.tsx"}  # web/'s ESLint is syntax-only (no type information)
+        modes = {
+            "checked-out --head": ["--base", "HEAD~1", "--head", red],
+            "another commit (lint tree)": ["--base", "HEAD~2", "--head", head],
+            "--new-only on a red change": ["--base", "HEAD~1", "--head", red, "--new-only"],
+            "--all": ["--all", "--base", red, "--head", red],
+            "--fix": ["--fix", "--base", "HEAD~2"],
+        }
+        for name, argv in modes.items():
+            with self.subTest(mode=name):
+                code, seen = self.spawned(argv, heavy=False)
+                self.assertTrue(seen, "the allowlisted checks must still run")
+                self.assertLessEqual(set(seen), allowed, seen)
+        code, seen = self.spawned(modes["--new-only on a red change"], heavy=False)
+        self.assertEqual(code, 1, "with no base comparison the red stays the change's")
+
+    def test_every_spawn_on_a_build_host_is_niced_and_capped(self):
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        spawned = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name != "git":
+                spawned.append((words, kwargs.get("env") or {}))
+                return subprocess.CompletedProcess(command, 0, "", "")
+            return real(command, *args, **kwargs)
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": "", "CI": ""}), \
+                mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head])
+        self.assertTrue(spawned)
+        for words, env in spawned:
+            self.assertEqual(Path(words[0]).name, "nice", words)
+            self.assertIn("GOMAXPROCS", env)
+            self.assertIn("GOMEMLIMIT", env)
+            self.assertIn("--max-old-space-size", env.get("NODE_OPTIONS", ""))
+
+    def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
         # so it gets the same nice and caps as the first.
         self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
@@ -534,7 +619,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write("webviews/src/app.ts", "export const app = 8;\n")
         self.commit("a change on a red base")
         log = self.root / "vp.log"
-        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
+        env = {key: value for key, value in self.env.items() if key not in ("GITHUB_ACTIONS", "CI")}
         head = self.git("rev-parse", "HEAD").stdout.strip()
 
         result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
@@ -547,45 +632,34 @@ class WebLintPrePushTests(unittest.TestCase):
             self.assertRegex(call, r"^vp nice=\d+ GOMAXPROCS=\d+$")
             self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
 
-    def test_new_only_installs_nothing_on_a_host_that_runs_no_heavy_checks(self):
-        # The base's package.json differs, so its lint tree cannot share the checkout's node_modules: with heavy
-        # checks off there is no install to compare with, and the red stays the change's.
-        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace('"webviews-fixture"', '"webviews-base"'))
-        self.commit("base manifest")
-        (self.repo / "webviews/node_modules").mkdir(parents=True)
-        self.write("webviews/package.json", WEBVIEWS_PACKAGE)
-        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
-        self.commit("a red change")
-        env, log = self.fake_tools(bun="exit 0", npm="exit 0")
-        head = self.git("rev-parse", "HEAD").stdout.strip()
-
-        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--base", "HEAD~1", "--head", head,
-                                 "--new-only"], cwd=self.repo, env={**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"},
-                                text=True, capture_output=True)
-
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertFalse(log.exists() and log.read_text().strip(), log.read_text() if log.exists() else "")
-
-    def test_heavy_pieces_are_the_type_checking_ones(self):
+    def test_the_allowlist_is_exact(self):
         lint = load_lint(self.repo)
-        for piece in ("vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "tsgo --noEmit"):
-            self.assertTrue(lint.is_heavy(piece), piece)
-        for piece in ("vp fmt --check", "bun run check:effect-cleanup", "sh vp-lint.sh", "python3 ../check.py"):
-            self.assertFalse(lint.is_heavy(piece), piece)
+        scripts = {"check:effect-cleanup": "vp lint --config scripts/lint/effect-cleanup.json src dev-server",
+                   "check:nested": "bun run check:effect-cleanup", "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
+                   "check:layers": "python3 ../scripts/cmux-next/check-layers.py", "loop": "bun run loop"}
+        light, rest = lint.light_leaves(
+            ["bun run check:fixed-waits", "bun run check:layers", "vp fmt --check", "bun run check:nested",
+             "vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
+             "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install"], scripts)
+        self.assertEqual(light, ["bun scripts/check-fixed-waits.ts", "python3 ../scripts/cmux-next/check-layers.py",
+                                 "vp fmt --check"])
+        self.assertEqual(rest, ["vp lint --config scripts/lint/effect-cleanup.json src dev-server", "vp lint",
+                                "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
+                                "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install"])
 
-    def test_ci_runs_a_heavy_piece_as_is_and_a_caller_cap_is_kept(self):
+    def test_ci_spawns_as_is_and_a_caller_cap_is_kept(self):
         lint = load_lint(self.repo)
-        package = lint.SCRIPT_PACKAGES[0]
-        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            _, command, _, env, shown = lint.piece_job(package, "vp lint", self.repo)
-        self.assertEqual((command, shown), ("vp lint", "vp lint"))
-        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": "", "GOMAXPROCS": "3",
-                                          "NODE_OPTIONS": "--max-old-space-size=1024"}):
-            _, command, _, env, shown = lint.piece_job(package, "vp lint", self.repo)
-        self.assertEqual(shown, "vp lint")
-        self.assertTrue(command.endswith("vp lint"), command)
-        self.assertEqual(env["GOMAXPROCS"], "3")
-        self.assertEqual(env["NODE_OPTIONS"], "--max-old-space-size=1024")
+        with mock.patch.object(lint.subprocess, "run") as run, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            lint.spawn("vp lint", self.repo, {"PATH": os.environ["PATH"]})
+        self.assertEqual(run.call_args.args[0], "vp lint")
+        self.assertNotIn("GOMAXPROCS", run.call_args.kwargs["env"])
+        with mock.patch.object(lint.subprocess, "run") as run, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            lint.spawn(["vp", "lint"], self.repo, {"GOMAXPROCS": "3", "NODE_OPTIONS": "--max-old-space-size=1024"})
+        argv, env = run.call_args.args[0], run.call_args.kwargs["env"]
+        self.assertEqual(argv[-2:], ["vp", "lint"])
+        self.assertEqual((env["GOMAXPROCS"], env["NODE_OPTIONS"]), ("3", "--max-old-space-size=1024"))
         self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
 
 
@@ -634,6 +708,10 @@ case "$1" in
 esac
 exit 0
 """
+
+
+# An allowlisted light piece (python3) that logs its call.
+FMT_PY = "import os, pathlib\nwith open(os.environ['TOOL_LOG'], 'a') as log:\n    log.write(f'fmt {pathlib.Path.cwd().name}\\n')\n"
 
 
 class TuiBindingsTests(unittest.TestCase):
@@ -689,8 +767,8 @@ class TuiBindingsTests(unittest.TestCase):
         # A package that already has node_modules still runs its light pieces; one with none is left to CI, named.
         self.add_tui_packages()
         self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
-            '"check": "sh check.sh"', '"check": "sh fmt.sh && vp check --no-fmt --no-lint && tsc -p ."'))
-        self.write("cmux-tui/frontends/web/fmt.sh", 'echo "fmt $(basename "$PWD")" >> "$TOOL_LOG"\n')
+            '"check": "sh check.sh"', '"check": "python3 fmt.py && vp check --no-fmt --no-lint && tsc -p ."'))
+        self.write("cmux-tui/frontends/web/fmt.py", FMT_PY)
         self.commit("a heavy frontend check")
         tools = Path(self.env["PATH"].split(os.pathsep)[0])
         for name in ("tsc", "vp"):
@@ -732,8 +810,8 @@ class TuiBindingsTests(unittest.TestCase):
         # shares the checkout's node_modules and its light piece still runs.
         self.add_tui_packages()
         self.write("cmux-tui/frontends/web/package.json", TUI_FRONTEND_PACKAGE.replace(
-            '"check": "sh check.sh"', '"check": "sh fmt.sh && vp check --no-fmt --no-lint"'))
-        self.write("cmux-tui/frontends/web/fmt.sh", 'echo "fmt $(basename "$PWD")" >> "$TOOL_LOG"\n')
+            '"check": "sh check.sh"', '"check": "python3 fmt.py && vp check --no-fmt --no-lint"'))
+        self.write("cmux-tui/frontends/web/fmt.py", FMT_PY)
         self.commit("a heavy frontend check")
         (self.repo / "cmux-tui/frontends/web/node_modules").mkdir()
         self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 2;\n")

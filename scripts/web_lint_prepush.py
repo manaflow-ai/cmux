@@ -48,14 +48,16 @@ Usage:
 Skip once, with a reason that names the evidence (logged in the push output):
     CMUX_WEB_LINT_SKIP_REASON="webviews check:text-focus is red on base 1a2b3c4" git push
 
-Heavy pieces: the type-aware lint and the type check (`vp lint`, `vp check`, tsc, tsgo; see
-config/vite-plus/check.ts, typeAware and typeCheck) start tsgolint, about 9 GB and 5 GB on webviews,
-both at once. A host that must not run builds or heavy checks (a shared agent host, a laptop) sets
-CMUX_LOCAL_HEAVY_CHECKS=0: nothing is installed or built there (the tui bindings build is npm ci and
-tsc), the light pieces run against the node_modules a package already has (a package with none is
-skipped, named), and the heavy ones are left to CI's `web lint` job and the pull request's fast
-gates, or to `cmux-ci test` on a build box. Wherever they
-do run outside CI, they run under `nice` with capped Go and Node concurrency and heap (heavy_env).
+Hosts that run no heavy checks: a shared agent host or a laptop sets CMUX_LOCAL_HEAVY_CHECKS=0.
+There the hook installs nothing, builds nothing, compares nothing against a base, and runs only
+an allowlist of light commands (LIGHT_COMMANDS: the formatter's --check, python3 source checks,
+bun source-check scripts, ESLint on changed web/ files). It resolves `bun run NAME` to NAME's
+pieces and runs only the allowlisted ones. Everything else is skipped with a named note: the
+type-aware lint and type check (tsgolint, about 9 GB and 5 GB on webviews), every unknown command,
+and a package with no node_modules. CI's `web lint` job and the PR's fast gates run them, or
+`cmux-ci test` on a build box. Elsewhere, every command this script spawns (installs, builds,
+checks) goes through spawn(), which outside CI runs it under `nice` with capped Go threads, Go
+heap and Node heap.
 """
 from __future__ import annotations
 
@@ -76,11 +78,16 @@ from pathlib import Path
 ESLINT_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
-# A check piece that starts with one of these runs the type checker (tsgolint or tsc): gigabytes per run.
-HEAVY_COMMANDS = (("vp", "lint"), ("vp", "check"), ("tsc",), ("tsgo",))
-# "0" (or false/no/off/skip): this host runs no heavy piece. Set by the host, e.g. from a fleet registry.
+# "0" (or false/no/off/skip): this host runs no heavy check. Set by the host, e.g. from a fleet registry.
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
-# Outside CI a heavy piece runs at lower priority with these caps, each only when the caller set none:
+# The only check pieces such a host runs, by their leading words: the formatter's check (Oxfmt, no type
+# information), the python3 source checks, and bun running a source-check script from the package's scripts/.
+LIGHT_COMMANDS = (("vp", "fmt", "--check"), ("python3",))
+LIGHT_BUN_SCRIPT_DIR = "scripts/"
+# `bun run NAME`: a piece that runs another script of the same package.json; resolved, never run as a whole.
+SCRIPT_RUNNER = ("bun", "run")
+MAX_SCRIPT_DEPTH = 8
+# Outside CI every spawned command runs at lower priority with these caps, each only when the caller set none:
 # Go threads (tsgolint's checkers run one per thread) and its soft heap goal, and Node's old-space heap.
 HEAVY_NICE = 10
 HEAVY_GOMEMLIMIT = "6GiB"
@@ -291,9 +298,50 @@ def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> 
     return [piece.strip() for piece in body.split("&&") if piece.strip()]
 
 
-def is_heavy(piece: str) -> bool:
+def package_scripts(repo: Path, package: ScriptPackage, read=None) -> dict[str, str]:
+    read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
+    try:
+        scripts = json.loads(read(f"{package.directory}/package.json")).get("scripts", {})
+    except (OSError, ValueError, SystemExit):
+        return {}
+    return scripts if isinstance(scripts, dict) else {}
+
+
+def is_light(piece: str) -> bool:
+    """PIECE is on the allowlist a host that runs no heavy checks runs (LIGHT_COMMANDS)."""
     words = tuple(piece.split())
-    return any(words[:len(prefix)] == prefix for prefix in HEAVY_COMMANDS)
+    if any(words[:len(prefix)] == prefix for prefix in LIGHT_COMMANDS):
+        return True
+    return (len(words) >= 2 and words[0] == "bun" and words[1].startswith(LIGHT_BUN_SCRIPT_DIR)
+            and words[1].endswith(".ts") and ".." not in words[1])
+
+
+def light_leaves(pieces: list[str], scripts: dict[str, str], depth: int = 0) -> tuple[list[str], list[str]]:
+    """(the allowlisted commands PIECES come to, the rest): `bun run NAME` is replaced by NAME's own pieces; an
+    unknown or too deep NAME is in the rest, whole."""
+    light, rest = [], []
+    for piece in pieces:
+        words = piece.split()
+        if tuple(words[:2]) == SCRIPT_RUNNER and len(words) == 3:
+            body = scripts.get(words[2])
+            if isinstance(body, str) and depth < MAX_SCRIPT_DEPTH:
+                inner = light_leaves([p.strip() for p in body.split("&&") if p.strip()], scripts, depth + 1)
+                light += inner[0]
+                rest += inner[1]
+                continue
+        (light if is_light(piece) else rest).append(piece)
+    return light, rest
+
+
+def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, read=None) -> list[str]:
+    """The allowlisted commands package SCRIPT comes to, saying which pieces this host leaves to CI."""
+    light, rest = light_leaves(check_pieces(repo, package, script, read), package_scripts(repo, package, read))
+    if rest:
+        print(f"{mode}: {package.directory}: not run on this host ({LOCAL_HEAVY_ENV}=0): {', '.join(rest)}. "
+              "CI's `web lint` job and the pull request's fast gates run them; to run them before the push, "
+              f"use a build box: cmux-ci test -- bash -c 'cd {package.directory} && bun install --frozen-lockfile "
+              f"&& bun run {script}'.", file=sys.stderr)
+    return light
 
 
 def local_heavy_checks() -> bool:
@@ -305,10 +353,10 @@ def in_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI", "").lower() in ("1", "true")
 
 
-def heavy_env(env: dict[str, str]) -> dict[str, str]:
-    """ENV for a heavy piece run outside CI: half the cores (at most 8) for Go, a soft Go heap goal, a capped Node
-    heap. A value the caller already set is kept."""
-    env = dict(env)
+def capped_env(env: dict[str, str] | None) -> dict[str, str]:
+    """ENV outside CI: half the cores (at most 8) for Go, a soft Go heap goal, a capped Node heap. A value the
+    caller already set is kept."""
+    env = dict(os.environ if env is None else env)
     env.setdefault("GOMAXPROCS", str(max(1, min(8, (os.cpu_count() or 2) // 2))))
     env.setdefault("GOMEMLIMIT", HEAVY_GOMEMLIMIT)
     node = env.get("NODE_OPTIONS", "")
@@ -317,15 +365,17 @@ def heavy_env(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-def heavy_argv(argv: list[str]) -> list[str]:
-    """ARGV under `nice`, when nice is there."""
-    nice = shutil.which("nice")
-    return [nice, "-n", str(HEAVY_NICE), *argv] if nice else argv
-
-
-def heavy_command(piece: str) -> str:
-    """PIECE under `nice` (a plain command: every heavy piece starts with its tool), when nice is there."""
-    return f"nice -n {HEAVY_NICE} {piece}" if shutil.which("nice") else piece
+def spawn(command: list[str] | str, cwd: Path, env: dict[str, str] | None):
+    """The one way this script starts a tool (git aside): installs, builds and checks alike. Outside CI it runs
+    under `nice` with capped_env, so no path spawns an uncapped type check or build."""
+    if not in_ci():
+        env = capped_env(env)
+        nice = shutil.which("nice")
+        if nice:
+            command = f"{nice} -n {HEAVY_NICE} {command}" if isinstance(command, str) else \
+                [nice, "-n", str(HEAVY_NICE), *command]
+    return subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True,
+                          shell=isinstance(command, str))
 
 
 def package_env(repo: Path, directory: str) -> dict[str, str]:
@@ -341,7 +391,7 @@ def run_leaving_no_lockfile(command: list[str], cwd: Path, env: dict[str, str] |
     lock = cwd / "bun.lock"
     had_lock = lock.exists()
     try:
-        return subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True)
+        return spawn(command, cwd, env)
     finally:
         if not had_lock:
             lock.unlink(missing_ok=True)
@@ -405,14 +455,10 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     stamp.unlink(missing_ok=True)
     started = time.monotonic()
     env = package_env(repo, build.directory)
-    if not in_ci():  # the build is tsc: as heavy as the type check, so niced and capped the same way
-        env = heavy_env(env)
-        steps = [heavy_argv(step) for step in steps]
-    for step in steps:
+    for step in steps:  # spawn() nices and caps them outside CI: the build is tsc
         result = run_leaving_no_lockfile(step, root, env)
         if result.returncode != 0:
-            tool = step[3:] if Path(step[0]).name == "nice" else step  # name the tool, not its nice wrapper
-            shown = " ".join([Path(tool[0]).name, *(c for c in tool[1:] if c != "--silent")])
+            shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
             return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
                                  f"{result.stdout}{result.stderr}\n{held}", time.monotonic() - started)
     stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -460,32 +506,10 @@ def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> 
 
 def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str], shown: str | None = None) -> Result:
     started = time.monotonic()
-    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True,
-                            shell=isinstance(command, str))
+    result = spawn(command, cwd, env)
     if shown is None:
         shown = command if isinstance(command, str) else " ".join(command)
     return Result(label, shown, result.returncode, result.stdout + result.stderr, time.monotonic() - started)
-
-
-def piece_job(package: ScriptPackage, piece: str, repo: Path) -> tuple:
-    """run()'s arguments for one `check` piece; a heavy one outside CI runs niced and capped (heavy_env)."""
-    env = package_env(repo, package.directory)
-    if is_heavy(piece) and not in_ci():
-        return package.directory, heavy_command(piece), repo / package.directory, heavy_env(env), piece
-    return package.directory, piece, repo / package.directory, env, piece
-
-
-def local_pieces(package: ScriptPackage, pieces: list[str], heavy: bool, mode: str) -> list[str]:
-    """PIECES this host runs: all of them, or, when it runs no heavy check, the rest, saying which were left out."""
-    if heavy:
-        return pieces
-    skipped = [p for p in pieces if is_heavy(p)]
-    if skipped:
-        print(f"{mode}: {package.directory}: not run on this host ({LOCAL_HEAVY_ENV}=0): {', '.join(skipped)}. "
-              "CI's `web lint` job and the pull request's fast gates run them; to run them before the push, "
-              f"use a build box: cmux-ci test -- bash -c 'cd {package.directory} && bun install --frozen-lockfile "
-              "&& bun run check'.", file=sys.stderr)
-    return [p for p in pieces if not is_heavy(p)]
 
 
 def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cache: bool = True) -> list[str]:
@@ -521,12 +545,7 @@ def light_plan(repo: Path, plan: Plan, mode: str) -> Plan:
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
-    if not heavy:
-        # No install or build here either: the bindings build is `npm ci` plus tsc, and installs are the network and
-        # disk churn of a build. Light pieces run against the node_modules a package already has; a package with
-        # none is left to CI, named.
-        plan = light_plan(repo, plan, mode)
-    else:
+    if heavy:
         stale, failures = prepare_builds(repo, plan.script_packages)
         if failures:
             return failures
@@ -535,17 +554,25 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
             installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
         if installs:
             return installs
+    else:
+        # No install or build (the bindings build is `npm ci` plus tsc): only the allowlist, against the node_modules
+        # a package already has; a package with none is left to CI, named.
+        plan = light_plan(repo, plan, mode)
+
+    def pieces(package: ScriptPackage, script: str) -> list[str]:
+        return check_pieces(repo, package, script) if heavy else light_pieces(repo, package, script, mode)
+
     if fix:
         for package in plan.script_packages:
-            for piece in local_pieces(package, check_pieces(repo, package, "check:fix"), heavy, mode):
-                run(*piece_job(package, piece, repo))
+            for piece in pieces(package, "check:fix"):
+                run(package.directory, piece, repo / package.directory, package_env(repo, package.directory))
         for directory, files in plan.eslint_files.items():
             run(directory, eslint_command(repo, directory, files, True, cache), repo / directory,
                 package_env(repo, directory))
     jobs = []
     for package in plan.script_packages:
-        for piece in local_pieces(package, check_pieces(repo, package, "check"), heavy, mode):
-            jobs.append(piece_job(package, piece, repo))
+        for piece in pieces(package, "check"):
+            jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
     for directory, files in plan.eslint_files.items():
         jobs.append((directory, eslint_command(repo, directory, files, False, cache), repo / directory,
                      package_env(repo, directory)))
@@ -615,22 +642,24 @@ def load_compare():
 
 
 def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
-    """--new-only: each failed package check runs again on BASE (niced and capped like the first run, and on a host
-    that runs no heavy checks never installing: a base tree with no node_modules has nothing to compare). A red
-    whose every finding BASE has too passes with a warning; otherwise the result keeps only the findings it adds."""
+    """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
+    with a warning; otherwise the result keeps only the findings it adds. A host that runs no heavy checks makes
+    no base tree and runs nothing again: every red stays the change's."""
     packages = {p.directory: p for p in plan.script_packages}
     failed = [r for r in results if r.returncode != 0 and r.label in packages]
     if not failed:
         return
+    if not heavy:
+        print(f"::warning title=web lint::no base comparison on this host ({LOCAL_HEAVY_ENV}=0); every red counts",
+              file=sys.stderr)
+        return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
         for result in failed:
-            if not heavy and not (base_tree / result.label / "node_modules").is_dir():
-                continue  # no install here, so no base to compare with: the red stays this change's
-            if heavy and ensure_deps(base_tree, result.label):
+            if ensure_deps(base_tree, result.label):
                 continue  # no base to compare with: the red stays this change's
             compare.generate_strings(base_tree / result.label)
-            again = run(*piece_job(packages[result.label], result.command, base_tree))
+            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
@@ -745,10 +774,11 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if args.dry_run:
             for package in plan.script_packages:
-                for build in package.builds:
+                for build in package.builds if heavy else ():
                     print(f"{build.directory}: install and build, unless current (for {package.directory})")
-                pieces = check_pieces(repo, package, "check", read)
-                print(f"{package.directory}: {' && '.join(local_pieces(package, pieces, heavy, mode))}")
+                pieces = (check_pieces(repo, package, "check", read) if heavy
+                          else light_pieces(repo, package, "check", mode, read))
+                print(f"{package.directory}: {' && '.join(pieces)}")
             for directory, targets in plan.eslint_files.items():
                 print(f"{directory}: eslint {' '.join(targets)}")
             continue
