@@ -6,6 +6,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
+import {
+  resetTranscriptDisclosure,
+  TranscriptDisclosureProvider,
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
 
 const scope = globalThis as Record<string, unknown>;
@@ -49,6 +55,7 @@ function installDom() {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  resetTranscriptDisclosure();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) scope[key] = value;
@@ -87,4 +94,94 @@ test("three adjacent starts render as one collapsed group row", () => {
   );
   expect((html.match(/class="cv-disclosure"/g) ?? []).length).toBe(1);
   expect(html).toContain("3 sessions: msg-fold, picker-polish, cloud-demo");
+});
+
+test("collapsed groups follow child sessions after their start calls finish", async () => {
+  const container = installDom();
+  const store = new SubsessionStore();
+  const names = ["msg-fold", "picker-polish", "cloud-demo"];
+  const entries = names.map((name) => ({ call: start(name), tool: tool(name) }));
+  const setChild = (change: Partial<AcpmuxSessionEntry>) =>
+    store.set(
+      names.map(
+        (name, index) =>
+          ({
+            sessionId: `${name}-id`,
+            startedBy: "parent",
+            status: "idle",
+            lane: "idle",
+            ...(index === 0 ? change : {}),
+          }) as AcpmuxSessionEntry,
+      ),
+    );
+  setChild({ lane: "working" });
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => {} }}>
+        <SubsessionCallCard group={entries} />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const status = () => container.querySelector(".cv-disclosure__status")!;
+  expect(status().textContent).toContain("Working");
+  expect(status().querySelector("svg")).not.toBeNull();
+  await act(async () => setChild({ lane: "input" }));
+  expect(status().textContent).toContain("1 waiting");
+  expect(status().querySelector("svg")).toBeNull();
+  await act(async () => setChild({ lane: "failed" }));
+  expect(status().textContent).toContain("1 failed");
+  await act(async () => setChild({ lane: "failed", retry: { attempt: 1, of: 4 } }));
+  expect(status().textContent).toContain("Working");
+  expect(status().textContent).not.toContain("failed");
+  expect(status().querySelector("svg")).not.toBeNull();
+  await act(async () => setChild({ lane: "working", waitsForSlot: true }));
+  expect(status().textContent).toContain("1 waiting");
+  await act(async () => setChild({ lane: "idle" }));
+  expect(status().textContent).toBe("Done");
+  expect(status().querySelector("svg")).toBeNull();
+});
+
+test("single and grouped disclosures keep independent choices across virtualized remounts", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({ call: start(name), tool: tool(name) }));
+  const render = async (sessionId = "parent") =>
+    act(async () =>
+      root!.render(
+        <TranscriptDisclosureProvider sessionId={sessionId}>
+          <SubsessionCallCard call={start("single")} tool={tool("single")} />
+          <SubsessionCallCard call={start("other")} tool={tool("other")} />
+          <SubsessionCallCard group={entries} />
+        </TranscriptDisclosureProvider>,
+      ),
+    );
+  const toggles = () => [...container.querySelectorAll<HTMLButtonElement>(".cv-disclosure__toggle")];
+  await render();
+  await act(async () => toggles()[0]!.click());
+  await act(async () => toggles()[2]!.click());
+  await act(async () => toggles()[3]!.click());
+  expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual([
+    "true",
+    "false",
+    "true",
+    "true",
+    "false",
+    "false",
+  ]);
+  await act(async () => root!.unmount());
+  root = createRoot(container);
+  await render();
+  expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual([
+    "true",
+    "false",
+    "true",
+    "true",
+    "false",
+    "false",
+  ]);
+  expect(container.querySelector(".cv-subsession__markdown strong")?.textContent).toBe("full");
+  await act(async () => root!.render(null));
+  await render("different-parent");
+  expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual(["false", "false", "false"]);
 });

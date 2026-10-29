@@ -11,7 +11,13 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { DisclosureRow } from "../subagents/DisclosureRow";
-import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
+import {
+  SubsessionContext,
+  useSenderChat,
+  useSubsessionInfo,
+  useSubsessionInfos,
+  waitingLine,
+} from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
@@ -55,14 +61,43 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   const names = entries.map(
     ({ call }) => call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare")),
   );
-  const running = entries.some(({ call }) => call.running);
+  const ids = useMemo(() => entries.map(({ call }) => call.sessionId), [entries]);
+  const children = useSubsessionInfos(ids);
+  let working = false;
+  let waiting = 0;
+  let failed = 0;
+  let done = 0;
+  for (const [index, child] of children.entries()) {
+    const phase = child && sessionRetry(child);
+    if (child?.slot || child?.state === "input") waiting++;
+    else if (phase?.kind === "retrying" || phase?.kind === "settling" || child?.state === "working") working = true;
+    else if (child?.state === "failed") failed++;
+    else if (child?.state === "done") done++;
+    else if (entries[index]?.call.running) working = true;
+  }
+  const status = [
+    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
+    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
+    working ? t("subsession.state.working") : undefined,
+    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <DisclosureRow
+      disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
       icon={<Icon name="agent.session" size={16} />}
       label={t("subsession.started", {
         name: `${t("turn.working.sessions", { n: entries.length })}: ${names.join(", ")}`,
       })}
-      status={running ? <Spinner size={12} loading /> : undefined}
+      status={
+        status ? (
+          <>
+            {working && <Spinner size={12} loading />}
+            {status}
+          </>
+        ) : undefined
+      }
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
@@ -131,6 +166,7 @@ function SessionCard({
   fallback,
   shown,
   disclosure = false,
+  disclosureKey,
   disclosurePrefix,
   children,
 }: {
@@ -144,6 +180,7 @@ function SessionCard({
   /// Its state as the call read it, for a session the list does not have.
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
+  disclosureKey?: string;
   disclosurePrefix?: ReactNode;
   children?: ReactNode;
 }) {
@@ -171,6 +208,7 @@ function SessionCard({
       doing={doing}
       queued={live?.queued}
       disclosure={disclosure}
+      disclosureKey={disclosureKey}
       disclosurePrefix={disclosurePrefix}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
@@ -191,6 +229,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
       disclosure={true}
+      disclosureKey={`subsession-start:${tool.id}`}
       disclosurePrefix={call.name ? t("subsession.started", { name: "" }).trim() : undefined}
     >
       {call.prompt && (
@@ -332,6 +371,7 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           harness={session.harness}
           fallback={session}
           disclosure
+          disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <Cut text={session.reply} />}
         </SessionCard>

@@ -35,6 +35,7 @@ export type AgentCardProps = {
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
+  disclosureKey?: string;
   /// Optional localized prefix for the disclosure line (for example, "Started").
   disclosurePrefix?: ReactNode;
   children?: ReactNode;
@@ -54,6 +55,7 @@ export function AgentCard({
   onOpen,
   openLabel,
   disclosure = false,
+  disclosureKey,
   disclosurePrefix,
   children,
 }: AgentCardProps) {
@@ -70,6 +72,7 @@ export function AgentCard({
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
       <DisclosureRow
+        disclosureKey={disclosureKey ?? `subsession:${sessionId ?? name}`}
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />

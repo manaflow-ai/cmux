@@ -2,10 +2,13 @@
 // anchored while its light panel grows below it (conversation/useAnchoredCollapse.ts).
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "../conversation/icons";
+import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import "./DisclosureRow.css";
 
 export type DisclosureRowProps = {
+  /// Stable row identity; the transcript provider scopes it to the parent session.
+  disclosureKey: string;
   icon: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
@@ -17,6 +20,7 @@ export type DisclosureRowProps = {
 };
 
 export function DisclosureRow({
+  disclosureKey,
   icon,
   label,
   meta,
@@ -26,7 +30,8 @@ export function DisclosureRow({
   children,
   defaultOpen = false,
 }: DisclosureRowProps) {
-  const collapse = useAnchoredCollapse({ defaultOpen });
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen);
+  const collapse = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const bodyId = useId();
   return (
     <div className="cv-disclosure" data-open={collapse.open || undefined}>
