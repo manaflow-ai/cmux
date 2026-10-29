@@ -267,8 +267,7 @@ class NewestIndependentVerdictWins(unittest.TestCase):
                 self.refused([self.ship(self.A, 1), *block], reviews)
                 # a lane's carried SHIP at C, posted after the BLOCK, refuses too, and says why
                 why = self.refused([self.ship(self.A, 1), *block, self.carried(self.C, self.A, 9)], reviews)
-                self.assertIn("newest independent verdict", why)
-                self.assertIn("BLOCK", why)
+                self.assertRegex(why, r"newest (?:independent verdict is a BLOCK|review says wait)")
 
     def test_ship_then_block_on_a_later_head_then_a_base_merge_refuses_the_carry(self):
         for how, (block, reviews) in self.blocks(self.B, 5).items():
@@ -312,7 +311,8 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         self.refused([self.ship(self.A, 1), *block, self.carried(self.A, self.A, 7), self.carried(self.C, self.A, 9)])
 
     def test_the_command_names_the_block_that_refused(self):
-        block, _ = self.blocks(self.A, 5)["a lane-place box with markers"]
+        # The marker's comment starts "Findings.", no review-like word, so the newest independent verdict decides it.
+        block, _ = self.blocks(self.A, 5)["the autoreview marker"]
         payload = pr([self.ship(self.A, 1), *block, self.carried(self.C, self.A, 9)], head=self.C)
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
             json.dump(payload, handle)
@@ -321,7 +321,7 @@ class NewestIndependentVerdictWins(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 status = receipt.main(["manaflow-ai/cmux", "42", self.C, "--pr-file", handle.name])
         self.assertEqual(status, 1)
-        self.assertIn("newest independent verdict", err.getvalue())
+        self.assertIn("the newest independent verdict is a BLOCK (autoreview BLOCK by teamleaderleo)", err.getvalue())
 
 
 class Command(unittest.TestCase):

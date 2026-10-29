@@ -15,11 +15,19 @@ which then found cmux#22988. A receipt, for the exact head, is one of:
   "Review (subagent, correctness first): SHIP at 4b438e85a74f9c2d0e1f3a5b7c9d1e3f5a7b9c1d" (cmux#22762 merged at
   3a97b47e on a receipt naming 0b4c5bf3); a wait verdict by any 7-40 character prefix, since refusing more is safe.
 
-Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR association count. The newest verdict
-naming the head decides, so a later BLOCK beats an earlier SHIP. Before that, as next-autoland's review_state()
-judges it, the newest review-like word on any head must not say wait: a change request, "Review (codex): BLOCK",
-"Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do not merge", or a comment starting
-"Hold..." refuses even after a SHIP on the head. When the 30-review or 40-comment window comes back full and reaches
+Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR association count. The newest independent
+verdict decides, not the newest SHIP: the newest verdict naming the head must be a SHIP, and no independent verdict
+on any head of the pull request (a receipt line, the marker or a change request) may be a newer BLOCK, so a later
+BLOCK beats an earlier SHIP wherever it sits. A first line that says it carries ("Review (codex; carried): SHIP at
+<new head>", a lane's claim that an older head's SHIP carries across a base merge) is not a verdict: it counts as the
+head's receipt only when no independent verdict names the head and the newest independent verdict on the pull
+request is a SHIP (next-autoland's ship_receipt, cmuxterm-hq#4975). cmux#27189 landed 2026-10-29 on
+"Review (Astra; carried): SHIP at 127a023e" while the box review of its pre-merge head had returned BLOCK.
+
+Before that, as next-autoland's review_state() judges it, the newest review-like word on any head must not say wait:
+a change request, "Review (codex): BLOCK", "Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do
+not merge", or a comment starting "Hold..." refuses even after a SHIP on the head; a carried SHIP is not a review
+there either, so it never overtakes one. When the 30-review or 40-comment window comes back full and reaches
 back no further than the SHIP, something newer may be cut off, so that refuses too. Comments starting `<!--`
 are tools' marked comments, not reviews. Nothing waives a refusal. A base merge (merge-main.sh, update-branch)
 makes a new head, which needs its own receipt.
@@ -57,6 +65,8 @@ WAIT = re.compile(LABELLED + r"(?:block(?:ed|ing|s)?|fix|not ship|hold|changes n
 MARKER = re.compile(r"<!-- autoreview verdict=(SHIP|BLOCK) sha=([0-9a-f]{40}) -->")
 SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])", re.I)
+# A carried receipt: a lane's claim that an older head's SHIP carries to a new head, not a review (cmux#27189).
+CARRIED = re.compile(r"\bcarr(?:y|ies|ied|ying)\b", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
          "headRefOid "
          f"reviews(last:{REVIEWS_WINDOW})"
@@ -98,10 +108,17 @@ def review_verdict(body: str) -> str | None:
     return "reviewed" if SHIPS.search(top) else None
 
 
+def carried(first: str) -> bool:
+    """The first line is a carried SHIP receipt: a lane's claim, not a review (CARRIED)."""
+    line = RECEIPT.match(first)
+    return bool(line and line.group(2).lower() == "ship" and CARRIED.search(first))
+
+
 def review_state(pr: dict) -> tuple[str, str]:
     """(state, detail) from the newest review-like word by someone with write access, on any head: "reviewed",
     "blocked" (changes requested, a BLOCK verdict, a review still owed), "held" (a comment starting "Hold..."),
-    or "none". A port of next_autoland.py's review_state(), with REVIEW_LINE also matching "Verdict:"."""
+    or "none". A port of next_autoland.py's review_state(), with REVIEW_LINE also matching "Verdict:". A carried
+    SHIP is not a review, so it never overtakes a hold or a BLOCK here."""
     found = []
     for item in (pr.get("reviews") or {}).get("nodes") or []:
         if not trusted(item):
@@ -113,6 +130,8 @@ def review_state(pr: dict) -> tuple[str, str]:
             found.append((at, "reviewed", f"approved by {login}"))
         elif item.get("state") == "CHANGES_REQUESTED":
             found.append((at, "blocked", f"changes requested by {login}"))
+        elif carried(first):
+            continue
         elif WAIT_LINE.search(first):
             found.append((at, "blocked", first.strip()[:80]))
         elif REVIEW_LINE.search(first) and review_verdict(body):
@@ -122,8 +141,8 @@ def review_state(pr: dict) -> tuple[str, str]:
             continue
         body = (item.get("body") or "").strip()
         first = next((line for line in body.splitlines() if line.strip()), "")
-        if body.startswith("<!--"):
-            continue  # a tool's marked comment (base-red-watch, previews), not a person's review
+        if body.startswith("<!--") or carried(first):
+            continue  # a tool's marked comment (base-red-watch, previews) or a carried SHIP, not a person's review
         if HOLD_LINE.search(first):
             found.append((item.get("createdAt") or "", "held", first.strip()[:80]))
         elif WAIT_LINE.search(first):
@@ -142,27 +161,31 @@ def names_head(line: str, head: str, full: bool = True) -> bool:
     return any(token == head if full else head.startswith(token) for token in SHA_TOKEN.findall(line[:600].lower()))
 
 
-def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
-    """(at, "ship" or "block", detail) for every trusted verdict that names the head."""
+def head_verdicts(pr: dict, head: str | None) -> list[tuple[str, str, str]]:
+    """(at, "ship", "block" or "carried", detail) for every trusted verdict that names the head (None: every verdict,
+    whatever head it names or none). A SHIP receipt line that says it carries (CARRIED) is "carried"."""
     found = []
 
     def body_verdict(item: dict, at: str, login: str) -> None:
         body = (item.get("body") or "").strip()
         marker = MARKER.search(body)
         if marker:  # the marker decides its comment, wherever it sits
-            if marker.group(2) == head:
+            if head is None or marker.group(2) == head:
                 found.append((at, "ship" if marker.group(1) == "SHIP" else "block", f"autoreview {marker.group(1)} by {login}"))
             return
         first = next((line for line in body.splitlines() if line.strip()), "")
         line = RECEIPT.match(first)
-        if line and "self" not in line.group(1).lower() and names_head(first, head, full=line.group(2).lower() == "ship"):
-            found.append((at, "ship" if line.group(2).lower() == "ship" else "block", f"{login}: {first.strip()[:60]}"))
+        if line and "self" not in line.group(1).lower() and (
+                head is None or names_head(first, head, full=line.group(2).lower() == "ship")):
+            kind = "block" if line.group(2).lower() != "ship" else "carried" if CARRIED.search(first) else "ship"
+            found.append((at, kind, f"{login}: {first.strip()[:60]}"))
 
     for item in (pr.get("reviews") or {}).get("nodes") or []:
         if not trusted(item):
             continue
         at, login = item.get("submittedAt") or "", item["author"].get("login") or ""
-        if ((item.get("commit") or {}).get("oid") or "") == head and item.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
+        if (head is None or ((item.get("commit") or {}).get("oid") or "") == head) \
+                and item.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
             found.append((at, "ship" if item["state"] == "APPROVED" else "block", f"{item['state'].lower()} by {login}"))
         body_verdict(item, at, login)
     for item in (pr.get("comments") or {}).get("nodes") or []:
@@ -171,15 +194,35 @@ def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
     return found
 
 
-def newest_verdict(pr: dict, head: str) -> tuple[str, str, str] | None:
-    found = head_verdicts(pr, head)
+def newest_independent(pr: dict) -> tuple[str, str, str] | None:
+    """The newest independent verdict on the pull request, on any head (head_verdicts, carried receipts left out)."""
+    found = [f for f in head_verdicts(pr, None) if f[1] != "carried"]
     return max(found, key=lambda f: f[0]) if found else None
 
 
+def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
+    """(since, who) for the head's SHIP, else None. The newest independent verdict naming the head must be a SHIP
+    that no independent BLOCK on any head is newer than; with none naming the head, a carried SHIP naming it stands
+    only while the newest independent verdict on the pull request is a SHIP. `since` is when the independent SHIP
+    that stands behind the receipt was given, so window_cut_off checks nothing newer than it was cut off."""
+    found = head_verdicts(pr, head)
+    own = [f for f in found if f[1] != "carried"]
+    latest = newest_independent(pr)
+    if own:
+        at, kind, detail = max(own, key=lambda f: f[0])
+        if kind != "ship" or (latest and latest[1] == "block" and latest[0] > at):
+            return None
+        return at, detail
+    carry = [f for f in found if f[1] == "carried"]
+    if not carry or not latest or latest[1] != "ship":
+        return None
+    return latest[0], max(carry, key=lambda f: f[0])[2]
+
+
 def receipt(pr: dict, head: str) -> str:
-    """Who passed the head, or "": the newest verdict naming it must be a SHIP."""
-    newest = newest_verdict(pr, head)
-    return newest[2] if newest and newest[1] == "ship" else ""
+    """Who passed the head, or "" (ship_receipt)."""
+    found = ship_receipt(pr, head)
+    return found[1] if found else ""
 
 
 def window_cut_off(pr: dict, since: str) -> str:
@@ -199,15 +242,18 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
     state, detail = review_state(pr)
     if state in ("blocked", "held"):
         return "", f"no SHIP review receipt on {head} can merge while the newest review says wait: {detail}"
-    newest = newest_verdict(pr, head)
-    if not newest or newest[1] != "ship":
-        return "", f"no SHIP review receipt on {head}"
-    cut = window_cut_off(pr, newest[0])
+    found = ship_receipt(pr, head)
+    if not found:
+        latest = newest_independent(pr)
+        newer = (f"; the newest independent verdict is a BLOCK ({latest[2]}), so no older or carried SHIP stands"
+                 if latest and latest[1] == "block" else "")
+        return "", f"no SHIP review receipt on {head}{newer}"
+    cut = window_cut_off(pr, found[0])
     if cut:
         size = REVIEWS_WINDOW if cut == "reviews" else COMMENTS_WINDOW
         return "", (f"no SHIP review receipt on {head} can be confirmed: {cut} window full (the newest {size} reach "
                     "back only to the SHIP), so the gate can't confirm nothing newer says wait; post the receipt again")
-    return newest[2], ""
+    return found[1], ""
 
 
 def _gh(args: list[str]) -> tuple[int, str, str]:
@@ -258,8 +304,9 @@ def main(argv: list[str] | None = None, run: Runner = _gh) -> int:
         if not who:
             raise Refused(f"{why}: after an independent review of this head, comment "
                           f"'Review (subagent, correctness first): SHIP at {args.sha}'. A newer BLOCK, FIX, hold "
-                          "or change request wins over a SHIP, and a base merge (merge-main.sh or update-branch) "
-                          "makes a new head that needs its own receipt")
+                          "or change request on any head wins over an older SHIP, and a base merge (merge-main.sh or "
+                          "update-branch) makes a new head that needs its own receipt; a carried SHIP counts only "
+                          "while the newest independent verdict is a SHIP")
     except RateLimited as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
