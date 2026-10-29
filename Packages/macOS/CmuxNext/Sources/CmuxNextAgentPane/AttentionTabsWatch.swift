@@ -30,16 +30,16 @@ public final class AttentionTabsWatch {
 
     /// The marked tabs of `workspaces` (each with the id of the machine that holds it), newest
     /// mark first: the agent's reason, the workspace and tab titles the person knows them by (never
-    /// an id), and when it was marked. Each row's key is ``key(machine:tab:atMs:)``.
+    /// an id), and when it was marked. Each row's key is ``key(machine:tab:requestID:)``.
     public static func items(in workspaces: [(WorkspaceModel, machine: String)]) -> [AgentPaneAttentionTabs.Item] {
         var items: [AgentPaneAttentionTabs.Item] = []
         for (workspace, machine) in workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs {
-                        guard let attention = tab.attention else { continue }
+                        guard let attention = tab.attention, let requestID = attention.requestID else { continue }
                         items.append(AgentPaneAttentionTabs.Item(
-                            tabId: key(machine: machine, tab: tab.resourceID?.rawValue ?? tab.id, atMs: attention.atMs), reason: attention.reason, workspaceTitle: workspace.displayName,
+                            tabId: key(machine: machine, tab: tab.resourceID?.rawValue ?? tab.id, requestID: requestID), reason: attention.reason, workspaceTitle: workspace.displayName,
                             tabTitle: tab.displayTitle, atMs: attention.atMs))
                     }
                 }
@@ -52,7 +52,7 @@ public final class AttentionTabsWatch {
     /// its machine's id, the attention generation, and its durable tab id, since tabs on two machines can share an id. The
     /// digest keeps the key inside ``AgentPaneAttentionTabs/maximumTabID`` however long the
     /// machine id is, and a tab id holds no `/`.
-    public static func key(machine: String, tab: String, atMs: UInt64) -> String { "\(machineDigest(machine))/\(atMs)/\(tab)" }
+    public static func key(machine: String, tab: String, requestID: String) -> String { "\(machineDigest(machine))/\(requestID)/\(tab)" }
 
     /// The first 8 bytes of SHA-256 of `machine`, in hex.
     public static func machineDigest(_ machine: String) -> String {
@@ -61,11 +61,11 @@ public final class AttentionTabsWatch {
 
     /// The machine (of `daemons`) and tab id that row key `key` names; nil for a key that names
     /// no connected machine.
-    public static func locate<Daemon>(_ key: String, in daemons: [Daemon], machineID: (Daemon) -> String) -> (daemon: Daemon, tab: String)? {
+    public static func locate<Daemon>(_ key: String, in daemons: [Daemon], machineID: (Daemon) -> String) -> (daemon: Daemon, tab: String, requestID: String)? {
         let parts = key.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 3, UInt64(parts[1]) != nil else { return nil }
+        guard parts.count == 3, TabAttention.validRequestID(String(parts[1])) else { return nil }
         let digest = parts[0], tab = String(parts[2])
         guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest(machineID($0)) == digest }) else { return nil }
-        return (daemon, tab)
+        return (daemon, tab, String(parts[1]))
     }
 }

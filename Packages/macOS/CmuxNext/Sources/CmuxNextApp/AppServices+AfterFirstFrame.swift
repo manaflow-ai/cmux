@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCrashReporting
 import CmuxNextAgentPane
+import CmuxNextDaemon
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -26,7 +27,8 @@ extension AppServices {
         // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
         attentionTabsWatch = AttentionTabsWatch(
             workspaces: { [weak self] in
-                self?.machines.allWorkspaces.map { ($0.0, machine: $0.1.machineID) } ?? []
+                self?.machines.allWorkspaces.filter { $0.1.supports(DaemonCapability.tabAttentionRequestID.rawValue) }
+                    .map { ($0.0, machine: $0.1.machineID) } ?? []
             },
             publish: { [weak self] items in
                 self?.attentionTabs.items = items

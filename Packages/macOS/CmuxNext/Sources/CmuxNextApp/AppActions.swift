@@ -157,12 +157,13 @@ enum AppActions {
         let tabs = context.services.attentionTabs
         tabs.onOpen = { [weak services = context.services, weak tabs] key in
             guard let services, let tabs,
-                  let item = tabs.items.first(where: { $0.tabId == key }),
-                  let (daemon, tab) = AttentionTabsWatch.locate(key, in: services.machines.daemons, machineID: \.machineID)
+                  tabs.items.contains(where: { $0.tabId == key }),
+                  let (daemon, tab, requestID) = AttentionTabsWatch.locate(key, in: services.machines.daemons, machineID: \.machineID)
             else { return false }
             // The row is a snapshot. Refuse a stale click if the mark was cleared or the id was
             // reused before the page's request arrived.
-            guard daemon.store.tab(idOrResource: tab)?.attention?.atMs == item.atMs else { return false }
+            guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue),
+                  daemon.store.tab(idOrResource: tab)?.attention?.requestID == requestID else { return false }
             return services.revealTab(tab, onMachine: daemon.machineID)
         }
         tabs.onChange = { [weak services = context.services] in
