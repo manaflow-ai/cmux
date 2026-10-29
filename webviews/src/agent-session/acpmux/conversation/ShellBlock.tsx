@@ -100,7 +100,7 @@ export function ShellBlock({
             …
           </span>
         )}
-        {shown.shown && (
+        {Boolean(shown.shown) && (
           <span className="cv-shell__output">
             <Lines text={shown.shown} />
           </span>
