@@ -105,6 +105,23 @@ import Testing
         }
     }
 
+    /// A cancellation while the peer is reading the staged file cancels the transfer first, then
+    /// removes the stage. The host never observes a path whose file was already unlinked.
+    @Test func cancellingAStagedPeerFinishWaitsForTransferCleanup() async throws {
+        let host = SlowPeerUploadHost()
+        try await Self.withPeerStager(host: host) { stager, session in
+            let reply = await stager(.begin(name: "slow.bin", size: 1, batchToken: nil, batch: nil), session)
+            let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
+            _ = await stager(.chunk(token: token, offset: 0, data: Data([1])), session)
+            let finishing = Task { await stager(.finish(token: token), session) }
+            let staged = await host.waitForFile()
+            #expect(FileManager.default.fileExists(atPath: staged.path))
+            _ = await stager(.cancel(token: token), session)
+            _ = await finishing.value
+            #expect(!FileManager.default.fileExists(atPath: staged.path))
+        }
+    }
+
     /// The page's begin past the former 1 GiB decoder limit, alone or with a batch naming a file past
     /// it, decodes as the bridge decodes it (``DecodedStagedBegins``) and the peer stager takes it.
     @Test(arguments: [2 << 30, 8 << 30])
@@ -122,12 +139,14 @@ import Testing
     }
 
     /// The peer stager of a tab whose chat runs on `huge-blue`, and that chat's session.
-    private static func withPeerStager(_ body: (AgentPaneUploadStager, String) async throws -> Void) async throws {
+    private static func withPeerStager(host: (any AgentPaneHostProviding)? = nil,
+                                       _ body: (AgentPaneUploadStager, String) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         let tab = "tab-\(UUID().uuidString)", session = "peer-\(UUID().uuidString)"
         services.agentTabs.gitLink = { _ in services.agentGit.local }
+        services.agentTabs.localSessionHost = host
         services.agentTabs.sessions[tab] = session
         AgentLaneStore.shared.lanes[session] = AgentActivityLane(id: session, name: "huge-blue/fix", title: "fix", peer: "huge-blue",
                                                                  parent: nil, state: .idle, since: nil, error: nil)
@@ -138,5 +157,26 @@ import Testing
 
     private static func code(_ reply: [String: Any]) -> String? {
         (reply["error"] as? [String: Any])?["code"] as? String
+    }
+}
+
+private actor SlowPeerUploadHost: AgentPaneHostProviding {
+    private var startedFile: URL?
+    private var waiters: [CheckedContinuation<URL, Never>] = []
+
+    func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
+
+    func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        startedFile = file
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.resume(returning: file) }
+        try await Task.sleep(for: .seconds(3_600))
+        return "/home/peer/\(name)"
+    }
+
+    func waitForFile() async -> URL {
+        if let startedFile { return startedFile }
+        return await withCheckedContinuation { waiters.append($0) }
     }
 }

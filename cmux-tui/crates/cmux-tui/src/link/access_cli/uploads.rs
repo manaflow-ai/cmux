@@ -34,6 +34,8 @@ const PASTES: &str = "cmux-pastes";
 const MAX_NAME_BYTES: usize = 255;
 
 pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Value, Failure> {
+    use std::io::Write as _;
+
     if files.is_empty() || files.len() > MAX_FILES {
         return Err(Failure::new("upload_refused", "upload 1 to 64 files at a time"));
     }
@@ -43,7 +45,11 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
     let mut sent: Vec<String> = Vec::new();
     for (file, name) in &checked {
         let at = format!("{root}/local/uploads/{}/{name}", random_id()?);
-        sync_cli::copy_file(socket, file, &at).map_err(|error| {
+        let mut heartbeat = || {
+            println!(r#"{{"progress":"upload"}}"#);
+            let _ = std::io::stdout().flush();
+        };
+        sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map_err(|error| {
             let went = if sent.is_empty() {
                 String::new()
             } else {

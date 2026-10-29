@@ -10,10 +10,10 @@ const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
-/// How long one step of an upload (begin, one chunk, finish) may wait for the host: past it the
-/// upload fails with a note and its chip offers Retry, never loading forever (Leo, 2026-10-24: "I
-/// can't even cancel these... supposedly in-progress attachments").
+/// How long one staging step (begin or one chunk) may wait for the host. The native finish keeps its
+/// own progress heartbeat while it streams the staged file, so it gets a separate overall bound.
 export const UPLOAD_STEP_DEADLINE_MS = 30_000;
+export const UPLOAD_FINISH_DEADLINE_MS = 60 * 60 * 1_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
 /// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
@@ -90,6 +90,7 @@ export async function uploadToMachine(
   cancelled: (index: number) => boolean = () => false,
 ): Promise<UploadResult> {
   const call = callWithin(host);
+  const finishCall = callWithin(host, UPLOAD_FINISH_DEADLINE_MS);
   if (!files.length || files.some((file) => !file.name)) return undefined;
   const paths: string[] = [];
   const manifest = files.map(({ name, size }) => ({ name, size }));
@@ -136,7 +137,7 @@ export async function uploadToMachine(
         offset = end;
       }
       if (cancelled(index)) throw CANCELLED;
-      const [path, extra] = uploadedPaths(await call("chat.upload.finish", { token }));
+      const [path, extra] = uploadedPaths(await finishCall("chat.upload.finish", { token }));
       if (!path || extra) throw new Error(translate("upload.notCompleted"));
       paths.push(path);
     } catch (error) {

@@ -182,6 +182,18 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
 /// Copies the one regular file at `local` (never through a symlink) to
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
+    let mut ignored = || {};
+    copy_file_with_progress(socket, local, target, &mut ignored)
+}
+
+/// Copies one file and invokes `progress` after each remote fs write. Upload
+/// uses this to keep the CLI's bounded idle deadline alive for slow links.
+pub(super) fn copy_file_with_progress(
+    socket: &Path,
+    local: &Path,
+    target: &str,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
@@ -195,7 +207,7 @@ pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Re
     let mut remote = Remote::connect(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
-    write(&mut remote, target, &file).map(|_| ())
+    write_with_progress(&mut remote, target, &file, progress).map(|_| ())
 }
 
 /// Deletes the folder at `path` on the machine whose daemon `socket`
@@ -396,13 +408,23 @@ fn push_inner(
 /// that became a file) is removed first; a folder with anything in it stays
 /// and the write fails.
 fn write(remote: &mut Remote, target: &str, file: &LocalFile) -> anyhow::Result<String> {
+    let mut ignored = || {};
+    write_with_progress(remote, target, file, &mut ignored)
+}
+
+fn write_with_progress(
+    remote: &mut Remote,
+    target: &str,
+    file: &LocalFile,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<String> {
     if remote.kind(target)?.as_deref() == Some("dir")
         && remote.list(target)?.is_some_and(|entries| entries.is_empty())
     {
         remote.delete(&[target.to_string()])?;
     }
     let mut reader = open(file)?;
-    remote.write(target, &mut reader, file.permissions)
+    remote.write_with_progress(target, &mut reader, file.permissions, progress)
 }
 
 /// A relative path of plain names: no empty, `.` or `..` part.
