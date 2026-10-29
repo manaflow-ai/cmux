@@ -277,6 +277,9 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         allowed = {"actions": "write", "contents": "read", "issues": "write"}
         self.assertEqual(self.workflow.get("permissions"), {})
         for name, job in self.jobs.items():
+            if name == "pick":
+                self.assertEqual(job["environment"], "${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}")
+                continue
             self.assertNotIn("environment", job, name)
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")

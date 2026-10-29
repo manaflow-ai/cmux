@@ -72,6 +72,9 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 8
+    # The routing App's read-only key for the placement, in the environment cmux-next's placement
+    # uses; a pull request's run takes none (and mints no token).
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     permissions: {}
     outputs:
       build: ${{ steps.feed.outputs.build }}
@@ -176,7 +179,7 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
-          SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           JOBS: launch-smoke
           CASCADE_JOBS: launch-smoke
           CASCADE_RUNS: ' launch-smoke '
