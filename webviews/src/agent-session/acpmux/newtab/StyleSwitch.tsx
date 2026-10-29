@@ -76,10 +76,11 @@ export function DotSwitch<Option extends string>({
   const pressed = useRef(false);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
-  // The dot whose name shows: the one pointed at, else the one just picked.
+  // The dot whose name shows: pointer hover, keyboard focus, then a recent pick.
   const [hovered, setHovered] = useState<Option | undefined>();
   const [picked, setPicked] = useState<Option | undefined>();
-  const named = hovered ?? picked;
+  const [focused, setFocused] = useState<Option | undefined>();
+  const named = hovered ?? focused ?? picked;
   // The last name shown stays in place while it fades.
   const [shown, setShown] = useState<Option | undefined>();
   if (named && named !== shown) setShown(named);
@@ -137,7 +138,18 @@ export function DotSwitch<Option extends string>({
               value={style}
               aria-label={name(style)}
               checked={style === current}
-              onKeyDown={() => (pressed.current = false)}
+              onFocus={(event) => {
+                if (event.currentTarget.matches(":focus-visible")) {
+                  setFocused(style);
+                  setHovered(undefined);
+                }
+              }}
+              onBlur={() => setFocused(undefined)}
+              onKeyDown={() => {
+                pressed.current = false;
+                setFocused(style);
+                setHovered(undefined);
+              }}
               onChange={(event) => {
                 // From the events, never a clock: a pointer's pick follows its press on a dot (a key
                 // since clears it) or is a click that counts its presses (detail 1 or more); the
