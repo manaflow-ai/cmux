@@ -63,7 +63,7 @@ class Host:
 def journey(host, out):
     j = D.Journey.__new__(D.Journey)
     j.app, j.out, j.binds, j.host_pid, j.pane = host, Path(out), {}, HOST, "pane_1"
-    j.ttys = {}
+    j.ttys, j.tty_probes, j.nonce = {}, 0, "234567"
     return j
 
 
@@ -86,6 +86,9 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         holds, detail = j.evaluate("process_present", SHELL, {})
         self.assertTrue(holds, detail)
         self.assertEqual(j.binds["shell"]["pid"], 230, detail)
+        # The tty goes on its own line first; the neutral prompt line itself is written unchanged after it.
+        self.assertEqual([text for _, text in host.writes][1::2], [D.NEUTRAL_PROMPT, D.NEUTRAL_PROMPT])
+        self.assertTrue(all(text.startswith("tty >| /tmp/") for _, text in host.writes[0::2]), host.writes)
         # Ctrl+D ends the second tab's shell: process_gone holds.
         del host.table[230]
         holds, detail = j.evaluate("process_gone", "shell", {})

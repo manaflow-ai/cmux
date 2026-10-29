@@ -44,10 +44,11 @@ import build_names  # noqa: E402
 
 PROMPT = "J> "
 # The prompt every journey's shell gets (neutral: no host, user or path in any frame).
-# The shell also writes its tty to {tty_file}: one terminal host runs the shells of every terminal (one tty
-# each), and process checks look only at this terminal's tty.
-NEUTRAL_PROMPT = ("PS1='J> '; PROMPT='J> '; RPROMPT=''; unset PROMPT_COMMAND; cd /tmp; tty >| {tty_file}; "
-                  "printf '\\033[H\\033[2J\\033[3J'\r")
+NEUTRAL_PROMPT = "PS1='J> '; PROMPT='J> '; RPROMPT=''; unset PROMPT_COMMAND; cd /tmp; printf '\\033[H\\033[2J\\033[3J'\r"
+# Before it, the shell writes its tty to {tty_file} (its own short line, which the neutral prompt's clear then
+# removes): one terminal host runs the shells of every terminal (one tty each), and process checks look only
+# at this terminal's tty.
+TTY_PROBE = "tty >| {tty_file}\r"
 RPC_TIMEOUT = 30.0
 SNAPSHOT_TIMEOUT = 30.0
 POLL_SECONDS = 0.05
@@ -398,7 +399,7 @@ class Journey:
         self.vars = {"nonce": self.nonce, "prompt": PROMPT}
         self.marks, self.binds = {}, {}
         # {terminal id: its tty as ps names it (ttys004)}, written by the shell at neutral_prompt.
-        self.ttys = {}
+        self.ttys, self.tty_probes = {}, 0
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
         # The window keys go to (a main window id; None: debug.key's default, the first window), and
@@ -533,18 +534,23 @@ class Journey:
     def step_neutral_prompt(self, step):
         # Set-up, not under test: written into the PTY by the daemon, as a paste would be.
         term = self.need_term()
-        tty_file = self.out / f"tty-{len(self.ttys) + 1}.txt"
+        # The tty first, on its own line; the neutral prompt is written only after the shell ran it.
+        self.tty_probes += 1
+        tty_file = Path(f"/tmp/jr-tty-{self.nonce}-{self.tty_probes}")
         if tty_file.exists():
             tty_file.unlink()
-        self.app.cmux("terminal", term, "write", "--text", NEUTRAL_PROMPT.format(tty_file=shlex.quote(str(tty_file))))
+        self.app.cmux("terminal", term, "write", "--text", TTY_PROBE.format(tty_file=shlex.quote(str(tty_file))))
+        tty = self.read_tty(tty_file, float(step.get("tty_timeout", 3)))
+        if tty_file.exists():
+            tty_file.unlink()
+        if tty:
+            self.ttys[term] = tty
+        else:
+            self.ttys.pop(term, None)
+        self.app.cmux("terminal", term, "write", "--text", NEUTRAL_PROMPT)
         end = now() + float(step.get("timeout", 15))
         while now() < end:
             if last_line(self.app.screen(self.term)["text"]) == PROMPT.rstrip():
-                tty = self.read_tty(tty_file, float(step.get("tty_timeout", 2)))
-                if tty:
-                    self.ttys[term] = tty
-                else:
-                    self.ttys.pop(term, None)
                 return {"prompt": PROMPT, "tty": tty}
             time.sleep(0.1)
         raise StepError(f"the neutral prompt never showed; screen ends {last_line(self.app.screen(self.term)['text'])!r}")
