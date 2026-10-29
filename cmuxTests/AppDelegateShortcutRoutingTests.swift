@@ -2519,6 +2519,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // Mark the shell idle so Cmd+W routes through the immediate close path deterministically.
         workspace.updatePanelShellActivityState(panelId: initialPanelId, state: .promptIdle)
 
+        targetWindow.makeKeyAndOrderFront(nil)
+
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command],
@@ -2541,6 +2543,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             self.window(withId: windowId),
             "Cmd+W should keep the window open when the keep-workspace-open preference is enabled"
         )
+        XCTAssertTrue(targetWindow.isVisible, "Cmd+W should leave the target window visible")
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertNil(workspace.panels[initialPanelId])
