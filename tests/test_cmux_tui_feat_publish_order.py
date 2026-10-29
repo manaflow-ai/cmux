@@ -13,8 +13,10 @@ cx-y0nf2: every other ref that runs the daemon tests (a pin, next-batch/*,
 main, an opted-in lane push, a same-repository pull request) publishes the
 same way, with source.json daemonTests "separate". Before, those refs
 published only after the tests passed, so a pin's tree waited ~1 h for the
-macOS runner. Nightly-next promotion still needs the daemon-tests marker,
+macOS runner. The feat-cmux-next channel still needs the daemon-tests marker,
 which only publish-tree-tested writes, after this run's tests of the key pass.
+Nightly-next promotion does not (2026-10-28): its tree-commit markers
+(mark-tree-commits) follow the publish, not the daemon tests.
 
 No tree publication waits for the Windows build either (2026-10-21): the
 Windows leg (24 min median, 32 p90) ended last in 217 of 219 published trees,
@@ -114,8 +116,9 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "needs.tree-preflight.outputs.key": KEY,
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
         "needs.tree-preflight.outputs.tree_ready": "false",
-        "needs.build-ok.result": "success",
-        "needs.publish-tree-commit.result": "success",
+        "needs.build.result": "success",
+        "needs.build-darwin-fallback.result": "skipped",
+        "needs.darwin-fallback-plan.outputs.recovered": "",
         "needs.publish.result": "success",
     }
     if daemon_result is not None:
@@ -188,8 +191,6 @@ def main():
             _check(not starting, f"{event} on a pin ref never publishes ({starting})")
     for name in tree_publishers:
         _check(DAEMON not in all_needs(all_jobs, name), f"{name} does not need the daemon tests")
-        _check("publish" not in all_needs(all_jobs, name),
-               f"{name} does not wait for the broader commit publish")
         _check("cmux-tui-mark-daemon-tested.sh" not in str(all_jobs[name]["steps"]),
                f"{name} never writes the daemon-tests marker")
         _check('"daemonTests": "separate"' in str(all_jobs[name]["steps"]),
@@ -201,7 +202,7 @@ def main():
     starting = [name for name in tree_publishers if runs(all_jobs, name, lane)]
     _check(len(starting) == 1, f"a lane-branch push publishes without the daemon tests ({starting})")
 
-    # Promotion stays gated on the daemon-tests marker, written only after the tests pass.
+    # The daemon-tests marker (the feat-cmux-next channel's gate) is written only after the tests pass.
     marker = all_jobs["publish-tree-tested"]
     _check(DAEMON in needs(marker) and f"needs.{DAEMON}.result == 'success'" in str(marker["if"]),
            "publish-tree-tested writes the marker only after the daemon tests pass")
@@ -235,7 +236,25 @@ def main():
                f"publish-tree-tested marks a tree {name} published")
     promote = all_jobs["request-nightly-next"]
     _check("needs.publish-tree-tested.result == 'success'" in str(promote["if"]),
-           "nightly-next promotion still follows the marker job")
+           "the request job still follows the daemon-tests marker job")
+
+    # The tree-commit markers, which nightly-next promotion requires, follow the
+    # publish and never the daemon tests (2026-10-28: run 40651931144's tests
+    # failed fetching Zig packages and no commit was marked for hours).
+    mark = all_jobs["mark-tree-commits"]
+    _check(DAEMON not in all_needs(all_jobs, "mark-tree-commits"),
+           f"mark-tree-commits does not wait for the daemon tests ({sorted(all_needs(all_jobs, 'mark-tree-commits'))})")
+    _check(set(tree_publishers) <= set(needs(mark)), f"mark-tree-commits follows every tree publisher ({needs(mark)})")
+    for event in ("push", "workflow_dispatch"):
+        for published in ("success", "skipped"):
+            values = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+            values.update({f"needs.{name}.result": published for name in tree_publishers})
+            _check(runs(all_jobs, "mark-tree-commits", values),
+                   f"a feat-cmux-next {event} marks its commits with publish {published}, its daemon tests still queued")
+        failed = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+        failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
+        _check(not runs(all_jobs, "mark-tree-commits", failed),
+               f"a feat-cmux-next {event} whose publish failed marks nothing")
 
     # The run that ends unpublished still reports, whichever job would have published.
     notify = all_jobs["notify-unpublished-tree"]
@@ -264,44 +283,6 @@ def main():
            and windows_pass(all_jobs["publish-windows"])
            and "needs.build-windows.outputs.windows_built == 'true'" in str(all_jobs["publish-windows"]["if"]),
            "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
-
-    fast_commit = all_jobs["publish-tree-commit"]
-    _check("build-ok" in needs(fast_commit) and "tree-preflight" in needs(fast_commit),
-           "the fast commit publication follows the tree build")
-    _check("build-cmux-tui-manifest.py" in str(fast_commit["steps"]),
-           "the fast commit publication writes the complete manifest")
-    fast_download = next(step for step in fast_commit["steps"]
-                         if step.get("name") == "Download the Unix cmux-tui artifacts")
-    _check(fast_download.get("with", {}).get("merge-multiple") is True,
-           "the fast commit publication merges Unix artifacts in one download")
-    _check("pc-windows-gnu" in str(fast_commit["steps"]),
-           "the fast commit publication removes the separately uploaded Windows artifact")
-    _check("publish-tree-commit" in needs(all_jobs["publish-tree"]),
-           "tree publication follows the write-once commit manifest")
-    _check("publish-tree-commit" not in needs(all_jobs["publish-tree-windows"]),
-           "the later Windows tree pass does not add a nightly gate")
-
-    # Two same-commit publishers can race: binaries arrive before the
-    # write-once manifest, and an interrupted winner leaves a partial prefix.
-    # Keep the loser bounded while the winner finishes, then make a later run
-    # adopt existing immutable bytes, fill missing objects, and rebuild the
-    # manifest before its second attestation.
-    commit_publish = next(step for step in fast_commit["steps"]
-                          if step.get("id") == "publish_commit")
-    commit_script = commit_publish["run"]
-    _check("manifest_ready" in commit_script and "CMUX_R2_ADOPT_WAIT_SECONDS" in commit_script,
-           "a commit conflict waits with a bounded manifest retry")
-    _check("--retry-all-errors" in commit_script and "?adopt=$GITHUB_RUN_ID" in commit_script,
-           "an incomplete commit prefix adopts immutable objects after a conflict")
-    _check("its immutable manifest is ready" in commit_script,
-           "a manifest-only immutable conflict is accepted after matching binaries")
-    _check("build-cmux-tui-manifest.py" in commit_script and
-           'echo "reconciled=true" >> "$GITHUB_OUTPUT"' in commit_script,
-           "an adopted commit prefix rebuilds its manifest for re-attestation")
-    reattest = next(step for step in fast_commit["steps"]
-                    if step.get("name") == "Re-attest adopted commit binaries")
-    _check("steps.publish_commit.outputs.reconciled == 'true'" in reattest["if"],
-           "adopted bytes receive a second attestation before manifest publication")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

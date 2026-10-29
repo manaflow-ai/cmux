@@ -141,23 +141,27 @@ pub(crate) fn rfc3339_ms(text: &str) -> Option<u64> {
     let days_in = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     if !(1..=12).contains(&mo)
         || d < 1
-        || d > days_in[(mo - 1) as usize]
+        || days_in.get((mo - 1) as usize).is_none_or(|&last| d > last)
         || h > 23
         || mi > 59
         || s > 59
     {
         return None;
     }
-    let mut rest = &b[19..];
+    let mut rest = b.get(19..).unwrap_or_default();
     let mut ms = 0;
     if let Some((b'.', frac)) = rest.split_first() {
         let n = frac.iter().take_while(|c| c.is_ascii_digit()).count();
         if n == 0 {
             return None;
         }
-        ms = frac[..n.min(3)].iter().fold(0, |m, c| m * 10 + i64::from(c - b'0'))
-            * [100, 10, 1][n.min(3) - 1];
-        rest = &frac[n..];
+        let scale = match n.min(3) {
+            1 => 100,
+            2 => 10,
+            _ => 1,
+        };
+        ms = frac.iter().take(n.min(3)).fold(0, |m, c| m * 10 + i64::from(c - b'0')) * scale;
+        rest = frac.get(n..).unwrap_or_default();
     }
     let offset = match rest {
         b"Z" => 0,

@@ -13,7 +13,7 @@ opaque build outputs and are never executed here.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -30,6 +30,9 @@ from typing import Any
 # Linux daemon mode fetches the musl daemon and its app host
 # (scripts/cmux-next/pin-cmux-tui.sh fetch picks the host's target). The
 # workflow reads this list with --list-companions.
+# Binary and checksum uploads in flight at once (publish_tree).
+UPLOAD_WORKERS = 8
+
 COMPANION_NAMES = (
     "cmux-tui-aarch64-apple-darwin",
     "cmux-tui-app-host-aarch64-apple-darwin",
@@ -351,32 +354,23 @@ def publish_tree(
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
-        upload_files: list[tuple[Path, str]] = []
+        uploads: list[tuple[Path, str]] = []
         for name, digest in {**digests, **windows_digests}.items():
-            binary = assets_dir / name
             checksum = temporary_dir / f"{name}.sha256"
             checksum.write_text(f"{digest}  {name}\n")
-            upload_files.extend(((binary, name), (checksum, f"{name}.sha256")))
+            uploads += [(assets_dir / name, f"{prefix}/{name}"), (checksum, f"{prefix}/{name}.sha256")]
 
-        # The source object stays first and completion.json stays last, but
-        # binary/checksum objects are independent immutable writes. Upload
-        # them together so a tree's required companions do not serialize on
-        # the R2 round-trip (the old loop was the second-longest tree leg).
-        def upload_file(item: tuple[Path, str]) -> None:
-            file, name = item
-            _upload(
-                uploader,
-                file,
-                endpoint_url=endpoint_url,
-                bucket=bucket,
-                key=f"{prefix}/{name}",
-                cache_control=cache,
-            )
+        # source.json stays first (above) and the completion files last (below);
+        # the binaries and their checksums are independent immutable writes, so
+        # they go up together (UPLOAD_WORKERS at a time) instead of one round
+        # trip each: 22 sequential uploads took 44 s a key (run 40804446248).
+        # Every upload is waited on, and the first failure is raised, before
+        # any completion file is written.
+        def upload(item: tuple[Path, str]) -> None:
+            _upload(uploader, item[0], endpoint_url=endpoint_url, bucket=bucket, key=item[1], cache_control=cache)
 
-        workers = min(8, max(1, len(upload_files)))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="cmux-tree-upload") as pool:
-            futures = [pool.submit(upload_file, item) for item in upload_files]
-            for future in as_completed(futures):
+        with ThreadPoolExecutor(max_workers=max(1, min(UPLOAD_WORKERS, len(uploads)))) as pool:
+            for future in [pool.submit(upload, item) for item in uploads]:
                 future.result()
 
         def write_completion(

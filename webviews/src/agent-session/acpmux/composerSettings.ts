@@ -27,6 +27,7 @@
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
 import { useSyncExternalStore } from "react";
 
+export type HarnessPlacement = "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip";
 export type ComposerSettings = {
@@ -38,6 +39,7 @@ export type ComposerSettings = {
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
+  harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
 };
@@ -51,6 +53,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
+  harnessPlacement: "left",
   harnessSwitch: false,
   escapeDoublePress: true,
 };
@@ -80,6 +83,8 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
+    harnessPlacement:
+      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
   };

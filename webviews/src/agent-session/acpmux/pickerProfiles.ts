@@ -1,4 +1,4 @@
-// The installed launch configurations a harness's Profile submenu lists. buildPickerCatalog
+// The installed launch configurations shown as named harness entries. buildPickerCatalog
 // folds profiles of one family into one harness entry; these restore those configurations without
 // presenting internal launchers as signed-in accounts. Account uses route identities separately.
 import { agentKey } from "../shared/agentKey";

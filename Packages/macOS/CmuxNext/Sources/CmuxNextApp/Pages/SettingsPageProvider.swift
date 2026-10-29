@@ -37,6 +37,9 @@ final class SettingsPageProvider: PageProvider {
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
+    /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
+    var environmentsState: (@MainActor () -> JSONValue)?
+    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
@@ -161,9 +164,10 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // Turning it on lets that machine's agents run without the sandbox and its chats start
-            // without asking, so, like Full access, only the person's own click or key in this
-            // page turns it on (spent once); off only narrows, so it needs no gesture.
+            // Turning it on lets that machine take the VM boundary again when this app's own link
+            // asks for it (its remote chains then run without the sandbox), so, like Full access,
+            // only the person's own click or key in this page turns it on (spent once); off makes
+            // the machine keep the sandbox always, which only narrows, so it needs no gesture.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
                       event != spentFullAccessGesture else {
@@ -180,6 +184,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
+        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
+        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":

@@ -4,6 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,18 +46,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => VIEWPORT);
 const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
   const top = typeof options === "number" ? 0 : (options?.top ?? 0);
@@ -94,8 +85,7 @@ test("scrolled up, a static button above the composer jumps to the latest messag
   try {
     await act(async () => render(false));
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
-    const latest = parseFloat(spacer.style.height) - VIEWPORT;
+    const latest = scrollerEnd(scroller);
     expect(latest).toBeGreaterThan(VIEWPORT);
     const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
     // It opens at the latest message: no button to show.

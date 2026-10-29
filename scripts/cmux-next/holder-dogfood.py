@@ -6,10 +6,11 @@ Launches a tagged Debug app with `CMUX_TUI_TERMINAL_HOST_MODEL=<model>` (bench_l
   light    the start session plus 3 new workspaces: terminal processes and RSS per terminal;
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 12-14 panes x 6 tabs, 10 busy
            terminals): the same numbers, and the busy terminals keep printing;
-  close    Cmd-W of a terminal tab (the app's close-tab action): its shell ends;
-  reopen   Reopen Closed (the app's action): the terminal comes back with its screen;
-  paste    a 256 KiB paste (the app's paste action, from the pasteboard) into `head -c N | wc -c`: the
-           program gets every byte;
+  close    Cmd-W of a terminal tab (the app's closeTab): its shell ends once the daemon's reap grace
+           (30 s) has passed;
+  reopen   Reopen Last Closed Item (history.reopen): the terminal comes back with its screen;
+  paste    a 256 KiB paste (the app's terminalPaste, from the pasteboard; its confirmation answered with
+           Allow) into `head -c N | wc -c`: the program gets every byte;
   holder   SIGKILL of the holder while the app runs (holder model only): every shell lives, the busy
            terminals keep printing, input and new terminals work, a new holder runs;
   relaunch quit the app (sessions kept) and launch it again: every terminal is back with its screen.
@@ -33,6 +34,15 @@ from bench_launch import BenchApp  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 PASTE_BYTES = 256 * 1024
+# The app's actions these steps run, by exact id (TabActionCatalog, HistoryActionCatalog, TerminalActionCatalog).
+# A fuzzy match picked closeOtherTabsInPane for Cmd-W and pasteLastScreenshot for the paste (sorted first).
+CLOSE_TAB, REOPEN_CLOSED, TERMINAL_PASTE = "closeTab", "history.reopen", "terminalPaste"
+# A closed tab detaches its terminal; the app's daemon ends it after this grace (DaemonLauncher
+# terminalReapGraceSeconds, cmux-tui spec set-terminal-keep), so the shell's end is awaited past it.
+REAP_GRACE_S = 30
+SHELL_END_S = REAP_GRACE_S + 20
+# The app's confirmation for a paste with line breaks while bracketed paste is off (TerminalClipboardRequests).
+PASTE_DIALOG = "cmux.dialog.terminalClipboard"
 
 
 def load_stress():
@@ -210,13 +220,9 @@ class Dogfood:
         rows = listed.get("actions") if isinstance(listed, dict) else listed
         self.actions = sorted({row.get("id") for row in rows or [] if isinstance(row, dict) and row.get("id")})
 
-    def action(self, *words):
-        """The first action id whose lowercase form holds every word."""
-        for action in self.actions:
-            lower = action.lower()
-            if all(word in lower for word in words):
-                return action
-        return None
+    def action(self, action_id):
+        """`action_id` when the app lists it, else None (the step then fails and names it)."""
+        return action_id if action_id in self.actions else None
 
     def run_action(self, action, **params):
         return self.app.rpc("action.run", {"action": action, "focus": True, **params})
@@ -274,39 +280,57 @@ class Dogfood:
         self.screen_has(surface, "close-me-marker")
         shell = self.daemon.shells([surface]).get(surface)
         tab = wait(lambda: find_tab(self.app.rpc("snapshot.get"), "dogfood-close"), 20)
-        close = self.action("tab.close") or self.action("close", "tab")
+        close = self.action(CLOSE_TAB)
+        reply = None
         if tab and close:
             self.run_action("tab.focus", target=f"tab:{tab}")
-            self.run_action(close, target=f"tab:{tab}")
+            reply = self.run_action(close, target=f"tab:{tab}")
         else:
             self.daemon.call("close-surface", surface=surface)
-        ended = wait(lambda: not self.alive(shell), 20)
-        self.step("cmd-w", bool(ended) and bool(tab and close), action=close, tab=tab, shell=shell)
-        reopen = self.action("reopen") or self.action("closed", "tab")
+        start = time.monotonic()
+        ended = wait(lambda: not self.alive(shell), SHELL_END_S)
+        self.step("cmd-w", bool(ended) and bool(tab and close), action=close, tab=tab, shell=shell,
+                  ended_after_s=round(time.monotonic() - start, 1), reply=refusal(reply))
+        reopen = self.action(REOPEN_CLOSED)
         before = set(self.daemon.surfaces())
-        if reopen:
-            self.run_action(reopen)
+        reply = self.run_action(reopen) if reopen else None
         back = wait(lambda: [s for s in self.daemon.surfaces() if s not in before], 20) or []
         shown = bool(back) and bool(self.screen_has(back[0], "close-me-marker", 20))
-        self.step("reopen-closed", shown and bool(reopen), action=reopen, surfaces=back)
+        self.step("reopen-closed", shown and bool(reopen), action=reopen, surfaces=back, reply=refusal(reply))
         return back[0] if back else None
+
+    def allow_paste(self, seconds=10):
+        """Presses Allow on the app's paste confirmation (a paste with line breaks while bracketed paste is
+        off asks first, as a person's does); True once pressed, None when none showed in `seconds`."""
+        def press():
+            listed = self.app.rpc("debug.dialog", {})
+            dialog = next((d for d in (listed or {}).get("dialogs") or [] if isinstance(listed, dict)
+                           and d.get("identifier") == PASTE_DIALOG and d.get("visible")), None)
+            if dialog is None:
+                return None
+            return bool((self.app.rpc("debug.dialog", {"id": dialog["id"], "press": "allow"}) or {}).get("pressed"))
+        return wait(press, seconds)
 
     def paste(self):
         surface, _ = self.new_terminal(
             "dogfood-paste", ["/bin/sh", "-c", f"stty -echo; echo paste-ready; head -c {PASTE_BYTES} | wc -c; exec cat"])
         self.screen_has(surface, "paste-ready")
-        line = ("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" * 2)[:99] + "\n"
-        data = (line * (PASTE_BYTES // len(line) + 1))[:PASTE_BYTES]
+        data = paste_payload()
         subprocess.run(["pbcopy"], input=data.encode(), check=True)
         tab = wait(lambda: find_tab(self.app.rpc("snapshot.get"), "dogfood-paste"), 20)
-        paste = self.action("paste")
+        pane = find_pane(self.app.rpc("snapshot.get"), "dogfood-paste")
+        paste = self.action(TERMINAL_PASTE)
         if tab:
             self.run_action("tab.focus", target=f"tab:{tab}")
+        reply = allowed = None
         if paste:
-            self.run_action(paste, target=f"tab:{tab}" if tab else None)
+            # terminalPaste takes a pane target only (TerminalActionCatalog: targets [.pane]); a tab target
+            # is refused before the handler runs (ControlRouter+Validation wrongTargetKind).
+            reply = self.run_action(paste, **({"target": f"pane:{pane}"} if pane else {}))
+            allowed = self.allow_paste()
         got = self.screen_has(surface, str(PASTE_BYTES), 60)
-        self.step("paste-256k", bool(got) and bool(paste), action=paste, tab=tab,
-                  screen_tail=self.daemon.screen(surface)[-200:])
+        self.step("paste-256k", bool(got) and bool(paste), action=paste, tab=tab, pane=pane, reply=refusal(reply),
+                  confirmed=allowed, screen_tail=self.daemon.screen(surface)[-200:])
 
     def kill_holder(self, printing):
         hosts, holders, _ = terminal_processes(self.daemon)
@@ -346,9 +370,8 @@ class Dogfood:
         teardown.install()
         try:
             self.launch()
-            emit("DOGFOOD-ACTIONS", {"close": self.action("tab.close") or self.action("close", "tab"),
-                                     "reopen": self.action("reopen"), "paste": self.action("paste"),
-                                     "count": len(self.actions)})
+            emit("DOGFOOD-ACTIONS", {"close": self.action(CLOSE_TAB), "reopen": self.action(REOPEN_CLOSED),
+                                     "paste": self.action(TERMINAL_PASTE), "count": len(self.actions)})
             self.step("launch", True, state_dir=self.state_dir)
             self.light()
             _, printing = self.stress()
@@ -366,6 +389,32 @@ class Dogfood:
                 pass
             teardown.end()
         return 1 if self.failed else 0
+
+
+def refusal(reply):
+    """The app's error of an action.run reply (short), or None when it ran."""
+    error = reply.get("error") if isinstance(reply, dict) else None
+    return str(error)[:200] if error else None
+
+
+def paste_payload():
+    """PASTE_BYTES of 100-byte lines, the last one cut short and still ending in a newline: the shell's tty is
+    canonical (`stty -echo` only), so `head -c` gets a line only at its newline, and bytes after the last
+    one would wait in the line buffer (262144 is not a multiple of 100: 44 bytes)."""
+    line = ("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" * 2)[:99] + "\n"
+    return (line * (PASTE_BYTES // len(line) + 1))[:PASTE_BYTES - 1] + "\n"
+
+
+def find_pane(snapshot, workspace_name):
+    """The app pane id of the first pane in the workspace named `workspace_name`, as `find_tab`."""
+    topology = (snapshot or {}).get("topology") or {} if isinstance(snapshot, dict) else {}
+    for workspace in topology.get("workspaces") or []:
+        if workspace_name in {str(v) for v in workspace.values() if isinstance(v, str)}:
+            for screen in workspace.get("screens") or []:
+                for pane in screen.get("panes") or []:
+                    if pane.get("id"):
+                        return pane["id"]
+    return None
 
 
 def find_tab(snapshot, workspace_name):
