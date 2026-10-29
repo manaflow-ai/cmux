@@ -334,7 +334,8 @@ if ! awk '
   in_thin && /^      - name:/ { in_thin=0 }
   in_thin && /matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
   in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
-  job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
+  # The primary leg holds the step as anchor &verify-nightly-binary-archs; the fallback leg aliases it.
+  job == "publish" && /^      - (name: Verify nightly binary architectures|&verify-nightly-binary-archs)$/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
   in_verify && /Contents\/MacOS\/cmux"/ { saw_app=1 }
   in_verify && /Contents\/Resources\/bin\/cmux"/ { saw_cli=1 }
