@@ -106,3 +106,53 @@ mod tests {
         }
     }
 }
+
+/// Review 5 of cp/daemon-foreground-state, item 1: a byte the daemon wrote to the master a
+/// moment ago is input that waits for the program, every time. On Linux a master write lands in
+/// the kernel's flip buffer and reaches the line discipline from a work queue, so a FIONREAD
+/// right after the write can count 0 while the byte is in flight: a typed-ahead line would read
+/// as consumed and pay the prompts it is owed.
+#[cfg(all(test, target_os = "linux"))]
+mod in_flight_tests {
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    #[test]
+    fn shell_idle_a_byte_just_written_to_the_master_is_never_read_as_consumed() {
+        let (mut master, mut slave) = (0, 0);
+        // SAFETY: openpty writes two descriptors through the pointers to these live locals; the
+        // name, termios and winsize pointers may be null.
+        let opened = unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(opened, 0);
+        // SAFETY: openpty just opened both and nothing else owns them.
+        let (master, slave) =
+            unsafe { (std::fs::File::from_raw_fd(master), std::fs::File::from_raw_fd(slave)) };
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
+        // SAFETY: tcgetattr writes one termios into `termios`; the test owns `slave`.
+        assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), termios.as_mut_ptr()) }, 0);
+        // SAFETY: tcgetattr filled it.
+        let mut termios = unsafe { termios.assume_init() };
+        // SAFETY: cfmakeraw edits the termios the pointer points to.
+        unsafe { libc::cfmakeraw(&mut termios) };
+        // SAFETY: tcsetattr reads the termios the pointer points to; the test owns `slave`.
+        assert_eq!(unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) }, 0);
+        let mut missed = 0;
+        for _ in 0..500 {
+            (&master).write_all(b"x").unwrap();
+            if super::reads_raw_with_nothing_queued(master.as_raw_fd()) != Some(false) {
+                missed += 1;
+            }
+            let mut byte = [0u8; 1];
+            (&slave).read_exact(&mut byte).unwrap();
+        }
+        assert_eq!(missed, 0, "a byte in flight read as consumed {missed} of 500 times");
+    }
+}
