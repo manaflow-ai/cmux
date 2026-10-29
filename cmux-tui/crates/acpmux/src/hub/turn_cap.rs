@@ -17,7 +17,9 @@
 use super::*;
 use std::sync::Weak;
 
-/// The cap a coordinator session gets when it set none itself (P2's `coordinator` setting).
+/// The cap a coordinator session gets when it set none itself (the `coordinator` setting, which
+/// [`default_turn_cap_ms`] reads once it lands).
+#[allow(dead_code)] // read by `default_turn_cap_ms` with the coordinator setting
 pub const COORDINATOR_TURN_CAP_MS: u64 = 20 * 60 * 1000;
 
 /// The provenance kind of the notice (`prompt_provenance.rs`): hub-set, never a client's.
