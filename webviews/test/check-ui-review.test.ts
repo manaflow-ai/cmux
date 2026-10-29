@@ -23,6 +23,13 @@ describe("cross-surface UI review lint", () => {
     expect(findNarration(tsx, "<span>Started sub-session child</span>")).toHaveLength(1);
   });
 
+  test("reads only rendered expression values, not comparison operands", () => {
+    const compared = `<div>{message === "Read after this turn" && <span>Queued</span>}</div>`;
+    expect(findNarration(tsx, compared)).toHaveLength(0);
+    expect(findNarration(tsx, `<div>{queued ? "Read after this turn" : null}</div>`)).toHaveLength(1);
+    expect(findMultiSpace(tsx, `<div>{mode === "Ran  2" && <span>Queued</span>}</div>`)).toHaveLength(0);
+  });
+
   test("flags an Open button nested in a clickable row", () => {
     const source = `<div onClick={open}><button>Open chat</button></div>`;
     expect(findRedundantOpenButtons(tsx, source)).toMatchObject([
@@ -33,6 +40,13 @@ describe("cross-surface UI review lint", () => {
       { fingerprint: "Open" },
     ]);
     expect(findRedundantOpenButtons(tsx, `<div onClick={open}><button>Opening soon</button></div>`)).toHaveLength(0);
+  });
+
+  test("an Open button with its own action inside a row that does something else passes", () => {
+    const stops = `<div onClick={(event) => event.stopPropagation()}><button onClick={open}>Open</button></div>`;
+    expect(findRedundantOpenButtons(tsx, stops)).toHaveLength(0);
+    const same = `<div onClick={open}><button onClick={open}>Open</button></div>`;
+    expect(findRedundantOpenButtons(tsx, same)).toMatchObject([{ fingerprint: "Open" }]);
   });
 
   test("a focusable row without a pointer action does not make its Open button redundant", () => {
@@ -81,6 +95,10 @@ describe("cross-surface UI review lint", () => {
     expect(findRepeatedLeadingLabels(tsx, titled)).toHaveLength(0);
     const compared = `<ul>{people.map((person) => <li className="lg-picker-row"><span>{person.name}</span>{person.kind === "agent" && <span>{t("agent.badge")}</span>}</li>)}</ul>`;
     expect(findRepeatedLeadingLabels(tsx, compared, new Map([["agent.badge", "Bot"]]))).toHaveLength(0);
+    const unknownFirst = `<ul>{items.map((item) => <li>{item.name}<span>Agent</span></li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, unknownFirst)).toHaveLength(0);
+    const componentFirst = `<ul>{items.map((item) => <li><PersonName person={item} /><span>Agent</span></li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, componentFirst)).toHaveLength(0);
     const branch = `<ul>{items.map((item) => <li className="cv-row">{item.done ? "Task done" : t("row.pending")}</li>)}</ul>`;
     expect(findRepeatedLeadingLabels(tsx, branch)).toMatchObject([{ fingerprint: "task" }]);
   });

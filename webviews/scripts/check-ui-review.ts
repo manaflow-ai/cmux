@@ -157,11 +157,26 @@ function isUiLiteral(node: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral):
     const name = propertyName(parent.name);
     return Boolean(name && /^(?:label|title|text|description|placeholder|ariaLabel|aria-label|alt)$/i.test(name));
   }
-  for (const ancestor of ancestors(node)) {
-    if (ts.isJsxAttribute(ancestor)) return ts.isIdentifier(ancestor.name) && COPY_ATTRIBUTE.test(ancestor.name.text);
-    if (ts.isJsxElement(ancestor) || ts.isJsxSelfClosingElement(ancestor) || ts.isJsxFragment(ancestor)) return true;
-  }
-  return false;
+  // A literal reaches the screen only through ?:, && and ||/?? into a JSX child or a copy attribute; a comparison
+  // operand (`message === "Read after this turn"`) or another call's argument never renders.
+  let current: ts.Node = node;
+  while (ts.isParenthesizedExpression(current.parent) || isRenderedBranch(current)) current = current.parent;
+  const slot = current.parent;
+  const host = ts.isJsxExpression(slot) ? slot.parent : slot;
+  if (ts.isJsxAttribute(host)) return ts.isIdentifier(host.name) && COPY_ATTRIBUTE.test(host.name.text);
+  return ts.isJsxExpression(slot) && (ts.isJsxElement(host) || ts.isJsxFragment(host));
+}
+
+function isRenderedBranch(node: ts.Node): boolean {
+  const parent = node.parent;
+  if (ts.isConditionalExpression(parent)) return node !== parent.condition;
+  if (!ts.isBinaryExpression(parent)) return false;
+  const operator = parent.operatorToken.kind;
+  return (
+    operator === ts.SyntaxKind.BarBarToken ||
+    operator === ts.SyntaxKind.QuestionQuestionToken ||
+    (operator === ts.SyntaxKind.AmpersandAmpersandToken && node === parent.right)
+  );
 }
 
 function normalizeCopy(value: string): string {
@@ -262,14 +277,18 @@ function translatedCall(node: ts.Expression, translations: Map<string, string>):
     : undefined;
 }
 
+/** Rendered copy in order; null marks content the source cannot prove (`{item.name}`, a component's output). */
+type CopyChunk = string | null;
+
 /**
  * The copy an expression child renders. Only values JSX would print count: literals, t() calls, nested JSX and
  * the branches of ?:, && and ||/??. A comparison operand (`kind === "agent"`) or another call's argument is not copy.
  */
-function renderedCopy(node: ts.Expression, translations: Map<string, string>, chunks: string[]): void {
+function renderedCopy(node: ts.Expression, translations: Map<string, string>, chunks: CopyChunk[]): void {
   if (ts.isParenthesizedExpression(node)) renderedCopy(node.expression, translations, chunks);
-  else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) chunks.push(node.text);
-  else if (ts.isTemplateExpression(node)) chunks.push(node.head.text);
+  else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isNumericLiteral(node))
+    chunks.push(node.text);
+  else if (ts.isTemplateExpression(node)) chunks.push(node.head.text, null);
   else if (ts.isConditionalExpression(node)) {
     renderedCopy(node.whenTrue, translations, chunks);
     renderedCopy(node.whenFalse, translations, chunks);
@@ -279,21 +298,29 @@ function renderedCopy(node: ts.Expression, translations: Map<string, string>, ch
     else if (operator === ts.SyntaxKind.BarBarToken || operator === ts.SyntaxKind.QuestionQuestionToken) {
       renderedCopy(node.left, translations, chunks);
       renderedCopy(node.right, translations, chunks);
-    }
+    } else chunks.push(null);
   } else if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) {
     jsxChildrenCopy(node, translations, chunks);
-  } else {
-    const translated = translatedCall(node, translations);
-    if (translated) chunks.push(translated);
-  }
+  } else if (
+    node.kind === ts.SyntaxKind.NullKeyword ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword ||
+    (ts.isIdentifier(node) && node.text === "undefined")
+  ) {
+    // Renders nothing.
+  } else chunks.push(translatedCall(node, translations) ?? null);
 }
 
 function jsxChildrenCopy(
   node: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment,
   translations: Map<string, string>,
-  chunks: string[],
+  chunks: CopyChunk[],
 ): void {
-  if (ts.isJsxSelfClosingElement(node)) return;
+  if (ts.isJsxSelfClosingElement(node)) {
+    // An intrinsic like <img /> renders no copy; a component's output is unknown here.
+    if (/^[A-Z]/.test(jsxName(node.tagName))) chunks.push(null);
+    return;
+  }
   for (const child of node.children) {
     if (ts.isJsxText(child)) chunks.push(child.getText());
     else if (ts.isJsxExpression(child) && child.expression) renderedCopy(child.expression, translations, chunks);
@@ -302,18 +329,50 @@ function jsxChildrenCopy(
   }
 }
 
-/** The copy a node renders: its JSX children's text, never its attributes (type, className, name). */
-function visibleText(node: ts.Node, translations: Map<string, string>): string {
-  const chunks: string[] = [];
+function copyChunks(node: ts.Node, translations: Map<string, string>): CopyChunk[] {
+  const chunks: CopyChunk[] = [];
   if (ts.isExpression(node)) renderedCopy(node, translations, chunks);
-  return normalizeCopy(chunks.join(" "));
+  return chunks;
 }
 
-/** A row that opens on its own: a pointer activation handler. Focusability (tabIndex, onKeyDown) alone opens nothing. */
-function hasClickHandler(element: ts.JsxElement | ts.JsxSelfClosingElement): boolean {
-  return ["onClick", "onPointerDown", "onMouseDown", "onDoubleClick"].some((name) =>
-    Boolean(jsxAttribute(element, name)),
+/** The copy a node renders: its JSX children's text, never its attributes (type, className, name). */
+function visibleText(node: ts.Node, translations: Map<string, string>): string {
+  return normalizeCopy(
+    copyChunks(node, translations)
+      .filter((chunk) => chunk !== null)
+      .join(" "),
   );
+}
+
+/** The copy a node certainly starts with, or undefined when unknown content may come first. */
+function leadingText(node: ts.Node, translations: Map<string, string>): string | undefined {
+  const first = copyChunks(node, translations).find((chunk) => chunk === null || chunk.trim());
+  return first === null || first === undefined ? undefined : normalizeCopy(first);
+}
+
+const ACTIVATION = ["onClick", "onPointerDown", "onMouseDown", "onDoubleClick"];
+
+/** Pointer activation handlers as source text. Focusability (tabIndex, onKeyDown) alone opens nothing. */
+function activationHandlers(element: ts.JsxElement | ts.JsxSelfClosingElement): string[] {
+  return ACTIVATION.flatMap((name) => {
+    const initializer = jsxAttribute(element, name)?.initializer;
+    return initializer ? [initializer.getText()] : [];
+  });
+}
+
+/**
+ * A row that performs the button's action: the button has no activation of its own (its click falls through to
+ * the row) or the same handler as the row. A row that only stops propagation does not duplicate the button.
+ */
+function sameActionRow(
+  button: ts.JsxElement | ts.JsxSelfClosingElement,
+): ts.JsxElement | ts.JsxSelfClosingElement | undefined {
+  const own = activationHandlers(button);
+  return ancestors(button).find((ancestor): ancestor is ts.JsxElement | ts.JsxSelfClosingElement => {
+    if (!ts.isJsxElement(ancestor) && !ts.isJsxSelfClosingElement(ancestor)) return false;
+    const row = activationHandlers(ancestor);
+    return row.length > 0 && (own.length === 0 || own.some((handler) => row.includes(handler)));
+  });
 }
 
 export function findRedundantOpenButtons(
@@ -328,11 +387,7 @@ export function findRedundantOpenButtons(
       if (jsxName(openingElement(node).tagName).toLowerCase() === "button") {
         const label = visibleText(node, translations) || attributeText(node, "aria-label") || "";
         if (/^open(?:\s|…|$)/i.test(label)) {
-          const row = ancestors(node).find(
-            (ancestor): ancestor is ts.JsxElement | ts.JsxSelfClosingElement =>
-              (ts.isJsxElement(ancestor) || ts.isJsxSelfClosingElement(ancestor)) && hasClickHandler(ancestor),
-          );
-          if (row) {
+          if (sameActionRow(node)) {
             findings.push(
               finding(
                 "redundant-open",
@@ -414,7 +469,7 @@ export function findRepeatedLeadingLabels(
     if (ts.isCallExpression(node)) {
       const row = mapCallback(node);
       if (row) {
-        const text = visibleText(row, translations);
+        const text = leadingText(row, translations) ?? "";
         const first = /^(\p{L}[\p{L}-]*)\b/u.exec(text)?.[1]?.toLowerCase();
         if (first && TYPE_LABELS.has(first)) {
           findings.push(
