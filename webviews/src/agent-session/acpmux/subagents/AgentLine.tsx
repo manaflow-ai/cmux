@@ -105,8 +105,8 @@ export function AgentLine({
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
-        data-alignment-column="left-icon"
         data-state={status}
+        data-alignment-column="left-icon"
       >
         {working ? (
           <Spinner size={iconSize} loading />
