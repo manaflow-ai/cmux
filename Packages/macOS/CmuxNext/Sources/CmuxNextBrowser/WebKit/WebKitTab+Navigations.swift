@@ -32,6 +32,15 @@ extension WebKitTab {
         return register(webView.reload())
     }
 
+    /// Hard Reload (``BrowserCacheBypassingReload``): the page from the server, past every cache.
+    public func reloadBypassingCache() {
+        if webView.url == nil, let url = state.url {
+            startLoad(url)
+            return
+        }
+        _ = register(webView.reloadFromOrigin())
+    }
+
     /// Calls `handler` with every navigation event as the tab applies it,
     /// including those of superseded navigations, which the state machine
     /// ignores. Stop with `removeNavigationObserver`.
