@@ -235,6 +235,8 @@ async function mount(
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+const settleFrame = () =>
+  act(async () => await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve())));
 const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => doc().querySelector<HTMLElement>(".acpmux-quick-menu");
 /// The model rows (the rail's tabs are radio items too).
@@ -310,6 +312,7 @@ test("the optional reasoning slider replaces Effort's levels only when enabled",
   const effort = await openSub("Effort");
   expect(effort.querySelector(".acpmux-effort-range")).not.toBeNull();
   expect(effort.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+  await settleFrame();
   expect(doc().activeElement?.classList.contains("acpmux-effort-range")).toBe(true);
 });
 
@@ -318,7 +321,7 @@ test("a number key picks that model in place", async () => {
   await open();
   const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
-  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["1", "✓", "3", "4"]);
+  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["✓", "2", "3", "4"]);
   const third = models[2]!;
   const name = third.querySelector(".acpmux-menu-label")!.textContent!;
   await act(async () => {

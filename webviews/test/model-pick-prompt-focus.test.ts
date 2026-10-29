@@ -131,6 +131,17 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
     await settled(page);
   };
 
+  // The current model can be the first row. These scenarios exercise a model change,
+  // so navigate to an enabled, unchecked row regardless of the catalog's order.
+  const focusOtherModel = async (page: Page) => {
+    const count = await page.locator(`${QUICK} [role^=menuitem]`).count();
+    for (let step = 0; step <= count; step++) {
+      if (await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)) break;
+      await page.keyboard.press("ArrowDown");
+    }
+    expect(await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)).toBe(true);
+  };
+
   for (const [engine] of engines)
     for (const stage of STAGES) {
       test(`${engine}: ${stage.name}: a pick with the mouse in the model menu puts the keyboard in the prompt`, async () => {
@@ -148,11 +159,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         const page = await open(engine, stage);
         await press(page, MODEL);
         await page.locator(QUICK).first().waitFor();
-        // Down to the first model row the chat is not on, then Enter.
-        for (let step = 0; step < 12; step++) {
-          if (await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)) break;
-          await page.keyboard.press("ArrowDown");
-        }
+        await focusOtherModel(page);
         await page.keyboard.press("Enter");
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
@@ -168,10 +175,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         const name = (await page.locator(`${QUICK_ROW} .acpmux-menu-label`).first().textContent()) ?? "";
         await page.keyboard.type(name);
         await page.locator(QUICK_ROW, { hasText: name }).first().waitFor();
-        for (let step = 0; step < 12; step++) {
-          if (await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)) break;
-          await page.keyboard.press("ArrowDown");
-        }
+        await focusOtherModel(page);
         await page.keyboard.press("Enter");
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
@@ -192,7 +196,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: Enter in the shortcut-opened compact menu puts the keyboard in the prompt`, async () => {
         const page = await open(engine, stage);
         await openCompactShortcut(page);
-        await page.keyboard.press("ArrowDown");
+        await focusOtherModel(page);
         await page.keyboard.press("Enter");
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
@@ -240,7 +244,7 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
             },
           });
         });
-        await page.keyboard.press("ArrowDown");
+        await focusOtherModel(page);
         await page.keyboard.press("Enter");
         // The pick has closed the menu, and its deferred focus waits in a held frame.
         await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
