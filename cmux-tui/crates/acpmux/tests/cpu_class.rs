@@ -11,8 +11,10 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The reference test's
+// variable is set as the process starts, never while tests run.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("ACPMUX_TEST_CPU_CLASS_REF", "normal")]);
 
 use acpmux::agent::{ChildAgent, Tap};
 use acpmux::agent_host::link::{self, HostLauncher};
@@ -140,8 +142,7 @@ async fn cpu_class_a_profile_can_keep_its_harness_at_normal_class() {
 #[tokio::test]
 async fn cpu_class_a_profile_reference_that_resolves_to_normal_keeps_normal_class() {
     let dir = scratch("r");
-    // SAFETY: this test process's only use of the variable; set before the spawn reads it.
-    unsafe { std::env::set_var("ACPMUX_TEST_CPU_CLASS_REF", "normal") };
+    // ACPMUX_TEST_CPU_CLASS_REF=normal: set for this process by HERMETIC.
     let (_agent, harness, _sleeper) =
         direct(&dir, json!({"ACPMUX_SESSION_CPU_CLASS": "${env:ACPMUX_TEST_CPU_CLASS_REF}"})).await;
     let h = base_priority(harness);
