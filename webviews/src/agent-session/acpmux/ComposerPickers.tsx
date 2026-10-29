@@ -498,6 +498,10 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    const pickEffort = (value: string) => {
+      if (presession && harness) setHeldPick({ harness, value });
+      onEffort(effort?.id ?? HELD_EFFORT_ID, value);
+    };
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current =
@@ -505,13 +509,13 @@ export function ComposerPickers({
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
           : undefined;
       onModel(pickedModel);
-      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      if (pickedEffort && presession) pickEffort(pickedEffort);
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
       (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      pickEffort(pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
