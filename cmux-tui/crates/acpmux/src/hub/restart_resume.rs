@@ -28,6 +28,7 @@ use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Longest quote of one cut prompt or steer, in characters.
@@ -43,6 +44,9 @@ const MAX_UNFINISHED_TOOLS: usize = 32;
 struct UnfinishedTool {
     name: String,
     id: String,
+    // Match the complete ID without retaining an arbitrarily large string or conflating
+    // two IDs with the same displayed prefix.
+    id_digest: [u8; 32],
     input: Option<String>,
 }
 
@@ -68,7 +72,12 @@ fn input_prefix(update: &Value) -> Option<String> {
             let mut bytes = Vec::with_capacity(MAX_TOOL_INPUT_CHARS);
             let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_INPUT_CHARS };
             let _ = serde_json::to_writer(&mut writer, raw);
-            String::from_utf8_lossy(&bytes).into_owned()
+            let valid = match std::str::from_utf8(&bytes) {
+                Ok(text) => text.len(),
+                Err(error) => error.valid_up_to(),
+            };
+            bytes.truncate(valid);
+            String::from_utf8(bytes).expect("valid JSON prefix")
         })
     })
 }
@@ -82,7 +91,12 @@ impl std::io::Write for BoundedJsonWriter<'_> {
     fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
         let remaining = self.limit.saturating_sub(self.bytes.len());
         self.bytes.extend_from_slice(&input[..input.len().min(remaining)]);
-        Ok(input.len())
+        if input.len() > remaining {
+            // Stop serialization immediately, rather than visiting the rest of a large input.
+            Err(std::io::Error::other("restart input prefix is full"))
+        } else {
+            Ok(input.len())
+        }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -111,15 +125,16 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
     else {
         return;
     };
+    let id_digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
     match update.get("status").and_then(Value::as_str) {
-        Some("completed" | "failed") => open.retain(|tool| tool.id != id),
+        Some("completed" | "failed") => open.retain(|tool| tool.id_digest != id_digest),
         None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call_update") => {
-            if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
+            if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
             }
         }
         _ => {
-            if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
+            if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
             } else if open.len() < MAX_UNFINISHED_TOOLS {
                 let name = update
@@ -133,6 +148,7 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
                 open.push(UnfinishedTool {
                     name: bounded_text(name),
                     id: bounded_text(id),
+                    id_digest,
                     input: input_prefix(update),
                 });
             } else {
@@ -422,6 +438,7 @@ mod tests {
             .map(|n| UnfinishedTool {
                 name: format!("tool-{n}"),
                 id: format!("call-{n}"),
+                id_digest: Sha256::digest(format!("call-{n}").as_bytes()).into(),
                 input: None,
             })
             .collect::<Vec<_>>();
@@ -468,11 +485,104 @@ mod tests {
         assert_eq!(open[0].id.chars().count(), MAX_TOOL_FIELD_CHARS);
         assert_eq!(open[0].name.chars().count(), MAX_TOOL_FIELD_CHARS);
         assert!(open[0].input.as_ref().unwrap().len() <= MAX_TOOL_INPUT_CHARS);
+        // Same displayed prefix, but a different full ID must remain a different call.
+        note_unfinished_tool(
+            &mut open,
+            &mut omitted,
+            &json!({"toolCallId": format!("{huge}2"), "status": "in_progress"}),
+        );
+        assert_eq!(open.len(), 2);
+        note_unfinished_tool(
+            &mut open,
+            &mut omitted,
+            &json!({"toolCallId": huge, "status": "completed"}),
+        );
+        assert_eq!(open.len(), 1);
+        note_unfinished_tool(
+            &mut open,
+            &mut omitted,
+            &json!({"toolCallId": format!("{huge}2"), "status": "failed"}),
+        );
+        assert!(open.is_empty());
+    }
+
+    #[test]
+    fn input_serialization_stops_at_the_prefix_budget() {
+        use serde::Serialize;
+        struct Unvisited;
+        impl Serialize for Unvisited {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                panic!("serialization must stop before the next value");
+            }
+        }
+        let mut bytes = Vec::with_capacity(MAX_TOOL_INPUT_CHARS);
+        let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_INPUT_CHARS };
+        assert!(serde_json::to_writer(&mut writer, &("x".repeat(10_000), Unvisited)).is_err());
+        assert_eq!(bytes.len(), MAX_TOOL_INPUT_CHARS);
+        let prefix = input_prefix(&json!({"rawInput": "世".repeat(10_000)})).unwrap();
+        assert!(prefix.len() <= MAX_TOOL_INPUT_CHARS);
+        assert!(!prefix.contains('\u{fffd}'));
+    }
+
+    #[tokio::test]
+    async fn restart_journal_ignores_children_and_honors_replayed_completion() {
+        use crate::config::{Config, StoreMode};
+        let root =
+            std::env::temp_dir().join(format!("acpmux-restart-tools-{}", uuid::Uuid::now_v7()));
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &root).unwrap();
+        store.save(&serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
+        })).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        let session = hub.resolve("chat").unwrap();
+        let tool = |id: &str, state: &str| {
+            json!({"params": {"update": {
+                "sessionUpdate": "tool_call", "toolCallId": id, "title": id, "status": state
+            }}})
+        };
+        // Historical inputs must not enter the interrupted turn's summary.
+        for _ in 0..100 {
+            hub.append(&session, "in", "tool_call", tool("historical", "in_progress"));
+        }
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "cut", "promptId": "p", "control": "local", "trustGate": false}),
+        );
+        // More child calls than the display cap, including replayed calls and an ID
+        // shared with the parent, cannot consume or remove the parent's entries.
+        for n in 0..=MAX_UNFINISHED_TOOLS {
+            let mut child = tool(&format!("child-{n}"), "in_progress");
+            child["params"]["_meta"] = json!({"acpmux": {"subagent": {"id": "child"}}});
+            hub.append(&session, "in", "tool_call.replay", child);
+        }
+        hub.append(&session, "in", "tool_call", tool("finished", "in_progress"));
+        let mut completion = tool("finished", "completed");
+        completion["params"]["update"]["sessionUpdate"] = json!("tool_call_update");
+        hub.append(&session, "in", "tool_call_update.replay", completion);
+        hub.append(&session, "in", "tool_call.replay", tool("own", "in_progress"));
+        let mut child = tool("own", "completed");
+        child["params"]["_meta"] = json!({"acpmux": {"subagent": {"id": "child"}}});
+        hub.append(&session, "in", "tool_call_update", child);
+        assert!(hub.log_restart_continuation(&session, "cut").is_some());
+        let records = hub.events("chat", 0, usize::MAX).unwrap();
+        let text =
+            records.iter().find(|e| e.kind == "queued").unwrap().msg["text"].as_str().unwrap();
+        assert!(text.contains("own (id: own)"), "{text}");
+        for absent in ["child-", "historical", "finished (id:", "omitted"] {
+            assert!(!text.contains(absent), "{text}");
+        }
+        hub.shutdown_all().await;
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn replayed_terminal_tool_update_closes_the_call() {
-        let update = |kind, status| EventRecord {
+        let update = |kind: &str, status: &str| EventRecord {
             seq: 1,
             at: 1,
             dir: "in".into(),
