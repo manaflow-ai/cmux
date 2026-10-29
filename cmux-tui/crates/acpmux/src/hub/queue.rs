@@ -369,13 +369,14 @@ impl Hub {
             // An inbox digest whose turn ended first waits at the head of the agent messages,
             // behind the person's prompts (`enqueue`), and stops no turn.
             interrupt: !super::digest::inbox_digest::is_digest(provenance.as_ref()),
-            // The person sent it now: never an inbox item again (`coordinator.rs`).
-            released: true,
             provenance,
             agent: run.agent.clone(),
             class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
+            // The person sent it now: past the turn cap, and never an inbox item again
+            // (`coordinator.rs`).
+            send_now: true,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await

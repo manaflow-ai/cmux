@@ -67,6 +67,23 @@ pub(super) fn is_inbox_item(coordinator: bool, agent: bool, provenance: Option<&
     coordinator && agent && !super::digest::inbox_digest::is_digest(provenance)
 }
 
+/// Whether a prompt sent with `opts` waits in a coordinator's inbox (when the chat is one): another
+/// agent's message, no digest, that the person did not send now (`queue_edit.rs` `send_now`).
+/// Out of line, so the prompt's future holds no sender lookup.
+#[inline(never)]
+pub(super) fn may_wait_in_inbox(opts: &PromptOptions) -> bool {
+    let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+    !opts.send_now && is_inbox_item(true, agent.is_some(), opts.provenance.as_ref())
+}
+
+/// A steer-only message a coordinator's inbox keeps (`turns.rs`).
+pub(super) fn steer_unavailable() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: this session is a coordinator; other agents' messages wait for its inbox digest",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false}))
+}
+
 /// What the inbox holds now: whether a block or a question waits, and the oldest item's time.
 fn inbox_state(session: &Session) -> Option<(bool, u64)> {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

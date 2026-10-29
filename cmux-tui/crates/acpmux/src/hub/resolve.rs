@@ -369,5 +369,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         coordinator: false,
         inbox_flush_ms: None,
         digest_interval_ms: None,
+        turn_cap_noticed: None,
     }
 }

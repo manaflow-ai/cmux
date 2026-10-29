@@ -5,10 +5,14 @@
 //!
 //! A session with a cap (`SessionMeta::turn_cap_ms`, else [`default_turn_cap_ms`]) whose running
 //! turn is older than the cap stops taking other agents' steers: they wait in the queue, and the
-//! next turn takes them together (`digest.rs`). The person's own steers still go in. The hub
-//! steers one notice into that turn, once ([`NOTICE_KIND`]), when an agent's message is waiting
-//! for it: on the first agent message past the cap, or at the cap when one waits already
-//! ([`Hub::arm_turn_cap`]'s timer). The hub never cancels the turn itself.
+//! next turn takes them together (`digest.rs`); one sent with `interrupt` stops nothing. The
+//! person's own steers still go in, and so does the queue's Send now. The hub steers one notice
+//! into that turn, once ([`NOTICE_KIND`]; the turn it went into is saved in the session's meta, so
+//! a turn a restart adopts gets no second), when an agent's message is waiting for it: on the
+//! first agent message past the cap, or at the cap when one waits already ([`Hub::arm_turn_cap`]'s
+//! timer). The notice goes only into the turn it names ([`notice_reaches`], checked again as it is
+//! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
+//! the turn itself.
 //!
 //! The timer: one per session, armed when a turn starts. It wakes once, at the cap, and ends; a
 //! turn that starts before then aborts the previous turn's timer (`Session::turn_cap_timer`). It
@@ -45,6 +49,23 @@ fn capped_turn(session: &Session, now: u64) -> Option<(String, u64)> {
     (now.saturating_sub(turn.started_at) >= cap).then_some((turn.turn_id, cap))
 }
 
+/// Whether `provenance` is the notice's.
+pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
+}
+
+/// Whether a steer with `provenance` may go into turn `turn_id`: anything but the notice, and the
+/// notice only into the turn it names while that turn still runs. A notice for a turn that ended
+/// never reaches the next one: checked here before it is logged, and again as it is written
+/// (`steer_end.rs` `agent_prompt_hook`, `bound`).
+pub(super) fn notice_reaches(session: &Session, provenance: Option<&Value>, turn_id: &str) -> bool {
+    if !is_notice(provenance) {
+        return true;
+    }
+    provenance.and_then(|p| p.get("turnId")).and_then(Value::as_str) == Some(turn_id)
+        && session.turn().is_some_and(|t| t.turn_id == turn_id)
+}
+
 /// The notice's words.
 pub(super) fn notice_text(cap_ms: u64) -> String {
     let minutes = cap_ms.div_ceil(60_000);
@@ -53,17 +74,44 @@ pub(super) fn notice_text(cap_ms: u64) -> String {
     )
 }
 
+/// The refusal of a steer-only prompt that cannot steer now; `capped`: because the running turn is
+/// past its cap.
+pub(super) fn steer_unavailable(capped: bool) -> RpcError {
+    let why = if capped {
+        "steer.unavailable: the running turn is past its turn cap; other agents' messages wait for its next turn"
+    } else {
+        "steer.unavailable: the session has no running turn that its agent can steer"
+    };
+    RpcError::invalid_params(why)
+        .with_data(json!({"reason": "steer.unavailable", "turnCap": capped}))
+}
+
 impl Hub {
-    /// Whether another agent's message (`agent`, from `digest::agent_sender`) that arrives now
-    /// waits for the next turn instead of steering in: the running turn is past its cap. Any
-    /// agent message past the cap asks for the notice, steer or not. The person's never waits.
-    pub(super) fn turn_cap_holds(self: &Arc<Self>, session: &Arc<Session>, agent: bool) -> bool {
-        if !agent {
+    /// Whether a prompt that arrives now and is another agent's message (`digest::agent_sender`
+    /// of its `provenance` and `agent`) waits for the next turn instead of steering in: the
+    /// running turn is past its cap. Any agent message past the cap asks for the notice, steer or
+    /// not. The person's never waits.
+    #[inline(never)]
+    pub(super) fn turn_cap_holds(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        provenance: Option<&Value>,
+        agent: Option<&str>,
+    ) -> bool {
+        if super::digest::agent_sender(provenance, agent).is_none() {
             return false;
         }
         let Some((turn_id, cap)) = capped_turn(session, now_ms()) else { return false };
         self.turn_cap_notice(session, &turn_id, cap);
         true
+    }
+
+    /// Sends the notice when the running turn is past its cap: an agent message was just queued
+    /// behind it ([`Hub::turn_cap_notice`] sends one per turn).
+    pub(super) fn turn_cap_recheck(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Some((turn_id, cap)) = capped_turn(session, now_ms()) {
+            self.turn_cap_notice(session, &turn_id, cap);
+        }
     }
 
     /// Arms the cap's timer for turn `turn_id`, which starts now (module docs).
@@ -103,14 +151,23 @@ impl Hub {
             return;
         }
         {
-            let mut noticed = session.turn_cap_noticed.lock().unwrap_or_else(|e| e.into_inner());
-            if noticed.as_deref() == Some(turn_id) {
+            // The turn is read under the meta lock (nothing takes the meta lock under the turn's),
+            // so an attempt for a turn that has ended never replaces a later turn's marker.
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if meta.turn_cap_noticed.as_deref() == Some(turn_id)
+                || session.turn().is_none_or(|t| t.turn_id != turn_id)
+            {
                 return;
             }
-            *noticed = Some(turn_id.to_owned());
+            meta.turn_cap_noticed = Some(turn_id.to_owned());
         }
+        // Saved before it goes, so a turn a restart adopts gets no second one.
+        self.save_meta(session);
         let opts = PromptOptions {
             prompt_id: Some(format!("turn-cap-{turn_id}")),
+            // One the log holds already (sent before a restart whose meta save was lost) is
+            // answered from the log, never sent again (`prompt_ledger.rs` `logged_prompt`).
+            resend: true,
             // Into this turn or nowhere: a turn that ended meanwhile needs no notice.
             steer_only: true,
             provenance: Some(json!({"kind": NOTICE_KIND, "turnId": turn_id, "capMs": cap})),

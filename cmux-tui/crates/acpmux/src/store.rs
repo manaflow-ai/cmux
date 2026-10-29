@@ -375,6 +375,10 @@ pub struct SessionMeta {
     /// `None` takes `coordinator::DIGEST_INTERVAL_MS`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest_interval_ms: Option<u64>,
+    /// The turn the turn cap's notice went into (`hub/turn_cap.rs`), kept so a turn a restart
+    /// adopts gets no second one. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_noticed: Option<String>,
 }
 
 /// Where a session sits in the tree of sessions that started each other

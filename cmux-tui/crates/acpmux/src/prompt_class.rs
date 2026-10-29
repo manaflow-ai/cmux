@@ -7,10 +7,10 @@
 //! - `fyi`: information the receiver may read at its leisure.
 //!
 //! Only another agent's message has a class (`hub/digest.rs` `agent_sender`): one sent with
-//! none counts as `result`, and so does a lane's report (`hub/lane_reports.rs`). The person's
-//! own prompt has none, whatever it says. The class is stored on the queued prompt (its `queued`
-//! record, so a restart keeps it) and shown in each queue row as `class`; an edit
-//! (`_acpmux/queue_edit`) makes the prompt the person's, so it drops it.
+//! none counts as `result`, and so do a lane's report (`hub/lane_reports.rs`) and its task result
+//! card (`hub/tasks.rs`). The person's own prompt has none, whatever it says. The class is stored
+//! on the queued prompt (its `queued` record, so a restart keeps it) and shown in each queue row
+//! as `class`; an edit (`_acpmux/queue_edit`) makes the prompt the person's, so it drops it.
 //!
 //! A coordinator session reads it to decide which messages wake it (block, question) and which
 //! wait for its next turn's inbox digest (result, fyi).

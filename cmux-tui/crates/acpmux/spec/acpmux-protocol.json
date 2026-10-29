@@ -409,12 +409,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/inbox_digest",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/send_queue",
       "params": true,
       "result": true
@@ -943,12 +937,6 @@
     {
       "kind": "request",
       "name": "_acpmux/set_turn_cap",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/set_coordinator",
       "params": true,
       "result": true
     },
@@ -3343,11 +3331,6 @@
           },
           "type": "array"
         },
-        "inbox": {
-          "default": false,
-          "description": "Waits in a coordinator's inbox for its digest (`hub/coordinator.rs`): another agent's\nmessage that takes no turn by itself. False from a peer on an older acpmux.",
-          "type": "boolean"
-        },
         "prompt": {
           "type": "string"
         },
@@ -3370,7 +3353,6 @@
         "fromAgent",
         "held",
         "images",
-        "inbox",
         "prompt",
         "promptId",
         "queuedAt",
@@ -4713,12 +4695,36 @@
             "null"
           ]
         },
+        "excludeStatus": {
+          "description": "`_acpmux/sessions` only: exclude these statuses before pagination.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "limit": {
           "description": "Page size, at least 1. Without it the reply is the whole list.",
           "format": "uint64",
           "minimum": 1,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "localOnly": {
+          "description": "`_acpmux/sessions` only: exclude peer sessions before pagination.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "orderBy": {
+          "description": "`_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.",
+          "type": [
+            "string",
             "null"
           ]
         },

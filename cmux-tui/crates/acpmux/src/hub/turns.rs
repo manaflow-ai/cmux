@@ -259,12 +259,21 @@ impl Hub {
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        // Another agent's message queued as the running turn crosses its cap still gets the
+        // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        let from_agent =
+            super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
+                && !opts.send_now;
         let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
+                let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
+                if queued && from_agent {
+                    self.turn_cap_recheck(session);
+                }
             }
         };
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
@@ -275,32 +284,26 @@ impl Hub {
         };
         let text = prompt_text(&blocks);
         let running = session.turn();
-        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // Another agent's message to a coordinator waits in its inbox for the digest, never
-        // steering in or stopping a turn by itself (`coordinator.rs`).
-        // Read again under the queue's lock when it is queued (`enqueue`), so a setting changed
+        // steering in or stopping a turn by itself (`coordinator.rs`). Read again after the await
+        // below, and under the queue's lock when it is queued (`enqueue`), so a setting changed
         // meanwhile decides it.
-        let may_wait_in_inbox = !opts.released
-            && super::coordinator::is_inbox_item(true, agent.is_some(), opts.provenance.as_ref());
+        let may_wait_in_inbox = super::coordinator::may_wait_in_inbox(&opts);
         let inbox = may_wait_in_inbox && session.is_coordinator();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let capped = running.is_some() && self.turn_cap_holds(session, agent.is_some());
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         let steer_now = steer
             && !inbox
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped;
         if steer && opts.steer_only && !steer_now {
-            let why = if inbox {
-                "steer.unavailable: this session is a coordinator; other agents' messages wait for its inbox digest"
-            } else if capped {
-                "steer.unavailable: the running turn is past its turn cap; other agents' messages wait for its next turn"
-            } else {
-                "steer.unavailable: the session has no running turn that its agent can steer"
-            };
-            return Err(RpcError::invalid_params(why)
-                .with_data(json!({"reason": "steer.unavailable", "turnCap": capped})));
+            if inbox {
+                return Err(super::coordinator::steer_unavailable());
+            }
+            return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
             self.cold_prompt_check(session).await?;
@@ -312,17 +315,19 @@ impl Hub {
         // after all, and waits in the queue (`enqueue` reads the setting again).
         let steer_now = steer_now && !(may_wait_in_inbox && session.is_coordinator());
         if steer && opts.steer_only && !steer_now {
-            return Err(RpcError::invalid_params(
-                "steer.unavailable: this session is a coordinator; other agents' messages wait for its inbox digest",
-            )
-            .with_data(json!({"reason": "steer.unavailable", "turnCap": false})));
+            return Err(super::coordinator::steer_unavailable());
         }
+        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
-            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
+            // Boxed: the steer's future stays out of this one, which every prompt's caller holds
+            // on its stack (a debug build's test thread has little room).
+            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                .await;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -337,7 +342,10 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt && !(may_wait_in_inbox && session.is_coordinator()),
+            // Held past the cap, or in a coordinator's inbox, it waits: it stops no turn.
+            interrupt: opts.interrupt
+                && !capped
+                && !(may_wait_in_inbox && session.is_coordinator()),
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -512,13 +520,15 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
-        let mut started = self.child_for_since(session, stops).await;
+        // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
+        // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
+        let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
-            && self.back_from_fallback(session, e, &turn_id).await
+            && Box::pin(self.back_from_fallback(session, e, &turn_id)).await
         {
-            started = self.child_for_since(session, stops).await;
+            started = Box::pin(self.child_for_since(session, stops)).await;
         }
         let started = match started {
             Ok(child) => session
@@ -668,6 +678,7 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
+            false,
             fence.as_ref(),
             confirm_team_write,
             || {
@@ -702,7 +713,7 @@ impl Hub {
             // Its route cannot start (a local router that is down): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
-                && let Some(why) = self.route_refusal(&session.meta(), to).await
+                && let Some(why) = Box::pin(self.route_refusal(&session.meta(), to)).await
             {
                 unstartable = Some((to.clone(), why.message));
                 target = None;
@@ -739,7 +750,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for_since(session, stops).await;
+                let fallback = Box::pin(self.child_for_since(session, stops)).await;
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
@@ -812,6 +823,7 @@ impl Hub {
                                         &child2,
                                         json!({"sessionId": sid2, "prompt": wire}),
                                         &turn_id,
+                                        false,
                                         false,
                                         fence.as_ref(),
                                         confirm_team_write,

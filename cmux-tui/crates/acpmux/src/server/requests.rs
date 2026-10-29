@@ -687,14 +687,26 @@ async fn dispatch_request(
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
         method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
-        method::MUX_RESOLVE => hub.locate(
-            str_param(&params, "query")
-                .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-            params.get("bead").and_then(Value::as_bool) == Some(true),
-            // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-            // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-            conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer,
-        ),
+        method::MUX_RESOLVE => {
+            let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
+            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
+                hub.locate_exact(
+                    str_param(&params, "sessionId")
+                        .or_else(|| str_param(&params, "query"))
+                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
+                    names_hosts,
+                )
+            } else {
+                hub.locate(
+                    str_param(&params, "query")
+                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
+                    params.get("bead").and_then(Value::as_bool) == Some(true),
+                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
+                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
+                    names_hosts,
+                )
+            }
+        }
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
@@ -1276,7 +1288,6 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 class,
-                released: false,
                 after_turn: None,
                 supersede,
                 display_parts: {
@@ -1300,6 +1311,7 @@ async fn dispatch_request(
                 },
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
                 no_queue: false,
+                send_now: false,
             };
             let agent_message = opts.provenance.is_some() && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -1821,7 +1833,9 @@ async fn dispatch_request(
             if let Some(value) = params.get("turnCapMs") {
                 // The person's: the app, or the local socket with no agent behind it. A
                 // session's agent never lifts a cap, its own or another's.
-                if !conn.is_person() && (conn.origin != Origin::Local || conn.caller().is_some()) {
+                // A caller token this daemon does not know is an agent's all the same.
+                let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+                if !conn.is_person() && (conn.origin != Origin::Local || agent) {
                     return Err(crate::hub::person::person_required(
                         "changing a session's turn cap",
                     ));
@@ -1847,7 +1861,9 @@ async fn dispatch_request(
             if keys.iter().any(|k| params.get(*k).is_some()) {
                 // The person's, as the turn cap is: a session's agent never makes a chat a
                 // coordinator or stops it being one, its own or another's.
-                if !conn.is_person() && (conn.origin != Origin::Local || conn.caller().is_some()) {
+                // A caller token this daemon does not know is an agent's all the same.
+                let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+                if !conn.is_person() && (conn.origin != Origin::Local || agent) {
                     return Err(crate::hub::person::person_required(
                         "changing whether a session is a coordinator",
                     ));
