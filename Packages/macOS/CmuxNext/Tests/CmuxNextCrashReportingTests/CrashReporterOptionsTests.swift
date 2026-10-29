@@ -4,27 +4,30 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-076: Sentry adds no idle wakeup and no instrumentation the app does not use. Its app-hang
-/// tracker (a thread that posts to the main queue every 1.6 s) is off once the fatal-hang record reports the hang the
-/// app does not survive (feature `fatalHangReports`, p09-observability-110), and every option the short-lived CLI
-/// turns off (`CLISentryRuntimePolicy`) is off here too or kept for a named reason.
+/// Sentry adds no idle wakeup and no instrumentation the app does not use. Its
+/// app-hang tracker (a thread that posts to the main queue every 1.6 s) is off wherever the main-thread watchdog is
+/// the process's one hang watcher (its episodes are the app hangs, `AppHangReporter`), and every option the
+/// short-lived CLI turns off (`CLISentryRuntimePolicy`) is off here too or kept for a named reason.
 @Suite struct CrashReporterOptionsTests {
-    @Test func theFatalHangRecordTurnsSentrysAppHangTrackerOff() {
+    @Test func theWatchdogTurnsSentrysAppHangTrackerOff() {
         let options = Self.reporter(.watchdog).options()
         #expect(!options.enableAppHangTracking, "SentryANRTrackerV1 would wake the main queue every 1.6 s")
         #expect(options.enableCrashHandler)
         #expect(options.enableUncaughtNSExceptionReporting)
     }
 
-    @Test func withoutTheFatalHangRecordSentryStillReportsHangsAtEightSeconds() {
+    @Test func withoutAWatchdogSentryStillReportsHangsAtEightSeconds() {
         let options = Self.reporter(.sentry).options()
         #expect(options.enableAppHangTracking)
         #expect(options.appHangTimeoutInterval == 8.0)
     }
 
-    @Test func theLaunchChoiceFollowsTheFatalHangRecord() {
-        #expect(CrashReporter.HangTracking(fatalHangRecordOn: true) == .watchdog)
-        #expect(CrashReporter.HangTracking(fatalHangRecordOn: false) == .sentry)
+    @Test func theWatchdogsAppHangThresholdIsTheSDKsFormerTimeout() {
+        #expect(CrashReporter.appHangThreshold == .seconds(8))
+        #expect(Self.reporter(.sentry).options().appHangTimeoutInterval == 8.0)
+    }
+
+    @Test func theReporterKeepsItsHangTracking() {
         #expect(Self.reporter(.watchdog).hangTracking == .watchdog)
         #expect(CrashReporter(policy: Self.policy).hangTracking == .sentry, "the default keeps Sentry's tracker")
     }

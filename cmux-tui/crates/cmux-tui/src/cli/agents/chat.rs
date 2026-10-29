@@ -25,6 +25,7 @@ use serde_json::{Map, Value, json};
 use super::super::agent_message::{self, Body, MessagePlan};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError, wire};
+use crate::cli::json_fields::JsonFields;
 
 /// Items one read returns by default and at most.
 pub(in crate::cli) const DEFAULT_READ_LIMIT: usize = 50;
@@ -76,10 +77,10 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             let mut after = 0;
             let mut limit = DEFAULT_READ_LIMIT;
             let mut index = 0;
-            while index < rest.len() {
-                let (flag, inline) = match rest[index].split_once('=') {
+            while let Some(&arg) = rest.get(index) {
+                let (flag, inline) = match arg.split_once('=') {
                     Some((flag, value)) => (flag, Some(value)),
-                    None => (rest[index], None),
+                    None => (arg, None),
                 };
                 let value = match inline {
                     Some(value) => value,
@@ -188,11 +189,12 @@ fn workspace_key(value: &str) -> String {
 fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFailure> {
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    Ok(snapshot["workspaces"]
+    Ok(snapshot
+        .field("workspaces")
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|workspace| workspace["extra"]["key"].as_str())
+        .filter_map(|workspace| workspace.field("extra").field("key").as_str())
         .map(workspace_key)
         .collect())
 }
@@ -254,28 +256,30 @@ fn send(
             };
             CallFailure { kind, error, idempotency_key: Some(key.clone()) }
         })?;
-    let delivery = sent.message["deliveries"]
+    let delivery = sent
+        .message
+        .field("deliveries")
         .as_array()
         .into_iter()
         .flatten()
         .find(|delivery| delivery["recipient"] == recipient.as_str());
     let mut result = json!({
         "chat": chat,
-        "message_id": sent.message["id"],
+        "message_id": sent.message.field("id"),
         "state": delivery.map_or(Value::Null, |delivery| delivery["state"].clone()),
     });
     if let Some(reason) =
         delivery.and_then(|delivery| delivery.get("reason")).filter(|r| !r.is_null())
     {
-        result["reason"] = reason.clone();
+        result.insert("reason", reason.clone());
     }
     // Stored but not handed to the chat: the receipt says so, and the CLI
     // and the tool report it as an error (`delivery_failed`).
     if sent.failed {
-        result["state"] = json!("failed");
+        result.insert("state", json!("failed"));
     }
     if !sent.problems.is_empty() {
-        result["problems"] = json!(sent.problems);
+        result.insert("problems", json!(sent.problems));
     }
     Ok(json!({
         "schema_version": 1,
@@ -289,7 +293,7 @@ fn send(
 /// Whether a `chat.send` receipt reports a message that was stored but
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
-    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
+    receipt["action"] == "chat.send" && receipt.field("result").field("state") == "failed"
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
@@ -316,12 +320,12 @@ fn load(
     let mut more = true;
     for _ in 0..MAX_EVENT_PAGES {
         let page = events(cursor)?;
-        let events = page["events"].as_array().cloned().unwrap_or_default();
+        let events = page.field("events").as_array().cloned().unwrap_or_default();
         for event in &events {
             transcript.apply(event);
             cursor = cursor.max(event["seq"].as_u64().unwrap_or(cursor));
         }
-        more = page["hasMore"] == true && !events.is_empty();
+        more = page.field("hasMore") == true && !events.is_empty();
         let ready = transcript.items.iter().filter(|item| item.id > after).count();
         let full = ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES;
         // A tool call the read returns holds `next_after` until its turn
@@ -352,12 +356,11 @@ impl Item {
         value.insert("id".into(), json!(self.id));
         value.insert("role".into(), json!(self.role));
         let text = visible_text(&self.text, partial);
-        let mut end = text.len().min(MAX_ITEM_TEXT_BYTES);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        value.insert("text".into(), json!(&text[..end]));
-        if end < text.len() {
+        let (shown, cut) = text
+            .split_at_checked(text.floor_char_boundary(MAX_ITEM_TEXT_BYTES))
+            .unwrap_or((text.as_str(), ""));
+        value.insert("text".into(), json!(shown));
+        if !cut.is_empty() {
             value.insert("truncated".into(), json!(true));
         }
         value.extend(self.extra.clone());
@@ -379,8 +382,7 @@ fn visible_text(text: &str, partial: bool) -> String {
     if !partial {
         return masked;
     }
-    let end = masked.rfind(char::is_whitespace).unwrap_or(0);
-    masked[..end].to_owned()
+    masked.rsplit_once(char::is_whitespace).map_or("", |(head, _)| head).to_owned()
 }
 
 /// A chat's acpmux events as plain items: the person's or another agent's
@@ -414,7 +416,7 @@ impl Transcript {
                     }
                     // Only another agent's message; the hub's own prompts
                     // (`auto_resume`, `offer_result`) carry provenance too.
-                    let provenance = &msg["_meta"]["provenance"];
+                    let provenance = &msg.field("_meta").field("provenance");
                     if provenance["kind"] == "agent_message" {
                         extra.insert("origin".into(), json!("agent_message"));
                         for (from, to) in
@@ -451,11 +453,18 @@ impl Transcript {
             Some("in") if !kind.ends_with(".replay") && msg["method"] == "session/update" => {
                 // A subagent's words (`_meta.acpmux.subagent`) are its own, never the chat's answer.
                 let words = matches!(
-                    msg["params"]["update"]["sessionUpdate"].as_str(),
+                    msg.field("params").field("update").field("sessionUpdate").as_str(),
                     Some("agent_message_chunk" | "agent_thought_chunk")
                 );
-                if !words || msg["params"]["_meta"]["acpmux"]["subagent"].is_null() {
-                    self.apply_update(seq, &msg["params"]["update"]);
+                if !words
+                    || msg
+                        .field("params")
+                        .field("_meta")
+                        .field("acpmux")
+                        .field("subagent")
+                        .is_null()
+                {
+                    self.apply_update(seq, msg.field("params").field("update"));
                 }
             }
             _ => {}
@@ -465,11 +474,11 @@ impl Transcript {
     fn apply_update(&mut self, seq: u64, update: &Value) {
         match update["sessionUpdate"].as_str().unwrap_or_default() {
             "agent_message_chunk" => {
-                let text = update["content"]["text"].as_str().unwrap_or_default();
-                match self.open_text {
-                    Some(index) => {
+                let text = update.field("content").field("text").as_str().unwrap_or_default();
+                match self.open_text.and_then(|index| self.items.get_mut(index)) {
+                    Some(item) => {
                         self.text_bytes += text.len();
-                        self.items[index].text.push_str(text);
+                        item.text.push_str(text);
                     }
                     None => {
                         self.push(seq, "assistant", text.to_owned(), Map::new());
@@ -491,10 +500,14 @@ impl Transcript {
             }
             "tool_call_update" => {
                 let id = update["toolCallId"].as_str().unwrap_or_default();
-                let Some(&index) = self.tools.get(id) else { return };
-                let item = &mut self.items[index];
-                if let Some(status) = update["status"].as_str() {
-                    item.extra["tool"]["status"] = json!(status);
+                let Some(item) = self.tools.get(id).and_then(|&index| self.items.get_mut(index))
+                else {
+                    return;
+                };
+                if let Some(status) = update["status"].as_str()
+                    && let Some(tool) = item.extra.get_mut("tool")
+                {
+                    tool.insert("status", json!(status));
                 }
             }
             _ => {}
@@ -513,13 +526,17 @@ impl Transcript {
     /// Whether item `index` is finished: an answer once another item
     /// follows it, a tool call once it completed or failed, or once its turn
     /// ended (a stopped turn, or a harness that never sent the last update).
-    fn complete(&self, index: usize) -> bool {
-        let item = &self.items[index];
+    fn complete(&self, index: usize, item: &Item) -> bool {
         match item.role {
             "assistant" => self.open_text != Some(index),
             "tool" => {
-                matches!(item.extra["tool"]["status"].as_str(), Some("completed" | "failed"))
-                    || self.last_turn_end.is_some_and(|end| end > index)
+                matches!(
+                    item.extra
+                        .get("tool")
+                        .and_then(|tool| tool.get("status"))
+                        .and_then(Value::as_str),
+                    Some("completed" | "failed")
+                ) || self.last_turn_end.is_some_and(|end| end > index)
             }
             _ => true,
         }
@@ -531,22 +548,22 @@ impl Transcript {
     fn held_on_tool(&self, after: u64, limit: usize) -> bool {
         self.returned(after, limit)
             .into_iter()
-            .any(|index| self.items[index].role == "tool" && !self.complete(index))
+            .any(|(index, item)| item.role == "tool" && !self.complete(index, item))
     }
 
     /// The indices of the items a read after `after` returns: at most
     /// `limit`, and no more once they pass `MAX_READ_TEXT_BYTES`. Counted
     /// as JSON, escapes included, so the page stays under the MCP result cap
     /// and `fit` never drops items `next_after` passed.
-    fn returned(&self, after: u64, limit: usize) -> Vec<usize> {
+    fn returned(&self, after: u64, limit: usize) -> Vec<(usize, &Item)> {
         let mut indices = Vec::new();
         let mut bytes = 0;
         for (index, item) in self.items.iter().enumerate().filter(|(_, item)| item.id > after) {
             if indices.len() == limit || (!indices.is_empty() && bytes > MAX_READ_TEXT_BYTES) {
                 break;
             }
-            bytes += item.json(!self.complete(index)).to_string().len();
-            indices.push(index);
+            bytes += item.json(!self.complete(index, item)).to_string().len();
+            indices.push((index, item));
         }
         indices
     }
@@ -562,9 +579,8 @@ impl Transcript {
         let mut items = Vec::new();
         let mut next_after = after;
         let mut settled = true;
-        for &index in &returned {
-            let item = &self.items[index];
-            let complete = self.complete(index);
+        for &(index, item) in &returned {
+            let complete = self.complete(index, item);
             settled &= complete;
             if settled {
                 next_after = item.id;

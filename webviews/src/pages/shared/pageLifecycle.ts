@@ -9,7 +9,7 @@
 // for a page whose engine page is closed (WebKit, or Chromium on an older fork). The host gives it back
 // through sessionStorage before the page's scripts run, so `readPageState` is the one way back.
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 /** The `window.webkit.messageHandlers` name the host takes the state on (PageWebView.pageStateHandler). */
 export const PAGE_STATE_HANDLER = "cmuxPageState";
@@ -120,10 +120,9 @@ export function readPageState<T>(host: PageStateHost = windowPageStateHost()): T
 // standard `freeze` and, on thaw, `resume` (Chromium dispatches both from
 // third_party/blink/renderer/core/page/page.cc SetPageFrozen, per the Page Lifecycle API; WebKit has
 // no freeze event and stays hidden). There is no cmux lifecycle stream. Native guarantees the order:
-// hidden before freeze, resume before visible.
-//
-// A parked (pooled or preloaded) document counts as hidden until the host claims it, so a page that
-// loads visible off screen to paint its cover starts no timer before anyone can see it.
+// hidden before freeze, resume before visible. The engine is the one source of truth: a parked or
+// preloaded page is hidden when native hides its view, as a background or
+// prerendered Chrome page reads `visibilityState` "hidden" from its renderer.
 //
 // Timers and animation loops go through `startPageInterval` / `startPageAnimationFrame` (or their
 // hooks): they run only while the page is active and start nothing while it is hidden or frozen.
@@ -140,13 +139,6 @@ export interface LifecycleDocument {
   removeEventListener(type: string, listener: () => void): void;
 }
 
-/**
- * Set to `true` by the host before page code runs when the document loads in a parked pooled host
- * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the page
- * client holds every call and subscription until the host claims the document for a page.
- */
-export const PARKED_NAME = "__cmuxPageParked";
-
 /** The document events that change the state. */
 const EVENTS = ["visibilitychange", "freeze", "resume"] as const;
 
@@ -156,15 +148,11 @@ const EVENTS = ["visibilitychange", "freeze", "resume"] as const;
  */
 export class PageLifecycle {
   private frozen = false;
-  private parked: boolean;
   private current: PageLifecycleState;
-  private readonly listeners = new Set<(state: PageLifecycleState) => void>();
+  /** One entry per `observe` call, so the same function observed twice is two subscriptions. */
+  private readonly subscriptions = new Set<{ readonly listener: (state: PageLifecycleState) => void }>();
 
-  constructor(
-    private readonly doc: LifecycleDocument | undefined,
-    parked = false,
-  ) {
-    this.parked = parked;
+  constructor(private readonly doc: LifecycleDocument | undefined) {
     this.current = this.compute();
   }
 
@@ -175,27 +163,21 @@ export class PageLifecycle {
 
   /** Calls `listener` on each change of state; returns the unsubscribe function. */
   observe(listener: (state: PageLifecycleState) => void): () => void {
-    if (this.listeners.size === 0) {
+    if (this.subscriptions.size === 0) {
       this.current = this.compute();
       for (const type of EVENTS) this.doc?.addEventListener(type, this.changed);
     }
-    this.listeners.add(listener);
+    const subscription = { listener };
+    this.subscriptions.add(subscription);
     return () => {
-      if (!this.listeners.delete(listener) || this.listeners.size > 0) return;
+      if (!this.subscriptions.delete(subscription) || this.subscriptions.size > 0) return;
       for (const type of EVENTS) this.doc?.removeEventListener(type, this.changed);
     };
   }
 
-  /** The host claimed this parked document (pageClient.ts CLAIM_OP). */
-  claimed(): void {
-    if (!this.parked) return;
-    this.parked = false;
-    this.changed();
-  }
-
   private compute(): PageLifecycleState {
     if (this.frozen) return "frozen";
-    if (this.parked || this.doc?.visibilityState === "hidden") return "hidden";
+    if (this.doc?.visibilityState === "hidden") return "hidden";
     return "active";
   }
 
@@ -206,7 +188,7 @@ export class PageLifecycle {
     const next = this.compute();
     if (next === this.current) return;
     this.current = next;
-    for (const listener of this.listeners) listener(next);
+    for (const subscription of this.subscriptions) subscription.listener(next);
   };
 }
 
@@ -221,7 +203,7 @@ export function pageLifecycleFor(
   const key = doc ?? target;
   let lifecycle = lifecycles.get(key);
   if (!lifecycle) {
-    lifecycle = new PageLifecycle(doc, target[PARKED_NAME] === true);
+    lifecycle = new PageLifecycle(doc);
     lifecycles.set(key, lifecycle);
   }
   return lifecycle;
@@ -264,7 +246,8 @@ export interface PageIntervalOptions {
   timers?: PageTimers;
   /**
    * Ticks once when the page shows again after a hide, for a clock whose text computes from a start
-   * time. Never for a read: showing a page makes no fetch.
+   * time. Never for a read: showing a page makes no fetch (in the agent pane,
+   * check-switch-fetches.py counts it as a `visibilitychange` listener).
    */
   catchUpOnShow?: boolean;
 }
@@ -343,14 +326,18 @@ export function startPageAnimationFrame(
   return stop;
 }
 
-/** The page's lifecycle state, re-rendering on each change. */
+/**
+ * The page's lifecycle state, re-rendering on each change. In the agent pane this counts as a
+ * `visibilitychange` listener (scripts/cmux-next/check-switch-fetches.py): no read may key on it.
+ */
 export function usePageLifecycle(lifecycle: PageLifecycle = pageLifecycleFor()): PageLifecycleState {
-  return useSyncExternalStore(
-    (notify) => lifecycle.observe(notify),
-    () => lifecycle.state(),
-    () => "active",
-  );
+  // Stable per lifecycle: a new `subscribe` makes React unsubscribe and subscribe again each render.
+  const subscribe = useCallback((notify: () => void) => lifecycle.observe(notify), [lifecycle]);
+  const snapshot = useCallback(() => lifecycle.state(), [lifecycle]);
+  return useSyncExternalStore(subscribe, snapshot, serverSnapshot);
 }
+
+const serverSnapshot = (): PageLifecycleState => "active";
 
 /** `startPageInterval` for a component: `ms` null stops it. The latest `callback` runs. */
 export function usePageInterval(callback: () => void, ms: number | null, options: PageIntervalOptions = {}): void {

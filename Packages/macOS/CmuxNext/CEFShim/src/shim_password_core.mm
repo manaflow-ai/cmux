@@ -6,8 +6,8 @@
 // logs a value. Save and update prompts (API 20, passwords.md 1.1) go to the
 // host's prompt bar: the event carries the origin and username, never the
 // password, which stays inside Chromium from the form to the store. A field's
-// password, address and autocomplete suggestions (fork API 31, tasks
-// p01-process-172 and 061) go to the app as SUGGESTIONS events with the
+// password, address and autocomplete suggestions (fork API 31)
+// go to the app as SUGGESTIONS events with the
 // rows' texts as Chromium shows them (a password row: its username and
 // dots), never a password; Chromium fills the form itself on ACCEPT.
 

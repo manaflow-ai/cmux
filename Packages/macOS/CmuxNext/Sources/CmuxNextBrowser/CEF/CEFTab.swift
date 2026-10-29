@@ -83,8 +83,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
-    /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
-    /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
+    /// move it to another renderer), a frame's renderer came or went (FRAME_RENDERERS) or its renderer ended
+    /// (``publishRenderers(as:into:while:)``). In process only: with the Chromium Host on, those
+    /// shim calls are wire replies.
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
     /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
     @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
@@ -172,6 +173,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored var isDiscardedInPlace = false
     /// The visibility tree node Chromium hears for this tab, and its freeze (`CEFTab+Visibility`).
     @ObservationIgnored let nodeVisibility = CEFTabNodeVisibility()
+    @ObservationIgnored var rendererHang = CEFRendererHang()  // a hang held while the tab is hidden
+    @ObservationIgnored var rendererHangWindowWatch = CEFRendererHangWindowWatch()  // the shown tab's window, for the hang rules
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -412,13 +415,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         return .load(url)
     }
 
-    /// Answers "Page unresponsive": wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
-    public func answerUnresponsivePage(terminate: Bool) {
-        guard state.isUnresponsive else { return }
-        if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }
-        if !terminate { machine.apply(.unresponsiveChanged(false)) }
-    }
-
     public func stop() {
         clearTitleBeforeCommit()
         browserID.map { runtime.shim?.stop($0) }
@@ -446,6 +442,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
+        rendererHangVisibilityChanged()
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host

@@ -68,7 +68,7 @@ final class FeedPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) { hosts[key] = nil }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). The view
     /// shows the one feed model, which stays with its drafts, so the next view shows the same items.

@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import CmuxNextCompat
 
 /// A small read-write SQLite handle for history stores. Not thread safe:
 /// one actor owns each instance.
@@ -27,9 +28,9 @@ nonisolated final class HistorySQLite {
             path = ":memory:"
         }
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
-        guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
+        guard blockingSQLiteOpen(path, &handle, flags, nil) == SQLITE_OK else {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
-            sqlite3_close(handle)
+            blockingSQLiteClose(handle)
             handle = nil
             throw Failure.open(message)
         }
@@ -37,11 +38,11 @@ nonisolated final class HistorySQLite {
     }
 
     deinit {
-        sqlite3_close(handle)
+        blockingSQLiteClose(handle)
     }
 
     func execute(_ sql: String) throws {
-        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+        guard blockingSQLiteExec(handle, sql) == SQLITE_OK else {
             throw Failure.statement(String(cString: sqlite3_errmsg(handle)))
         }
     }
@@ -49,7 +50,7 @@ nonisolated final class HistorySQLite {
     /// Runs one statement with `bindings`; `row` sees each result row.
     func run(_ sql: String, _ bindings: [Value] = [], row: ((Row) -> Void)? = nil) throws {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        guard blockingSQLitePrepare(handle, sql, -1, &statement, nil) == SQLITE_OK else {
             throw Failure.statement(String(cString: sqlite3_errmsg(handle)))
         }
         defer { sqlite3_finalize(statement) }
@@ -63,7 +64,7 @@ nonisolated final class HistorySQLite {
             }
         }
         while true { // wakeup-allow: bounded by the result set; ends at SQLITE_DONE
-            let step = sqlite3_step(statement)
+            let step = blockingSQLiteStep(statement)
             if step == SQLITE_DONE { return }
             guard step == SQLITE_ROW else { throw Failure.statement(String(cString: sqlite3_errmsg(handle))) }
             row?(Row(statement: statement))

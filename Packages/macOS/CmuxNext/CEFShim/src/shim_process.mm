@@ -380,12 +380,18 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_popup_menu_reply, "cmux_browser_popup_menu_reply");
   CMUX_BIND(browser_set_suggestion_handler, "cmux_browser_set_suggestion_handler");
   CMUX_BIND(browser_suggestion_action, "cmux_browser_suggestion_action");
+  CMUX_BIND(browser_ime_set_composition, "cmux_browser_ime_set_composition");
+  CMUX_BIND(browser_ime_commit_text, "cmux_browser_ime_commit_text");
+  CMUX_BIND(browser_ime_finish_composing, "cmux_browser_ime_finish_composing");
+  CMUX_BIND(browser_ime_cancel, "cmux_browser_ime_cancel");
+  CMUX_BIND(browser_composition_bounds_watch, "cmux_browser_composition_bounds_watch");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
   CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
   CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
   CMUX_BIND(flush_back_forward_cache, "cmux_flush_back_forward_cache");
+  CMUX_BIND(set_message_loop_time_slice, "cmux_set_message_loop_time_slice");
 #undef CMUX_BIND
 }
 
@@ -528,6 +534,14 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
 
 void cmux_shim_do_work(void) {
   CefDoMessageLoopWork();
+}
+
+int cmux_shim_set_pump_time_slice(int64_t slice_us) {
+  if (!fork_api().set_message_loop_time_slice) {
+    return 0;
+  }
+  fork_api().set_message_loop_time_slice(slice_us);
+  return 1;
 }
 
 void cmux_shim_close_all(void) {

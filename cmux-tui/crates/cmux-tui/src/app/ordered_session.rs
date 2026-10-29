@@ -22,7 +22,7 @@ use crate::app::{
 };
 use crate::pty_input::PtyInputSender;
 use crate::session::{
-    AgentInfo, AmbiguousCreation, Session, SurfaceHandle, SurfaceSizeState, TreeView,
+    AgentInfo, AmbiguousCreation, ClientInfo, Session, SurfaceHandle, SurfaceSizeState, TreeView,
 };
 
 mod attach;
@@ -240,39 +240,53 @@ impl OrderedSession {
     pub(super) fn refresh_machine_usage_background(&self) {
         let session = self.inner.clone();
         let events = self.events.clone();
-        let spawn =
-            std::thread::Builder::new().name("machine-usage-refresh".into()).spawn(move || {
-                match session.machine_usage() {
-                    Ok(usage) => {
-                        let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
-                    }
-                    Err(error) => {
-                        crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
-                    }
+        // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
+        let spawn = cmux_threads::spawn(
+            "machine-usage-refresh",
+            cmux_threads::ThreadQos::Utility,
+            move || match session.machine_usage() {
+                Ok(usage) => {
+                    let _ = events.send(AppEvent::Mux(MuxEvent::MachineUsageChanged(usage)));
                 }
-            });
+                Err(error) => {
+                    crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
+                }
+            },
+        );
         if let Err(error) = spawn {
             crate::client_log::log("DEBUG", "machine-usage", &error.to_string());
         }
     }
 
     pub(super) fn refresh_clients_background(&self) {
+        let session = self.inner.clone();
+        self.refresh_clients_with(move || session.clients().map_err(|error| error.to_string()));
+    }
+
+    /// [`Self::refresh_clients_background`] with the list read by `fetch`.
+    pub(super) fn refresh_clients_with(
+        &self,
+        mut fetch: impl FnMut() -> Result<Vec<ClientInfo>, String> + Send + 'static,
+    ) {
         self.client_refresh_generation.fetch_add(1, Ordering::AcqRel);
         self.client_refresh_dirty.store(true, Ordering::Release);
         if self.client_refresh_queued.swap(true, Ordering::AcqRel) {
             return;
         }
-        let session = self.inner.clone();
         let events = self.events.clone();
         let queued = self.client_refresh_queued.clone();
         let dirty = self.client_refresh_dirty.clone();
         let generation = self.client_refresh_generation.clone();
-        let spawn =
-            std::thread::Builder::new().name("client-list-refresh".into()).spawn(move || {
+        // supervise-allow: one background refresh request; a panic ends that refresh only and the next change event refreshes again.
+        let spawn = cmux_threads::spawn(
+            "client-list-refresh",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let _release = ReleaseClaimOnPanic(queued.clone());
                 loop {
                     dirty.store(false, Ordering::Release);
                     let request_generation = generation.load(Ordering::Acquire);
-                    let result = session.clients().map_err(|error| error.to_string());
+                    let result = fetch();
                     if request_generation != generation.load(Ordering::Acquire) {
                         continue;
                     }
@@ -294,7 +308,8 @@ impl OrderedSession {
                     }
                     break;
                 }
-            });
+            },
+        );
         if let Err(error) = spawn {
             self.client_refresh_queued.store(false, Ordering::Release);
             let generation = self.client_refresh_generation.load(Ordering::Acquire);
@@ -409,7 +424,12 @@ impl OrderedSession {
     pub(super) fn surface_is_ready_for_input(&self, id: SurfaceId) -> bool {
         // Remote attach caches its mirror before the initial VT state arrives.
         // The claim outlives that initialization, so cache presence alone is not readiness.
-        self.has_surface(id) && !self.surface_attach_claims.lock().unwrap().contains_key(&id)
+        self.has_surface(id)
+            && !self
+                .surface_attach_claims
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains_key(&id)
     }
 
     pub(super) fn has_surface_size_report(&self, id: SurfaceId) -> bool {
@@ -436,16 +456,29 @@ impl OrderedSession {
 
     pub(super) fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
-            let mut retired_surfaces = self.retired_surfaces.lock().unwrap();
-            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            let mut retired_surfaces =
+                self.retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut attach_claims = self
+                .surface_attach_claims
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             retired_surfaces.insert(id);
             if let Some(claim) = attach_claims.get_mut(&id) {
                 claim.retired = true;
             }
         }
-        self.surface_attach_failures.lock().unwrap().remove(&id);
-        self.surface_resize_failures.lock().unwrap().remove(&id);
-        self.surface_resize_ownership.lock().unwrap().remove(&id);
+        self.surface_attach_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&id);
+        self.surface_resize_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&id);
+        self.surface_resize_ownership
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&id);
         self.inner.forget_surface(id);
     }
 
@@ -456,14 +489,22 @@ impl OrderedSession {
     pub(super) fn clear_surface_sync_failures(&self) {
         self.surface_attach_failures
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .retain(|_, failure| failure.sticky_until_reconnect);
-        self.surface_resize_failures.lock().unwrap().clear();
+        self.surface_resize_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 
     pub(super) fn begin_shutdown(&self) {
-        self.ambiguous_creations.lock().unwrap().clear();
-        if let Some(executor) = self.remote_surface_attaches.lock().unwrap().as_ref() {
+        self.ambiguous_creations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        if let Some(executor) = self
+            .remote_surface_attaches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
             executor.shutdown();
         }
         self.inner.begin_shutdown();
@@ -477,5 +518,17 @@ impl OrderedSession {
     /// `None` for local sessions and deliberate local disconnects.
     pub(super) fn transport_disconnect_reason(&self) -> Option<String> {
         self.inner.transport_disconnect_reason()
+    }
+}
+
+/// Releases the client-list refresh claim when its thread unwinds, so the
+/// next change starts a refresh again; a normal end releases it in the loop.
+struct ReleaseClaimOnPanic(Arc<AtomicBool>);
+
+impl Drop for ReleaseClaimOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.store(false, Ordering::Release);
+        }
     }
 }

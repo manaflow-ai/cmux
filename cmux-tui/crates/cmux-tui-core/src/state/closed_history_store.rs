@@ -22,6 +22,7 @@ use super::closed_history_privacy as privacy;
 pub(crate) use super::closed_history_query::closed_items;
 use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
 use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
@@ -99,7 +100,7 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
             "id": closed_id,
             "kind": kind,
             "window": null,
-            "closed_at_ms": record["closed_at_ms"],
+            "closed_at_ms": record.field("closed_at_ms"),
             "members": [member_of(&record)],
         });
         transaction.execute(
@@ -230,7 +231,7 @@ pub(crate) fn drain_pending_changes(
                     super::placement_shift::merge(&mut shift, marker);
                     continue;
                 }
-                change["sequence"] = json!(array.len());
+                change.insert("sequence", json!(array.len()));
                 array.push(change);
             }
         }
@@ -288,9 +289,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         // works after the terminal's row is gone.
         let relaunch =
             crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
-        record["cwd"] = relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone());
-        record["relaunch"] = relaunch.unwrap_or(Value::Null);
-        record["terminal_id"] = json!(content_id);
+        record.insert(
+            "cwd",
+            relaunch.as_ref().map_or(Value::Null, |fields| fields.field("cwd").clone()),
+        );
+        record.insert("relaunch", relaunch.unwrap_or(Value::Null));
+        record.insert("terminal_id", json!(content_id));
     } else {
         let url = connection
             .query_row(
@@ -314,33 +318,36 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record["url"] = json!(privacy::strip_url(&url));
-                record["browser_profile_id"] = json!(profile);
-                record["engine"] = json!(engine);
+                record.insert("url", json!(privacy::strip_url(&url)));
+                record.insert("browser_profile_id", json!(profile));
+                record.insert("engine", json!(engine));
                 // Back/forward entries and scroll come back on reopen
                 // (cx-d0d.11); `closed.list` never shows them.
-                record["browser_history"] = connection
-                    .query_row(
-                        "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
-                        [&content_id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?
-                    .map_or(Value::Null, |history| privacy::strip_history(&history));
+                record.insert(
+                    "browser_history",
+                    connection
+                        .query_row(
+                            "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
+                            [&content_id],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()?
+                        .map_or(Value::Null, |history| privacy::strip_history(&history)),
+                );
             }
-            None => record["url"] = json!(url.map(|url| privacy::strip_url(&url))),
+            None => record.insert("url", json!(url.map(|url| privacy::strip_url(&url)))),
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =
             super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
         {
-            record["conversation"] = conversation;
+            record.insert("conversation", conversation);
         }
         // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
         if let Some(remote) =
             super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
         {
-            record["remote"] = remote;
+            record.insert("remote", remote);
         }
     }
     Ok(Some(record))
@@ -466,29 +473,32 @@ fn insert_record(
     });
     if let Some(Value::Object(extra)) = extra {
         for (key, value) in extra {
-            record[key] = value;
+            record.insert(&key, value);
         }
         // A deleted space with no workspace left to close is still a
         // workspace-level group: reopening it restores the space. An
         // ungrouped tab or screen group stays a tab- or screen-level one.
-        if record["members"].as_array().is_some_and(Vec::is_empty) {
-            record["kind"] = json!(if record.get("tab_group").is_some() {
-                "tab"
-            } else if record.get("screen_group").is_some() {
-                "screen"
-            } else {
-                "workspace"
-            });
+        if record.field("members").as_array().is_some_and(Vec::is_empty) {
+            record.insert(
+                "kind",
+                json!(if record.get("tab_group").is_some() {
+                    "tab"
+                } else if record.get("screen_group").is_some() {
+                    "screen"
+                } else {
+                    "workspace"
+                }),
+            );
         }
     }
-    let kind = record["kind"].as_str().unwrap_or("tab").to_string();
+    let kind = record.field("kind").as_str().unwrap_or("tab").to_string();
     transaction.execute(
         "INSERT INTO closed_groups(closed_id, kind, window_id, closed_at_ms, record_json)
          VALUES(?1, ?2, ?3, ?4, ?5)",
         params![
             closed_id,
             kind,
-            record["window"].as_str(),
+            record.field("window").as_str(),
             i64::try_from(closed_at_ms)?,
             serde_json::to_string(&record)?
         ],
@@ -823,7 +833,7 @@ pub(crate) fn capture_closed(
             .cmp(&(right["pane_id"].as_str(), right["index"].as_i64()))
     });
     for tab in tabs {
-        if let Some(workspace) = tab["workspace_id"].as_str().map(str::to_string) {
+        if let Some(workspace) = tab.field("workspace_id").as_str().map(str::to_string) {
             capture.note_window(transaction, &workspace)?;
         }
         capture.members.push(tab);
@@ -860,13 +870,19 @@ fn capture_screen(
     capture.note_window(transaction, &workspace_id)?;
     capture.members.push(json!({
         "kind": "screen",
-        "name": record["name"],
+        "name": record.field("name"),
         "workspace_id": workspace_id,
         "pane_id": null,
         "index": position,
         "screens": [record],
     }));
     Ok(())
+}
+
+/// The one tab of a tab member or tab record (`screens[0].tabs[0]`), Null
+/// when it has none, as the `Index` read was.
+pub(crate) fn member_tab(member: &Value) -> &Value {
+    member.pointer("/screens/0/tabs/0").unwrap_or(&Value::Null)
 }
 
 /// The member of one closing tab, unless its screen or workspace closes
@@ -903,7 +919,7 @@ pub(crate) fn tab_member(
         "kind": "tab",
         // The closed tab's id: a closed tab group names its tabs by it.
         "tab_id": tab_id,
-        "name": tab["name"],
+        "name": tab.field("name"),
         "workspace_id": workspace_id,
         "pane_id": pane_id,
         "index": position,
@@ -913,7 +929,7 @@ pub(crate) fn tab_member(
         && let Some(split) =
             super::closed_pane_split::pane_placement(transaction, &screen_id, &pane_id)?
     {
-        member["split"] = split;
+        member.insert("split", split);
     }
     Ok(Some(member))
 }

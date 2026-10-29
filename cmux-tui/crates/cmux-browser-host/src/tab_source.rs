@@ -11,6 +11,7 @@
 
 use crate::driver::{EventSink, Reply, RequestFilter};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use crate::provider::LeaseState;
 use serde_json::Value;
@@ -69,10 +70,10 @@ impl TabRow {
             "dataStore": self.data_store,
         });
         if let Some(opener) = &self.opener {
-            row["openerTargetId"] = Value::String(opener.clone());
+            row.insert("openerTargetId", Value::String(opener.clone()));
         }
         if self.incognito {
-            row["incognito"] = Value::Bool(true);
+            row.insert("incognito", Value::Bool(true));
         }
         row
     }

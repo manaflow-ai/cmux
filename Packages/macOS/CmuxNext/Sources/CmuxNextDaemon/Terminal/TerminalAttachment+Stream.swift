@@ -1,10 +1,10 @@
 import CmuxNextCompat
 public import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import os
 
-/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1, p05-ipc-095;
+/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1;
 /// cmux-tui/spec/events.md "Attach streams"). Chrome runs every interface of a renderer over one message pipe
 /// as associated endpoints: the side that associates one picks its id, the endpoint is bound before its first
 /// message can arrive, and closing it sends the peer a notification after its last message
@@ -18,11 +18,12 @@ extension TerminalAttachment {
 
     /// Attaches a view of `target` on `connection`: as a stream on its control transport when the connection
     /// streams terminals and its daemon granted that (``DaemonConnectionConfiguration/terminalStreams``), else on
-    /// a connection of its own to the same daemon (``attach(endpoint:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// a connection of its own to the same daemon (``attach(endpoint:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:keyStamps:)``).
     /// A streaming connection that is not ready (before its first connect, while it reconnects) is waited for
     /// (``TerminalStreamCarrier/route(for:within:)``), never left for a connection of its own.
     /// `clientName`, `device`, `hangs` and `inputQueue` are that own connection's; a stream uses the
-    /// control connection's. The returned channel behaves the same either way.
+    /// control connection's. `keyStamps` takes each key echo's daemon stages on either path.
+    /// The returned channel behaves the same either way.
     public static func attach(
         on connection: DaemonConnection,
         target: Target,
@@ -35,28 +36,29 @@ extension TerminalAttachment {
         device: TerminalSizingDevice? = nil,
         hangs: (any HangWatchScoping)? = nil,
         createIntent: UInt64 = 0,
-        inputQueue: DispatchQueue? = nil
+        inputQueue: DispatchQueue? = nil,
+        keyStamps: (any TerminalKeyStampSink)? = nil
     ) async throws -> TerminalAttachment {
         let endpoint: DaemonEndpoint
         switch try await TerminalStreamCarrier.route(for: connection) {
         case .stream(let carrier):
             return try await attachStream(on: carrier, target: target, size: size, claimGeometry: claimGeometry,
                                           snapshotVersion: snapshotVersion, localHistory: localHistory, images: images,
-                                          createIntent: createIntent)
+                                          createIntent: createIntent, keyStamps: keyStamps)
         case .ownConnection(let own):
             endpoint = own
         }
         return try await attach(endpoint: endpoint, target: target, size: size, claimGeometry: claimGeometry,
                                 snapshotVersion: snapshotVersion, localHistory: localHistory, images: images,
                                 clientName: clientName, device: device, hangs: hangs, createIntent: createIntent,
-                                inputQueue: inputQueue)
+                                inputQueue: inputQueue, keyStamps: keyStamps)
     }
 
     /// Mints the stream, binds its sink, then attaches: one request and no handshake.
     static func attachStream(
         on carrier: TerminalStreamCarrier, target: Target, size: CellSize, claimGeometry: Bool,
         snapshotVersion: UInt16?, localHistory: Bool, images: Bool, createIntent: UInt64,
-        timeout: Duration = TerminalAttachment.attachTimeout
+        keyStamps: (any TerminalKeyStampSink)? = nil, timeout: Duration = TerminalAttachment.attachTimeout
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
@@ -65,10 +67,11 @@ extension TerminalAttachment {
         let request = try attachRequest(target, identity: identity, size: size, snapshotVersion: snapshotVersion,
                                         localHistory: localHistory, images: images, stream: nil)
         let handle = try transport.reserveAttachStream()
-        let attachment = TerminalAttachment(transport: transport, surface: target.surface, stream: handle)
+        let attachment = TerminalAttachment(transport: transport, surface: target.surface, stream: handle, keyStamps: keyStamps)
         let sink = attachment.sink
         let owner = StreamOwner(transport: transport, handle: handle, logger: attachment.logger)
-        guard transport.bindAttachStream(handle, { sink.deliver($0, owner: owner) }) else {
+        guard transport.bindAttachStream(handle, AttachStreamSink(dispatch: sink.dispatch) { sink.deliver($0, owner: owner) })
+        else {
             transport.releaseAttachStream(handle)
             throw DaemonError.connectionClosed(reason: "lost before the attach")
         }
@@ -152,7 +155,7 @@ extension TerminalAttachment {
         }
     }
 
-    /// What the reader thread does with one view's items, on its own connection or on a stream: names an
+    /// What the connection's decode lane does with one view's items, on its own connection or on a stream: names an
     /// unplaced target's surface, hands each line to the view's ``TerminalEchoRouter`` (snapshot order, live
     /// output to the lane), passes size states in generation order, and ends the view's channel. Holds no
     /// reference to the attachment, so a transport that outlives it keeps nothing alive.
@@ -162,17 +165,31 @@ extension TerminalAttachment {
         let control: ControlBox
         let resolvedSurface: SurfaceBox
         let decoder: WireDecoder
+        /// Takes each key echo's daemon stages, or nil.
+        let keyStamps: (any TerminalKeyStampSink)?
 
         init(queue: TerminalEventQueue, router: TerminalEchoRouter, control: ControlBox, resolvedSurface: SurfaceBox,
-             decoder: WireDecoder) {
+             decoder: WireDecoder, keyStamps: (any TerminalKeyStampSink)? = nil) {
             self.queue = queue
             self.router = router
             self.control = control
             self.resolvedSurface = resolvedSurface
             self.decoder = decoder
+            self.keyStamps = keyStamps
         }
 
-        /// Reader thread: one attach line.
+        /// How the reader hands this view's lines to its connection's decode lane: a snapshot, a
+        /// replay or a large line always decodes on the lane, small output inline while the lane is idle; after
+        /// each line the reader waits for the view (its queue's bound, its output lane, a held marker), so a lane
+        /// item never waits on it.
+        var dispatch: EventDispatch {
+            let queue = queue
+            return EventDispatch(weigh: { name, line in TerminalAttachment.eventWeight(name: name, line: line) },
+                                 readerWait: { queue.waitWhileFull() })
+        }
+
+        /// The connection's decode lane (inline on the reader while it is idle), in wire order: one attach line.
+        /// Never waits: the reader runs ``dispatch``'s wait after the line.
         func deliver(name: String, line: Data) {
             var surface = resolvedSurface.value.withLock { $0 }
             if surface == TerminalAttachment.unresolvedSurface,
@@ -182,13 +199,19 @@ extension TerminalAttachment {
             }
             guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
-            router.receive(decoded) { state, selfParticipant in
+            // A key echo's daemon stages go to its latency slot as it is decoded, before the router
+            // hands the output to the lane or the stream.
+            if let keyStamps, let flow = decoded.flow, let stamps = decoded.keyStamps {
+                keyStamps.keyEchoStamped(flow: flow, stamps, decodedAt: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+            }
+            router.admit(decoded) { state, selfParticipant in
                 // Pushed under the same lock that orders generations (see admitSizeState).
                 self.admitSizeState(state, selfParticipant: selfParticipant)
             }
         }
 
-        /// Reader thread: one item of the view's stream. The stream's queue never holds the shared reader at its
+        /// The connection's decode lane, in wire order: one item of the view's stream. The stream's queue never
+        /// holds the shared reader at its
         /// high water (``TerminalAttachment/Delivery/sharedStream(stream:)``): a snapshot view that falls behind
         /// drops its live output and asks for a fresh READY on its stream, and a byte view loses the stream
         /// (`overflow`), which the daemon is told with `cancel-stream`, and reattaches as it does when the daemon

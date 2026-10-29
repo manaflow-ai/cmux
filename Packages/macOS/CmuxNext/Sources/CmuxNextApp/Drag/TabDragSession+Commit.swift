@@ -52,7 +52,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per drop, no observation
+            // view-observation-allow: one MachineTabIndex lookup per drop, no observation
             guard let (tab, _) = services.locateTab(id) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):

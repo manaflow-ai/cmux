@@ -8,27 +8,34 @@
 //! about once per thirteen fills.
 //!
 //! So a write that does not fit the room left (`FIONREAD` on the master counts the queued input on
-//! macOS) writes only what fits, cut before an ESC, and waits for room for a sequence it cannot
-//! start whole. Input that fits, the common case, is one plain `write`.
+//! macOS) writes only what fits, cut before an ESC ([`cut`]), and waits for room for a sequence it
+//! cannot start whole. Input that fits, the common case, is one plain `write`. Writers that never
+//! block (cmux-tui's `pty-writer`) apply the same [`cut`] to the room [`queued`] leaves.
 
+#[cfg(target_vendor = "apple")]
 use std::fs::File;
+#[cfg(target_vendor = "apple")]
 use std::io::{self, Write};
-use std::os::fd::AsRawFd;
-use std::time::{Duration, Instant};
+#[cfg(target_vendor = "apple")]
+use std::os::fd::{AsRawFd, RawFd};
+use std::time::Duration;
+#[cfg(target_vendor = "apple")]
+use std::time::Instant;
 
 /// The input a macOS PTY queues for its program (`TTYHOG` less two).
-pub(crate) const CAPACITY: usize = 1022;
+pub const CAPACITY: usize = 1022;
 /// The longest an escape sequence waits for room before it is written as the kernel takes it.
-const ROOM_WAIT: Duration = Duration::from_millis(250);
+pub const ROOM_WAIT: Duration = Duration::from_millis(250);
 /// How often a waiting write checks for room. A bounded delay, only while the program reads
 /// nothing and the next sequence cannot start whole.
-const ROOM_POLL: Duration = Duration::from_millis(1);
+pub const ROOM_POLL: Duration = Duration::from_millis(1);
 
 const ESC: u8 = 0x1b;
 
 /// One `Write::write` on the master: returns how many bytes of `buffer` went to the queue.
+#[cfg(target_vendor = "apple")]
 pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
-    let Some(pending) = queued(file) else { return file.write(buffer) };
+    let Some(pending) = queued(file.as_raw_fd()) else { return file.write(buffer) };
     let mut room = CAPACITY.saturating_sub(pending);
     if buffer.len() <= room {
         return file.write(buffer);
@@ -39,8 +46,10 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
             Cut::Write(length) => return file.write(&buffer[..length]),
             Cut::Wait if Instant::now() >= deadline => return file.write(buffer),
             Cut::Wait => {
+                // Part of the PTY write, which the blocking detector does not see yet (p02-threads 210b).
+                #[allow(clippy::disallowed_methods)]
                 std::thread::sleep(ROOM_POLL);
-                let Some(pending) = queued(file) else { return file.write(buffer) };
+                let Some(pending) = queued(file.as_raw_fd()) else { return file.write(buffer) };
                 room = CAPACITY.saturating_sub(pending);
                 if buffer.len() <= room {
                     return file.write(buffer);
@@ -50,17 +59,19 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
     }
 }
 
-/// Input the program has not read yet, or `None` when the master cannot say.
-fn queued(file: &File) -> Option<usize> {
+/// Input the program has not read yet on the macOS PTY master `master`, or `None` when the master
+/// cannot say. The caller keeps `master` open.
+#[cfg(target_vendor = "apple")]
+pub fn queued(master: RawFd) -> Option<usize> {
     let mut count: libc::c_int = 0;
-    // SAFETY: `file` keeps its descriptor open for the call, and FIONREAD writes one c_int through
+    // SAFETY: the caller keeps `master` open for the call, and FIONREAD writes one c_int through
     // the pointer to `count`, a live local of that type.
-    let status = unsafe { libc::ioctl(file.as_raw_fd(), libc::FIONREAD, &mut count) };
+    let status = unsafe { libc::ioctl(master, libc::FIONREAD, &mut count) };
     (status == 0 && count >= 0).then_some(count as usize)
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Cut {
+pub enum Cut {
     /// Write this many bytes now: they fit and do not end right after an ESC.
     Write(usize),
     /// Write nothing yet: the next escape sequence does not fit whole.
@@ -71,7 +82,7 @@ pub(crate) enum Cut {
 /// that starts within the room, so whole sequences go in; else, for text with no ESC to cut at
 /// (a long paste), all the room, never ending right after an ESC. A buffer that starts with an
 /// escape sequence longer than the room waits, unless the sequence cannot fit even an empty queue.
-pub(crate) fn cut(buffer: &[u8], room: usize) -> Cut {
+pub fn cut(buffer: &[u8], room: usize) -> Cut {
     debug_assert!(buffer.len() > room);
     if let Some(start) = buffer[1..=room].iter().rposition(|&byte| byte == ESC) {
         return Cut::Write(start + 1);

@@ -18,39 +18,85 @@ pub(super) struct PromptSemanticTracker {
     pub(super) primary: PromptSemantic,
     pub(super) alternate: PromptSemantic,
     pub(super) alternate_active: bool,
-    pub(super) screen_modes: [bool; 3],
-    pub(super) saved_screen_modes: [bool; 3],
+    pub(super) screen_modes: ScreenModeFlags,
+    pub(super) saved_screen_modes: ScreenModeFlags,
     pub(super) revision: u64,
 }
 
+/// The DEC private modes that switch to the alternate screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ScreenMode {
+    /// `?47`
+    Alternate,
+    /// `?1047`
+    AlternateClear,
+    /// `?1049`
+    AlternateSaveCursor,
+}
+
+impl ScreenMode {
+    const ALL: [Self; 3] = [Self::Alternate, Self::AlternateClear, Self::AlternateSaveCursor];
+
+    pub(super) fn from_parameter(mode: u16) -> Option<Self> {
+        match mode {
+            47 => Some(Self::Alternate),
+            1047 => Some(Self::AlternateClear),
+            1049 => Some(Self::AlternateSaveCursor),
+            _ => None,
+        }
+    }
+}
+
+/// One flag per [`ScreenMode`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ScreenModeFlags {
+    alternate: bool,
+    alternate_clear: bool,
+    alternate_save_cursor: bool,
+}
+
+impl ScreenModeFlags {
+    pub(super) fn get(self, mode: ScreenMode) -> bool {
+        match mode {
+            ScreenMode::Alternate => self.alternate,
+            ScreenMode::AlternateClear => self.alternate_clear,
+            ScreenMode::AlternateSaveCursor => self.alternate_save_cursor,
+        }
+    }
+
+    pub(super) fn set(&mut self, mode: ScreenMode, enabled: bool) {
+        let flag = match mode {
+            ScreenMode::Alternate => &mut self.alternate,
+            ScreenMode::AlternateClear => &mut self.alternate_clear,
+            ScreenMode::AlternateSaveCursor => &mut self.alternate_save_cursor,
+        };
+        *flag = enabled;
+    }
+}
+
+/// The screen modes one CSI sequence names, and the one it names last
+/// (a restore leaves the alternate screen as that mode's saved value).
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ScreenModeSelection {
-    pub(super) indices: [u8; 3],
-    pub(super) len: u8,
+    pub(super) selected: ScreenModeFlags,
+    pub(super) last: Option<ScreenMode>,
 }
 
 impl ScreenModeSelection {
     pub(super) fn push(&mut self, mode: u16) {
-        let Some(index) = PromptSemanticTracker::screen_mode_index(mode) else {
+        let Some(mode) = ScreenMode::from_parameter(mode) else {
             return;
         };
-        let index = index as u8;
-        let len = usize::from(self.len);
-        if let Some(position) = self.indices[..len].iter().position(|candidate| *candidate == index)
-        {
-            self.indices.copy_within(position + 1..len, position);
-            self.len -= 1;
-        }
-        self.indices[usize::from(self.len)] = index;
-        self.len += 1;
+        self.selected.set(mode, true);
+        self.last = Some(mode);
     }
 
-    pub(super) fn indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.indices[..usize::from(self.len)].iter().map(|index| usize::from(*index))
+    pub(super) fn modes(self) -> impl Iterator<Item = ScreenMode> {
+        ScreenMode::ALL.into_iter().filter(move |mode| self.selected.get(*mode))
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.len == 0
+        self.last.is_none()
     }
 }
 
@@ -85,8 +131,8 @@ impl PromptOsc {
         if self.invalid {
             return;
         }
-        if usize::from(self.prefix_len) < PREFIX.len() {
-            if byte == PREFIX[usize::from(self.prefix_len)] {
+        if let Some(expected) = PREFIX.get(usize::from(self.prefix_len)) {
+            if byte == *expected {
                 self.prefix_len += 1;
             } else {
                 self.invalid = true;
@@ -155,8 +201,8 @@ impl PromptSemanticTracker {
                         self.primary = PromptSemantic::Unknown;
                         self.alternate = PromptSemantic::Unknown;
                         self.alternate_active = false;
-                        self.screen_modes = [false; 3];
-                        self.saved_screen_modes = [false; 3];
+                        self.screen_modes = ScreenModeFlags::default();
+                        self.saved_screen_modes = ScreenModeFlags::default();
                         PromptTrackState::Ground
                     }
                     0x1b => PromptTrackState::Escape,
@@ -259,34 +305,26 @@ impl PromptSemanticTracker {
         }
     }
 
-    pub(super) fn screen_mode_index(mode: u16) -> Option<usize> {
-        match mode {
-            47 => Some(0),
-            1047 => Some(1),
-            1049 => Some(2),
-            _ => None,
-        }
-    }
-
     pub(super) fn apply_screen_modes(&mut self, action: u8, screen_modes: ScreenModeSelection) {
         match action {
             b'h' | b'l' if !screen_modes.is_empty() => {
                 let enabled = action == b'h';
-                for index in screen_modes.indices() {
-                    self.screen_modes[index] = enabled;
-                    self.alternate_active = enabled;
+                for mode in screen_modes.modes() {
+                    self.screen_modes.set(mode, enabled);
                 }
+                self.alternate_active = enabled;
             }
             b's' => {
-                for index in screen_modes.indices() {
-                    self.saved_screen_modes[index] = self.screen_modes[index];
+                for mode in screen_modes.modes() {
+                    self.saved_screen_modes.set(mode, self.screen_modes.get(mode));
                 }
             }
             b'r' => {
-                for index in screen_modes.indices() {
-                    let enabled = self.saved_screen_modes[index];
-                    self.screen_modes[index] = enabled;
-                    self.alternate_active = enabled;
+                for mode in screen_modes.modes() {
+                    self.screen_modes.set(mode, self.saved_screen_modes.get(mode));
+                }
+                if let Some(last) = screen_modes.last {
+                    self.alternate_active = self.saved_screen_modes.get(last);
                 }
             }
             _ => {}

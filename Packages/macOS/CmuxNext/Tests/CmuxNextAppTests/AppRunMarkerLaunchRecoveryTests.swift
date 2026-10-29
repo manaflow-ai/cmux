@@ -5,7 +5,7 @@ import Foundation
 import os
 import Testing
 
-/// p08-startup-075: `AppRunMarker.init` read the previous run's `run.json`, `run.signal` and `run.exception`, then
+/// `AppRunMarker.init` read the previous run's `run.json`, `run.signal` and `run.exception`, then
 /// made the folder and opened this run's files, all on the main thread inside `AppServices.init`. The launch read now
 /// does the reads and opens on a files lane from `main`, and changes none of the previous run's files: the marker's
 /// writer replaces them once the marker is made. Recovery stays as it was for a clean quit, one crash, two quick

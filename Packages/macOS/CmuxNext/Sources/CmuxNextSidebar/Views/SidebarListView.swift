@@ -81,7 +81,7 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
-    /// The row views built while the app starts (SidebarListView+LaunchRows, p08-startup-064).
+    /// The row views built while the app starts (SidebarListView+LaunchRows).
     var launchRows = SidebarModel.LaunchRows()
     var hoveredKey: SidebarRowKey?
     /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
@@ -296,7 +296,7 @@ final class SidebarListView: NSView {
             if let drag { abandonDrag(drag) }
             press = nil
         }
-        // Each row's indicator follows its own visibility node (StatusIndicatorView, p06-scheduler-042).
+        // Each row's indicator follows its own visibility node (StatusIndicatorView).
         // The list's node takes its window's state (WindowVisibilitySource); out of a window it is hidden.
         let windowNode = window.map { WindowVisibilitySource.of($0).node }
         windowVisibility = windowNode?.subscribe(owner: "SidebarListView") { [weak self] in self?.visibility.set($0) }

@@ -283,7 +283,7 @@ fn archive_screen(terminal: &mut ghostty_vt::Terminal) -> Option<(u16, u16, Vec<
         .filter(|bytes| bytes.len() <= ARCHIVE_MAX_SCREEN_BYTES);
     let bytes = match replay {
         Some(bytes) => bytes,
-        None => plain_screen_bytes(&terminal.viewport_text().ok()?),
+        None => plain_screen_bytes(&terminal.active_text().ok()?),
     };
     (!bytes.is_empty() && bytes.len() <= ARCHIVE_MAX_SCREEN_BYTES).then_some((cols, rows, bytes))
 }

@@ -1,4 +1,4 @@
-//! The Perfetto exporter (p09-observability-022): its output read back with a protobuf parser of
+//! The Perfetto exporter: its output read back with a protobuf parser of
 //! this test's own, field numbers from Perfetto's protos (v58):
 //!
 //! - every packet is a TracePacket of the kinds the exporter writes, and the golden dump of a fixed

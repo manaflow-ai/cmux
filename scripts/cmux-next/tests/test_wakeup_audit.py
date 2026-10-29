@@ -1338,7 +1338,7 @@ class CxxAndZigTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.audit.hits("--lang", "zig"), [])
 
-    # The pre-push guardrail's path mapping (p14-energy-006) ---------------------------------------------------
+    # The pre-push guardrail's path mapping ---------------------------------------------------
 
     def test_lang_of_maps_the_paths_each_audit_reads(self) -> None:
         lang_of = load_audit_module().lang_of

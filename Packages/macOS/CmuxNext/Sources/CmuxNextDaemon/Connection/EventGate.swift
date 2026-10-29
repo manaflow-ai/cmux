@@ -3,9 +3,9 @@ public import Foundation
 import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
-/// them after the `.connected` marker. Runs on the reader thread.
+/// them after the `.connected` marker. Runs on the connection's decode lane.
 ///
-/// Bounded (p05-ipc-093): they wait in an ``EventInbox`` that holds at most
+/// Bounded: they wait in an ``EventInbox`` that holds at most
 /// its limit of every kind (``EventInbox/Retention/upToLimit``), so a flood
 /// during the handshake is released as one `overflow` marker (one resync)
 /// plus what a resync cannot restore while that fits.
@@ -57,7 +57,7 @@ public struct DaemonEventEnvelope: Sendable, Hashable {
     public var connectionSerial: UInt64 { sequence >> 40 }
     public let sequence: UInt64
     public let event: DaemonEvent
-    /// Who caused the event (p06-scheduler-031, ``DaemonEvent/cause(wire:recorded:)``): person for the
+    /// Who caused the event (``DaemonEvent/cause(wire:recorded:)``): person for the
     /// echo of the app's own person-scope mutation, else the daemon's envelope `cause`; program for
     /// synthetic events and when the daemon sent none. The drain applies the event with it as the
     /// current cause (``ObservationCauses``). Scheduling only: authorization never reads it.

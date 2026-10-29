@@ -43,6 +43,13 @@ inline constexpr uint8_t kTagNull = 1;
 //                 MIRROR values whose only refresh event is attach (the `attach` pseudo event)
 // A HELLO with another kWireID (another generation of the op table) is malformed.
 inline constexpr uint16_t kOpHello = 0x8005;
+// Host -> cmux: the pointer moves and wheel ticks of one input batch the host dispatched on its
+// UI thread (ring frames, chromium_host_input_ring.h). One record per
+// frame, oldest first, at least one: i32 client browser, i32 kind (kMouse or kWheel of
+// chromium_host_wire.h), u32 the frame's input seq. cmux sends the page's next move or wheel
+// tick on it (ChromiumHostInputPacer), as Chrome's MouseWheelEventQueue sends its next event
+// on the ack (components/input/mouse_wheel_event_queue.cc). Any other kind is malformed.
+inline constexpr uint16_t kOpInputAck = 0x8006;
 
 // Little-endian helpers of EncodeFields and DecodeFields.
 inline void PutLE(std::string* out, uint64_t value, size_t size) {

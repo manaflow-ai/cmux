@@ -1,5 +1,5 @@
 //! The stdio MCP server a harness runs for an agent tool server the daemon
-//! serves itself (p07-memory-092, `subsession_mcp::DaemonTools`). It opens
+//! serves itself (`subsession_mcp::DaemonTools`). It opens
 //! the daemon socket, names the server and proves the session with its
 //! caller token in one first `initialize` (`server/agent_mcp.rs`), then
 //! copies lines both ways: the agent's MCP lines go to the daemon unread,
@@ -292,9 +292,16 @@ mod relay {
             }
             let open = Open::default();
             let (owed, out) = (open.clone(), Arc::clone(out));
-            std::thread::Builder::new().name("mcp-relay-out".to_owned()).spawn(move || {
-                let _ = drain_connection(&mut reader, &*out, &owed);
-            })?;
+            // Scoped to this connection: it owns only the read half, and a panic drops it,
+            // which ends the relay's connection. cmux_threads directly: this file is also the
+            // relay program's root module, linked without the acpmux library.
+            cmux_threads::spawn(
+                "mcp-relay-out",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
+                    let _ = drain_connection(&mut reader, &*out, &owed);
+                },
+            )?;
             Ok(Conn { writer, open })
         }
     }
@@ -343,7 +350,7 @@ mod relay {
         use std::os::unix::net::UnixListener;
         use std::time::Duration;
 
-        /// p07-memory-092: a call open through the relay when the daemon goes
+        /// A call open through the relay when the daemon goes
         /// away (an update, a crash) gets its error reply, as the stdio
         /// servers gave one, instead of waiting for the harness's MCP timeout.
         #[test]

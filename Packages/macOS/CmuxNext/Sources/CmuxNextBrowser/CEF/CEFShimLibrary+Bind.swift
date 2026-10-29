@@ -39,6 +39,7 @@ nonisolated extension CEFShimLibrary {
         fileDialogAnswer = { a0, a1, a2 in unsafe Self.withCString(a2) { s2 in unsafe cFileDialogAnswer(a0, a1, s2) } }
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetResizeFence = r.inProcess("cmux_shim_browser_set_resize_fence")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         let cBrowserAccessibilityToken: @convention(c) (Int32, Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32,
                                                         UnsafeMutablePointer<UInt8>?, Int32) -> Int32 =
@@ -64,6 +65,7 @@ nonisolated extension CEFShimLibrary {
         browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
+        setPumpTimeSlice = try r("cmux_shim_set_pump_time_slice")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         let cSetEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_set_energy_saver")
         setEnergySaver = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cSetEnergySaver(a0, s1) } }

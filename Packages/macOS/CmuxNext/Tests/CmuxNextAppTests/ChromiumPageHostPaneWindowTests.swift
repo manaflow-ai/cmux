@@ -2,10 +2,11 @@
 @testable import CmuxNextBrowser
 import CmuxNextInput
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p13-webui-063, the app's glue: a page made for a ``PageChromiumWindow`` takes the CEF pane key
+/// The app's glue: a page made for a ``PageChromiumWindow`` takes the CEF pane key
 /// `ChromiumPageHost.pane(of:)` names (``CEFEngine/pagesPane(window:pane:)``), so five pages of one pane are one host and
 /// one Chromium window; a page with no pane has a window of its own; `CEFPageChromiumPage.moveWindow(to:)` moves the
 /// tab to the other pane's host and back. Pages are made through `ChromiumPageHost.tabConfiguration` and
@@ -80,7 +81,7 @@ import Testing
                 runtime.handle(.afterCreated(browser: browser, request: request, window: chromiumWindow))
             }
             try #require(tab.browserID != nil)
-            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown")
+            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown", mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         }
 
         func close() {

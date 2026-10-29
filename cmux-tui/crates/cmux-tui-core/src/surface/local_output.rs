@@ -149,6 +149,9 @@ impl LocalOutput {
         let n = read(&mut buf)?;
         // The key press this read echoes, taken with the read so it stamps no later one.
         let flow = self.take_echo_flow(pty);
+        if flow != 0 {
+            pty.input_stages.echoed(flow, crate::input_stages::now_ns());
+        }
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
         if output.is_empty() {
@@ -176,13 +179,19 @@ impl LocalOutput {
             let cursor_activity = term
                 .cursor_activity()
                 .expect("INVARIANT: valid local terminals expose cursor activity");
+            // Read before the parse confirms these bytes: whether they may
+            // be the holder ring's replay to a restarted daemon.
+            #[cfg(unix)]
+            let replayed = self.parsed_sink.as_ref().is_some_and(|sink| sink.replaying());
+            #[cfg(not(unix))]
+            let replayed = false;
             let normalized =
                 crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
             #[cfg(unix)]
             if let Some(sink) = self.parsed_sink.as_ref() {
                 sink.confirm_parsed();
             }
-            terminal_notifications = pty.observe_terminal_output(output);
+            terminal_notifications = pty.observe_terminal_output_replayed(output, replayed);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
             });
@@ -291,6 +300,23 @@ impl LocalOutput {
         result
     }
 
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
+    #[cfg(unix)]
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
+        self.pending.push(ParsedOutput {
+            generation,
+            title_update: None,
+            scroll_changed: Some(position),
+            terminal_notifications: Vec::new(),
+            finished_commands: Vec::new(),
+        });
+        if let Some(wake) = self.wake.as_ref() {
+            wake.kick();
+        }
+    }
+
     pub(super) fn take_pending(&mut self) -> Vec<ParsedOutput> {
         std::mem::take(&mut self.pending)
     }
@@ -360,7 +386,7 @@ impl OutputPublisher {
             );
             if !responses.is_empty() {
                 // Waits while the child does not read its input.
-                let _ = will_block(|| surface.write_bytes(&responses));
+                let _ = will_block(|| surface.write_terminal_reply(&responses));
             }
         }
     }
@@ -379,6 +405,7 @@ impl OutputPublisher {
         let surface = surface.clone();
         let publish = Box::new(move || {
             loop {
+                surface.check_pending_shell_foreground();
                 surface.publish_pending_directory();
                 surface.publish_pending_progress();
                 if !job.0.pass_done() {

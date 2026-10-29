@@ -622,7 +622,10 @@ impl Fold {
             let piece_end = end.min(next_hour as u64);
             let piece = piece_end - at;
             let hour = local.div_euclid(HOUR_MS as i64).rem_euclid(24) as usize;
-            self.hours[hour] += piece;
+            // `hour` is in 0..24, one slot each.
+            if let Some(slot) = self.hours.get_mut(hour) {
+                *slot += piece;
+            }
             let day = local.div_euclid(DAY_MS as i64);
             self.day(day).working_ms += piece;
             at = piece_end;

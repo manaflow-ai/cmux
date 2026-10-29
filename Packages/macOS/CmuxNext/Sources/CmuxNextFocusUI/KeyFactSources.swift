@@ -1,12 +1,12 @@
 /// A focused page's input readiness (the pages module's `PageInputReadiness`): the key router's `listFocus`
-/// and `pageEditableFocused` facts, read on every key from the readiness its cached facts found (p04-input-053).
+/// and `pageEditableFocused` facts, read on every key from the readiness its cached facts found.
 @MainActor
 public protocol KeyFactsReadinessSource: AnyObject {
     var isListFocused: Bool { get }
     var isEditableFocused: Bool { get }
 }
 
-/// The objects a window's key facts read on every key, found once by the facts' build (p04-input-053). Their
+/// The objects a window's key facts read on every key, found once by the facts' build. Their
 /// flags change with no focus or responder change (a list taking focus in the page, the suggestion list, copy
 /// mode, a file turning read only, the page window placed or hidden, the editor's key sequence), so the key
 /// router reads them live. Weak: a closed pane's objects go with it, and a missing one reads as off.

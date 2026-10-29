@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextWakeups
 
-/// The app process's threads at the first window's first frame (p08-startup-068), as launch values the startup
+/// The app process's threads at the first window's first frame, as launch values the startup
 /// bench reads (`launch.first_frame_threads*`, scripts/cmux-next/bench-startup.py): every thread, the threads each
 /// linked library started (``ThreadRegistry``'s library rows and name spaces), and the threads of a native runtime
 /// that no first frame needs.

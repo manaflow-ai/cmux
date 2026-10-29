@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
+use crate::read_buffer::filled;
+
 use super::PreparedWorkspaceResponse;
 #[cfg(unix)]
 use super::path::{UnixWorkspaceDirectory, UnixWorkspaceRoot, UnixWorkspaceTarget};
@@ -131,12 +133,15 @@ impl SearchFileContinuation {
             .saturating_add(64)
     }
 
+    #[allow(
+        clippy::string_slice,
+        reason = "INVARIANT: match_offset is the end of a match of `query` in this line and \
+                  previous_line a line search_line found in this text, so both are char boundaries"
+    )]
     fn next_match(&mut self, query: &str) -> Option<SearchMatch> {
         loop {
-            let (line_end, next_line_start) =
-                search_line_bounds(&self.text, self.position.line_start)?;
-            let line = &self.text[self.position.line_start..line_end];
-            if let Some(found) = line[self.position.match_offset..].find(query) {
+            let line = search_line(&self.text, self.position.line_start)?;
+            if let Some(found) = line.content[self.position.match_offset..].find(query) {
                 let column = self.position.match_offset.saturating_add(found);
                 self.position.match_offset = column.saturating_add(query.len());
                 let before = self
@@ -144,20 +149,20 @@ impl SearchFileContinuation {
                     .previous_line
                     .map(|(start, end)| vec![self.text[start..end].to_string()])
                     .unwrap_or_default();
-                let after = search_line_bounds(&self.text, next_line_start)
-                    .map(|(end, _)| vec![self.text[next_line_start..end].to_string()])
+                let after = search_line(&self.text, line.next_start)
+                    .map(|next| vec![next.content.to_string()])
                     .unwrap_or_default();
                 return Some(SearchMatch {
                     path: self.protocol_path.clone(),
                     line: self.position.line_number,
                     column: u64::try_from(column.saturating_add(1)).unwrap_or(u64::MAX),
-                    text: line.to_string(),
+                    text: line.content.to_string(),
                     before,
                     after,
                 });
             }
-            self.position.previous_line = Some((self.position.line_start, line_end));
-            self.position.line_start = next_line_start;
+            self.position.previous_line = Some((self.position.line_start, line.content_end));
+            self.position.line_start = line.next_start;
             self.position.line_number = self.position.line_number.saturating_add(1);
             self.position.match_offset = 0;
         }
@@ -235,21 +240,25 @@ impl SearchContinuation {
     }
 }
 
-fn search_line_bounds(text: &str, start: usize) -> Option<(usize, usize)> {
-    if start >= text.len() {
-        return None;
-    }
-    let remaining = &text.as_bytes()[start..];
-    let Some(relative_newline) = remaining.iter().position(|byte| *byte == b'\n') else {
-        return Some((text.len(), text.len()));
+/// One line of a searched file: its text without the line ending, where that
+/// text ends, and where the next line starts.
+struct SearchLine<'a> {
+    content: &'a str,
+    content_end: usize,
+    next_start: usize,
+}
+
+/// The line that starts at byte `start` of `text`, or `None` past the end.
+fn search_line(text: &str, start: usize) -> Option<SearchLine<'_>> {
+    let remaining = text.get(start..).filter(|remaining| !remaining.is_empty())?;
+    let (content, next_start) = match remaining.split_once('\n') {
+        Some((raw, _)) => (
+            raw.strip_suffix('\r').unwrap_or(raw),
+            start.saturating_add(raw.len()).saturating_add(1),
+        ),
+        None => (remaining, text.len()),
     };
-    let raw_end = start.saturating_add(relative_newline);
-    let content_end = if raw_end > start && text.as_bytes()[raw_end - 1] == b'\r' {
-        raw_end - 1
-    } else {
-        raw_end
-    };
-    Some((content_end, raw_end.saturating_add(1)))
+    Some(SearchLine { content, content_end: start.saturating_add(content.len()), next_start })
 }
 
 pub(crate) async fn stat(
@@ -521,8 +530,12 @@ pub(crate) async fn list_directory(
         requested.min(continuation.entries.len().saturating_sub(continuation.next_index)),
     );
     let mut response_bytes = 0usize;
-    while continuation.next_index < continuation.entries.len() && page.len() < requested {
-        let entry = &continuation.entries[continuation.next_index].entry;
+    while page.len() < requested {
+        let Some(SortedDirectoryEntry { entry, .. }) =
+            continuation.entries.get(continuation.next_index)
+        else {
+            break;
+        };
         let entry_bytes =
             entry.name.len().saturating_add(entry.path.len()).saturating_mul(6).saturating_add(64);
         if response_bytes.saturating_add(entry_bytes) > MAX_DIRECTORY_RESPONSE_BYTES {
@@ -2870,14 +2883,14 @@ fn hash_file_sync(
     let mut buffer = vec![0u8; 64 * 1024];
     let mut digest = Sha256::new();
     while remaining > 0 {
-        let requested = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
-        let read = file
-            .read(&mut buffer[..requested])
+        let read = (&mut *file)
+            .take(remaining)
+            .read(&mut buffer)
             .map_err(|error| io_error("hash", display, error))?;
         if read == 0 {
             return Err(RpcError::new("file-changed", "file changed while it was being hashed"));
         }
-        digest.update(&buffer[..read]);
+        digest.update(filled(&buffer, read));
         remaining = remaining.saturating_sub(read as u64);
     }
     let metadata_after = file.metadata().map_err(|error| io_error("hash", display, error))?;
@@ -3176,15 +3189,14 @@ async fn hash_file(file: &mut tokio::fs::File, length: u64) -> Result<String, Rp
     let mut buffer = vec![0u8; 64 * 1024];
     let mut digest = Sha256::new();
     while remaining > 0 {
-        let requested = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
-        let read = file
-            .read(&mut buffer[..requested])
-            .await
-            .map_err(|error| RpcError::new("io-error", format!("read while hashing: {error}")))?;
+        let read =
+            (&mut *file).take(remaining).read(&mut buffer).await.map_err(|error| {
+                RpcError::new("io-error", format!("read while hashing: {error}"))
+            })?;
         if read == 0 {
             return Err(RpcError::new("file-changed", "file changed while it was being hashed"));
         }
-        digest.update(&buffer[..read]);
+        digest.update(filled(&buffer, read));
         remaining = remaining.saturating_sub(read as u64);
     }
     Ok(hex_digest(&digest.finalize()))
@@ -3297,13 +3309,12 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     let mut text_index = 0usize;
     let mut last_star = None;
     let mut star_match = 0usize;
-    while text_index < text.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == b'?' || pattern[pattern_index] == text[text_index])
-        {
+    while let Some(&text_byte) = text.get(text_index) {
+        let pattern_byte = pattern.get(pattern_index).copied();
+        if pattern_byte == Some(b'?') || pattern_byte == Some(text_byte) {
             pattern_index += 1;
             text_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        } else if pattern_byte == Some(b'*') {
             last_star = Some(pattern_index);
             pattern_index += 1;
             star_match = text_index;
@@ -3315,8 +3326,11 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
             return false;
         }
     }
-    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+    while pattern.get(pattern_index) == Some(&b'*') {
         pattern_index += 1;
     }
     pattern_index == pattern.len()
 }
+
+#[cfg(test)]
+mod search_tests;

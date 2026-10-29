@@ -7,7 +7,7 @@ import CmuxNextSignposts
 import CmuxNextWakeups
 import Testing
 
-/// The app's input targets for a host-mode Chromium page (p04-input-066): its page view takes text input, yet its
+/// The app's input targets for a host-mode Chromium page: its page view takes text input, yet its
 /// keys and clicks are the page's, so its host's presentation report finds their slots.
 @MainActor @Suite(.serialized)
 struct AppInputTargetsTests {

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Testing
 
 /// Lawrence 2026-10-19: "mouse down to immediately open". A row of the notifications panel opens its
@@ -17,7 +18,7 @@ import Testing
                                             workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
                                             surface: nil, terminal: nil)
             var open: () -> Void = {}
-            view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60),
+            view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60), node: VisibilityNode(root: "test.row", own: .visible),
                                        callbacks: .init(open: { open() }, dismiss: {}, menu: { NSMenu() }))
             open = { [unowned self] in opened += 1 }
             view.frame = NSRect(x: 0, y: 0, width: 320, height: 80)

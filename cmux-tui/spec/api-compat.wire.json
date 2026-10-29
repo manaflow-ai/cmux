@@ -315,6 +315,10 @@
         "id": 1802,
         "priority": "control"
       },
+      "bridge-hello": {
+        "id": 518,
+        "priority": "control"
+      },
       "browser-activate": {
         "id": 2828,
         "priority": "control"
@@ -947,6 +951,10 @@
         "id": 2570,
         "priority": "control"
       },
+      "memory-report": {
+        "id": 277,
+        "priority": "background"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"
@@ -1354,6 +1362,10 @@
       "set-split-ratio": {
         "id": 1543,
         "priority": "control"
+      },
+      "set-stream-priority": {
+        "id": 795,
+        "priority": "input"
       },
       "set-tab-pinned": {
         "id": 1812,

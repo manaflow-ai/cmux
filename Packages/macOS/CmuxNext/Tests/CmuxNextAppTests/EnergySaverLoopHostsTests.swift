@@ -10,7 +10,7 @@ import Testing
 /// Energy Saver flips at runtime (a plug, Low Power Mode, the battery under 20 %), far more often
 /// than Reduce Motion. Every host that caches a loop decision follows it at once, both ways, with
 /// no new content: the notice card's sweep, Home's vendored typing loops and the agent page's
-/// status loops (p14-energy-027, plans/cmux-next/motion-DESIGN.md).
+/// status loops (plans/cmux-next/motion-DESIGN.md).
 @MainActor @Suite(.serialized) struct EnergySaverLoopHostsTests {
     /// Runs `body` with Reduce Motion pinned off and the saver off, then puts both back.
     private func withSaverOff(_ body: () throws -> Void) rethrows {

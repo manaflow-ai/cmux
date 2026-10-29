@@ -5,6 +5,7 @@
 // before, and before any work "Thinking". No mark blinks before any of them (Leo, 2026-10-20: the
 // three pulsing dots were "the blinking ascii"; the ticking time says the turn is alive).
 import { expect, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -48,7 +49,8 @@ function statusLine(calls: Call[]): AcpmuxRow {
   return status;
 }
 
-const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
+const drawn = (status: AcpmuxRow) =>
+  renderToStaticMarkup(<WorkingFor row={status} clock={fixedPageClock(status.at + 26_000)} />);
 // The line draws nothing before its words: no working mark, no activity dots, and its first child
 // is the label itself.
 const stillMarkup = (html: string) =>
@@ -66,7 +68,7 @@ function Turn({ rows }: { rows: AcpmuxRow[] }) {
     <TranscriptDisclosureProvider sessionId="s">
       {rows.map((entry) =>
         entry.kind === WORKING ? (
-          <WorkingFor key={entry.id} row={entry} now={() => entry.at + 26_000} />
+          <WorkingFor key={entry.id} row={entry} clock={fixedPageClock(entry.at + 26_000)} />
         ) : entry.kind === "activity" ? (
           <ToolRows key={entry.id} row={entry} sessionId="s" />
         ) : null,
@@ -172,7 +174,7 @@ test("the start status before the turn does not shimmer", () => {
 
 test("the activity line names the work with no dots before it", () => {
   const html = renderToStaticMarkup(
-    <ActivityLine row={row("act", "activity-line", { text: "Edit grid.css" })} now={() => at + 26_000} />,
+    <ActivityLine row={row("act", "activity-line", { text: "Edit grid.css" })} clock={fixedPageClock(at + 26_000)} />,
   );
   expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
   expect(stillMarkup(html)).toBe(true);

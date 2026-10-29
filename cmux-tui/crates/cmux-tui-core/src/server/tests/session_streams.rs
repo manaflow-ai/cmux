@@ -967,6 +967,9 @@ fn session_journal_stream_redacts_remote_clients_and_rejects_foreign_cursors() {
 
     let (local_writer, local_outbound) = captured_writer();
     let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+    // Each connection has its own control sequence.
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let foreign = resource_request(
         "journal-foreign",
         "session.journal.subscribe",
@@ -1041,6 +1044,9 @@ fn resource_shutdown_requires_local_authority_and_force_for_a_live_browser_owner
 
     let (local_writer, local_outbound) = captured_writer();
     let local = mux.control_clients.register(ClientTransport::Unix, local_writer.clone());
+    // Each connection has its own control sequence.
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let ordinary_request = resource_request(
         "ordinary-shutdown",
         "session.shutdown",
@@ -1134,14 +1140,17 @@ fn resource_shutdown_replay_reserves_handoff_and_retries_the_post_ack_exit() {
 
     let first = Mux::open_persistent("shutdown-replay", SurfaceOptions::default(), &root).unwrap();
     first.mark_server_lifecycle_ready();
-    let (closed_writer, _) = captured_writer();
-    let client = first.control_clients.register(ClientTransport::Unix, closed_writer.clone());
+    // The peer stops reading: the shutdown commits and its reply is
+    // queued, then the acknowledgement never flushes.
+    let stalled_writer =
+        MessageWriter::new(TimedOutFlushSink { outbound: Arc::new(BoundedOutbound::default()) });
+    let client = first.control_clients.register(ClientTransport::Unix, stalled_writer.clone());
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(first.surface_operation_admission.clone()));
-    closed_writer.close();
-    assert!(!handle_connection_message(&first, client, &request, &closed_writer, &scheduler,));
+    assert!(!handle_connection_message(&first, client, &request, &stalled_writer, &scheduler,));
     assert!(!first.daemon_shutdown_requested());
     assert!(!first.control_clients.daemon_handoff_pending());
+    scheduler.finish_and_wait();
     drop(scheduler);
     drop(first);
 

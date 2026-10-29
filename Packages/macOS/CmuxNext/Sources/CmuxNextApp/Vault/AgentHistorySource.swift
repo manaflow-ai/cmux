@@ -22,7 +22,7 @@ final class AgentHistorySource: VaultSessionSource {
     /// Not ended, and its tab is still on a connected machine.
     func isLive(_ session: AgentSession) -> Bool {
         guard session.endedAt == nil, let tab = session.tab else { return false }
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         return services?.locateTab(tab) != nil
     }
 }

@@ -27,9 +27,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// `{"source": "detector", "kind": "blocking", "durationMs": 0, "blocking": {"kind", "context"}}`
         /// samples (``HangSample/blockingSite(_:frames:)``). The server refuses unknown keys and
         /// other schema numbers, so a build writes it only after the server accepts it
-        /// (p09-observability-064 deployed, behind p09-observability-063's server-version flag;
-        /// tasks p08-startup-115, p04-input-103 and p04-input-104), and the field data: `histograms[]`,
-        /// `stability{}`, `blackbox[]` and `launch_sections[]` (p09-observability-063).
+        /// (p09-observability-064 deployed, behind p09-observability-063's server-version flag),
+        /// and the field data: `histograms[]`,
+        /// `stability{}`, `blackbox[]` and `launch_sections[]`.
         case v3 = 3
 
         /// The newest schema cmux.com's `web/services/hangReports/wireSchema.ts` accepts. It moves to
@@ -53,7 +53,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         public var carriesInputLatency: Bool { self == .v3 }
         /// Whether a report in this schema has blocking samples.
         public var carriesBlocking: Bool { self == .v3 }
-        /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (p02-threads-123; the
+        /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (the
         /// schema-3 decoder must list the key before a build sends schema 3).
         public var carriesLaneWait: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/activeSeconds`` and the main-thread
@@ -62,20 +62,23 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// writes schema 3.
         public var carriesMainThread: Bool { self == .v3 }
         /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
-        /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
+        /// the schema-3 decoder must list the key before a build sends schema 3).
         public var carriesTaskAttribution: Bool { self == .v3 }
+        /// Whether a watchdog stall or hang carries ``HangSample/startup`` (`"startup": {"phase", "task"}`,
+        /// the schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesStartupTag: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
-        /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
+        /// ``HangReport/blackbox`` and ``HangReport/launchSections``.
         public var carriesFieldData: Bool { self == .v3 }
         /// Whether a report in this schema has the hang watch's samples of other threads
         /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
-        /// p09-observability-068; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts `HangV3`).
+        /// the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts `HangV3`).
         public var carriesThreadHangs: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/featuresHash`` and ``HangReport/features``
-        /// (p12-perf-process-151; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
+        /// (the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
         public var carriesFeatures: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/blockingSites``, the main thread's blocking call
-        /// counts by site id (p12-perf-process-226; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
+        /// counts by site id (the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts).
         public var carriesBlockingSites: Bool { self == .v3 }
     }
 

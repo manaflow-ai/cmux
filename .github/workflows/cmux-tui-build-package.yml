@@ -364,12 +364,7 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          # The daemon's pinned PGO profile for this target, if any (scripts/cmux-next/pgo/rust-pgo.sh, task 056);
-          # scripts/ci/macos-cross.sh all does the same.
-          pgo="$(../scripts/cmux-next/pgo/rust-pgo.sh rustflags cmux-tui --target ${{ matrix.build_target }} --strict)"
-          pgo_env=(); [[ -z "$pgo" ]] || pgo_env=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }$pgo")
-          env ${pgo_env[@]+"${pgo_env[@]}"} \
-            cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The terminal holder (std and libc only), its own invocation so its
           # features do not unify with the daemon's. The daemon starts every
           # holder from a copy of it found beside its own executable.
@@ -437,12 +432,7 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          # The daemon's pinned PGO profile for this target, if any (scripts/cmux-next/pgo/rust-pgo.sh, task 056);
-          # scripts/ci/macos-cross.sh all does the same.
-          pgo="$(../scripts/cmux-next/pgo/rust-pgo.sh rustflags cmux-tui --target ${{ matrix.build_target }} --strict)"
-          pgo_env=(); [[ -z "$pgo" ]] || pgo_env=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }$pgo")
-          env ${pgo_env[@]+"${pgo_env[@]}"} \
-            cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The terminal holder (std and libc only), its own invocation so its
           # features do not unify with the daemon's. The daemon starts every
           # holder from a copy of it found beside its own executable.

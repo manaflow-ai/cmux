@@ -51,11 +51,6 @@ extension GroupColor {
     /// The color as a palette ball in the active theme scope (the app theme outside one).
     public var ballRGB: ThemeRGB { swatchRGB(Self.activeTokens) }
 
-    /// The order the app gives new workspace groups, spaces and browser
-    /// profiles their colors: the palette in its own order, without grey and
-    /// blue (the no-blue rule covers what the app picks by itself).
-    nonisolated public static let automaticOrder: [GroupColor] = allCases.filter { $0 != .grey && $0 != .blue }
-
     /// The sidebar header bar's color before its ink contrast step (`GroupTint.headerChip`).
     nonisolated func headerRGB(_ tokens: ThemeTokens) -> ThemeRGB { fillRGB(tokens) }
 

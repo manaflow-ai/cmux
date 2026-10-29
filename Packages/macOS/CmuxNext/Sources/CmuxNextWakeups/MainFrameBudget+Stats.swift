@@ -27,11 +27,13 @@ extension MainFrameBudget {
         /// Pending-input checks that asked the input source, and the longest one in nanoseconds
         /// (the window server query's own main-thread cost).
         public var inputChecks = 0
+        /// The longest pending-input check, in nanoseconds.
         public var maxInputCheckNanos: UInt64 = 0
         /// Render passes measured (the main run loop's before-waiting phase: layout, display and the
         /// Core Animation commit), and the longest in nanoseconds: what the scheduled work's changes
         /// cost after it, charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
         public var renderPasses = 0
+        /// The longest render pass measured, in nanoseconds.
         public var maxRenderPassNanos: UInt64 = 0
         /// Per class: times a task was held for the next frame because an input response was open
         /// (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``).

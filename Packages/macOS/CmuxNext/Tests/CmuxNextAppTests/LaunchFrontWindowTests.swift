@@ -3,7 +3,7 @@
 import Foundation
 import Testing
 
-/// The window the launch shows first has one rule (p08-startup-058): `WindowStateDocument.restoredWindows(_:)` and
+/// The window the launch shows first has one rule: `WindowStateDocument.restoredWindows(_:)` and
 /// `frontWindow(of:mirrors:)`, which `WindowRegistry(records:)`, `LaunchSnapshotWindow.showSaved` and the picture
 /// read in `main` (`LaunchSnapshot.frontWindow`) all use, so the front window's picture is always the window the
 /// launch builds. Each fixture compares the rule with the registry's recency, the way `showSaved` picks it.

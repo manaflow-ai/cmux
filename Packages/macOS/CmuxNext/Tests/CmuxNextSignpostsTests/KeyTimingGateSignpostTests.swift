@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// The key emitters outside the ring obey the keystroke-timing gate (p09-observability-128): while secure event
+/// The key emitters outside the ring obey the keystroke-timing gate: while secure event
 /// input is on, a key-down opens no `key.frame` interval and a flow hop writes nothing, in the log or the ring.
 @MainActor
 @Suite struct KeyTimingGateSignpostTests {

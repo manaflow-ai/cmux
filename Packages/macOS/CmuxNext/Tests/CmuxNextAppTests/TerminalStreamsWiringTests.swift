@@ -4,11 +4,13 @@
 import CmuxNextFeatures
 import Testing
 
-/// The production wiring of `terminalStreams` (p05-ipc-095): on, the local daemon's connection streams its
-/// terminal views, echoes the grant and joins shared sizing as this Mac; off (the default), it asks for none.
+/// The production wiring of `terminalStreams`: on, the local daemon's connection streams its
+/// terminal views, echoes the grant and joins shared sizing as this Mac; off (`CMUX_DISABLE_FEATURES`, and Release
+/// by default), it asks for none.
 struct TerminalStreamsWiringTests {
-    private static func features(enabling names: Set<String>) -> FeatureList {
-        FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: FeatureOverrides(environmentEnabled: names))
+    private static func features(enabling names: Set<String>, disabling disabled: Set<String> = []) -> FeatureList {
+        FeatureList(registry: FeatureRegistry(), channel: .dev,
+                    overrides: FeatureOverrides(environmentDisabled: disabled, environmentEnabled: names))
     }
 
     private static func localConfiguration(_ features: FeatureList) -> DaemonConnection.Configuration {
@@ -26,7 +28,7 @@ struct TerminalStreamsWiringTests {
     }
 
     @Test func offTheLocalConnectionKeepsAConnectionPerView() {
-        let configuration = Self.localConfiguration(Self.features(enabling: []))
+        let configuration = Self.localConfiguration(Self.features(enabling: [], disabling: ["terminalStreams"]))
         #expect(!configuration.streamsTerminals)
         let hasDevice = configuration.streamSizingDevice != nil
         #expect(!hasDevice)

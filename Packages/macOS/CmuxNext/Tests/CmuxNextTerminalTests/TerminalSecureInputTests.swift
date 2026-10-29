@@ -5,7 +5,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// Ghostty's secure keyboard entry closes the trace runtime's keystroke-timing gate (p09-observability-128): the
+/// Ghostty's secure keyboard entry closes the trace runtime's keystroke-timing gate: the
 /// production wiring, ``TerminalSecureInput``, with a test runtime and a test switch in place of HIToolbox's.
 @MainActor
 @Suite struct TerminalSecureInputTests {

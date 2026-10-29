@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The checks before Restart to Update hands the app to the installer
@@ -45,9 +46,9 @@ nonisolated public struct UpdateInstallPreflight: Sendable {
     }
 
     /// The first failed check, or nil when the install may start.
-    public func failure(files: FileManager = .default) -> Failure? {
+    public func failure() -> Failure? {
         let folder = bundle.deletingLastPathComponent()
-        guard files.isWritableFile(atPath: folder.path), files.isWritableFile(atPath: bundle.path) else {
+        guard FileManager.checked.isWritableFile(atPath: folder.path), FileManager.checked.isWritableFile(atPath: bundle.path) else {
             return .folderNotWritable(folder.path)
         }
         let needed = max(Self.minimumFreeBytes, (updateBytes ?? 0) * 3)
@@ -55,16 +56,16 @@ nonisolated public struct UpdateInstallPreflight: Sendable {
            let free = values.volumeAvailableCapacityForImportantUsage, free < needed {
             return .notEnoughSpace(free: free, needed: needed)
         }
-        if let staged = try? files.contentsOfDirectory(atPath: stagedInstallation.path) {
+        if let staged = try? FileManager.checked.contentsOfDirectory(atPath: stagedInstallation.path) {
             return staged.contains(where: { !$0.hasPrefix(".") }) ? nil : .updateMissing
         }
-        return files.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path) ? .updateMissing : nil
+        return FileManager.checked.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path) ? .updateMissing : nil
     }
 
     /// Whether the staged-update check could read Sparkle's folders (false:
     /// the layout is unknown and the check let the click through).
-    public func knowsStagedLayout(files: FileManager = .default) -> Bool {
-        files.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path)
+    public func knowsStagedLayout() -> Bool {
+        FileManager.checked.fileExists(atPath: stagedInstallation.deletingLastPathComponent().path)
     }
 
     /// What the update error says.

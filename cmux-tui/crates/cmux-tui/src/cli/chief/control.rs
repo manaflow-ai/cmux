@@ -9,6 +9,7 @@ use super::link::{Link, LinkError};
 use super::messages::messages;
 use super::{GlobalArgs, Session};
 use crate::cli::OutputMode;
+use crate::cli::json_fields::JsonFields;
 
 /// What `cmux chief engine|stop` asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +58,7 @@ fn stop(link: &mut Link, name: Option<&str>, chief: Option<&str>) -> Result<bool
         None => json!({}),
     };
     if let Some(chief) = chief {
-        params["chief"] = json!(chief);
+        params.insert("chief", json!(chief));
     }
     let result = link.call("chief.stop", params, Some(&key))?;
     Ok(result.pointer("/value/stopped").and_then(Value::as_bool).unwrap_or(false))
@@ -138,7 +139,7 @@ pub(super) fn run(
             let m = messages();
             match control {
                 Control::Engine(_) => println!("{}", engine_line(&value)),
-                Control::Stop(_) if value["stopped"] == true => println!("{}", m.stop_sent),
+                Control::Stop(_) if value.field("stopped") == true => println!("{}", m.stop_sent),
                 Control::Stop(_) => println!("{}", m.stop_idle),
             }
             0

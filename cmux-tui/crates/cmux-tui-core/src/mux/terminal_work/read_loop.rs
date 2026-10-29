@@ -271,9 +271,14 @@ impl TerminalReads {
         };
         if shared.poller.add(fd, token).is_err() {
             let entry = shared.lock().entries.remove(&token);
-            let source = entry.and_then(|entry| entry.source);
             // Not watched yet and no kick handed out, so nothing ran it.
-            return Err(source.expect("an unwatched source is never running"));
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: the entry was inserted with its source above and no kick was handed out, so nothing took it"
+            )]
+            let source =
+                entry.and_then(|entry| entry.source).expect("an unwatched source is never running");
+            return Err(source);
         }
         Ok(ReadKick { shared: Arc::downgrade(shared), token })
     }
@@ -355,6 +360,10 @@ impl Shared {
         while let Some(token) = state.runnable.pop_front() {
             let Some(entry) = state.entries.get_mut(&token) else { continue };
             entry.phase = Phase::Running { again: false };
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: a runnable token's entry keeps its source until this take marks it Running"
+            )]
             let source = entry.source.take().expect("a queued source is not running");
             return Some((token, source));
         }
@@ -390,6 +399,10 @@ impl Shared {
     fn run(self: &Arc<Self>, token: u64, mut source: Box<dyn ReadSource>) {
         let flow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| source.run()));
         let mut state = self.lock();
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: only a token's own run removes its entry (unwatch after this lookup), so it is registered while it runs"
+        )]
         let entry = state.entries.get_mut(&token).expect("a running source stays registered");
         match flow {
             Ok(ReadFlow::Continue) => {
@@ -465,25 +478,31 @@ impl Shared {
 fn spawn_loop(shared: &Arc<Shared>) -> io::Result<()> {
     let shared = shared.clone();
     // Routing only: the loop waits in the poller and hands ready sources on.
-    cmux_threads::spawn(READ_LOOP_THREAD, crate::echo_thread::ECHO_PATH_QOS, move || {
-        let mut tokens = Vec::new();
-        loop {
-            if shared.poller.wait(&mut tokens).is_err() {
-                // Leave the sources to the workers already running; a poller
-                // that fails once fails every later wait too.
-                eprintln!("cmux-tui: the terminal read loop's poller failed");
-                return;
-            }
-            for &token in &tokens {
-                if token != WAKE_TOKEN {
-                    shared.ready(token);
+    crate::supervised::spawn_at(
+        READ_LOOP_THREAD,
+        crate::echo_thread::ECHO_PATH_QOS,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || {
+            let mut tokens = Vec::new();
+            loop {
+                if shared.poller.wait(&mut tokens).is_err() {
+                    // Leave the sources to the workers already running; a poller
+                    // that fails once fails every later wait too.
+                    eprintln!("cmux-tui: the terminal read loop's poller failed");
+                    return;
+                }
+                for &token in &tokens {
+                    if token != WAKE_TOKEN {
+                        shared.ready(token);
+                    }
+                }
+                if Shared::done(&shared.lock()) {
+                    return;
                 }
             }
-            if Shared::done(&shared.lock()) {
-                return;
-            }
-        }
-    })
+        },
+    )
     .map(drop)
 }
 

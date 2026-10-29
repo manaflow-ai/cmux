@@ -1,5 +1,5 @@
 // Home keeps the open conversation (its route), each conversation's unsent composer text and the
-// conversation list's scroll across a discard (p13-webui-082). The timeline is not kept: it opens
+// conversation list's scroll across a discard. The timeline is not kept: it opens
 // at its newest message, as it does on every visit.
 import { describe, expect, test } from "bun:test";
 import { restoredPageInputs } from "../shared/pageState";

@@ -14,6 +14,8 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use crate::cli::json_fields::JsonFields;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
@@ -27,6 +29,7 @@ mod config;
 mod host;
 mod keybinding_tools;
 mod messages;
+mod panic_log;
 mod render_tool;
 mod results;
 mod schema;
@@ -373,6 +376,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     if let Some(why) = host::relay(&global, code_mode, &path) {
         eprintln!("cmux mcp: serving in this process: {why}");
     }
+    // The process that serves logs its panics; a relay above has replaced
+    // itself, and the shared host installs the same hook (`host::run`).
+    panic_log::install();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();
@@ -573,17 +579,28 @@ impl<B: Backend> Server<B> {
                     && let Some(job) = self.proxied_job(&params)
                 {
                     let caller = caller_env::current();
-                    std::thread::spawn(move || {
-                        let result = match caller {
-                            Some(caller) => caller_env::scope(caller, || job.run(None)),
-                            None => job.run(None),
-                        };
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": result});
-                        let _ = output.send(&response);
-                    });
-                    return None;
+                    let call_id = id.clone();
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
+                    let started = cmux_threads::spawn(
+                        "cmux-mcp-proxied-call",
+                        cmux_threads::ThreadQos::UserInitiated,
+                        move || {
+                            let result = match caller {
+                                Some(caller) => caller_env::scope(caller, || job.run(None)),
+                                None => job.run(None),
+                            };
+                            let response =
+                                json!({"jsonrpc": "2.0", "id": call_id, "result": result});
+                            let _ = output.send(&response);
+                        },
+                    );
+                    match started {
+                        Ok(_) => return None,
+                        Err(error) => Err((-32603, format!("cannot start the call: {error}"))),
+                    }
+                } else {
+                    self.call(&params)
                 }
-                self.call(&params)
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
@@ -648,7 +665,7 @@ impl<B: Backend> Server<B> {
                 self.actions_loaded = true;
             }
             Err(failure) => {
-                let message = failure.error["message"].as_str().unwrap_or("no answer");
+                let message = failure.error.field("message").as_str().unwrap_or("no answer");
                 eprintln!("cmux mcp: the cmux app's actions are unavailable: {message}");
             }
         }
@@ -707,7 +724,7 @@ impl<B: Backend> Server<B> {
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
-            if let Some(content) = result["content"].as_array_mut() {
+            if let Some(content) = result.get_mut("content").and_then(Value::as_array_mut) {
                 content.extend(images);
             }
             return Ok(result);
@@ -938,7 +955,9 @@ impl<B: Backend> Server<B> {
             ));
         }
         match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false) {
-            Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] }), false),
+            Ok(snapshot) => {
+                success(json!({ "items": snapshot.field("topology").field("windows") }), false)
+            }
             Err(failure) => failure_result(failure),
         }
     }
@@ -961,7 +980,7 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     let version = PROTOCOL_VERSIONS
         .iter()
         .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
+        .or_else(|| PROTOCOL_VERSIONS.first());
     json!({
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},

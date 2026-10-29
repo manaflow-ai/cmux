@@ -15,6 +15,7 @@ use super::app_focus;
 use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
@@ -41,7 +42,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     // A local, read-only report: its human table stays the default.
     if command_args.get(1).map(String::as_str) == Some("doctor") {
-        return Some(super::agents_doctor::run(&global, &command_args[2..]));
+        return Some(super::agents_doctor::run(&global, command_args.get(2..).unwrap_or_default()));
     }
     // `agents events` prints one line per event for a person.
     let lines = global.output == OutputMode::Human
@@ -49,17 +50,19 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    let help_requested = asks_help(&command_args[1..]);
-    if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
+    // The first word is `agents` (checked above); the rest is its command.
+    let (_, agent_args) = command_args.split_first_mut()?;
+    let help_requested = asks_help(agent_args);
+    if global.all_sessions && !agent_args.is_empty() && !help_requested {
         return Some(print_usage(
             &global,
             "--all-sessions is not supported for the composite agents command; choose one session",
         ));
     }
-    if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
+    if let Err(error) = normalize_qualified_targets(&mut global, agent_args) {
         return Some(print_usage(&global, &error.0));
     }
-    Some(run(global, &command_args[1..], lines))
+    Some(run(global, agent_args, lines))
 }
 
 /// Routes a `<session>:<id>` target to its session (`global.session`) and
@@ -135,13 +138,15 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     match outcome {
         // A wait that timed out prints its receipt and exits 1, as
         // `screen wait` does (docs/cli-contract.md).
-        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
+        Ok(value)
+            if matches!(command, AgentCommand::Wait(_)) && value.field("matched") == false =>
+        {
             wire::print_local_success(&value, global.output).max(1)
         }
         // The cursor goes to stderr, so stdout is only the events.
         Ok(value) if lines => {
             print!("{}", events::human_lines(&value));
-            eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
+            eprintln!("next_after={}", value.field("next_after").as_str().unwrap_or_default());
             0
         }
         Ok(value) => {
@@ -214,8 +219,8 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             mapped.push(format!("--{direction}"));
             let mut pane: Option<String> = None;
             let mut index = 0;
-            while index < rest.len() {
-                if rest[index] == "--surface" {
+            while let Some(&arg) = rest.get(index) {
+                if arg == "--surface" {
                     let value = rest.get(index + 1).ok_or_else(|| {
                         UsageError::new("agents terminal split: --surface needs a value")
                     })?;
@@ -223,8 +228,7 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                     index += 2;
                 } else {
                     return Err(UsageError::new(format!(
-                        "agents terminal split: unexpected argument {:?}",
-                        rest[index]
+                        "agents terminal split: unexpected argument {arg:?}"
                     )));
                 }
             }
@@ -237,9 +241,9 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
         ["palette", "open"] => {
             Ok(AgentCommand::App { action: "palette.open".into(), args: Vec::new() })
         }
-        ["dialog", "list"] | ["dialog", "list", "--all"] => Ok(AgentCommand::App {
+        ["dialog", "list", rest @ ..] if matches!(rest, [] | ["--all"]) => Ok(AgentCommand::App {
             action: "dialog.list".into(),
-            args: words[2..].iter().map(|value| (*value).into()).collect(),
+            args: rest.iter().map(|value| (*value).into()).collect(),
         }),
         ["chat", rest @ ..] => chat::parse(rest).map(AgentCommand::Chat),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
@@ -391,7 +395,7 @@ fn follow_app_focus<B: Backend>(
 /// No app answers on its control socket, so no window follows.
 fn no_app(failure: &CallFailure) -> bool {
     failure.kind == FailureKind::NotRun
-        && matches!(failure.error["code"].as_str(), Some("app.not_found" | "app.unreachable"))
+        && matches!(failure.error.field("code").as_str(), Some("app.not_found" | "app.unreachable"))
 }
 
 fn run_app<B: Backend>(
@@ -429,8 +433,8 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     let mut mode = None;
     let mut selections = Vec::new();
     let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--mode" => {
                 if mode.is_some() || !selections.is_empty() {
                     return Err(UsageError::new(
@@ -488,7 +492,7 @@ fn receipt<B: Backend>(
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
-        receipt["idempotency_key"] = Value::String(key);
+        receipt.insert("idempotency_key", Value::String(key));
     }
     receipt
 }
@@ -558,7 +562,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
     // right of it, where the app opens the caller's new tabs.
     for key in ["caller", "beside"] {
         if let Some(value) = app_value.as_ref().and_then(|value| value.get(key)) {
-            snapshot[key] = value.clone();
+            snapshot.insert(key, value.clone());
         }
     }
     if let Some(shown) = topology
@@ -568,11 +572,9 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .and_then(|value| value.get("focus"))
         .and_then(|value| value.get("workspace"))
         .and_then(Value::as_str)
+        && let Some(workspaces) = snapshot.field_mut("workspaces")
     {
-        app_focus::overlay_focused(
-            &mut snapshot["workspaces"],
-            &app_focus::AppWorkspaces::showing(shown),
-        );
+        app_focus::overlay_focused(workspaces, &app_focus::AppWorkspaces::showing(shown));
     }
     snapshot
 }
@@ -628,12 +630,12 @@ fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<Strin
                     return None;
                 }
                 let mut window = window.clone();
-                window["workspaces"] = Value::Array(selected);
+                window.insert("workspaces", Value::Array(selected));
                 if let Some(workspace) = window.get("workspace").cloned() {
                     let workspace_id =
                         workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
                     if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
-                        window["workspace"] = window["workspaces"][0].clone();
+                        window.insert("workspace", window.field("workspaces").element(0).clone());
                     }
                 }
                 Some(window)
@@ -763,19 +765,19 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
     }
     let returned = items.len();
     let next = offset.saturating_add(returned);
-    snapshot["items"] = Value::Array(items);
-    snapshot["offset"] = json!(offset);
-    snapshot["limit"] = json!(limit);
-    snapshot["total"] = json!(total);
-    snapshot["returned"] = json!(returned);
-    snapshot["next_offset"] = if next < total { json!(next) } else { Value::Null };
-    snapshot["truncated"] = json!(offset > 0 || next < total);
+    snapshot.insert("items", Value::Array(items));
+    snapshot.insert("offset", json!(offset));
+    snapshot.insert("limit", json!(limit));
+    snapshot.insert("total", json!(total));
+    snapshot.insert("returned", json!(returned));
+    snapshot.insert("next_offset", if next < total { json!(next) } else { Value::Null });
+    snapshot.insert("truncated", json!(offset > 0 || next < total));
     snapshot
 }
 
 pub(super) fn snapshot_error(snapshot: &Value) -> Option<Value> {
-    (snapshot["sources"]["daemon"]["available"] == false
-        && snapshot["sources"]["app"]["available"] == false)
+    (snapshot.field("sources").field("daemon").field("available") == false
+        && snapshot.field("sources").field("app").field("available") == false)
         .then(|| {
             json!({
                 "code": "agents.unavailable",

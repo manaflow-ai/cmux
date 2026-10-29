@@ -1,8 +1,9 @@
 //! The daemon's echo path threads run at UserInteractive with blocking
-//! disallowed (p02-threads task 210): a served connection's writer, its
-//! attach writers, the read loop a local PTY surface reads on and the frame
-//! producer are registered at that class. Connection readers stay at their own class until
-//! the client class is known (task 224).
+//! disallowed (p02-threads task 210): the read loop a local PTY surface
+//! reads on, the sequenced pool's input workers its attach views drain on
+//! and the frame producer are registered at that class. Its attach views
+//! hold no thread, and neither does a connection: the one
+//! `mux-io` loop reads and writes it.
 
 use std::time::{Duration, Instant};
 
@@ -53,11 +54,15 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
         client.request(json!({"cmd": "attach-surface", "surface": attached.id, "mode": "render"}));
     assert_eq!(render["ok"], true, "{render}");
 
-    // A local PTY reads on its owner's read loop, not a thread of its own
-    // (p07-memory-095).
+    // A local PTY reads on its owner's read loop, not a thread of its own.
     let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
-    for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", reader] {
+    // The views' output is a drain on the sequenced pool's input workers,
+    // which keep the echo class, not a thread per view.
+    for name in ["mux-seq-input", reader] {
         assert_rows(name, ECHO_PATH_QOS);
+    }
+    for name in ["mux-attach-out", "mux-render-attach-out", "mux-attach-notifications"] {
+        assert!(declared(name).is_empty(), "{name} is a thread per view");
     }
     assert_rows("surface-frames", ECHO_PATH_QOS);
     drop(client);
@@ -65,21 +70,33 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     mux.shutdown();
 }
 
-/// RUN-4: a local connection's reader runs request handlers inline for
-/// automation clients too, so the accept path does not raise it to the echo
-/// class.
+/// An accepted connection starts no thread. The one
+/// `mux-io` loop, at user-initiated, reads and writes it; no `mux-conn` or
+/// `mux-line-out` thread exists.
 #[test]
-fn an_accepted_connection_reader_stays_at_the_connection_class() {
+fn an_accepted_connection_is_served_by_the_mux_io_loop() {
+    use std::io::{BufRead, BufReader, Write};
+
     let mux = Mux::new_for_test("echo-rows-conn", crate::SurfaceOptions::default());
     let directory = cmux_unix_socket::short_test_dir("echo-conn");
     let path = directory.path().join("s.sock");
     let listener = transport::listen(&path).unwrap();
-    let client = transport::connect(&path).unwrap();
+    let mut client = transport::connect(&path).unwrap();
     let session =
         ServedSession { mux: mux.clone(), render_service: Arc::new(RenderService::new()) };
     session.serve(listener.accept().unwrap());
 
-    assert_rows("mux-conn", super::CONNECTION_READER_QOS);
+    client.write_all(b"{\"id\":1,\"cmd\":\"ping\"}\n").unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut reply = String::new();
+    BufReader::new(client.try_clone_box().unwrap()).read_line(&mut reply).unwrap();
+    let reply: Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+
+    assert_rows(mux_io::MUX_IO_THREAD, mux_io::MUX_IO_QOS);
+    for gone in ["mux-conn", "mux-line-out", "mux-events-out"] {
+        assert!(declared(gone).is_empty(), "no {gone} thread");
+    }
     let _ = client.shutdown(Shutdown::Both);
     mux.shutdown();
 }

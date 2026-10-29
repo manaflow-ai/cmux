@@ -1,4 +1,4 @@
-//! Attach streams on the daemon-wide sequenced pool (p05-ipc-079).
+//! Attach streams on the daemon-wide sequenced pool.
 //!
 //! A legacy attach holds a thread per view for its output and one for its
 //! notifications, each blocked on its source. A client-minted attach stream
@@ -121,6 +121,19 @@ impl AttachPump {
         }
     }
 
+    /// The hook that moves the drain to another priority's workers and runs
+    /// a turn there (`set-stream-priority`). It holds the pump
+    /// weakly, as [`Self::hook`] does.
+    pub(crate) fn priority_hook(&self) -> impl Fn(SequencePriority) + Send + Sync + 'static {
+        let pump = Arc::downgrade(&self.inner);
+        move |priority| {
+            if let Some(inner) = pump.upgrade() {
+                inner.sequence.update_priority(priority);
+                wake(&inner);
+            }
+        }
+    }
+
     /// Fired by any close the view ends on; it wakes the drain.
     pub(crate) fn stop(&self) -> &Arc<StreamInterrupt> {
         &self.inner.stop
@@ -208,12 +221,11 @@ fn run(inner: &Arc<PumpInner>) {
 
 /// What the next item of a view's source did.
 pub(crate) enum Step {
-    /// An item was sent (or skipped): look again.
+    /// An item was sent (or skipped): look again. An item is never bulk
+    /// work: a source that has some (a snapshot viewer's READY encode and
+    /// history chunks) runs it on a utility sequence and sends its result
+    /// here, so no view's turn holds a worker the echo path shares.
     Sent,
-    /// A bulk item was sent (a READY, a history or images chunk): the turn
-    /// yields, so a view holds a worker the echo path shares for at most
-    /// one such item at a time.
-    Bulk,
     /// The source holds nothing now.
     Empty,
     /// The view ends.
@@ -388,7 +400,6 @@ impl<S: ViewSource> ViewDrain<S> {
             }
             match source.next(&mut self.out, timer) {
                 Step::Sent => {}
-                Step::Bulk => return Turn::Yield,
                 Step::Empty => return Turn::Idle,
                 Step::End => return Turn::Done,
             }

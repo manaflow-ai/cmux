@@ -11,9 +11,10 @@ webviews/src/agent-session/acpmux, galleries and tests excluded) this refuses:
   listener  a `visibilitychange`, `resume` or `pageshow` listener, or a `focus` listener on the
             window or document (`window`, `document`, `globalThis`, `doc`, `view`, `defaultView`),
             in a file and for an event that `ALLOWED_LISTENERS` does not list with its reason. An
-            element's own `focus` listener is not a switch. `onPageLifecycleChange(` (the page
-            lifecycle, webviews/src/pages/shared/pageLifecycle.ts) counts as a `visibilitychange`
-            listener.
+            element's own `focus` listener is not a switch. The page lifecycle
+            (webviews/src/pages/shared/pageLifecycle.ts) counts as a `visibilitychange` listener:
+            `onPageLifecycleChange(`, `usePageLifecycle(`, `pageLifecycleFor(`,
+            `new PageLifecycle(` and an interval's `catchUpOnShow` (unless `: false`).
   mount     a `useEffect` / `useLayoutEffect` whose dependencies are `[]`, or only stable read
             functions (`callNative`, `fetchPage`, `load...`, `reload`, `refresh...`), whose body
             reads data (`callNative(`, `.request(`, `fetch(`, `fetchPage(`, a `load...(` call) or
@@ -51,6 +52,10 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock stops its timer while the page "
+    "is hidden and reads the minute once on show (p13-webui-035); reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "its retry waits count only shown time "
+    "(startPageTimeout) and a hidden page's first round waits once (p13-webui-069); no read on show itself",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "
     "when the page hides (unsentDraftThrottle.ts); a write, reads no data",
     (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "
@@ -60,6 +65,11 @@ ALLOWED_LISTENERS = {
     "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/chips/ReplyMedia.tsx", "visibilitychange"): "stops a muted hover preview when the "
     "agent page hides; it only cancels local media and reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock rests while the page is "
+    "hidden (p13-webui-035) and on show reads the minute once; reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "a bare #N's pull request rounds rest "
+    "while the page is hidden (p13-webui-069): the lifecycle only picks the first wait, and a show "
+    "waits a period (`onResume: \"wait\"`), so a switch reads nothing",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",
@@ -74,8 +84,15 @@ ALLOWED_MOUNT_READS = {
 LISTENER = re.compile(
     r"(?:([\w$]+)\s*\??\.\s*)?addEventListener\s*\??\.?\(\s*[\"'](visibilitychange|focus|pageshow|resume)[\"']"
 )
-# The page lifecycle's observer fires on hide, freeze, resume and show: a `visibilitychange` listener.
-LIFECYCLE_LISTENER = re.compile(r"(?<![\w$.])onPageLifecycleChange\s*\(")
+# The page lifecycle (webviews/src/pages/shared/pageLifecycle.ts) fires on hide, freeze, resume and
+# show, so each way to run code on it is a `visibilitychange` listener: `onPageLifecycleChange(`, the
+# `usePageLifecycle(` state (an effect keyed on it re-runs on every show), a `PageLifecycle` taken to
+# `.observe(` (`pageLifecycleFor(`, `new PageLifecycle(`), and an interval that `catchUpOnShow`s.
+LIFECYCLE_LISTENER = re.compile(
+    r"(?<![\w$.])(?:onPageLifecycleChange|usePageLifecycle|pageLifecycleFor)\s*\(|"
+    r"\bnew\s+PageLifecycle\s*\(|"
+    r"(?<![\w$])catchUpOnShow\b(?!\s*:\s*false\b)"
+)
 PAGE_RECEIVERS = {"window", "document", "globalThis", "doc", "view", "defaultView", "self"}
 EFFECT = re.compile(r"\buse(?:Layout)?Effect\(")
 READ = re.compile(
@@ -252,6 +269,17 @@ def self_test() -> None:
     assert check_text(view, 'document.addEventListener("resume", reread);'), "a resume listener"
     assert not check_text(f"{ACPMUX}/direct.ts", "this.stop = onPageLifecycleChange(this.showChanged);")
     assert not check_text(view, "// onPageLifecycleChange(reread) is refused here\nconst a = 1;"), "lifecycle prose"
+    keyed = "const state = usePageLifecycle();\nuseEffect(() => {\n  void callNative('chats.page');\n}, [state]);"
+    assert check_text(view, keyed), "a read keyed on the lifecycle state"
+    assert check_text(view, "pageLifecycleFor().observe(() => void callNative('x'));"), "a lifecycle observer"
+    assert check_text(view, "new PageLifecycle(document).observe(reread);"), "a made lifecycle"
+    caught_up = "usePageInterval(() => void callNative('x'), 5000, { catchUpOnShow: true });"
+    assert check_text(view, caught_up), "a catch-up on show"
+    assert check_text(view, "startPageInterval(tick, 1000, { catchUpOnShow });"), "a shorthand catch-up"
+    assert not check_text(view, "usePageInterval(tick, 1000, { catchUpOnShow: false });"), "no catch-up"
+    assert not check_text(view, "usePageInterval(tick, 1000);"), "a plain interval"
+    assert not check_text(view, 'import { pageLifecycleFor } from "../../pages/shared/pageLifecycle";')
+    assert not check_text(f"{ACPMUX}/direct.ts", "const s = usePageLifecycle();"), "a listed file"
     assert not check_text(view, '/// unlike window.addEventListener("focus", ...)\nconst a = 1;'), "doc comment"
     mount = "useEffect(() => {\n  void callNative('chats.page');\n}, []);"
     assert check_text(view, mount), "a mount read"

@@ -1,5 +1,5 @@
 // The changelog keeps the build the person reads and the scroll of its rail and reader across a
-// discard (p13-webui-082). An update's span is the route's, which the page state puts back itself.
+// discard. An update's span is the route's, which the page state puts back itself.
 import { describe, expect, test } from "bun:test";
 import { pageRoundTrip, scrollOf, withRestore } from "../shared/pageStateTesting";
 import { MockChangelogProvider, sampleNotes } from "./mockProvider";

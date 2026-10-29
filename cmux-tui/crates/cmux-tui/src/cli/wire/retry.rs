@@ -104,8 +104,11 @@ impl Tries {
 
     /// Waits before the next try and counts it.
     pub(super) fn wait_before_next(&mut self) {
-        let index = self.made.get().saturating_sub(1).min(BACKOFF.len() - 1);
-        std::thread::sleep(backoff(BACKOFF[index]));
+        // The last backoff repeats once the tries pass the table.
+        let index = self.made.get().saturating_sub(1);
+        if let Some(&delay) = BACKOFF.get(index).or(BACKOFF.last()) {
+            cmux_blocking::thread::sleep(backoff(delay));
+        }
         self.made.set(self.made.get() + 1);
     }
 }

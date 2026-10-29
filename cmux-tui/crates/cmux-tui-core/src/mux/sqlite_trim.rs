@@ -1,5 +1,4 @@
-//! SQLite page caches given back under memory pressure (`memorySqliteTrim`,
-//! p07-memory-090).
+//! SQLite page caches given back under memory pressure (`memorySqliteTrim`).
 //!
 //! Chrome's `sql::Database` registers a memory pressure listener per
 //! connection and its `TrimMemory()` (sql/database.cc) calls
@@ -66,10 +65,6 @@ impl TrimTarget {
         }
     }
 
-    const fn index(self) -> usize {
-        self as usize
-    }
-
     /// Frees the target's page cache under its own lock. A store that is
     /// not open holds no cache and stays closed.
     fn release(self, mux: &Mux) -> anyhow::Result<()> {
@@ -107,6 +102,23 @@ pub(crate) struct SqliteTrim {
     /// Hears each finished release with the thread it ran on.
     #[cfg(test)]
     pub(super) observer: OnceLock<std::sync::mpsc::SyncSender<TrimRun>>,
+}
+
+impl SqliteTrim {
+    /// `target`'s queued flag: one per [`TrimTarget`], named so no index can
+    /// fall outside the array.
+    fn queued(&self, target: TrimTarget) -> &AtomicBool {
+        let [registry, conversations, chiefs, app_storage, history_visits, history_search] =
+            &self.queued;
+        match target {
+            TrimTarget::Registry => registry,
+            TrimTarget::Conversations => conversations,
+            TrimTarget::Chiefs => chiefs,
+            TrimTarget::AppStorage => app_storage,
+            TrimTarget::HistoryVisits => history_visits,
+            TrimTarget::HistorySearch => history_search,
+        }
+    }
 }
 
 /// A release as the test observer sees it.
@@ -156,7 +168,7 @@ impl Mux {
 /// Runs on the pressure source's thread: it only posts.
 fn queue_release(mux: &Weak<Mux>, target: TrimTarget) {
     let Some(mux) = mux.upgrade() else { return };
-    if mux.sqlite_trim.queued[target.index()].swap(true, Ordering::AcqRel) {
+    if mux.sqlite_trim.queued(target).swap(true, Ordering::AcqRel) {
         return;
     }
     let posted = mux.post_mux_work(
@@ -165,12 +177,12 @@ fn queue_release(mux: &Weak<Mux>, target: TrimTarget) {
         Shutdown::SkipOnShutdown,
         move |mux| {
             let Some(mux) = mux.upgrade() else { return };
-            mux.sqlite_trim.queued[target.index()].store(false, Ordering::Release);
+            mux.sqlite_trim.queued(target).store(false, Ordering::Release);
             run_release(&mux, target);
         },
     );
     if posted.is_err() {
-        mux.sqlite_trim.queued[target.index()].store(false, Ordering::Release);
+        mux.sqlite_trim.queued(target).store(false, Ordering::Release);
     }
 }
 

@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextInput
+public import CmuxNextInput
 public import CmuxNextInputCore
 public import CmuxNextWakeups
 package import CmuxNextRemoteView
@@ -28,7 +28,7 @@ public protocol RemoteBrowserEventTarget: AnyObject {
 /// Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
 /// main_thread_event_queue.cc`). Buttons, enter, leave, keys and scroll phase edges flush what waits
 /// first (`ShouldFlushQueue`), so the page sees every event in the order it came.
-public final class RemoteBrowserContentView: NSView {
+public final class RemoteBrowserContentView: NSView, KeyEquivalentOwningSurface {
     package let video = RemoteVideoView()
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
 
@@ -45,7 +45,7 @@ public final class RemoteBrowserContentView: NSView {
     public override var acceptsFirstResponder: Bool { true }
 
     /// The page's cursor (`rb.cursor`), shown over the whole page area: set when the pointer enters
-    /// (the hover area's `.cursorUpdate`, p04-input-090) and when the page changes it under the pointer.
+    /// (the hover area's `.cursorUpdate`) and when the page changes it under the pointer.
     public var pageCursor: NSCursor = .arrow {
         didSet {
             guard pageCursor !== oldValue else { return }

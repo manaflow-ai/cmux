@@ -33,6 +33,27 @@ pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
+/// The daemon's black box, first: its heap ring takes records at once and
+/// a one-shot thread maps its file in the app's trace folder ([`cmux_trace::process_dir`]), which
+/// the daemon's hosts share. Then, once per start and never on a timer, a background thread
+/// deletes the rings of processes that ended long ago ([`cmux_trace::cleanup`]).
+#[cfg(unix)]
+fn start_blackbox() {
+    let dir = cmux_trace::process_dir();
+    drop(cmux_trace::init_blackbox(&dir, cmux_trace::Role::Daemon));
+    let cleanup =
+        cmux_threads::spawn("trace-cleanup", cmux_threads::ThreadQos::Background, move || {
+            cmux_trace::cleanup::run(&dir);
+        });
+    if let Err(error) = cleanup {
+        crate::client_log::stderr_log!(
+            "startup",
+            "{}: no trace ring cleanup: {error}",
+            crate::cli::BIN
+        );
+    }
+}
+
 /// The headless owner's panic log for its terminal hosts' crash sidecars
 /// (`SurfaceOptions::host_panic_log`); `None` for any other process.
 pub(crate) fn host_panic_log(
@@ -55,8 +76,10 @@ fn start_hang_watch() {
 }
 
 /// The server process's setup before its mux: the hang watch first, then
-/// [`prepare`].
-pub(crate) fn start_server_process(args: &crate::Args) -> anyhow::Result<()> {
+/// [`prepare`], whose supervisor it returns.
+pub(crate) fn start_server_process(
+    args: &crate::Args,
+) -> anyhow::Result<cmux_panic_log::Supervisor> {
     start_hang_watch();
     prepare(args)
 }
@@ -71,8 +94,15 @@ pub(crate) fn start_server_process(args: &crate::Args) -> anyhow::Result<()> {
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
 /// its own memory (`memory_guard`), and fetches the signed invite-wave flags
 /// and the daily update answer (`background_checks`).
-pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
+///
+/// Returns the process's [`cmux_panic_log::Supervisor`]: a fatal worker
+/// failure records a `supervised_exit` line in the owner's panic log and
+/// exits, so whoever started the owner starts it again.
+pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<cmux_panic_log::Supervisor> {
+    let supervisor = owner_panic::supervisor(args.headless.then_some(args.session.as_str()));
     if args.headless {
+        #[cfg(unix)]
+        start_blackbox();
         owner_panic::install(&args.session);
         #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
         poll_watch_lab::install(&args.session);
@@ -84,7 +114,7 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             .flat_map(|log| [log.clone(), memory_guard::memory_log_path(log)])
             .collect();
         let forwarder = crash_forward::start(logs);
-        memory_guard::spawn(panic_log, forwarder);
+        memory_guard::spawn(&supervisor, panic_log, forwarder);
         background_checks::spawn();
     }
     if args.ephemeral && args.state.is_some() {
@@ -99,5 +129,38 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             crate::cli::BIN
         );
     }
-    Ok(())
+    Ok(supervisor)
+}
+
+/// The owner's loop ended with `result`: stop its supervised workers before
+/// the mux they serve goes away (none restarts, Skip workers are asked to
+/// stop, Block workers are waited for). When the signal thread failed, the
+/// supervisor's fatal sink is ending the process: wait for that exit instead
+/// of racing it with teardown and a second exit.
+pub(crate) fn stop_supervised(
+    supervisor: &cmux_panic_log::Supervisor,
+    result: &anyhow::Result<()>,
+) {
+    if let Err(error) = result
+        && error.downcast_ref::<crate::headless::SignalRecordFailed>().is_some()
+    {
+        await_supervised_exit();
+    }
+    let report = supervisor.shutdown();
+    if !report.late.is_empty() {
+        crate::client_log::stderr_log!(
+            "shutdown",
+            "{}: supervised workers still running at their deadline: {}",
+            crate::cli::BIN,
+            report.late.join(", ")
+        );
+    }
+}
+
+/// The owner's [`owner_panic::supervisor`] sink (`ExitProcess`) never
+/// returns: it records the failure and exits. The caller parks until then.
+fn await_supervised_exit() -> ! {
+    loop {
+        std::thread::park();
+    }
 }

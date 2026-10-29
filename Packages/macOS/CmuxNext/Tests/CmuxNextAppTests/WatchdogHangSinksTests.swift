@@ -5,14 +5,15 @@ import Darwin
 import Foundation
 import Testing
 
-/// p09-observability-076: Sentry's app-hang tracker is off only where the watchdog keeps the fatal-hang record, and
-/// the watchdog's hang sinks are set before Sentry starts. Before this, they were set in `WatchdogReporting.install`,
-/// well after the start, so a launch hang in between had no report from either side.
+/// Sentry's app-hang tracker is off wherever the watchdog's sinks are set (the
+/// watchdog is the process's one hang watcher), and the watchdog's hang sinks are set before Sentry starts. Before
+/// this, they were set in `WatchdogReporting.install`, well after the start, so a launch hang in between had no
+/// report from either side.
 struct WatchdogHangSinksTests {
-    @Test func theTrackerIsOffOnlyWhereTheFatalHangRecordIsKept() {
+    @Test func theTrackerIsOffWithOrWithoutTheFatalHangRecord() {
         let folder = FileManager.default.temporaryDirectory
         #expect(WatchdogHangSinks(watchdog: MainThreadWatchdog(), keepsFatalHangRecord: true, markerFolder: folder).hangTracking == .watchdog)
-        #expect(WatchdogHangSinks(watchdog: MainThreadWatchdog(), keepsFatalHangRecord: false, markerFolder: folder).hangTracking == .sentry)
+        #expect(WatchdogHangSinks(watchdog: MainThreadWatchdog(), keepsFatalHangRecord: false, markerFolder: folder).hangTracking == .watchdog)
     }
 
     /// The sinks need no started Sentry: both are set while the reporter is still off, as at launch.
@@ -24,6 +25,7 @@ struct WatchdogHangSinksTests {
             .install(reporter: reporter)
         #expect(!reporter.isStarted)
         #expect(watchdog.onHang != nil, "a launch hang would reach no crash report")
+        #expect(watchdog.onHangEpisode != nil, "a launch hang would reach no Sentry app hang")
         #expect(watchdog.fatalHangs != nil, "a launch hang the app does not survive would leave no record")
     }
 
@@ -36,6 +38,7 @@ struct WatchdogHangSinksTests {
         WatchdogHangSinks(watchdog: watchdog, keepsFatalHangRecord: keeps, markerFolder: FileManager.default.temporaryDirectory)
             .install(reporter: CrashReporter(policy: policy))
         #expect(watchdog.onHang != nil)
+        #expect(watchdog.onHangEpisode != nil, "app hangs do not need the fatal-hang record")
         #expect(watchdog.fatalHangs == nil)
     }
 

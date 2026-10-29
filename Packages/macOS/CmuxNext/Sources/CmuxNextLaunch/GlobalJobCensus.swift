@@ -23,7 +23,7 @@ import Darwin
 /// change; after ``freeze()`` it costs one atomic load. A record claims a slot with one atomic add and writes the
 /// slot's fields and stack (`backtrace_async`: no lock, no allocation) before it publishes the slot with a release
 /// store. Debug and bench-hooks builds only, and armed only by ``environmentKey``. The hook word is taken only when it
-/// is free; in an armed launch the trace's `ConcurrencyHook` (p09-observability-123) finds it taken.
+/// is free; in an armed launch the trace's `ConcurrencyHook` finds it taken.
 ///
 /// Memory safety: each buffer is one allocation made and initialized by init at its full size and never freed,
 /// because the hook may call in for the life of the process; the census keeps its address as an integer and makes the

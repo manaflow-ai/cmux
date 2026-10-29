@@ -2,6 +2,7 @@
 
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use super::state::TabState;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, WaitUntil, required_f64, required_str, timeout_of};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -35,7 +36,8 @@ impl Inner {
             json!({"expression": "document.readyState", "returnByValue": true}),
             INTERNAL_TIMEOUT,
         );
-        let value = ready.ok().and_then(|r| r["result"]["value"].as_str().map(str::to_owned));
+        let value =
+            ready.ok().and_then(|r| r.field("result").field("value").as_str().map(str::to_owned));
         let reached: &[&str] = match value.as_deref() {
             Some("complete") => &["DOMContentLoaded", "load"],
             Some("interactive") => &["DOMContentLoaded"],
@@ -130,9 +132,9 @@ impl Inner {
             Duration::from_secs(2),
         );
         if let Ok(reply) = reply
-            && let Some(status) = reply["result"]["value"].as_u64().filter(|s| *s > 0)
+            && let Some(status) = reply.field("result").field("value").as_u64().filter(|s| *s > 0)
         {
-            answer["status"] = json!(status);
+            answer.insert("status", json!(status));
         }
         answer
     }
@@ -185,13 +187,12 @@ impl Inner {
         let wait_until = WaitUntil::parse(params.get("waitUntil").and_then(Value::as_str))?;
         let deadline = Instant::now() + timeout_of(params);
         let history = self.send(&session, "Page.getNavigationHistory", json!({}))?;
-        let entries = history["entries"].as_array().cloned().unwrap_or_default();
-        let current = history["currentIndex"].as_i64().unwrap_or(0);
+        let entries = history.field("entries").as_array().cloned().unwrap_or_default();
+        let current = history.field("currentIndex").as_i64().unwrap_or(0);
         let index = current + delta;
-        if index < 0 || index as usize >= entries.len() {
+        let Some(entry) = usize::try_from(index).ok().and_then(|at| entries.get(at)) else {
             return Ok(Value::Null);
-        }
-        let entry = &entries[index as usize];
+        };
         // The blank page a tab opened on is not an entry (driver-protocol.md).
         if index == 0 && delta < 0 && entry["url"].as_str() == Some("about:blank") {
             return Ok(Value::Null);
@@ -226,8 +227,8 @@ impl Inner {
                 Duration::from_secs(2).min(INTERNAL_TIMEOUT),
             )
         {
-            let css = &metrics["cssLayoutViewport"];
-            let device = &metrics["layoutViewport"];
+            let css = metrics.field("cssLayoutViewport");
+            let device = metrics.field("layoutViewport");
             if let (Some(width), Some(height)) =
                 (css["clientWidth"].as_f64(), css["clientHeight"].as_f64())
             {
@@ -343,7 +344,7 @@ impl Inner {
             Duration::from_secs(2),
         );
         if let Ok(reply) = reply
-            && let Some(title) = reply["result"]["value"].as_str()
+            && let Some(title) = reply.field("result").field("value").as_str()
             && let Some(tab) = self.lock().tabs.get_mut(&session.target_id)
         {
             tab.title = title.to_owned();

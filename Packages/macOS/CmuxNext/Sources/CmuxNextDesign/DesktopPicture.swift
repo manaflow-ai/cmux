@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+public import CmuxNextAppearance
 
 /// The picture cmux shows for ``BackdropSelection/desktop``: the file macOS reports for the
 /// screen when it is a readable picture, else what the desktop shows without one.
@@ -102,9 +103,9 @@ public nonisolated struct DesktopPicture: Sendable {
         guard let image = context.makeImage() else { return nil }
         try? FileManager.default.createDirectory(at: fallbackFolder, withIntermediateDirectories: true)
         let partial = fallbackFolder.appendingPathComponent(UUID().uuidString + ".partial")
-        guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        guard let destination = blockingImageDestination(url: partial as CFURL, type: UTType.png.identifier as CFString, count: 1) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else {
+        guard blockingImageDestinationFinalize(destination) else {
             try? FileManager.default.removeItem(at: partial)
             return nil
         }

@@ -1,5 +1,6 @@
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import ImageIO
 import Testing
@@ -10,6 +11,8 @@ import UniformTypeIdentifiers
 /// app's Choose Picture… and Use Default Picture write through the registry, and a picture still
 /// named in a Chief's `optchat/profile.json` moves to the registry once, with a backup.
 @Suite struct ChiefAvatarRegistryTests {
+    static let lanes = BackgroundWork(label: "test.chief-avatars")
+
     /// The daemon's avatar store as the tools and the app see it.
     actor FakeRegistry: ChiefAvatarRegistry {
         var pictures: [String: ChiefAvatarPicture] = [:]
@@ -65,7 +68,7 @@ import UniformTypeIdentifiers
         // What `profile` / `chiefs` with avatar_path does: chief.profile.avatar.set on the daemon.
         try await registry.setPicture(ChiefAvatarPicture(mediaType: "image/png", data: bytes), of: "agent_scout01")
 
-        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache)
+        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache, files: Self.lanes)
         let shown = await avatars.read(chiefs: ["agent_mux", "agent_scout01"])
         guard case .picture(let url)? = shown["agent_scout01"] else {
             Issue.record("the tool's picture does not show: \(shown)")
@@ -78,7 +81,7 @@ import UniformTypeIdentifiers
     @Test func choosePictureAndUseDefaultWriteThroughTheRegistry() async throws {
         let home = try Self.folder(), cache = try Self.folder(), source = try Self.folder()
         let registry = FakeRegistry()
-        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache)
+        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache, files: Self.lanes)
         let photo = source.appendingPathComponent("photo.jpg")
         try ChiefPictureFilesTests.picture(.jpeg, width: 3000, height: 2000, to: photo)
 
@@ -108,7 +111,7 @@ import UniformTypeIdentifiers
         try bytes.write(to: folder.appendingPathComponent("avatar.png"))
         files.writeAvatar("avatar.png")
 
-        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache)
+        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache, files: Self.lanes)
         guard case .picture(let url)? = await avatars.read(chiefs: ["agent_mux"])["agent_mux"] else {
             Issue.record("the old picture does not show")
             return
@@ -127,7 +130,7 @@ import UniformTypeIdentifiers
     @Test func aTextAvatarStaysInProfileJSON() async throws {
         let home = try Self.folder(), cache = try Self.folder()
         Self.files(home, "agent_scout01").writeAvatar("SC")
-        let avatars = HomeChiefAvatars(muxHome: home, registry: FakeRegistry(), cache: cache)
+        let avatars = HomeChiefAvatars(muxHome: home, registry: FakeRegistry(), cache: cache, files: Self.lanes)
         #expect(await avatars.read(chiefs: ["agent_scout01"]) == ["agent_scout01": .text("SC")])
     }
 
@@ -141,7 +144,7 @@ import UniformTypeIdentifiers
         try Self.png().write(to: folder.appendingPathComponent("avatar.png"))
         files.writeAvatar("avatar.png")
 
-        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache)
+        let avatars = HomeChiefAvatars(muxHome: home, registry: registry, cache: cache, files: Self.lanes)
         guard case .picture? = await avatars.read(chiefs: ["agent_mux"])["agent_mux"] else {
             Issue.record("the old picture went away while the daemon was down")
             return

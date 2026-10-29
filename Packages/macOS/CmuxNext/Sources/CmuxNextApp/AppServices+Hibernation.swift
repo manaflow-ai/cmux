@@ -28,12 +28,12 @@ extension AppServices {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility), freezeEligibility: features.isEnabled(.memoryFreezeEligibility))
         cache.hibernation = hibernation
-        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too (p14-energy-059)
+        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
-        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers] (owner: String) in
-            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage() } }
+        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers, parent = cache.chromium.source.helperParent] (owner: String) in
+            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage(parent: parent.pid) } }
         hibernation.measureCPU = readCPU("SaverCPUFreeze")
         hibernation.highEnergy = features.isEnabled(.highEnergyTabs) ? HighEnergyTabMonitor(cache: cache, registry: registry, measure: readCPU("HighEnergyTabs")) : nil
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
@@ -73,9 +73,9 @@ extension AppServices {
     }
 
     /// The intent prewarm over `hibernation`, its weak warmer, with a background-class deadline per trigger whose
-    /// feature is on: the hover dwell (`intentPrewarmHover`, p04-input-043), the key steps (`directionalPrewarm`,
-    /// p04-input-044) and the press start on a row that commits on its release (`intentPrewarmPress`,
-    /// p04-input-042; no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
+    /// feature is on: the hover dwell (`intentPrewarmHover`), the key steps (`directionalPrewarm`)
+    /// and the press start on a row that commits on its release (`intentPrewarmPress`,
+    /// no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
     /// and Energy Saver's inputs as its power. No feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
         let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm), presses = features.isEnabled(.intentPrewarmPress)
@@ -101,9 +101,9 @@ extension AppServices {
             .reply(on: mainWork, class: .background, owner: "IntentPrewarm.cover", landed)
     }
 
-    /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
+    /// The hibernation's measurements, after startup: the hourly footprint samples and,
     /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
-    /// already off screen). With `windowOcclusionFamily` (p03-rendering-097) a checker feeds every window's
+    /// already off screen). With `windowOcclusionFamily` a checker feeds every window's
     /// occlusion family, so covered windows stop their frames, terminals and pages.
     func startHibernationMeasurements() {
         memoryFootprints.start()
@@ -123,7 +123,7 @@ extension AppServices {
     }
 
     /// The parked workspaces of every window: none at critical memory pressure, one teardown per release
-    /// slice (p07-memory-096). With `memoryDiscardParkedWorkspaces` (p07-memory-032) also
+    /// slice. With `memoryDiscardParkedWorkspaces` also
     /// `SubsystemBudget.parkedWorkspaces` across every window and the 15 min idle timeout with
     /// `memoryDiscardParkedIdleTimeout`; off, every parked workspace stays until critical pressure. Its
     /// look runs as background work on one deadline.
@@ -137,14 +137,14 @@ extension AppServices {
             memory: memoryCoordinator)
     }
 
-    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// The page host's shared WebKit processes: at most `SubsystemBudget.webProcessPagesPerGroup`
     /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
     func makeWebProcessGroups() -> WebProcessGroups {
         WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
                          groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
     }
 
-    /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
+    /// The one list of hidden frames with `memoryHiddenFrameLRU`: every evicted terminal's last
     /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
     /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
     /// background deadline, never in the turn that culled them. Nil while off.
@@ -158,8 +158,8 @@ extension AppServices {
             memory: memoryCoordinator)
     }
 
-    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`
-    /// (p03-rendering-096), on one background deadline; nil while off: hidden workspaces stay in their window.
+    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`,
+    /// on one background deadline; nil while off: hidden workspaces stay in their window.
     func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
         guard features.isEnabled(.hiddenWorkspaceDetachAfterGrace) else { return nil }
         return HiddenWorkspaceDetach(
@@ -168,7 +168,7 @@ extension AppServices {
     }
 }
 
-// The memory histograms' discard and wake counts come from the page hibernation (p07-memory-016).
+// The memory histograms' discard and wake counts come from the page hibernation.
 extension MemoryHistograms {
     /// The content kinds whose discards are counted: those whose discard path calls
     /// ``recordDiscard(kind:)`` through ``follow(_:agentPages:)``. Any other kind has no histogram
@@ -199,7 +199,7 @@ extension ResourceSampleSet {
     }
 }
 
-// The tab cards' high-energy flags (p14-energy-125): the cache's hidden browser tabs, and Discard as the tab's Hibernate
+// The tab cards' high-energy flags: the cache's hidden browser tabs, and Discard as the tab's Hibernate
 // Tab action (its refusals, and the one path it shares with the menu and the palette).
 extension HighEnergyTabMonitor: TabEnergySource {
     convenience init(cache: TabContentCache, registry: ActionRegistry, measure: @escaping SaverCPUFreeze.Measure) {

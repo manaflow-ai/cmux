@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// A connection's events reach more than one consumer (p05-ipc-058): the store keeps the route's
+/// A connection's events reach more than one consumer: the store keeps the route's
 /// sink (``DaemonConnection/consumeEvents(_:)``), and every other consumer subscribes
 /// (``DaemonConnection/subscribe(filter:limit:)``) with a bounded inbox of its own. The reader only
 /// appends to an inbox, so a subscriber that stops reading delays no other one and resyncs alone.

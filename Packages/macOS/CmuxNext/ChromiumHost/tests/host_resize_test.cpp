@@ -1,5 +1,5 @@
 // Checks a hosted page's resize and its fence on the host's side
-// (src/host_resize.h, task p01-process-052), alone and through the dispatcher
+// (src/host_resize.h), alone and through the dispatcher
 // (src/host_dispatch.mm) with a fake shim and a fake inbox: the op's fields
 // round-trip and a malformed op is refused; a fence is taken by its seq, the
 // fences of older seqs and those past kMaxPendingFences are released; the

@@ -24,6 +24,8 @@
 //! own.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+use std::sync::PoisonError;
 
 #[cfg(unix)]
 pub(crate) mod read_loop;
@@ -97,7 +99,7 @@ impl TerminalWorkPool {
     /// could start, so the caller can run it inline.
     pub(crate) fn try_submit(&self, job: TerminalJob) -> Result<(), TerminalJob> {
         let spawn = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if state.queue.len() >= MAX_QUEUED_TERMINAL_JOBS {
                 return Err(job);
             }
@@ -113,19 +115,29 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started = cmux_threads::spawn("mux-terminal-work", TERMINAL_WORK_QOS, move || {
-            Self::work(&state);
-        });
+        let started = supervised::spawn_at(
+            "mux-terminal-work",
+            TERMINAL_WORK_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                Self::work(&state);
+            },
+        );
         if started.is_ok() {
             return Ok(());
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.workers -= 1;
         if state.workers > 0 {
             // A running worker drains the queue, including this job.
             return Ok(());
         }
-        Err(state.queue.pop_back().expect("the job just queued is still queued"))
+        // No worker is left, so the queue still holds the job just queued.
+        match state.queue.pop_back() {
+            Some(job) => Err(job),
+            None => Ok(()),
+        }
     }
 
     fn work(state: &Mutex<TerminalWorkState>) {
@@ -135,7 +147,7 @@ impl TerminalWorkPool {
         );
         loop {
             let job = {
-                let mut state = state.lock().unwrap();
+                let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
                 match state.queue.pop_front() {
                     Some(job) => job,
                     None => {
@@ -177,9 +189,18 @@ impl TerminalWorkPool {
         drop(sender);
         let mut results: Vec<Option<std::thread::Result<T>>> = (0..count).map(|_| None).collect();
         for (index, result) in receiver.iter().take(count) {
-            results[index] = Some(result);
+            if let Some(slot) = results.get_mut(index) {
+                *slot = Some(result);
+            }
         }
-        results.into_iter().map(|result| result.expect("every terminal job reports")).collect()
+        // Every job sends its result (a panic included) before its sender
+        // drops; a missing one reports like a panicked job.
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| Err(Box::new("cmux-tui: a terminal job did not report")))
+            })
+            .collect()
     }
 }
 
@@ -244,7 +265,7 @@ impl Mux {
                 return Ok(None);
             }
             let target = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 match pane {
                     Some(pane) => state.panes.contains_key(&pane).then_some(pane),
                     None => state.active_pane(),
@@ -311,7 +332,7 @@ impl Mux {
             let terminal_hex = terminal_id.to_hex();
             self.prelaunched_terminals
                 .lock()
-                .unwrap()
+                .unwrap_or_else(PoisonError::into_inner)
                 .insert(terminal_hex.clone(), PrelaunchedTerminal { launch_opts, host });
             Ok(Some(terminal_hex))
         }
@@ -329,7 +350,10 @@ impl Mux {
         &self,
         terminal_hex: &str,
     ) -> Option<PrelaunchedTerminal> {
-        self.prelaunched_terminals.lock().unwrap().remove(terminal_hex)
+        self.prelaunched_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_hex)
     }
 
     /// End the prelaunched host under `terminal_hex` unless its creation
@@ -338,7 +362,11 @@ impl Mux {
         #[cfg(any(unix, windows))]
         {
             // Drop outside the lock: dropping kills and waits the host.
-            let unclaimed = self.prelaunched_terminals.lock().unwrap().remove(terminal_hex);
+            let unclaimed = self
+                .prelaunched_terminals
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(terminal_hex);
             drop(unclaimed);
         }
         #[cfg(not(any(unix, windows)))]
@@ -365,7 +393,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         env: &[(String, String)],
     ) -> (SurfaceOptions, (u16, u16)) {
-        let mut opts = self.surface_options.lock().unwrap().clone();
+        let mut opts = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if cwd.is_some() {
             opts.cwd = cwd;
         }
@@ -395,7 +423,8 @@ impl Mux {
         opts.cols = cols;
         opts.rows = rows;
         let cell_pixels = {
-            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let cell_pixel_lifecycle =
+                self.cell_pixel_lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
             let cell_pixels = self.cell_pixel_creation_size();
             drop(cell_pixel_lifecycle);
             cell_pixels

@@ -25,19 +25,19 @@ impl LayoutState {
         self.panes.remove(&pane);
         events.push(LayoutEvent::PaneRemoved { pane });
         let Some(slot) = self.slot(pane) else { return };
-        let workspace = &mut self.workspaces[slot.workspace];
-        let screen = &mut workspace.screens[slot.screen];
-        let column = &mut screen.columns[slot.column];
-        column.note_removed(slot.pane, events);
-        column.panes.remove(slot.pane);
-        if column.panes.is_empty() {
+        let column = self.column_at_mut(slot);
+        column.note_removed(slot.position, events);
+        column.panes.remove(slot.position);
+        let column_emptied = column.panes.is_empty();
+        let screen = self.screen_at_mut(slot);
+        if column_emptied {
             let column = screen.columns.remove(slot.column);
             if screen.columns_active {
                 events.push(LayoutEvent::ColumnRemoved { column: column.id });
             }
         }
         if screen.columns.is_empty() {
-            let screen = workspace.screens.remove(slot.screen);
+            let screen = self.workspace_at_mut(slot).screens.remove(slot.screen);
             events.push(LayoutEvent::ScreenRemoved { screen: screen.id });
         }
     }

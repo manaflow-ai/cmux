@@ -6,6 +6,7 @@
 
 use super::redirects::{self, Hop, MAX_REDIRECTS};
 use super::{Gate, now_ms, push_cors_log, push_log};
+use crate::panic_free::JsonFields;
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
@@ -289,7 +290,10 @@ impl Gate {
         if let Some(body) = value.get("bodyBase64").and_then(Value::as_str)
             && let Some(bytes) = crate::fs_sandbox::base64_decode(body)
         {
-            value["bodyBase64"] = json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes)));
+            value.insert(
+                "bodyBase64",
+                json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes))),
+            );
         }
         Ok(value)
     }
@@ -338,18 +342,24 @@ impl Gate {
                     object.remove("targetId");
                 }
             }
-            call["url"] = json!(hop.url);
-            call["method"] = json!(hop.method);
-            call["headers"] = json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>());
-            call["bodyBase64"] = json!(hop.body);
-            call["credentials"] = json!(hop_credentials(credentials, page_origin, &hop.url));
-            call["redirect"] = json!("manual");
-            call["maxBytes"] = json!(MAX_BODY_BYTES);
-            call["idleTimeoutMs"] = json!(IDLE_TIMEOUT_MS);
-            call["fetchId"] = json!(fetch_id);
-            call["timeoutMs"] = json!(deadline.map_or(0, |deadline| {
-                deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
-            }));
+            call.insert("url", json!(hop.url));
+            call.insert("method", json!(hop.method));
+            call.insert(
+                "headers",
+                json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>()),
+            );
+            call.insert("bodyBase64", json!(hop.body));
+            call.insert("credentials", json!(hop_credentials(credentials, page_origin, &hop.url)));
+            call.insert("redirect", json!("manual"));
+            call.insert("maxBytes", json!(MAX_BODY_BYTES));
+            call.insert("idleTimeoutMs", json!(IDLE_TIMEOUT_MS));
+            call.insert("fetchId", json!(fetch_id));
+            call.insert(
+                "timeoutMs",
+                json!(deadline.map_or(0, |deadline| {
+                    deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
+                })),
+            );
             let mut value = match self.driver.call("net.fetch", &call) {
                 Ok(value) => value,
                 Err(error) => return Err(self.hop_error(error, start, url)),
@@ -370,7 +380,7 @@ impl Gate {
                 for entry in relaxed {
                     push_cors_log(
                         &self.cors_log,
-                        json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
+                        json!({"url": entry.field("url"), "what": entry.field("what"), "at": now_ms()}),
                     );
                 }
             }
@@ -385,8 +395,8 @@ impl Gate {
             }
             let Some(redirect) = redirect else {
                 // The final URL and `redirected` come from the host's chain.
-                value["url"] = json!(hop.url);
-                value["redirected"] = json!(redirects > 0);
+                value.insert("url", json!(hop.url));
+                value.insert("redirected", json!(redirects > 0));
                 return Ok(value);
             };
             redirects += 1;
@@ -395,8 +405,8 @@ impl Gate {
                     "fetch: {url} redirected more than {MAX_REDIRECTS} times"
                 )));
             }
-            let status = redirect["status"].as_u64().unwrap_or(302) as u16;
-            let location = redirect["location"].as_str().unwrap_or("");
+            let status = redirect.field("status").as_u64().unwrap_or(302) as u16;
+            let location = redirect.field("location").as_str().unwrap_or("");
             hop = redirects::next(&hop, status, location).map_err(DriverError::invalid)?;
             if let Some(reason) = self.url_refusal(&hop.url) {
                 let next = hop.url;
@@ -454,7 +464,10 @@ impl Gate {
         );
         let driver = self.driver.clone();
         let stop = json!({"targetId": target});
-        let _ = std::thread::Builder::new().name("cmux-browser-host-rebinding-stop".into()).spawn(
+        // supervise-allow: one tab.stop call, already logged as blocked; a panic loses that stop only, as a failed call does.
+        let _ = cmux_threads::spawn(
+            "cmux-browser-host-rebinding-stop",
+            cmux_threads::ThreadQos::Utility,
             move || {
                 let _ = driver.call("tab.stop", &stop);
             },

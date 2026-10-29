@@ -25,6 +25,7 @@ public struct UnattributedTurn: Sendable, Equatable {
     /// The part no scheduled task, render pass or input dispatch explains.
     public var unattributedNanos: UInt64
 
+    /// A turn from its parts (the meter records them; tests build them).
     public init(label: String, startNanos: UInt64, durationNanos: UInt64, unattributedNanos: UInt64) {
         self.label = label
         self.startNanos = startNanos

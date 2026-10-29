@@ -13,6 +13,10 @@
 import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
+/// The start of the current second: the page clock (ui/pageClock.ts) reads whole seconds, so a
+/// start on one keeps a running time exact.
+const thisSecond = () => Math.floor(Date.now() / 1000) * 1000;
+
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -292,7 +296,7 @@ describe("the tray", () => {
   });
 
   test("one running subagent is its line alone: name, what it does now, its time and state", async () => {
-    const now = Date.now();
+    const now = thisSecond();
     const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], NONE, true);
     const opened: string[] = [];
     const { root, done } = await render(
@@ -352,7 +356,7 @@ describe("the tray", () => {
   });
 
   test("several get a header; past three they start folded", async () => {
-    const now = Date.now();
+    const now = thisSecond();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
       [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
@@ -487,17 +491,18 @@ describe("the tray", () => {
   });
 
   test("a hidden pane's tray clock rests and catches up when the pane shows", async () => {
-    // The clock's interval is recorded instead of run, and the time moves by hand: no real waits.
-    const intervals = new Set<number>();
-    const realSet = globalThis.setInterval;
-    const realClear = globalThis.clearInterval;
+    // The page clock's timeout (ui/pageClock.ts) is recorded instead of run, and the time moves by
+    // hand: no real waits.
+    const timeouts = new Set<number>();
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
     let ids = 0;
-    globalThis.setInterval = (() => {
+    globalThis.setTimeout = (() => {
       ids += 1;
-      intervals.add(ids);
+      timeouts.add(ids);
       return ids;
-    }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id?: number) => void intervals.delete(id as number)) as typeof clearInterval;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((id?: number) => void timeouts.delete(id as number)) as typeof clearTimeout;
     let visibility = "visible";
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
     const shown = (state: string) =>
@@ -513,20 +518,20 @@ describe("the tray", () => {
     const time = () => root.querySelector(".acpmux-agent-line__time")?.textContent;
     try {
       expect(time()).toBe("10s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
       await shown("hidden");
-      expect(intervals.size).toBe(0);
+      expect(timeouts.size).toBe(0);
       setSystemTime(new Date(at(130)));
       expect(time()).toBe("10s");
       await shown("visible");
       expect(time()).toBe("40s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
     } finally {
       await done();
       setSystemTime();
       visibility = "visible";
-      globalThis.setInterval = realSet;
-      globalThis.clearInterval = realClear;
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
     }
   });
 

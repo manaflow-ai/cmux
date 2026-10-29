@@ -173,7 +173,8 @@ impl Mux {
             let identity = self.effect_browser_reservation(intent)?;
             let workspace = self
                 .with_state(|state| {
-                    state.screen_of(target).map(|(workspace, _)| state.workspaces[workspace].id)
+                    let (workspace, _) = state.screen_of(target)?;
+                    Some(state.workspace_at(workspace).ok()?.id)
                 })
                 .with_context(|| format!("pane {target} has no workspace"))?;
             let surface = self.spawn_browser_surface_with_resource_identity(

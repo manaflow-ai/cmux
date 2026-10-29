@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// Layout constants shared by chrome components.
 ///

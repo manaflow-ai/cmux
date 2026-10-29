@@ -19,6 +19,7 @@
 //! decline it), so an answer always comes from a person, or, for a
 //! sub-session, from a session above it (`subsession_answer.rs`).
 
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Map, Value, json};
 
@@ -221,10 +222,10 @@ fn item(q: &Value, index: usize, codex: bool, previews: PreviewFormat) -> Option
             let id = if count > 1 { format!("{label}#{count}") } else { label.clone() };
             let mut option = json!({"id": id, "label": label});
             if let Some(detail) = text(&o["description"]) {
-                option["detail"] = json!(detail);
+                option.set("detail", json!(detail));
             }
             if let Some(preview) = text(&o["preview"]) {
-                option["preview"] = json!({"text": preview, "format": previews.name()});
+                option.set("preview", json!({"text": preview, "format": previews.name()}));
             }
             Some(option)
         })
@@ -241,7 +242,7 @@ fn item(q: &Value, index: usize, codex: bool, previews: PreviewFormat) -> Option
         "multiSelect": q["multiSelect"].as_bool().unwrap_or(false), "allowsOther": allows_other,
     });
     if let Some(header) = text(&q["header"]) {
-        item["header"] = json!(header);
+        item.set("header", json!(header));
     }
     Some(item)
 }

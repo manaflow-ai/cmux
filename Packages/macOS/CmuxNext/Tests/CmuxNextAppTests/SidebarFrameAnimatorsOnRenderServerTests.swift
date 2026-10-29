@@ -4,7 +4,7 @@ import AppKit
 import QuartzCore
 import Testing
 
-/// p03-rendering-103: a section reorder in a band, a Priority rank change and a scroll to a row set each
+/// A section reorder in a band, a Priority rank change and a scroll to a row set each
 /// model frame (or the clip's origin) once, in the change's turn, and the render server's additive `.move`
 /// springs carry what shows (`SidebarDragSpring`). AppKit's `animator()` spring wrote every moving view's frame,
 /// or the clip's bounds, on the main thread each display frame: frames 2..n of the motion counted one frame or

@@ -75,11 +75,11 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
-    /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
+    /// Where its tabs' content-process ends go as stability events; the App sets its reporting one.
     public var rendererStability = RendererStability()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
-    /// presented time (p04-input-099). The App sets it once, before the first tab.
+    /// presented time. The App sets it once, before the first tab.
     public var pageInputTiming: WebPageInputTiming?
     #endif
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
@@ -110,7 +110,7 @@ public final class WebKitEngine: BrowserEngine {
     ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`), written on the main actor by its one
     ///     writer; the default, fixed off, is for tests and fixtures.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
-    ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
+    ///     has) for the pages' waits; nil: the queue of `deadlines`.
     ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
     ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
     ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
@@ -133,7 +133,7 @@ public final class WebKitEngine: BrowserEngine {
         mainWork = deadlines.work
         self.deadlines = deadlines
         self.appEvents = appEvents
-        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? deadlines.wakeUpQueue)
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader

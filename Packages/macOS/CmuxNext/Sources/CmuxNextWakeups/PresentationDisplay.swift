@@ -10,6 +10,7 @@ public struct PresentationDisplay: Sendable, Hashable {
     /// The longest refresh interval (the slowest rate), in seconds.
     public let maximumRefreshInterval: Double
 
+    /// A display's refresh range; nil `displayID` for a display that is not known.
     public init(displayID: CGDirectDisplayID? = nil, minimumRefreshInterval: Double, maximumRefreshInterval: Double) {
         self.displayID = displayID
         self.minimumRefreshInterval = minimumRefreshInterval

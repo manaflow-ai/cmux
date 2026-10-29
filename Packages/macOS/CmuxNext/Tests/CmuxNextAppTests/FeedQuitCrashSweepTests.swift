@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 /// The CmuxNextApp/{Feed,HangReports,Crash,ErrorJournal,Quit,Usage,SidebarSnapshot} sweep
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-314): one case per migrated owner class.
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md): one case per migrated owner class.
 /// The quit's power-off notice reaches its tracker through the app's one `AppEvents` fan-out (an always
 /// subscription: it must land while no window shows); the restart notice follows its window through
 /// `WindowEvents`; the run marker's quick-crash window is a background `MainDeadline` on the app's scheduler.

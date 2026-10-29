@@ -3,7 +3,7 @@ import Foundation
 @testable import CmuxNextUpdater
 import Testing
 
-/// One React for every web tree (p13-webui-072): the pages, the webviews app and Agent Activity import it
+/// One React for every web tree: the pages, the webviews app and Agent Activity import it
 /// from `cmux-page://cmux.shared/`, the tree's own `pages/_shared`. A tree, and so a web update, holds every
 /// shared file its bundles name (web-bundle-key.py `--shared`); an install refuses one that does not.
 @Suite(.serialized) struct WebUpdateTreeTests {

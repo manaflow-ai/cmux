@@ -1,4 +1,4 @@
-//! Single-parse dispatch (p05-ipc-062): a line's head is read once and the
+//! Single-parse dispatch: a line's head is read once and the
 //! line goes to the one handler the head names, which parses it once more.
 //! Parses are counted where they start (crate::line_parses), so these
 //! counts are the real ones. No route name is a `Command`'s and no
@@ -12,7 +12,7 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use super::{LineFrame, dispatch_line};
-use crate::line_parses::LineParses;
+use crate::diagnostics::{IpcStats, IpcTransport, JsonParseScope};
 use crate::request_origin::page_router_table;
 use crate::resource::ResourceOperation;
 use crate::server::command_names::COMMANDS;
@@ -34,26 +34,29 @@ impl Conn {
     }
 
     /// Dispatches `message` as the frame handler does after its preamble
-    /// and returns how many times it was parsed and the replies it got
-    /// (its own scheduler drains a queued `Command`).
-    fn dispatch(&self, mux: &Arc<Mux>, message: &str) -> (u32, Vec<Value>) {
+    /// and returns how many times it was parsed, on the reader and on the
+    /// sequence (the `server-stats` `ipc` count follows the line there),
+    /// and the replies it got (its own scheduler drains the sequence).
+    fn dispatch(&self, mux: &Arc<Mux>, message: &str) -> (u64, Vec<Value>) {
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stats = IpcStats::default();
         let line = LineFrame {
             mux,
             client: self.client,
             message,
             writer: &self.writer,
             scheduler: &scheduler,
-            arrived: Instant::now(),
+            arrival: RequestArrival::parsed_now(Instant::now()),
             watched: None,
         };
-        let parses = LineParses::enter();
+        let parses = JsonParseScope::enter(&stats, IpcTransport::Lines);
         dispatch_line(&line, RequestHead::parse(message));
-        let count = parses.count();
         drop(parses);
         scheduler.finish_and_wait();
-        (count, self.replies())
+        let counted = stats.snapshot().parses.lines;
+        assert_eq!(counted.requests, 1, "{message} counts as one request");
+        (counted.json_parses, self.replies())
     }
 
     fn replies(&self) -> Vec<Value> {
@@ -80,7 +83,6 @@ const ROUTE_LINES: &[&str] = &[
     r#"{"id":12,"cmd":"apps-nope"}"#,
     r#"{"id":13,"cmd":"script-nope"}"#,
     r#"{"id":14,"cmd":"fs.stat","path":"/"}"#,
-    r#"{"id":15,"cmd":"oracle-state","x":1}"#,
 ];
 
 #[test]
@@ -233,8 +235,6 @@ fn connection_frame_routes_find_every_sniffed_cmd() {
         let route = routes::find(cmd).unwrap_or_else(|| panic!("no route for {cmd}"));
         assert_eq!(route.stage, stage, "{cmd}");
     }
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    assert!(routes::find("oracle-state").is_some());
     for cmd in [
         "ping",
         "agent-inventor",

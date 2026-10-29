@@ -25,7 +25,7 @@ public nonisolated enum CEFHistogramReadError: Error, Hashable, Sendable {
     }
 }
 
-/// `debug.input` section `chromium` (p04-input-091): Chromium's own input latency histograms next to
+/// `debug.input` section `chromium`: Chromium's own input latency histograms next to
 /// cmux's ledger rows. Chromium keeps one histogram set per browser process (base/metrics/statistics_recorder.h)
 /// and `Browser.getHistograms` takes no target, so the rows combine every Chromium page, browser pages and agent
 /// pane pages alike: their target is ``target``, never one of cmux's `chromiumPage` or `agentPane` slots. A bench

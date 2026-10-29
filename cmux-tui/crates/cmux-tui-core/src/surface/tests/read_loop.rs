@@ -1,4 +1,4 @@
-//! Local PTY terminals read on their owner's read loop (p07-memory-095):
+//! Local PTY terminals read on their owner's read loop:
 //! fifty terminals start no `surface-<id>-reader` thread, each one's output
 //! reaches its screen in order, each still ends with its own status, and
 //! fifty idle terminals add only the loop's threads (and, until

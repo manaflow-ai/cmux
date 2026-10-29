@@ -15,7 +15,7 @@ import Foundation
 /// ask for "now" when its slice ends with work left and report its next
 /// delayed task; an older fork still runs, demand-only (`CEFRuntime` logs it).
 ///
-/// A fork with `cmux_set_on_schedule_delayed` (p14-energy-046) sends delayed work as an absolute
+/// A fork with `cmux_set_on_schedule_delayed` sends delayed work as an absolute
 /// run time with Chromium's leeway and policy instead (``request(runTimeNanos:leewayNanos:precise:)``),
 /// as `MessagePumpCFRunLoopBase::ScheduleDelayedWork` arms its timer at `delayed_run_time` with
 /// tolerance `next_work_info.leeway` under `kTimerSlackMac`. The whole-millisecond request truncated
@@ -37,7 +37,8 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// The longest one `CefDoMessageLoopWork` call runs ready work on a fork of `forkAPI` between `DoWork`
     /// batches before it returns and asks for "now": the switch's 2 ms
     /// (``CEFSwitches/pumpTimeSliceMicroseconds``) from ``pumpTimeSliceSwitchForkAPI``, CEF's 10 ms below
-    /// it. A pass that runs this long may have left work.
+    /// it. A pass that runs this long may have left work. A fork with a per-call slice may run a pass
+    /// shorter than this (``FrameSlicer``), never longer.
     static func timeSlice(forkAPI: Int32) -> TimeInterval {
         forkAPI >= pumpTimeSliceSwitchForkAPI ? TimeInterval(CEFSwitches.pumpTimeSliceMicroseconds) / 1_000_000 : timeSlice
     }
@@ -53,7 +54,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
     }()
 
-    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``, p06-scheduler-048):
+    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``):
     /// input while a page has the keyboard or its ack of a page input may still be due
     /// (``RecentPageInput``; Chromium's input router runs inside `CefDoMessageLoopWork`), frame
     /// otherwise. Never a budgeted class and never by visibility: Chromium's one UI thread serves every
@@ -208,5 +209,138 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// A fork run time as the gate's uptime nanoseconds; nil for `Int64.max`, no delayed work.
     static func runTimeNanos(_ nanos: Int64) -> UInt64? {
         nanos == .max ? nil : UInt64(max(0, nanos))
+    }
+}
+
+// MARK: - The frame deadline
+
+extension CEFPumpSchedule {
+    /// The frame a pass must not run into, in the pump's clock (seconds since boot: `CACurrentMediaTime`
+    /// and `CLOCK_UPTIME_RAW` are the same mach clock).
+    nonisolated struct Frame: Equatable, Sendable {
+        /// When the last tick's frame is shown (`FrameTick.targetTimestamp`). It may be past: each
+        /// later frame is one ``refresh`` after it.
+        var target: TimeInterval
+        /// The display's refresh period.
+        var refresh: TimeInterval
+        /// The main thread's measured commit (the p95 of the last frames' render passes,
+        /// `MainFrameBudget.commitEstimateNanos`).
+        var commit: TimeInterval
+
+        /// When the commit of the first frame whose commit is still ahead of `now` must start: a
+        /// frame's target less the measured commit, Chromium's main-frame deadline
+        /// (`cc/scheduler/scheduler.cc`, `BeginFrameArgs::deadline`).
+        func commitDeadline(after now: TimeInterval) -> TimeInterval {
+            let deadline = target - commit
+            guard deadline <= now else { return deadline }
+            return deadline + (((now - deadline) / refresh).rounded(.down) + 1) * refresh
+        }
+
+        /// The first frame target after `now` (one within ``FrameSlicer/slop`` of it counts as shown).
+        func nextTarget(after now: TimeInterval) -> TimeInterval {
+            guard target <= now + FrameSlicer.slop else { return target }
+            return target + (((now + FrameSlicer.slop - target) / refresh).rounded(.down) + 1) * refresh
+        }
+    }
+
+    /// What a due pass does on the frame deadline (``FrameSlicer``).
+    nonisolated enum SliceDecision: Equatable, Sendable {
+        /// Run it now. `microseconds`: its slice (`cmux_set_message_loop_time_slice`); nil: the fork's
+        /// static switch.
+        case run(microseconds: Int64?)
+        /// Less than ``FrameSlicer/floor`` is left before the frame's commit: the pass waits until
+        /// `until`, just past it, and takes the next frame's time.
+        case waitForFrame(until: TimeInterval)
+        /// A person's input turn or a plan apply is open, or input is pending after a pass that used its
+        /// whole slice: the pass waits until `until`, the next frame or one refresh at most.
+        case holdForInput(until: TimeInterval)
+    }
+
+    /// The slice of each in-process pass on the main thread's frame deadline (plans/cmux-next/
+    /// chrome-parity/p03-rendering.md, task 116). Pure value logic; ``CEFPumpFrameDeadline`` feeds it
+    /// and the pump applies its answer.
+    ///
+    /// The fork's static `--cmux-pump-time-slice-us` (2 ms) does not know where the frame is: a pass
+    /// that starts 1 ms before the commit runs 1 ms into it. With a fork that takes a slice per call,
+    /// each pass gets the time left before the frame's commit (the target less the measured commit),
+    /// at most the static slice; with less than ``floor`` left it starts none and takes the next
+    /// frame's time, as Blink starts no idle period shorter than 1 ms
+    /// (third_party/blink/renderer/platform/scheduler/common/idle_helper.cc). An older fork runs every
+    /// pass at the static switch.
+    ///
+    /// Input goes first, as Chrome's main-thread scheduler runs input before other work
+    /// (third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc): no
+    /// pass starts inside a person's input turn (its dispatch, or its frame not rendered yet) or a
+    /// layout plan's apply before its commit (a CLI, socket or agent change, a motion frame:
+    /// ``PlanApplyTurn``), and a pass that follows one that used its whole slice waits while input is
+    /// pending. A pass for a Chromium page's input never waits for input: Chromium handles that input
+    /// inside the pump. A pass waits for input at most once in a row, until the next frame or one
+    /// refresh, and not at all after the pump's input policy held it.
+    nonisolated struct FrameSlicer: Equatable, Sendable {
+        /// The shortest slice a pass starts with.
+        static let floor: TimeInterval = 0.001
+        /// How far past a commit deadline a frame wait ends, and how near a frame target counts as
+        /// shown: the timer and the pump's clock differ by microseconds.
+        static let slop: TimeInterval = 0.000_1
+
+        /// The longest slice: the fork's static switch, which a per-call slice never raises.
+        let cap: TimeInterval
+        /// The fork takes a slice per call; false: every pass runs at the static switch.
+        let perCall: Bool
+        /// The due pass waited for input already: it runs when decided again.
+        private(set) var heldForInput = false
+        /// The last pass used its whole slice: Chromium has work left, and the next pass follows it.
+        private var followsLongPass = false
+
+        init(cap: TimeInterval, perCall: Bool) {
+            self.cap = cap
+            self.perCall = perCall
+        }
+
+        /// The pass due at `now`.
+        /// - Parameters:
+        ///   - frame: The frame being made; nil while none is (the display link idle) or no commit was
+        ///     measured yet: no deadline, the static switch.
+        ///   - refresh: The frame clock's refresh interval: the longest an input wait lasts.
+        ///   - inputTurn: A person's input turn is open (its dispatch, or its frame not rendered yet).
+        ///   - planApply: A layout plan was applied and has not committed yet.
+        ///   - pageInput: The pass serves a Chromium page's input (AppKit just delivered it input).
+        ///   - inputWaited: The pump's input policy already held this pass: it does not wait again.
+        ///   - inputPending: Whether a person's input that holds a pass waits for the main thread (read
+        ///     only after a pass that used its whole slice).
+        mutating func decide(now: TimeInterval, frame: Frame?, refresh: TimeInterval, inputTurn: Bool, planApply: Bool = false,
+                             pageInput: Bool, inputWaited: Bool = false, inputPending: () -> Bool) -> SliceDecision {
+            if !pageInput, !heldForInput, !inputWaited, inputTurn || planApply || (followsLongPass && inputPending()) {
+                heldForInput = true
+                return .holdForInput(until: Self.inputWaitEnd(now: now, frame: frame, refresh: refresh))
+            }
+            guard perCall, let frame, frame.refresh > 0, frame.target.isFinite, frame.commit.isFinite else {
+                heldForInput = false
+                return .run(microseconds: nil)
+            }
+            let deadline = frame.commitDeadline(after: now)
+            let left = deadline - now
+            guard left >= Self.floor else { return .waitForFrame(until: deadline + Self.slop) }
+            heldForInput = false
+            return .run(microseconds: Int64((min(left, cap) * 1_000_000).rounded(.down)))
+        }
+
+        /// A pass ended; `usedWholeSlice`: it ran its whole slice, so Chromium has work left.
+        mutating func passEnded(usedWholeSlice: Bool) {
+            followsLongPass = usedWholeSlice
+        }
+
+        /// No pass waits any more: the next due pass may wait for input once.
+        mutating func holdEnded() {
+            heldForInput = false
+        }
+
+        /// The end of an input wait from `now`: the next frame target, or one refresh, whichever comes
+        /// first.
+        static func inputWaitEnd(now: TimeInterval, frame: Frame?, refresh: TimeInterval) -> TimeInterval {
+            let bound = now + (refresh.isFinite && refresh > 0 ? refresh : 1.0 / 60)
+            guard let frame, frame.refresh > 0, frame.target.isFinite else { return bound }
+            return min(bound, frame.nextTarget(after: now))
+        }
     }
 }

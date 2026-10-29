@@ -114,7 +114,7 @@ impl JournalIngressSender {
                 matches!(
                     &*owner,
                     JournalWriterOwner::Running(writer)
-                        if writer.thread.thread().id() != std::thread::current().id()
+                        if !writer.thread.is_current()
                 )
             })
     }

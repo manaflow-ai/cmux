@@ -1,5 +1,5 @@
 // TypeEmitter's object types: a public struct with explicit CodingKeys and a
-// written-out init(from:) and encode(to:) (p05-ipc-020). Presence rules:
+// written-out init(from:) and encode(to:). Presence rules:
 //
 //   required              `T` (`T?` when nullable, nil written as null)
 //   optional, default     `T` (`T?` when nullable) starting at the default; absent

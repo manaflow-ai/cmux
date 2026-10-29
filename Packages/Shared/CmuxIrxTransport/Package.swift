@@ -20,7 +20,7 @@ let package = Package(
         // stable data contracts; none of the legacy runtime machinery is used.
         .package(path: "../CmuxIrohTransport"),
         .package(path: "../CmuxFuzzSupport"),
-        // The portable Mutex the shared transport state lives in (p10-stability-172).
+        // The portable Mutex the shared transport state lives in.
         .package(path: "../CmuxSafeConcurrency"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",

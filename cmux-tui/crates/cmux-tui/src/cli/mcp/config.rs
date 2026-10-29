@@ -22,7 +22,7 @@ pub(super) fn path() -> PathBuf {
 /// unreadable file or a non-boolean value is an error the caller reports,
 /// so a typo never turns the server on.
 pub(super) fn setting(path: &Path) -> Result<Option<bool>, String> {
-    let text = match std::fs::read_to_string(path) {
+    let text = match cmux_blocking::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("{}: {error}", path.display())),

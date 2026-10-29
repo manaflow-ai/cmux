@@ -69,25 +69,20 @@ fn last_match(lines: &[String], needle: &[char]) -> Option<usize> {
             owner.push(index);
         }
     }
-    if flat.len() < needle.len() {
-        return None;
-    }
-    (0..=flat.len() - needle.len())
-        .rev()
-        .find(|&start| flat[start..start + needle.len()] == *needle)
-        .map(|start| owner[start + needle.len() - 1])
+    let end = flat.windows(needle.len()).rposition(|window| window == needle)? + needle.len();
+    owner.get(end - 1).copied()
 }
 
 /// The line after the message's echo: the full message, else its end, else
 /// its start, else a Claude Code paste placeholder (`[Pasted text #1 …]`).
 pub(in crate::cli) fn anchor(lines: &[String], message: &str) -> Option<usize> {
     let key = squeeze(message);
-    let tail = |chars: usize| &key[key.len().saturating_sub(chars)..];
-    let head = &key[..key.len().min(ANCHOR_CHARS)];
+    let tail = |chars: usize| key.get(key.len().saturating_sub(chars)..).unwrap_or_default();
+    let head = key.get(..key.len().min(ANCHOR_CHARS)).unwrap_or_default();
     let placeholder = squeeze("[Pasted text #");
     // Shorter ends find a message whose start scrolled off or wrapped
     // differently; the full message and longer ends are tried first.
-    [&key[..], tail(ANCHOR_CHARS), tail(32), tail(MIN_ANCHOR_CHARS), head, &placeholder[..]]
+    [key.as_slice(), tail(ANCHOR_CHARS), tail(32), tail(MIN_ANCHOR_CHARS), head, &placeholder]
         .into_iter()
         .filter(|needle| needle.len() >= MIN_ANCHOR_CHARS.min(key.len()))
         .find_map(|needle| last_match(lines, needle))
@@ -124,10 +119,13 @@ fn is_turn_summary(line: &str) -> bool {
 /// `body` without the input box and status lines at its bottom.
 fn without_footer(body: &[String]) -> &[String] {
     let start = body.len().saturating_sub(FOOTER_LINES);
-    let cut = (start..body.len())
-        .find(|&index| is_rule(&body[index]))
-        .or_else(|| (start..body.len()).find(|&index| is_composer(&body[index])));
-    let mut body = &body[..cut.unwrap_or(body.len())];
+    let footer = body.iter().enumerate().skip(start);
+    let cut = footer
+        .clone()
+        .find(|(_, line)| is_rule(line))
+        .or_else(|| footer.clone().find(|(_, line)| is_composer(line)))
+        .map_or(body.len(), |(index, _)| index);
+    let (mut body, _) = body.split_at(cut);
     while let Some((last, rest)) = body.split_last() {
         if last.trim().is_empty() || is_turn_summary(last) {
             body = rest;
@@ -143,13 +141,16 @@ fn tidy(lines: &[String]) -> String {
     let lines: Vec<&str> = lines.iter().map(|line| line.trim_end()).collect();
     let first = lines.iter().position(|line| !line.is_empty()).unwrap_or(lines.len());
     let last = lines.iter().rposition(|line| !line.is_empty()).map_or(first, |index| index + 1);
-    lines[first..last].join("\n")
+    lines.get(first..last).unwrap_or_default().join("\n")
 }
 
 /// The reply in `lines` (history then screen, oldest first) to `message`.
 pub(in crate::cli) fn reply_after(lines: &[String], message: &str) -> Reply {
     match anchor(lines, message) {
-        Some(start) => Reply { text: tidy(without_footer(&lines[start..])), anchored: true },
+        Some(start) => Reply {
+            text: tidy(without_footer(lines.get(start..).unwrap_or_default())),
+            anchored: true,
+        },
         None => Reply { text: tidy(without_footer(lines)), anchored: false },
     }
 }

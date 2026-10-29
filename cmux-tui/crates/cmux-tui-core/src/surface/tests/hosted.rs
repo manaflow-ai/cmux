@@ -319,7 +319,7 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
     ));
 }
 
-/// p09-observability-018: the host's echo frame names the key press the
+/// The host's echo frame names the key press the
 /// host's PTY read took, and the daemon applies that flow, not a guess of
 /// its own. A connection that did not negotiate the flag refuses it.
 #[cfg(unix)]
@@ -337,7 +337,7 @@ fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
     let mut stager = HostedFrameStager::new(0, true).with_input_flow(true);
     assert!(matches!(
         stager.push(flagged(1)).unwrap(),
-        Some(HostedTransition::FlowOutput { output, flow: 42 }) if output == b"ls"
+        Some(HostedTransition::FlowOutput { output, flow: 42, .. }) if output == b"ls"
     ));
     let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
     plain.sequence = 2;
@@ -349,6 +349,36 @@ fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
 
     let mut unnegotiated = HostedFrameStager::new(0, true);
     assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
+}
+
+/// A host that negotiated key stages sends its PTY write and
+/// read of the press with the flow; one that did not negotiate them, or a
+/// connection that asked for none, fails closed on such a frame.
+#[cfg(unix)]
+#[test]
+fn input_stages_hosted_stager_takes_the_hosts_write_and_read() {
+    let staged = |sequence| {
+        let mut frame = Frame::new(
+            MessageKind::Output,
+            crate::terminal_host_protocol::stages_trailer_payload(b"ls", 42, 1_000, 2_000),
+        );
+        frame.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
+        frame.sequence = sequence;
+        frame
+    };
+    let mut stager = HostedFrameStager::new(0, true).with_input_flow(true).with_input_stages(true);
+    assert!(matches!(
+        stager.push(staged(1)).unwrap(),
+        Some(HostedTransition::FlowOutput { output, flow: 42, host_stages: Some((1_000, 2_000)) })
+            if output == b"ls"
+    ));
+    let mut short = Frame::new(MessageKind::Output, vec![0; 23]);
+    short.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
+    short.sequence = 2;
+    assert!(stager.push(short).is_err(), "a short trailer fails closed");
+
+    let mut flow_only = HostedFrameStager::new(0, true).with_input_flow(true);
+    assert!(flow_only.push(staged(1)).is_err(), "unnegotiated stages fail closed");
 }
 
 #[cfg(unix)]
@@ -501,6 +531,32 @@ fn exited_terminal_final_replay_serves_render_attach() {
         attachments.push(attach);
     }
     assert!(surface.as_pty().unwrap().render.lock().unwrap().taps.is_empty());
+}
+
+/// `render-state` carries no position. A render attach to an exited terminal
+/// whose viewport is scrolled back must still learn the position: the stream
+/// gives `scroll-changed` and then ends.
+#[cfg(unix)]
+#[test]
+fn exited_terminal_render_attach_learns_a_scrolled_back_viewport() {
+    let mux = Mux::new_for_test("exited-host-render-scroll", SurfaceOptions::default());
+    let surface = exited_host_surface("render-scroll", 95, &mux);
+    let output: String = (1..=500).map(|line| format!("{line}\r\n")).collect();
+    surface.with_terminal(|term| term.vt_write(output.as_bytes()));
+    surface.scroll_delta(-3).unwrap();
+    let scrolled = surface.with_terminal(|term| term.scrollbar()).flatten().unwrap();
+    assert!(scrolled.scrolled_back(), "fixture scrolls the exited terminal back");
+
+    let attach = surface.attach_render_stream().expect("exited terminal serves a final frame");
+    let first = attach.stream.try_recv();
+    assert!(
+        matches!(first, Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom: false })
+            if offset == scrolled.offset),
+        "an exited render attach must get scroll-changed {{offset:{}, at_bottom:false}} \
+         after render-state; got {first:?}",
+        scrolled.offset
+    );
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
 }
 
 #[cfg(unix)]

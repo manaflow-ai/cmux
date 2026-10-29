@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 extension MotionCategoriesSetting {
     /// The palette, CLI and MCP actions of the motion switches:

@@ -3,7 +3,7 @@ import CmuxNextCompat
 public import CoreGraphics
 import IOSurface
 
-/// A hosted page hidden past its grace (p03-rendering-055): one volatile snapshot, no layer host.
+/// A hosted page hidden past its grace: one volatile snapshot, no layer host.
 ///
 /// The grace is the app-wide hidden frame list's (``CEFHiddenFrames``, `HiddenFrameLRU`): while it keeps a
 /// hidden page's frame, the page keeps its `CALayerHost` and a show is its kept frame. When the list drops

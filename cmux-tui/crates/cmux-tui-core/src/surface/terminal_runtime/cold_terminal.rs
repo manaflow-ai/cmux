@@ -1,4 +1,4 @@
-//! A terminal runtime's emulator, hot or cold (p07-memory-041).
+//! A terminal runtime's emulator, hot or cold.
 //!
 //! [`TerminalCell`] holds the runtime's [`Terminal`] (`pty.term`). Every
 //! [`TerminalCell::lock`] and [`TerminalCell::try_lock`] restores a cold
@@ -8,7 +8,7 @@
 //! (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`, `Load`).
 //!
 //! Only [`Surface::freeze_cold_terminal`] makes a terminal cold, with
-//! ghostty-vt's lossless codec ([`Terminal::into_cold`], p07-memory-040),
+//! ghostty-vt's lossless codec ([`Terminal::into_cold`]),
 //! and only for a terminal with no attach or render tap; mux/cold_scrollback.rs
 //! decides when. [`Surface::scrollback_memory`] reads a cold terminal's size
 //! without restoring it, for the scrollback memory budget, and
@@ -26,7 +26,7 @@ use std::sync::{Arc, LockResult, PoisonError, TryLockError, TryLockResult, Weak}
 use ghostty_vt::{ColdPagesError, ColdRefused, ColdTerminal, Screen, Terminal};
 
 use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
-use crate::surface::Surface;
+use crate::surface::{Surface, TerminalMemory};
 
 /// Called each time a cold terminal is restored, under its terminal lock:
 /// it may only signal (the cold-scrollback worker starts that terminal's
@@ -139,6 +139,20 @@ impl TerminalCell {
 
     pub(crate) fn is_cold(&self) -> bool {
         self.cold.load(Ordering::Acquire)
+    }
+
+    /// The terminal's memory; a cold terminal stays cold. `None` while it
+    /// moves between hot and cold, or when libghostty-vt cannot report it.
+    pub(crate) fn memory(&self) -> Option<TerminalMemory> {
+        let slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        match &slot.0 {
+            SlotState::Hot(terminal) => terminal.memory_usage().ok().map(TerminalMemory::Hot),
+            SlotState::Cold { terminal, .. } => Some(TerminalMemory::Cold {
+                held_bytes: u64::try_from(terminal.held_bytes()).unwrap_or(u64::MAX),
+                snapshot_bytes: terminal.snapshot_bytes(),
+            }),
+            SlotState::Moving => None,
+        }
     }
 }
 

@@ -28,6 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use std::path::Path;
 
 /// How much a session's harness runs without asking.
@@ -52,7 +53,7 @@ pub(super) fn argv_full_access(argv: &[String]) -> Option<String> {
     ];
     // `--flag value`, `--flag=value`, and for a short flag `-fvalue`.
     let value = |i: usize, flag: &str| -> Option<String> {
-        let a = &argv[i];
+        let a = argv.get(i)?;
         if a == flag {
             return argv.get(i + 1).cloned();
         }
@@ -108,7 +109,7 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
 /// A sub-session refusal: invalid params with `data.reason`.
 pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     RpcError::invalid_params(message).with_data(data)
 }
 
@@ -171,7 +172,7 @@ fn folder_allowed(
         let trust = crate::trust::get(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
         let person =
             crate::trust::person_decision(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
-        match trust["level"].as_str() {
+        match trust.field("level").as_str() {
             Some("untrusted") if answered || person == Some(crate::trust::Level::Untrusted) => {
                 return Err(refusal(
                     "subsessions.folder_untrusted",
@@ -187,7 +188,7 @@ fn folder_allowed(
             // One of the person's auto-trust rules on the folder itself, as the trust card reads
             // it: a farther `untrusted` still refuses. A parent's rule can leave out a folder
             // under it (a nested repository with another remote), so it counts as inherited.
-            Some("trusted") if dir == folder && trust["auto"].is_string() => ruled = true,
+            Some("trusted") if dir == folder && trust.field("auto").is_string() => ruled = true,
             // Claude Code's and Codex's, or an agent-home folder's.
             Some("trusted") => inherited = true,
             _ => {}

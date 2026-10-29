@@ -111,6 +111,7 @@ public final class ObservationLedger: Sendable {
 
     /// One owner's counts at ``snapshot(matching:resetting:)`` time, since launch or its last reset.
     public struct Entry: Sendable, Equatable {
+        /// The observations' owner.
         public var owner: String
         /// Observations tracking now (not reset).
         public var armed: Int
@@ -131,6 +132,7 @@ public final class ObservationLedger: Sendable {
         /// The part of ``bodyEvaluations`` that ran while the node was hidden.
         public var hiddenBodyEvaluations: UInt64
 
+        /// An entry with every count given.
         public init(owner: String, armed: Int, arms: UInt64, evaluations: UInt64, applies: UInt64, showRereads: UInt64,
                     showRereadNanos: UInt64, showRereadMaxNanos: UInt64, bodyEvaluations: UInt64, hiddenBodyEvaluations: UInt64) {
             self.owner = owner
@@ -148,6 +150,7 @@ public final class ObservationLedger: Sendable {
 
     private let owners = Mutex<[String: Owner]>([:])
 
+    /// A ledger with no owner counted.
     public init() {}
 
     /// The counters for `name`, interned on first use. Takes the ledger's lock: call it when the

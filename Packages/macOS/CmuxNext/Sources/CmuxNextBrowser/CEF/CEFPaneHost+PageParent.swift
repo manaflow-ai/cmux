@@ -25,20 +25,28 @@ extension CEFPaneHost {
     }
 
     /// Host mode: the pane's page view, made on first use at the bottom of ``hostView`` and filling
-    /// it, under the find bar, prompt bar and every other subview. Its input stays with
-    /// ``hostView`` (``ChromiumHostPageView/InputTarget/pageWindow``) until the input route to the
-    /// host lands (tasks 041 and 042). Its input method ops already go to the host
-    /// (``sendTextInput(_:)``).
+    /// it, under the find bar, prompt bar and every other subview. With the host's input route
+    /// (feature `chromiumHostInputRing`, ``CEFHostStart/inputRoute``) it is the page's input
+    /// target: its keys, clicks, moves and wheel ticks go into the host's ring for the pane's shown
+    /// tab, paced by the host's acks. Without it its input stays with ``hostView``
+    /// (``ChromiumHostPageView/InputTarget/pageWindow``). Its input method ops go to the host
+    /// either way (``sendTextInput(_:)``).
     func hostedPage() -> ChromiumHostPageView {
         if let hostedPageView { return hostedPageView }
-        let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: .pageWindow)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let route = runtime.hostStart?.inputRoute
+        let target: ChromiumHostPageView.InputTarget = route == nil ? .pageWindow : .view
+        #else
+        let target = ChromiumHostPageView.InputTarget.pageWindow
+        #endif
+        let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: target)
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
         // What the person sees of the page goes to the host (``postPageVisibility(browser:)``).
         page.onPageVisibility = { [weak self] _ in
             self?.postPageVisibility()
-            self?.hostPageShownChanged()  // the busy deadline runs only while a hosted page shows (p01-process-084)
+            self?.hostPageShownChanged()  // the busy deadline runs only while a hosted page shows
         }
         // The page's display follows the view's (task 221): the host places the page window there.
         // With no tab shown yet nothing goes out; ``showBrowser(of:activate:)`` places it then.
@@ -64,6 +72,8 @@ extension CEFPaneHost {
             guard let self, let page, let tab = visibleTab else { return false }
             return runtime.swipeNavigation.handleHosted(event, tab: tab, page: page)
         }
+        // The page's keys, clicks, moves and wheel ticks into the host's ring for the shown tab (task 042).
+        route?.attach(page) { [weak self] in self?.visibleTab?.browserID }
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in
@@ -102,7 +112,7 @@ extension CEFPaneHost {
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self else { return }
             // A context means the host detached the page window (it refuses hosting it cannot
-            // detach): the page's focus is embedder-active from here (p01-process-046).
+            // detach): the page's focus is embedder-active from here.
             if let id, id != 0 { runtime.tabsByBrowser[browser]?.hostDetachedPage(browser: browser) }
             guard let page, hostedPageView === page, window == shown else { return }
             if let id, id != 0, page.show(contextID: id) { return }
@@ -124,7 +134,7 @@ extension CEFPaneHost {
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its text input.
 extension CEFPaneHost {
     /// Host mode: sends the page view's input method op to the host's IME exports for the shown
-    /// tab's browser, on the control channel after the keys written before it (p04-input-064), as
+    /// tab's browser, on the control channel after the keys written before it, as
     /// Chrome's page view calls its RenderWidgetHostNSViewHost (render_widget_host_ns_view.mojom).
     /// Nothing goes with no browser shown, or when the host's shim lacks an IME op
     /// (``CEFShimTextInputOps/isComplete``), as no widget shows without every widget op

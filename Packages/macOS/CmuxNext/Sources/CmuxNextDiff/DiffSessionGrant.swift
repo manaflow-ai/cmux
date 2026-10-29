@@ -38,9 +38,9 @@ nonisolated final class DiffSessionGrant: Sendable {
     static func create(root: URL, repository: String) throws -> DiffSessionGrant {
         let token = randomHex(bytes: 24)
         let group = "tab-" + randomHex(bytes: 8)
-        let lease = Darwin.open(root.appending(path: ".session-lease-\(token).lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        let lease = blockingOpen(root.appending(path: ".session-lease-\(token).lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard lease >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-        guard flock(lease, LOCK_EX | LOCK_NB) == 0 else {
+        guard blockingFlock(lease, LOCK_EX | LOCK_NB) == 0 else {
             Darwin.close(lease)
             throw CocoaError(.fileLocking)
         }
@@ -74,7 +74,7 @@ nonisolated final class DiffSessionGrant: Sendable {
     func writeTurnPatch(_ text: String) throws {
         let temporary = root.appending(path: "\(Self.turnTemporaryPrefix(token))\(Self.randomHex(bytes: 8))")
         try Self.write(Data(text.utf8), to: temporary)
-        guard Darwin.rename(temporary.path, turnPatchURL.path) == 0 else {
+        guard blockingRename(temporary.path, turnPatchURL.path) == 0 else {
             try? FileManager.default.removeItem(at: temporary)
             throw CocoaError(.fileWriteUnknown)
         }
@@ -123,9 +123,9 @@ nonisolated enum DiffSessionRoot {
     /// Creates the root (or checks it is a real directory of this user) and sets
     /// 0700. Blocking file IO.
     static func prepare(_ root: URL) throws -> URL {
-        if mkdir(root.path, 0o700) != 0, errno != EEXIST { throw CocoaError(.fileWriteNoPermission) }
+        if blockingMkdir(root.path, 0o700) != 0, errno != EEXIST { throw CocoaError(.fileWriteNoPermission) }
         var info = stat()
-        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
+        guard blockingLstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
             throw CocoaError(.fileWriteNoPermission)
         }
         guard chmod(root.path, 0o700) == 0 else { throw CocoaError(.fileWriteNoPermission) }
@@ -165,11 +165,11 @@ nonisolated enum DiffSessionRoot {
     }
 
     static func leaseIsHeld(root: URL, token: String) -> Bool {
-        let descriptor = Darwin.open(root.appending(path: ".session-lease-\(token).lock").path, O_RDWR | O_CLOEXEC)
+        let descriptor = blockingOpen(root.appending(path: ".session-lease-\(token).lock").path, O_RDWR | O_CLOEXEC)
         guard descriptor >= 0 else { return false }
         defer { Darwin.close(descriptor) }
-        if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
-            flock(descriptor, LOCK_UN)
+        if blockingFlock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+            _ = blockingFlock(descriptor, LOCK_UN)
             return false
         }
         return errno == EWOULDBLOCK

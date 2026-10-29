@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The agent pane's one-shot deadlines (p14-energy-019c) sleep with ``WakeLeeway``'s tolerance on
+/// The agent pane's one-shot deadlines sleep with ``WakeLeeway``'s tolerance on
 /// an injected clock, so the OS may coalesce their wakes, and still end exactly at their limit.
 @MainActor
 struct AgentPaneDeadlineLeewayTests {

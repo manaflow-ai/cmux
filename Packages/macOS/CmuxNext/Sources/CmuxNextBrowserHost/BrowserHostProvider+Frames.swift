@@ -28,6 +28,10 @@ extension BrowserHostProvider {
             FrameTask(owner: "browser-host.cdp.detach") { $0.detachRelay(targetID) }
         case .cdp(let targetID, let message):
             FrameTask(owner: "browser-host.cdp") { $0.relayToBrowser(targetID, message) }
+        case .cdpPrepare(let targetID):
+            FrameTask(owner: "browser-host.cdp.prepare") { $0.prepareDirectRelay(targetID) }
+        case .cdpCapture(let targetID, let capture, let active, let id):
+            FrameTask(owner: "browser-host.cdp.capture") { $0.directCapture(targetID, capture: capture, active: active, id: id) }
         case .lease(let targetID, let lease):
             FrameTask(owner: "browser-host.lease") { $0.leaseChanged(targetID, lease) }
         case .input(let event):

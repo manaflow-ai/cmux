@@ -25,6 +25,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::no_panic::JsonExt;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -127,8 +128,10 @@ fn read_endpoint_text(dir: &Path) -> Result<(Endpoint, String)> {
     let mut text = String::new();
     file.read_to_string(&mut text).context("cannot read endpoint.json")?;
     let value: Value = serde_json::from_str(&text).context("endpoint.json is not JSON")?;
-    let socket = value["socket"].as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
-    let secret = value["secret"].as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
+    let socket =
+        value.field("socket").as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
+    let secret =
+        value.field("secret").as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
     let endpoint = Endpoint {
         socket: PathBuf::from(socket),
         secret: secret.to_owned(),
@@ -178,10 +181,10 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         let mut helper = Helper { stream: BufReader::new(stream), next_id: 1 };
         helper.send(&json!({ "secret": secret })).await?;
         let hello = helper.receive().await?;
-        if hello["ok"] != json!(true) {
+        if *hello.field("ok") != json!(true) {
             bail!(
                 "the Computer Use helper refused this connection ({})",
-                hello["reason"].as_str().unwrap_or("no reason")
+                hello.field("reason").as_str().unwrap_or("no reason")
             );
         }
         Ok(helper)
@@ -198,19 +201,19 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
         if let Some(name) = name {
-            message["name"] = json!(name);
-            message["arguments"] = arguments;
+            message.set("name", json!(name));
+            message.set("arguments", arguments);
         }
         self.send(&message).await?;
         // One request at a time, so the next reply is ours.
         let reply = self.receive().await?;
-        if reply["id"] != json!(id) {
-            bail!("the Computer Use helper answered request {} for {id}", reply["id"]);
+        if *reply.field("id") != json!(id) {
+            bail!("the Computer Use helper answered request {} for {id}", reply.field("id"));
         }
-        if reply["ok"] == json!(true) {
+        if *reply.field("ok") == json!(true) {
             Ok(reply.get("result").cloned().unwrap_or(Value::Null))
         } else {
-            bail!("{}", reply["error"].as_str().unwrap_or("the Computer Use helper failed"))
+            bail!("{}", reply.field("error").as_str().unwrap_or("the Computer Use helper failed"))
         }
     }
 
@@ -269,10 +272,10 @@ where
             continue;
         };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let method = message["method"].as_str().unwrap_or_default();
+        let method = message.field("method").as_str().unwrap_or_default();
         let reply = match method {
             "initialize" => Ok(json!({
-                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "protocolVersion": message.field("params").field("protocolVersion").as_str().unwrap_or("2025-06-18"),
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
@@ -281,9 +284,10 @@ where
                 .await
                 .map(tools_list_result),
             "tools/call" => {
-                let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
+                let name =
+                    message.field("params").field("name").as_str().unwrap_or_default().to_owned();
                 let arguments =
-                    message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                    message.field("params").get("arguments").cloned().unwrap_or_else(|| json!({}));
                 Ok(
                     match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
                     {

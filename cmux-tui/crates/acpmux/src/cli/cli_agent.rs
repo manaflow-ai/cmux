@@ -192,8 +192,9 @@ impl ReplyFilter {
             }
         }
         let echoed = start > 0;
-        let text: String = lines[start..]
+        let text: String = lines
             .iter()
+            .skip(start)
             .map(|l| format!("{}\n", if echoed { dedent(l) } else { l }))
             .collect();
         let text = if echoed { text.trim_start_matches('\n').to_owned() } else { text };
@@ -312,13 +313,18 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
                 cwd
             };
             let (options, state, tx) = (options.clone(), state.clone(), tx.clone());
-            tokio::spawn(async move {
+            let (failed_tx, failed_id) = (tx.clone(), id.clone());
+            let prompt = async move {
                 let outcome = run_prompt(&options, &sid, &cwd, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
                     Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
                     Err(e) => error(&tx, &id, -32603, e),
                 }
+            };
+            // A panic ends this prompt with an internal error, not the agent.
+            crate::supervised::spawn_request(prompt, async move {
+                error(&failed_tx, &failed_id, -32603, "the prompt failed".to_owned());
             });
         }
         ("session/cancel", _) => {
@@ -352,12 +358,11 @@ async fn run_prompt(
     {
         prompt = format!("{text}\n\n{prompt}");
     }
-    let mut cmd = tokio::process::Command::new(&options.command[0]);
-    cmd.args(&options.command[1..])
-        .current_dir(cwd)
-        .env("NO_COLOR", "1")
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    let Some((program, args)) = options.command.split_first() else {
+        return Err("cli-agent needs a program: cli-agent -- PROGRAM [ARGS]".into());
+    };
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).current_dir(cwd).env("NO_COLOR", "1").stderr(Stdio::piped()).kill_on_drop(true);
     if options.prompt_arg {
         cmd.arg(&prompt).stdin(Stdio::null());
     } else {
@@ -369,7 +374,7 @@ async fn run_prompt(
         cmd.stdout(Stdio::piped());
         None
     };
-    let mut child = cmd.spawn().map_err(|e| format!("starting {}: {e}", options.command[0]))?;
+    let mut child = cmd.spawn().map_err(|e| format!("starting {program}: {e}"))?;
     // The terminal's other end now lives only in the child: its exit ends the reads.
     drop(cmd);
     if let Some(mut stdin) = child.stdin.take() {
@@ -378,7 +383,7 @@ async fn run_prompt(
         if !text.ends_with('\n') {
             text.push('\n');
         }
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let _ = stdin.write_all(text.as_bytes()).await;
             let _ = stdin.shutdown().await;
         });
@@ -407,9 +412,11 @@ async fn run_prompt(
     let mut lines = match master {
         Some(master) => read_lines(master),
         None => {
-            let stdout = child.stdout.take().expect("piped stdout");
+            let Some(stdout) = child.stdout.take() else {
+                return Err(format!("{program}'s output was not piped"));
+            };
             let (line_tx, line_rx) = mpsc::unbounded_channel();
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if line_tx.send(line).is_err() {
@@ -424,7 +431,7 @@ async fn run_prompt(
     // waited for while the output is read.
     let (kill_tx, kill_rx) = oneshot::channel::<()>();
     let (exit_tx, mut exit_rx) = oneshot::channel();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         tokio::select! {
             _ = kill_rx => {
                 let _ = child.kill().await;
@@ -478,11 +485,11 @@ async fn run_prompt(
             status = exit_rx => status,
         },
     }
-    .map_err(|_| format!("{} was stopped", options.command[0]))?
-    .map_err(|e| format!("waiting for {}: {e}", options.command[0]))?;
+    .map_err(|_| format!("{program} was stopped"))?
+    .map_err(|e| format!("waiting for {program}: {e}"))?;
     if !status.success() {
         let tail = stderr_tail.await.unwrap_or_default();
-        return Err(format!("{} exited with {status}: {tail}", options.command[0]));
+        return Err(format!("{program} exited with {status}: {tail}"));
     }
     Ok("end_turn")
 }
@@ -539,23 +546,28 @@ fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fi
 fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     use std::io::BufRead;
     let (tx, rx) = mpsc::unbounded_channel();
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(file);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    let line = String::from_utf8_lossy(&buf);
-                    let line = line.trim_end_matches(['\n', '\r']).to_owned();
-                    if tx.send(line).is_err() {
-                        break;
+    // A thread that cannot start leaves `rx` closed: the caller reads end of file.
+    let _ = crate::supervised::scoped_thread(
+        "acpmux-cli-agent-lines",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let mut reader = std::io::BufReader::new(file);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&buf);
+                        let line = line.trim_end_matches(['\n', '\r']).to_owned();
+                        if tx.send(line).is_err() {
+                            break;
+                        }
                     }
                 }
             }
-        }
-    });
+        },
+    );
     rx
 }
 

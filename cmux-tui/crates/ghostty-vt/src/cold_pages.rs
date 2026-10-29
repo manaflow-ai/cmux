@@ -1,4 +1,4 @@
-//! Lossless cold-scrollback codec (p07-memory-040, gated by the kernel
+//! Lossless cold-scrollback codec (gated by the kernel
 //! compressor measurement p07-memory-112; plans/cmux-next/chrome-parity/p07-memory.md).
 //!
 //! [`Terminal::into_cold`] turns a terminal nobody reads into a
@@ -314,26 +314,14 @@ impl Terminal {
 
     /// Page memory of both screens.
     pub fn page_memory(&self) -> Result<PageMemory> {
-        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
-        // the plain C struct; `size` is then set to the size the getter
-        // requires, and the out-pointer is valid for the call.
-        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
-        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
-        // SAFETY: `self.raw` is this wrapper's live terminal; MEMORY_USAGE writes a
-        // GhosttyTerminalMemoryUsage whose `size` is set above.
-        check(unsafe {
-            sys::ghostty_terminal_get(
-                self.raw,
-                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
-                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
-            )
-        })?;
+        let usage = self.memory_usage()?;
+        let (primary, alternate) = (usage.primary, usage.alternate);
         Ok(PageMemory {
-            resident_bytes: usage.primary_resident_bytes + usage.alternate_resident_bytes,
-            compressed_bytes: usage.primary_compressed_bytes + usage.alternate_compressed_bytes,
-            pages: usage.primary_pages + usage.alternate_pages,
-            compressed_pages: usage.primary_compressed_pages + usage.alternate_compressed_pages,
-            image_bytes: (usage.primary_image_bytes, usage.alternate_image_bytes),
+            resident_bytes: primary.resident_bytes + alternate.resident_bytes,
+            compressed_bytes: primary.compressed_bytes + alternate.compressed_bytes,
+            pages: primary.pages + alternate.pages,
+            compressed_pages: primary.compressed_pages + alternate.compressed_pages,
+            image_bytes: (primary.image_bytes, alternate.image_bytes),
         })
     }
 
