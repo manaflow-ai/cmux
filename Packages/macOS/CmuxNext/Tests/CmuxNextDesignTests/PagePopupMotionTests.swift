@@ -221,8 +221,8 @@ import Testing
         host.update(model)
         try key(2)
         #expect(events.count == 11)
-        #expect(events[9]["type"] as? String == "pick")
-        #expect(events[10]["type"] as? String == "dismiss" && events[10]["popupId"] as? String == model.id)
+        #expect(events.filter { $0["type"] as? String == "pick" }.count == 10)
+        #expect(events.last?["type"] as? String == "dismiss" && events.last?["popupId"] as? String == model.id)
         #expect(host.activeID == nil)
     }
 
