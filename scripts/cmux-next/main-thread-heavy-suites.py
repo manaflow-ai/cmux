@@ -19,8 +19,20 @@ import sys
 from pathlib import Path
 
 FRAME_DRIVERS = re.compile(r"CATransaction\.flush\(\)|\.displayIfNeeded\(\)|\bdrawFrame\(")
-# Suites the frame scan cannot see: real WebKit downloads block the main thread in a kernel call.
-ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests")}
+# Suites the frame scan cannot see. RemoteVideoPageTests' real WebKit downloads block the main thread in a kernel
+# call. In a shared shard SidebarIncrementalMatchesRebuild(Gaps)Tests held the main thread in layoutSubtreeIfNeeded
+# (67 s alone) and ClassicUpgradeHugeSimulationTests in Core Animation commits (412 s alone, its test open 572 s
+# when the stuck watchdog ended the shard): #26809 run 40874507839, shards 7 and 11.
+ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests"),
+          ("CmuxNextAppTests", "SidebarIncrementalMatchesRebuildTests"),
+          ("CmuxNextAppTests", "SidebarIncrementalMatchesRebuildGapsTests"),
+          ("CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests")}
+# The heavy step's watchdog limits for one suite's process (swift-test-with-hang-sampler.sh): the whole run, and
+# how long no test may finish. A suite that declares its own `.timeLimit(.minutes(N))` gets limits above it, so
+# Swift Testing's own limit reports a slow test first and the watchdog only ends a process that outlives it.
+HANG_SECONDS = 600
+STUCK_SECONDS = 300
+SUITE_TIME_LIMIT = re.compile(r"\.timeLimit\(\.minutes\((\d+)\)\)")
 # A top-level declaration only: its attributes may sit on lines of their own, but each such line starts at
 # column 0, so a nested (indented) type is never read as a top-level one.
 TYPE_DECL = re.compile(r"^(?:@\w+(?:\([^\n]*?\))?(?:[ \t]+|\n))*(?:(?:public|package|internal|private|fileprivate|final|open|nonisolated)[ \t]+)*"
@@ -62,6 +74,23 @@ def _heavy_suites(tests_root: Path) -> list[tuple[str, str]]:
     return sorted(found)
 
 
+def suite_time_limit(tests_root: Path, target: str, name: str) -> int:
+    """Seconds of the `.timeLimit(.minutes(N))` on the suite's own declaration (its attributes), 0 when none."""
+    for path in sorted((tests_root / target).rglob("*.swift")):
+        for block_name, body in top_level_blocks(path.read_text(encoding="utf-8", errors="replace")):
+            if block_name == name and (m := SUITE_TIME_LIMIT.search(body.split("{", 1)[0])):
+                return int(m.group(1)) * 60
+    return 0
+
+
+def limits(tests_root: Path, target: str, name: str) -> tuple[int, int]:
+    """(whole-run seconds, stuck seconds) for the suite's own process in the heavy step."""
+    declared = suite_time_limit(tests_root, target, name)
+    if not declared:
+        return HANG_SECONDS, STUCK_SECONDS
+    return max(HANG_SECONDS, declared + 300), max(STUCK_SECONDS, declared + 120)
+
+
 def pattern(suites: list[tuple[str, str]]) -> str:
     by_target: dict[str, list[str]] = {}
     for target, name in suites:
@@ -74,12 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("tests_root", type=Path, help="Packages/macOS/CmuxNext/Tests")
     parser.add_argument("--list", action="store_true", help="one Target.Suite per line instead of the regex")
+    parser.add_argument("--runs", action="store_true",
+                        help="one 'Target.Suite HANG_SECONDS STUCK_SECONDS' per line: the heavy step's watchdog limits")
     parser.add_argument("--targets", default="all", help="'all' or the selected test targets, space-separated")
     args = parser.parse_args(argv)
     suites = heavy_suites(args.tests_root, args.targets)
     if not suites:
         return 0  # nothing heavy selected: no output, never a pattern that would match every test
-    if args.list:
+    if args.runs:
+        print("\n".join(f"{t}.{n} {' '.join(map(str, limits(args.tests_root, t, n)))}" for t, n in suites))
+    elif args.list:
         print("\n".join(f"{t}.{n}" for t, n in suites))
     else:
         print(pattern(suites))

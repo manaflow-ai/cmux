@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -78,6 +79,31 @@ class HeavySuites(unittest.TestCase):
         self.assertNotRegex("CmuxNextAppTests.SidebarLagTestsExtra/aTest()", pattern)
 
 
+class Limits(unittest.TestCase):
+    def test_the_suites_the_frame_scan_misses_are_heavy(self) -> None:
+        # #26809 run 40874507839: shard 7 starved in SidebarIncrementalMatchesRebuildGapsTests' layout and shard
+        # 11 in ClassicUpgradeHugeSimulationTests' commits until the stuck watchdog ended each shard.
+        found = {f"{t}.{n}" for t, n in heavy.heavy_suites(TESTS)}
+        for suite in ("CmuxNextAppTests.SidebarIncrementalMatchesRebuildTests",
+                      "CmuxNextAppTests.SidebarIncrementalMatchesRebuildGapsTests",
+                      "CmuxNextAppTests.ClassicUpgradeHugeSimulationTests"):
+            self.assertIn(suite, found)
+
+    def test_a_suite_with_its_own_time_limit_gets_watchdog_limits_above_it(self) -> None:
+        # Its 15-minute .timeLimit: Swift Testing reports a slow test before the watchdog ends the process.
+        self.assertEqual(heavy.suite_time_limit(TESTS, "CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests"), 900)
+        self.assertEqual(heavy.limits(TESTS, "CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests"), (1200, 1020))
+        self.assertEqual(heavy.limits(TESTS, "CmuxNextAppTests", "SidebarLagTests"),
+                         (heavy.HANG_SECONDS, heavy.STUCK_SECONDS))
+
+    def test_runs_lists_every_heavy_suite_with_its_limits(self) -> None:
+        out = subprocess.run([sys.executable, "-I", str(SCRIPT), str(TESTS), "--runs"], capture_output=True, text=True,
+                             check=True).stdout.splitlines()
+        self.assertEqual([line.split()[0] for line in out], [f"{t}.{n}" for t, n in heavy.heavy_suites(TESTS)])
+        self.assertIn("CmuxNextAppTests.ClassicUpgradeHugeSimulationTests 1200 1020", out)
+        self.assertTrue(all(len(line.split()) == 3 for line in out))
+
+
 class Workflow(unittest.TestCase):
     def setUp(self) -> None:
         self.steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
@@ -119,8 +145,11 @@ class Workflow(unittest.TestCase):
     def test_a_serial_step_of_their_own_runs_them(self) -> None:
         own = self.step("Run main-thread-heavy suites in their own process")
         # One fresh process per suite: windows one suite leaves open slow every later one.
-        self.assertIn(f"for suite in ${VAR}_SUITES", own["run"])
-        self.assertIn('--filter "${suite//./\\\\.}\\\\b"', own["run"])
+        self.assertIn('main-thread-heavy-suites.py Tests --targets "$SWIFT_TARGETS" --runs', own["run"])
+        self.assertIn("while read -r suite hang stuck; do", own["run"])
+        self.assertIn('CMUX_NEXT_TEST_HANG_SECONDS="$hang" CMUX_NEXT_TEST_STUCK_SECONDS="$stuck"', own["run"])
+        # The loop reads the list on stdin: no test process may read (and so eat) the rest of it.
+        self.assertIn('--filter "${suite//./\\\\.}\\\\b" < /dev/null', own["run"])
         self.assertIn('exit "$status"', own["run"])
         derive = self.step("Find the main-thread-heavy suites")
         self.assertIn(f"{VAR}_SUITES=", derive["run"])

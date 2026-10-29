@@ -3009,9 +3009,9 @@ jobs:
     # dependencies) and the selected suites. Admission (up to 20 min), cache
     # restore (~7 min) and the build (~6 min) used most of 60 before a full
     # broad pass (~860 s on a slow mini) ran, so 90; the main-thread-heavy
-    # suites' serial step (up to 45 min, out of the broad pass since #26809)
-    # makes it 120.
-    timeout-minutes: 120
+    # suites' serial step (up to 60 min, out of the broad pass since #26809)
+    # makes it 135.
+    timeout-minutes: 135
     outputs:
       # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
       # reused pass of a folded run was recorded only with the generated files fresh.
@@ -3431,24 +3431,29 @@ jobs:
       # process: in one shared serial process the windows earlier gallery
       # suites left open made SidebarScrollCostTests' 500-row scroll take 300+
       # s and the stuck watchdog ended the step (run 40693598261). A hang or a
-      # red here is this step's red, and every suite still runs.
+      # red here is this step's red, and every suite still runs. Each suite's
+      # watchdog limits come from main-thread-heavy-suites.py --runs: 600 s for
+      # the run and 300 s with no test finished, or above the suite's own
+      # `.timeLimit` (ClassicUpgradeHugeSimulationTests: 15 min, so 1200 s and
+      # 1020 s; it took 412 s alone and one test was open 572 s in a shard).
       - name: Run main-thread-heavy suites in their own process
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && env.CMUX_NEXT_MAIN_THREAD_HEAVY != '') && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 45
+        timeout-minutes: 60
         working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "600"
         run: |
           set -uo pipefail
           status=0
-          for suite in $CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES; do
-            echo "::group::$suite"
-            if ! ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "${suite//./\\.}\\b"; then
+          runs="$(python3 ../../../scripts/cmux-next/main-thread-heavy-suites.py Tests --targets "$SWIFT_TARGETS" --runs)" || exit 1
+          while read -r suite hang stuck; do
+            [[ -n "$suite" ]] || continue
+            echo "::group::$suite (run limit ${hang} s, stuck limit ${stuck} s)"
+            if ! CMUX_NEXT_TEST_HANG_SECONDS="$hang" CMUX_NEXT_TEST_STUCK_SECONDS="$stuck" \
+                ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "${suite//./\\.}\\b" < /dev/null; then
               status=1
               echo "::error title=main-thread-heavy suite red::$suite"
             fi
             echo "::endgroup::"
-          done
+          done <<< "$runs"
           exit "$status"
 
       # Each isolated step below runs when its suites' target is selected and

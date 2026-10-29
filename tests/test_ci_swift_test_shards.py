@@ -168,8 +168,8 @@ class Run(unittest.TestCase):
 
 class Width(unittest.TestCase):
     def test_width_comes_from_the_runners_cores_and_memory(self) -> None:
-        self.assertEqual(shards.width(10, 64), 5)  # cores bound it
-        self.assertEqual(shards.width(10, 16), 4)  # memory bounds it
+        self.assertEqual(shards.width(14, 64), 3)  # cores bound it: a quarter, not half (run 40874507839)
+        self.assertEqual(shards.width(16, 8), 2)  # memory bounds it
         self.assertEqual(shards.width(1, 2), 1)
         self.assertEqual(shards.width(10, 64, "2"), 2)
 

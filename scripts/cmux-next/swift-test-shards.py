@@ -38,6 +38,9 @@ PROCESS_GB = 4
 OWN_SHARDS = (("CmuxNextAppTests", "Cloud"),)
 # A process costs seconds to start (the whole test bundle loads), so a shard holds at least this many tests.
 MIN_SHARD_TESTS = 150
+# Shards to split the selected targets into at the least: about 700 tests each for all targets, the size that ran
+# without the window pile-up in run 40874507839 (14 packed shards and the Cloud one).
+SHARDS = 14
 
 
 def test_targets(package: Path) -> list[str]:
@@ -117,11 +120,17 @@ def plan(tests_root: Path, package: Path, selected: str, shards: int, exclude: s
 
 
 def width(cores: int, memory_gb: float, override: str = "") -> int:
-    """Test processes to run at once: half the cores (each process also runs its own worker threads) and no more
-    than memory holds at PROCESS_GB each. CMUX_NEXT_SWIFT_TEST_WIDTH overrides it."""
+    """Test processes to run at once: a quarter of the cores and no more than memory holds at PROCESS_GB each.
+    CMUX_NEXT_SWIFT_TEST_WIDTH overrides it.
+
+    Half the cores (7 on a 14-core mini, each process running up to 6 tests at once) was too many for one window
+    server: suites that pass alone at the base turned red only in the shards, on waits that ran out
+    (WorkspaceGroupPinLiveTests, WorkspaceNothingToDoRefusalTests, ClickedLinkFocusTests), a focus intent another
+    process moved (RapidWorkspaceCreateTests) and a scroll restore (BrowserEngineStateRestoreTests): #26809 run
+    40874507839 against cmux-ci at the base, 62f2281957e0."""
     if override.strip():
         return max(1, int(override))
-    return max(1, min(cores // 2, int(memory_gb // PROCESS_GB)))
+    return max(1, min(cores // 4, int(memory_gb // PROCESS_GB)))
 
 
 def runner_width() -> int:
@@ -221,7 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         print(runner_width())
         return 0
     at_once = runner_width()
-    shards = plan(args.tests_root, args.package, args.targets, at_once * 2, set(args.exclude))
+    # The shard count stays at least SHARDS whatever the width: a process's windows pile up over its run, so a
+    # bigger shard slows down (one process of ~6,300 tests fell from ~2,000 to ~100 tests a minute).
+    shards = plan(args.tests_root, args.package, args.targets, max(at_once * 2, SHARDS), set(args.exclude))
     if args.command == "plan":
         print(json.dumps({"width": at_once, "shards": shards}, indent=2))
         return 0
