@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4088498579101",
+  "notes": "notes/4088498579101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27386,
+      "title": "Agent chat: tool rows line their verbs up in one column; scrolling tool output fades at its bottom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27416,
+      "title": "ci(signing): claim gates read glaeda-signing-hooks.txt at the run's commit, never their own hook list",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
