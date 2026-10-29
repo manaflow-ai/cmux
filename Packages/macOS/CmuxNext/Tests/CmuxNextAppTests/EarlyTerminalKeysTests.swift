@@ -56,6 +56,9 @@ struct EarlyTerminalKeysTests {
             controller.teardown()
             controller.window?.close()
         }
+        // The app's InputVerification.start launch post runs after the first frame, so after the launch window opened
+        // and installed its focus settle observer: that window's settles must still reach the key router.
+        services.input.start(services: services)
         let window = try #require(controller.window)
         let paneKey = try #require(store.workspaces.first?.screens.first?.panes.first?.id)
         try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: paneKey)?.currentContent != nil },
