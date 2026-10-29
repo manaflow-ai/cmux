@@ -412,7 +412,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     }
     let mut params = match op {
         "start" => {
-            let Some(params) = body.get("params").filter(serde_json::Value::is_object) else {
+            let Some(params) = body.get("params").filter(|value| value.is_object()) else {
                 return Some(Ack::refused("start control body has no params object"));
             };
             params.clone()
