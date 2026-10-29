@@ -63,9 +63,6 @@ final class PaneToolbar {
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
-        view.onNativeTool = { [weak pane] id, menuItemID in
-            pane?.view.agentPaneModel?.onTabRowToolInvoked?(id, menuItemID)
-        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -92,6 +89,9 @@ final class PaneToolbar {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "pane-toolbar").error("tabs.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
                 }
             }
+        }
+        view.onNativeTool = { [weak pane] id, menuItemID in
+            pane?.view.agentPaneModel?.onTabRowToolInvoked?(id, menuItemID)
         }
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
