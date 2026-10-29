@@ -381,7 +381,13 @@ export async function runE2E(
       for (let attempt = 0; !machineId; attempt++) {
         if (cancelled ? left() < 500 : attempt >= 6) break
         // The 2 s pause between reads ends early on a cancel; after one, pauses are 0.5 s at most.
-        if (attempt > 0) await within(new Promise(() => undefined), cancelled ? Math.min(500, Math.max(0, left() - 500)) : 2_000, !cancelled)
+        if (attempt > 0) {
+          // After a cancel, pauses of 0.5 s at most, and no read once a pause would be too short to matter
+          // (no back-to-back reads as the deadline nears).
+          const pause = cancelled ? Math.min(500, left() - 500) : 2_000
+          if (pause < 100) break
+          await within(new Promise(() => undefined), pause, !cancelled)
+        }
         try {
           const found = safeId((await listEntry())?.machineId)
           if (found) machineId = found

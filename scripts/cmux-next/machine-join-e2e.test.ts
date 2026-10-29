@@ -712,17 +712,18 @@ describe("cancellation, the sweep, masking and the scan", () => {
     let cancel: (() => Promise<void>) | undefined
     let cancelled: Promise<void> | undefined
     let cancelAt = 0
+    let readsBefore = 0
     const w = world({
       holdJoin: true,
       killDelayMs: 300,
       joinLingersMs: 1_200,
-      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (readsBefore = w.listAt.length), (cancelled = cancel!())))
     })
     const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
     await cancelled
     expect(w.releasedAt()).not.toBeNull()
     // No search for the machine before its join had ended.
-    const searches = w.listAt.filter((t) => t >= cancelAt)
+    const searches = w.listAt.slice(readsBefore)
     expect(searches.length).toBeGreaterThan(0)
     for (const t of searches) expect(t).toBeGreaterThanOrEqual(w.releasedAt()!)
     expect(w.revokeCalls()).toBe(1)
@@ -735,16 +736,17 @@ describe("cancellation, the sweep, masking and the scan", () => {
     let cancel: (() => Promise<void>) | undefined
     let cancelled: Promise<void> | undefined
     let cancelAt = 0
+    let readsBefore = 0
     const w = world({
       holdJoin: true,
       launcherOnly: true,
       joinLingersMs: 500,
-      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (readsBefore = w.listAt.length), (cancelled = cancel!())))
     })
     const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
     await cancelled
     expect(w.releasedAt()).toBe(cancelAt + 500)
-    for (const t of w.listAt.filter((t) => t >= cancelAt)) expect(t).toBeGreaterThanOrEqual(w.releasedAt()!)
+    for (const t of w.listAt.slice(readsBefore)) expect(t).toBeGreaterThanOrEqual(w.releasedAt()!)
     expect(w.revokeCalls()).toBe(1)
     expect(e.reason).not.toContain("had not stopped")
     assertNoSecretEscaped(w)
@@ -754,17 +756,21 @@ describe("cancellation, the sweep, masking and the scan", () => {
     let cancel: (() => Promise<void>) | undefined
     let cancelled: Promise<void> | undefined
     let cancelAt = 0
+    let readsBefore = 0
     const w = world({
       holdJoin: true,
       launcherOnly: true,
       joinLingersMs: 60_000,
-      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (readsBefore = w.listAt.length), (cancelled = cancel!())))
     })
     const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
     const end = w.now()
     await cancelled
     expect(e.reason).toContain("the join process had not stopped before the search for its machine")
-    for (const t of w.listAt.filter((t) => t >= cancelAt)) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
+    const searches = w.listAt.slice(readsBefore)
+    for (const t of searches) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
+    // Paced reads, never back to back as the deadline nears.
+    for (let i = 1; i < searches.length; i++) expect(searches[i]! - searches[i - 1]!).toBeGreaterThanOrEqual(100)
     expect(end - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS)
     assertNoSecretEscaped(w)
   })
