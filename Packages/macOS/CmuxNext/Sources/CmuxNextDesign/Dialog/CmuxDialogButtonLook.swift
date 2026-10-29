@@ -26,6 +26,8 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     public var keyHint: ThemeRGB
     /// The opaque colors the inks are read on: the fill over each card surface.
     public var surfaces: [ThemeRGB]
+    /// The card the button sits on (the glass over the scrimmed window): the focus ring's gap.
+    public var card: ThemeRGB
 
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
@@ -59,6 +61,7 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         title = ink
         keyHint = surfaces.first.map { Self.readable(ink.mixed(toward: $0, 0.3), over: surfaces) } ?? ink
         self.surfaces = surfaces
+        self.card = card.first ?? fill.withAlpha(1)
     }
 
     /// The card a dialog button sits on: the opaque popup surface (Reduce Transparency) and the

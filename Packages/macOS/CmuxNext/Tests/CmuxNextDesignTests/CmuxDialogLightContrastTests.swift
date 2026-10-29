@@ -148,8 +148,9 @@ import CmuxNextDesignTokens
         save.layoutSubtreeIfNeeded()
         let layer = try #require(save.layer)
         #expect(!save.clipsToBounds && !layer.masksToBounds, "the ring is clipped away")
+        // The ring is the bordered layer outside the button (the gap line on a solid fill is inside).
         let rings = (layer.sublayers ?? []).filter { !$0.isHidden && $0.borderWidth > 0 }
-        let ring = try #require(rings.first, "a focused button draws no ring")
+        let ring = try #require(rings.max { $0.frame.width < $1.frame.width }, "a focused button draws no ring")
         #expect(ring.frame.width > layer.bounds.width && ring.frame.height > layer.bounds.height, "the ring is inside the fill")
         #expect(window.makeFirstResponder(nil))
         #expect((layer.sublayers ?? []).allSatisfy { $0.isHidden || $0.borderWidth == 0 }, "an unfocused button keeps its ring")

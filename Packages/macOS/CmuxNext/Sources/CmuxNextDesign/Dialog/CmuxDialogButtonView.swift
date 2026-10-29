@@ -14,6 +14,9 @@ public final class CmuxDialogButtonView: NSButton {
     private var hasFocus = false { didSet { refresh() } }
     /// The keyboard focus ring, just outside the button.
     private let focusRing = CALayer()
+    /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
+    /// the ring, so the ring reads apart from a fill of its own color (the accent default button).
+    private let focusGap = CALayer()
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
     /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
@@ -34,8 +37,10 @@ public final class CmuxDialogButtonView: NSButton {
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
-        focusRing.borderWidth = 2
+        focusRing.borderWidth = Self.focusRingWidth
         focusRing.isHidden = true
+        focusGap.borderWidth = Self.focusGapWidth
+        focusGap.isHidden = true
         // The ring sits outside the fill: nothing may clip it.
         clipsToBounds = false
         refresh()
@@ -111,6 +116,7 @@ public final class CmuxDialogButtonView: NSButton {
         // AppKit may replace a button's backing layer after init: the ring follows the current one.
         if let layer, focusRing.superlayer !== layer {
             layer.masksToBounds = false
+            layer.addSublayer(focusGap)
             layer.addSublayer(focusRing)
         }
         let outset = Self.focusRingOutset
@@ -118,12 +124,17 @@ public final class CmuxDialogButtonView: NSButton {
         CATransaction.setDisableActions(true)
         focusRing.frame = bounds.insetBy(dx: -outset, dy: -outset)
         focusRing.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + outset
+        focusGap.frame = bounds
+        focusGap.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
         CATransaction.commit()
     }
 
-    /// How far outside the fill the focus ring's outer edge sits: its 2 pt line, then a 2 pt gap, so
-    /// the ring reads apart from a solid fill of the same color (the accent default button).
-    static let focusRingOutset: CGFloat = 4
+    /// How far outside the button the focus ring reaches: its line only. Dialog button rows are
+    /// `Metrics.space2` (4 pt) apart, and a ring reaching further overlapped the next button (a
+    /// 4 pt outset, ring plus gap, drew over the neighbor's edge). The gap is inside (``focusGap``).
+    static let focusRingOutset: CGFloat = 2
+    static let focusRingWidth: CGFloat = 2
+    static let focusGapWidth: CGFloat = 1.5
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -155,6 +166,9 @@ public final class CmuxDialogButtonView: NSButton {
             layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
             focusRing.isHidden = !hasFocus
             focusRing.borderColor = Palette.focusRing.cgColor
+            // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
+            focusGap.isHidden = !hasFocus || look.fill.alpha < 1
+            focusGap.borderColor = look.card.nsColor.cgColor
             CATransaction.commit()
             alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
