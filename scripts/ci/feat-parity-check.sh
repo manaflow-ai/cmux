@@ -17,7 +17,10 @@
 #                        features, rustdoc -D warnings, and the two `cargo package` checks.
 #   sdk-msrv             cmux-tui-sdks.yml `rust-msrv`: the public Rust SDK crates and examples
 #                        on Rust 1.88 (installed with rustup into the step's RUSTUP_HOME).
-#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh.
+#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh, then the
+#                        Chromium Host's C++ tests where the commit has them
+#                        (scripts/cmux-next/tests/chromium-host-dispatch.test.sh and
+#                        remote-shim-abi.test.sh, on perf/chrome-parity).
 #   swift-portable PKG   swift-packages-linux.yml for one package its matrix lists:
 #                        `swift build --build-tests`, then `swift test --skip-build --parallel`
 #                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux only (the
@@ -196,6 +199,16 @@ if [[ "$mode" == cef-shim-cpp ]]; then
   [[ "${#tests[@]}" -gt 0 ]] || { echo "error: no scripts/cmux-next/test-*-cpp.sh at this commit" >&2; exit 2; }
   for t in "${tests[@]}"; do
     step "$(basename "$t" .sh)" "$t"
+  done
+  # The Chromium Host's dispatcher and remote shim ABI (C++ and the generated wire cases, no
+  # AppKit), where this commit has them.
+  for t in chromium-host-dispatch remote-shim-abi; do
+    f="$root/scripts/cmux-next/tests/$t.test.sh"
+    if [[ -f "$f" ]]; then
+      step "$t.test" bash "$f"
+    else
+      echo "cef-shim-cpp: no scripts/cmux-next/tests/$t.test.sh at this commit"
+    fi
   done
   finish
 fi
