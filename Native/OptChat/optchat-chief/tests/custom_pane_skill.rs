@@ -30,6 +30,7 @@ fn the_custom_pane_skill_ships_with_the_flow_it_needs() {
     }
     let text = std::fs::read_to_string(&skill.path).unwrap();
     for needed in [
+        "cmux --json raw command",
         r#""cmd":"apps-list""#,
         "local_dir",
         r#""cmux.pane/1": { "web": "web/index.html""#,

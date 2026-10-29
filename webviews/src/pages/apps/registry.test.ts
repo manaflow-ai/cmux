@@ -33,6 +33,30 @@ describe("Community listings and Get", () => {
     store.stop();
   });
 
+  test("reads every listings page so later apps remain searchable", async () => {
+    const { provider, store } = setup(person);
+    const call = provider.call.bind(provider);
+    const listings = sampleRegistry(person).listings;
+    provider.call = async (op, params) => {
+      if (op !== RegistryOps.listings) return call(op, params);
+      provider.calls.push({ op, params });
+      return params.cursor
+        ? { listings: [listings[1]] }
+        : { listings: [listings[0]], cursor: "sample-studio/workspace-board" };
+    };
+    await store.start();
+    expect(store.getSnapshot().registry.listings).toEqual(listings);
+    expect(provider.calls.filter((entry) => entry.op === RegistryOps.listings).map((entry) => entry.params)).toEqual([
+      {},
+      { cursor: "sample-studio/workspace-board" },
+    ]);
+    store.setQuery("focus-timer");
+    expect(store.getSnapshot().registry.listings.some((listing) => listing.app === "pixel-works/focus-timer")).toBe(
+      true,
+    );
+    store.stop();
+  });
+
   test("Get asks the host for the approved bundle, then installs through the native sheet", async () => {
     const { provider, store } = setup(person);
     await store.start();

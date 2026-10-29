@@ -110,7 +110,9 @@ struct AppRegistryPageProviderTests {
         }
         #expect(error?.code == "registry.decided")
         #expect(RegistryStub.seen.last?.body == ["decision": "approve", "reason": ""])
-        #expect(AppRegistryPageConfirmations.confirmation(op: "cmux.registry.review.decide", params: decide)?.name.contains("octo/board") == true)
+        let confirmation = AppRegistryPageConfirmations.confirmation(op: "cmux.registry.review.decide", params: decide)
+        #expect(confirmation?.name.contains("sub_00000000000000000009") == true)
+        #expect(confirmation?.name.contains("octo/board") == false, "page-supplied display names cannot disguise the submission being decided")
     }
 
     // MARK: Fixtures
