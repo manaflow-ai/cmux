@@ -1229,7 +1229,6 @@ async fn bounded_user_systemctl(
     args: &[&str],
     deadline: tokio::time::Instant,
 ) -> bool {
-    use std::os::unix::process::CommandExt;
     let mut command = tokio::process::Command::new(systemctl);
     command
         .args(args)
