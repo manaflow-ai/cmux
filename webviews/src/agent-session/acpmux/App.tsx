@@ -6899,7 +6899,18 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows, localCwd, quick]);
+  }, [
+    snapshot,
+    projectDraft,
+    continueAvailable,
+    forkable,
+    forkSeq,
+    opensSideSessions,
+    isSideSession,
+    startingRows,
+    localCwd,
+    quick,
+  ]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
