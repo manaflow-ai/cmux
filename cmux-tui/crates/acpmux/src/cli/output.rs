@@ -309,7 +309,10 @@ pub(crate) async fn stream_prompt(
     let mut fail_permission = false;
     let mut suppressor = crate::cli::orchestrate::ReadSuppressor::default();
     let result = loop {
-        let stall_at = if opts.stall_secs > 0 && !activity {
+        // The stall check waits while updates are queued: they are read
+        // first and may be the agent's activity (a level check, not a race
+        // with the deadline arm, which goes first in the select below).
+        let stall_at = if opts.stall_secs > 0 && !activity && notes.is_empty() {
             Some(started + std::time::Duration::from_secs(opts.stall_secs))
         } else {
             None
@@ -326,12 +329,25 @@ pub(crate) async fn stream_prompt(
                 None => std::future::pending::<()>().await,
             }
         };
-        // Biased, notifications first: the daemon sends a turn's updates before
-        // its result, and the reader queues them before it hands the result on,
-        // so a result that is ready has every update of its turn already queued.
-        // Taking the result first could end the turn with its last words unread.
+        // Biased. The deadline first, so a flood of notifications cannot hold
+        // off `--timeout` or the stall check. Then notifications before the
+        // result: the daemon sends a turn's updates before its result, and the
+        // reader queues them before it hands the result on, so a result that
+        // is ready has every update of its turn already queued. Taking the
+        // result first could end the turn with its last words unread.
         tokio::select! {
             biased;
+            _ = tick => {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
+                }
+            }
             n = notes.recv() => {
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
@@ -393,17 +409,6 @@ pub(crate) async fn stream_prompt(
                 }
             }
             r = &mut turn => break r?,
-            _ = tick => {
-                if let Some(d) = deadline
-                    && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
-                    }
-                if !activity {
-                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
-                }
-            }
         }
     };
     if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)
@@ -624,7 +629,10 @@ async fn collect_once(
     let mut denied = 0u64;
     let mut fail_permission = false;
     let result = loop {
-        let stall_at = if opts.stall_secs > 0 && !activity {
+        // The stall check waits while updates are queued: they are read
+        // first and may be the agent's activity (a level check, not a race
+        // with the deadline arm, which goes first in the select below).
+        let stall_at = if opts.stall_secs > 0 && !activity && notes.is_empty() {
             Some(started + std::time::Duration::from_secs(opts.stall_secs))
         } else {
             None
@@ -642,12 +650,25 @@ async fn collect_once(
                 None => std::future::pending::<()>().await,
             }
         };
-        // Biased, notifications first: the daemon sends a turn's updates before
-        // its result, and the reader queues them before it hands the result on,
-        // so a result that is ready has every update of its turn already queued.
-        // Taking the result first could end the turn with its last words unread.
+        // Biased. The deadline first, so a flood of notifications cannot hold
+        // off `--timeout` or the stall check. Then notifications before the
+        // result: the daemon sends a turn's updates before its result, and the
+        // reader queues them before it hands the result on, so a result that
+        // is ready has every update of its turn already queued. Taking the
+        // result first could end the turn with its last words unread.
         tokio::select! {
             biased;
+            _ = tick => {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
+                }
+            }
             n = notes.recv() => {
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
@@ -695,17 +716,6 @@ async fn collect_once(
                 }
             }
             r = &mut turn => break r?,
-            _ = tick => {
-                if let Some(d) = deadline
-                    && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
-                    }
-                if !activity {
-                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
-                }
-            }
         }
     };
     if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)

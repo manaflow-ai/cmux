@@ -147,9 +147,11 @@ struct Daemon {
     child: std::process::Child,
     socket: PathBuf,
     dir: PathBuf,
-    /// The daemon's log after its ready line (it logs to stdout), printed
-    /// when the test fails: a hang names where the daemon stopped.
-    log: Option<std::thread::JoinHandle<Vec<String>>>,
+    /// The newest lines of the daemon's log after its ready line (it logs
+    /// to stdout), printed when the test fails: a hang names where the
+    /// daemon stopped. Read as it is at the failure, never by joining the
+    /// reader, which a child that kept the pipe open would hold open.
+    log: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
 }
 
 impl Daemon {
@@ -217,17 +219,18 @@ impl Daemon {
             .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
         assert!(ready, "the daemon exited before its ready line");
         // Read to the daemon's end (EOF), keeping the newest lines.
-        let log = std::thread::spawn(move || {
-            let mut tail = std::collections::VecDeque::new();
+        let log = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let tail = log.clone();
+        std::thread::spawn(move || {
             for line in lines {
+                let mut tail = tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if tail.len() == 400 {
                     tail.pop_front();
                 }
                 tail.push_back(line);
             }
-            tail.into_iter().collect()
         });
-        Daemon { child, socket, dir, log: Some(log) }
+        Daemon { child, socket, dir, log }
     }
 }
 
@@ -236,15 +239,13 @@ impl Drop for Daemon {
         // SAFETY: the pid of the child this test spawned and still owns.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
-        if let Some(log) = self.log.take()
-            && std::thread::panicking()
-            && let Ok(tail) = log.join()
-        {
+        if std::thread::panicking() {
+            let tail = self.log.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             eprintln!(
                 "daemon log ({}), last {} lines:\n{}",
                 self.dir.display(),
                 tail.len(),
-                tail.join("\n")
+                tail.iter().map(String::as_str).collect::<Vec<_>>().join("\n")
             );
         }
         let _ = std::fs::remove_dir_all(&self.dir);
