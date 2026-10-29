@@ -90,6 +90,11 @@ pub struct Machine {
     pub last_active_at: Option<i64>,
     #[serde(default)]
     pub idle_policy: Option<IdlePolicy>,
+    /// Optional idle-pause diagnostics from the cmux REST VM projection.
+    /// Keep the object opaque here so this relay preserves new diagnostic
+    /// fields without coupling the app server to the cron implementation.
+    #[serde(rename = "idlePause", alias = "idle_pause", default, skip_serializing_if = "Option::is_none")]
+    pub idle_pause: Option<serde_json::Value>,
     #[serde(default)]
     pub error: Option<MachineError>,
     /// Optional non-secret platform metadata supplied by the machine owner.
