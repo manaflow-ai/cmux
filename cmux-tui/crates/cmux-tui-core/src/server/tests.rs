@@ -537,6 +537,7 @@ mod host_size_policy;
 mod identify_and_protocol;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
+mod resize_fuzz;
 mod resource_attach;
 mod resource_waits;
 mod session_streams;
