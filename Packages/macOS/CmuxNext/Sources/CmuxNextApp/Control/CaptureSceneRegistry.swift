@@ -212,7 +212,7 @@ final class CaptureSceneRegistry {
 
     /// Whether the agent page shows what a capture would draw: in the window, past its first paint,
     /// and on its final engine. While Chromium starts (`chromiumStarting`) the page has no Chromium
-    /// session yet and its backing WKWebView is hidden but already loaded, so judging that view let
+    /// session yet and its backing WKWebView is hidden and never loads (so it is not loading); judging that view let
     /// the first render after launch go ahead with no page on screen (#26468: "agent page was not
     /// composited", 0 web views and 0 Chromium pages). A Chromium page must be one the snapshot
     /// draws (`chromiumShown`); its backing WKWebView may still report loading an asynchronous
@@ -454,7 +454,7 @@ extension CaptureSceneRegistry {
     /// A frame-based condition wait: no sleeps or socket polling.
     private func autoNameSettled(_ ready: @escaping () -> Bool) async -> (Double?, CmuxNextSettings.JSONValue) {
         frames.start()
-        let settled = await frames.settled(until: ready, start: ContinuousClock.now, window: 100, deadline: 10_000)
+        let settled = await frames.settled(until: ready, start: ContinuousClock.now, window: 100, deadline: 20_000)
         return (settled, frames.stop())
     }
 
@@ -485,8 +485,8 @@ extension CaptureSceneRegistry {
         let pending = sidebarRow?.rowState.isPending == true
         let ready = workspace.name == expected && workspace.nameSource == expectedSource
             && tabFound && sessionOK && hostKnown && generatedOK && pageReady && sidebarRowMatches && !pending
-        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),\(page),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
-        return (ready, String(diagnostic.prefix(330)))
+        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),sidebarRow=\(sidebarRowMatches),pending=\(pending),\(page)"
+        return (ready, String(diagnostic.prefix(420)))
     }
 }
 #endif
