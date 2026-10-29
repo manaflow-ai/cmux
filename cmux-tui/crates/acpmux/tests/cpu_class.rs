@@ -55,15 +55,22 @@ fn harness_argv(fifo: &Path) -> Vec<String> {
     vec!["/bin/sh".into(), "-c".into(), script]
 }
 
-/// The harness's and the sleeper's pids, once the harness wrote them.
+/// The harness's and the sleeper's pids, once the harness wrote them. A harness that never
+/// writes them fails the test: the blocked read is then released by a writer that closes at once,
+/// so no blocking thread outlives the test.
 async fn read_pids(fifo: PathBuf) -> (i32, i32) {
-    let line = tokio::time::timeout(
-        Duration::from_secs(20),
-        tokio::task::spawn_blocking(move || std::fs::read_to_string(fifo).unwrap()),
-    )
-    .await
-    .expect("the harness wrote its pids in time")
-    .unwrap();
+    let path = fifo.clone();
+    let mut read = tokio::task::spawn_blocking(move || std::fs::read_to_string(path).unwrap());
+    let line = match tokio::time::timeout(Duration::from_secs(20), &mut read).await {
+        Ok(line) => line.unwrap(),
+        Err(_) => {
+            use std::os::unix::fs::OpenOptionsExt;
+            let _ =
+                std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&fifo);
+            let _ = read.await;
+            panic!("the harness did not write its pids in time");
+        }
+    };
     let mut pids = line.split_whitespace().map(|p| p.parse::<i32>().unwrap());
     (pids.next().unwrap(), pids.next().unwrap())
 }
@@ -127,6 +134,19 @@ async fn cpu_class_a_profile_can_keep_its_harness_at_normal_class() {
     end_group(harness);
     assert!(h > BACKGROUND_PRI, "the opted-out harness was lowered: pri {h}");
     assert!(s > BACKGROUND_PRI, "the opted-out harness's tool was lowered: pri {s}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn cpu_class_a_profile_reference_that_resolves_to_normal_keeps_normal_class() {
+    let dir = scratch("r");
+    // SAFETY: this test process's only use of the variable; set before the spawn reads it.
+    unsafe { std::env::set_var("ACPMUX_TEST_CPU_CLASS_REF", "normal") };
+    let (_agent, harness, _sleeper) =
+        direct(&dir, json!({"ACPMUX_SESSION_CPU_CLASS": "${env:ACPMUX_TEST_CPU_CLASS_REF}"})).await;
+    let h = base_priority(harness);
+    end_group(harness);
+    assert!(h > BACKGROUND_PRI, "a reference that resolves to normal was lowered: pri {h}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

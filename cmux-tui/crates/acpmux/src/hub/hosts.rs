@@ -1602,15 +1602,20 @@ impl Hub {
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
+        let env = if meta.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
+        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
+        let cpu_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
         let spec = crate::agent_host::SpawnSpec {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if meta.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            env,
             cwd: meta.cwd.clone(),
             codex_bridge,
             translator,
@@ -1619,7 +1624,7 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
-            cpu_class: crate::cpu_class::CpuClass::for_session(&profile.env),
+            cpu_class,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).

@@ -9,14 +9,14 @@
 //! harness and every process it starts afterwards inherit it; a running process is never
 //! reniced. `normal` leaves the harness at the daemon's class.
 //!
-//! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` (one build-heavy
-//! profile can opt out), the daemon's env `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
+//! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
+//! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
+//! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
 //! (`acpmux config --set session.cpu_class=normal`), then `background`. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// The knob, in a profile's env or the daemon's.
 pub const ENV: &str = "ACPMUX_SESSION_CPU_CLASS";
@@ -45,17 +45,19 @@ impl CpuClass {
         }
     }
 
-    /// The class of a session whose profile env is `profile_env`, with the daemon's config read
-    /// now (it is read at each spawn, as the session scope's limits are).
+    /// The class of a session whose harness gets the environment `harness_env` (the command's
+    /// complete one: the profile's values resolved, the daemon's own `ACPMUX_*` removed), with the
+    /// daemon's env and config read now (at each spawn, as the session scope's limits are).
     #[cfg(target_os = "macos")]
-    pub fn for_session(profile_env: &BTreeMap<String, String>) -> Self {
+    pub fn for_session<'a>(harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+        let profile = harness_env.into_iter().find(|(k, _)| *k == ENV).map(|(_, v)| v);
         let config = crate::config::Config::load().ok().and_then(|c| c.session.cpu_class);
-        Self::resolve(profile_env.get(ENV).map(String::as_str), std::env::var(ENV).ok(), config)
+        Self::resolve(profile, std::env::var(ENV).ok(), config)
     }
 
     /// Off macOS: `normal`, with nothing read.
     #[cfg(not(target_os = "macos"))]
-    pub fn for_session(_profile_env: &BTreeMap<String, String>) -> Self {
+    pub fn for_session<'a>(_harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         Self::Normal
     }
 

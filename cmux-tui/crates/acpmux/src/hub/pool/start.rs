@@ -94,15 +94,20 @@ impl Hub {
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
+        let env = if draft.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
+        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
+        let cpu_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
         let host_spec = agent_host::SpawnSpec {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if draft.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
             translator,
@@ -112,7 +117,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
-            cpu_class: crate::cpu_class::CpuClass::for_session(&profile.env),
+            cpu_class,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
