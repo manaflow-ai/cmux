@@ -562,3 +562,16 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+## Sidebar layout grid (2026-10-29)
+
+Leo: "We need to have the fucking shit aligned on fucking grids and lines and whatever the fuck."
+The decided `leo-workspace/design/grid.md` supersedes the older row inset and text-without-icon
+positions above. `SidebarColumns` is the one layout source: highlight inset 8, lead 16, text 40
+(compact) or 44 (comfortable), actual nesting steps 16, trailing center 24 from the sidebar edge
+at both densities, subsequent marks at 20-point pitches. Row heights keep `Metrics.sidebarRowHeight` (24/32 by interface density); section heights keep
+the existing density calculation. The vertical highlight inset is 2 points. Text capitals center on the row midline; multiple lines align marks
+with the first line. Empty icon slots keep the same text column. Section labels use lead.
+The workspace tab caret keeps #27165's position beside the name and #27237's stable hover target;
+it is a name disclosure rather than a trailing mark. Wide badges grow inward and reserve whole
+pitches, preserving their content without moving the outer trail line. No mark or density is removed.
+`SidebarGridAlignmentTests` covers the row kinds and pure layout without a window.
