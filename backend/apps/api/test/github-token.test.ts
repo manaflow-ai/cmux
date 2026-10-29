@@ -52,6 +52,42 @@ const linkGitHub = async (session: string, team: string) => {
   return { gh }
 }
 
+describe("GitHub repository paging through the authorized route", { timeout: 60_000 }, () => {
+  it("reads one upstream page, preserves the selected connection, and refuses a changed policy before another call", async () => {
+    const a = await signedInWithInstall("gh-repos-cursor", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const upstream = "https://api.github.com/installation/repositories"
+    gh.routes[upstream] = (request) => {
+      const page = new URL(request.url).searchParams.get("page")
+      return page === "1"
+        ? ok({ repositories: [{ full_name: "acme/web", private: true }, ...Array.from({ length: 99 }, (_, i) => ({ full_name: `acme/hidden-${i}` }))], total_count: 101 })
+        : ok({ repositories: [{ full_name: "acme/api", private: true }], total_count: 101 })
+    }
+    const list = (bearer: string, filter = "web", cursor?: string) =>
+      worker.fetch(`https://api.test/v1/integrations/github/repos?team=${a.team}&query=${filter}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, {
+        headers: { authorization: `Bearer ${bearer}` },
+      })
+    const first = await list(a.installToken)
+    expect(first.status).toBe(200)
+    const page1 = (await first.json()) as { repos: Array<{ full_name: string }>; cursor: string }
+    expect(page1.repos.map((r) => r.full_name)).toEqual(["acme/web"])
+    expect(page1.cursor).toMatch(/^[A-Za-z0-9_-]{20,}$/)
+    expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
+
+    // A separate person/session with read rights cannot use the install's pagination cursor.
+    const different = await list(a.session, "web", page1.cursor)
+    expect(different.status).toBe(409)
+    expect(((await different.json()) as any).error.code).toBe("cursor_stale")
+    expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
+
+    await policy(a.session, a.team, { github: { repo_allowlist: ["acme/api"] } })
+    const stale = await list(a.installToken, "web", page1.cursor)
+    expect(stale.status).toBe(409)
+    expect(((await stale.json()) as any).error.code).toBe("cursor_stale")
+    expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
+  })
+})
+
 describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   it("mints a token narrowed to one repository and the asked permissions, reuses it per principal, never across principals", async () => {
     const a = await signedInWithInstall("gh-token-1", "cli")
