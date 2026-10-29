@@ -93,6 +93,9 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
 
   for (const host of ["acpmux-floating-header", "acpmux-floating-bar", "acpmux-header-tools"]) {
     for (const state of ["rest", "hover", "pressed", "popup-open", "focus-visible", "disabled"] as const) {
+      // Plain at rest, on hover, with its menu open, focused or disabled. Pressed (its panel open), it
+      // takes the App's toolbar selection fill on its own square (Leo, 2026-10-29: "i literally meant the
+      // ui depicting it as toggled or not").
       test(`${host} keeps plain icons in its ${state} state`, async () => {
         // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
         const shellCss = [
@@ -107,7 +110,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
             :root {
               --agent-text: rgb(240, 240, 240); --agent-muted: rgb(150, 160, 170);
               --agent-soft: rgb(100, 110, 120); --agent-accent: rgb(200, 120, 80);
-              --acpmux-motion-hover: 0ms;
+              --acpmux-motion-hover: 0ms; --cmux-selection: rgba(255, 255, 255, 0.12);
             }
           </style></head><body>
             <header class="${host}"><button class="acpmux-header-tool" aria-label="Panel">
@@ -149,7 +152,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
                 ? "rgb(240, 240, 240)"
                 : "rgb(150, 160, 170)";
           expect(computed).toMatchObject({
-            background: "rgba(0, 0, 0, 0)",
+            background: state === "pressed" ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0)",
             image: "none",
             color,
             outline: state === "focus-visible" ? "solid" : "none",
