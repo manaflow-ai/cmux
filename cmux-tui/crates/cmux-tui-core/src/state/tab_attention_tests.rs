@@ -155,9 +155,8 @@ fn attention_request_identity_clear_is_guarded_and_validated() {
     assert_eq!(stale["extra"]["attention"]["request_id"], b_id);
     assert_eq!(stale["extra"]["zoom"], 1.5);
     // A retry replays the original result, never creates a third identity.
-    let replay = send(
-        &mux, "tab.update", json!({"tab":tab,"attention":REASON}), Some("request-b"),
-    ).unwrap();
+    let replay =
+        send(&mux, "tab.update", json!({"tab":tab,"attention":REASON}), Some("request-b")).unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["value"]["extra"]["attention"]["request_id"], b_id);
     for (index, invalid) in [
