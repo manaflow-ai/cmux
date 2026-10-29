@@ -183,6 +183,13 @@ impl Mux {
     }
 
     pub(super) fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
+        // A revisioned delta goes out only through
+        // `emit_committed_workspace_delta`, which stamps it.
+        debug_assert_eq!(
+            delta.workspace_revision.is_some(),
+            delta.registry_event.is_some(),
+            "a workspace-revisioned delta carries its registry stamp: {delta:?}"
+        );
         #[cfg(test)]
         if let Some(revision) = delta.workspace_revision
             && let Some(hook) = self.workspace_delta_before_emit.lock().unwrap().clone()
@@ -195,13 +202,24 @@ impl Mux {
         }
     }
 
+    /// Publishes a delta of the commit made under `registry`, the guard the
+    /// committer still holds, stamped with that commit's registry event.
     pub(super) fn emit_committed_workspace_delta(
         &self,
-        _registry: &WorkspaceRegistry,
-        delta: TreeDelta,
+        registry: &WorkspaceRegistry,
+        mut delta: TreeDelta,
         selection_resync: bool,
     ) {
         debug_assert!(delta.workspace_revision.is_some());
+        delta.registry_event = delta.workspace_revision.map(|revision| RegistryEventStamp {
+            registry_id: registry.registry_id().to_string(),
+            generation: registry.generation().to_string(),
+            mutation: registry
+                .workspace_event(revision)
+                .ok()
+                .flatten()
+                .map(|event| (event.origin, event.mutation_id)),
+        });
         self.emit_tree_delta(delta, selection_resync);
     }
 

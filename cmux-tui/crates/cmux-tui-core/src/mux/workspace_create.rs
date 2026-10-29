@@ -298,6 +298,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(revision),
+                    registry_event: None,
                     transaction: None,
                 },
                 selection_resync,

@@ -274,7 +274,24 @@ pub struct TreeDelta {
     /// Present for ordered workspace-registry mutations. Consumers can apply
     /// only the exact next revision and refetch after a gap.
     pub workspace_revision: Option<u64>,
+    /// What a subscriber writes beside `workspace_revision`: the registry's
+    /// identity and the event's mutation. The committer reads it once, under
+    /// the registry guard it committed with
+    /// (`Mux::emit_committed_workspace_delta`), so writing the delta for each
+    /// subscriber reads no registry (a subscriber's turn runs on a thread
+    /// that disallows blocking). `None` exactly when `workspace_revision` is.
+    pub registry_event: Option<RegistryEventStamp>,
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,
+}
+
+/// A committed workspace delta's registry fields (`TreeDelta::registry_event`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryEventStamp {
+    pub registry_id: String,
+    pub generation: String,
+    /// The `origin` and `mutation_id` of the registry event at the delta's
+    /// revision; `None` when the registry has no event row for it.
+    pub mutation: Option<(String, String)>,
 }
