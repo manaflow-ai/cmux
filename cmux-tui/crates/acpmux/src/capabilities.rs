@@ -176,17 +176,6 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
-    // Team-scoped agent messaging (`acpmux_mcp.rs`): durable send, inbox and ack. The
-    // daemon applies the Labs gate and the hub's team permissions before these methods act.
-    Capability {
-        id: "team-messaging-v1",
-        wire: &[
-            method::MUX_TEAM_SEND,
-            method::MUX_TEAM_INBOX,
-            method::MUX_TEAM_ACK,
-            method::MUX_TEAM_READ,
-        ],
-    },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
