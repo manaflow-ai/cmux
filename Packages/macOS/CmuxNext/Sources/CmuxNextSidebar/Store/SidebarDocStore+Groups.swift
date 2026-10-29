@@ -15,8 +15,9 @@ extension SidebarDocStore {
         case .setGroupIcon(let group, let icon): return (update(group, ["icon": icon.map { $0 as Any } ?? NSNull()]), true)
         case .ungroup(let group): return ([["op": "group.ungroup", "id": item(group: group)]], true)
         case .toggleCollapse(.group(let group)):
-            // Persisted in the document, so a rebuild keeps it (no undo step).
-            guard case .group(_, _, _, let collapsed)? = records.items[item(group: group)]?.body else { return nil }
+            // Persisted in the document, so a rebuild keeps it (no undo step). The shown records: a group created
+            // or folded a moment ago, still in flight, toggles from what it shows (#26382).
+            guard case .group(_, _, _, let collapsed)? = shownRecords.items[item(group: group)]?.body else { return nil }
             return (update(group, ["collapsed": !collapsed]), false)
         case let .createGroup(group, name, color, workspaces, anchor, collapsed, _):
             var op: [String: Any] = ["op": "group.create", "id": group.rawValue, "name": SidebarGroup.named(name), "color": color.rawValue,

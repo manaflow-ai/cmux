@@ -151,16 +151,18 @@ extension SidebarBridge {
 
     /// `set-workspace-metadata` with the pin, per owning daemon, for `intent`. `edit` (the pending edit that shows the
     /// pin, #26382) holds until every daemon's store has it, or a failure takes it back and says why. A daemon without
-    /// `workspace-pin-v1` gets nothing: its rows go back where they were when the edit settles.
+    /// `workspace-pin-v1` gets nothing and says so: its rows go back where they were when the edit settles.
     private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool, edit: SidebarPendingEdits.Token?, for intent: SidebarIntent) {
-        let commands = keys(ids).filter { $0.0.supports(DaemonCapabilities.workspacePin) }.map { daemon, key in
+        let owners = keys(ids), failed = saveFailed(intent)
+        let commands = owners.filter { $0.0.supports(DaemonCapabilities.workspacePin) }.map { daemon, key in
             (label: "set-workspace-metadata", daemon: daemon, body: { c in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) } as DaemonCommandBody)
         }
+        if commands.count < owners.count { failed(ActionWorkFailure(RefusalStrings.needsDaemonCapability(DaemonCapabilities.workspacePin))) }
         guard !commands.isEmpty else {
             rows.settle(edit)
             return resync()
         }
-        rows.send(edit, commands, failed: saveFailed(intent))
+        rows.send(edit, commands, failed: failed)
     }
 
     /// Each workspace's owning daemon and durable key, in order.

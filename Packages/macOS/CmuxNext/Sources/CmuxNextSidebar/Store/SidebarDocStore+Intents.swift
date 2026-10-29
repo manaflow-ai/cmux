@@ -62,8 +62,9 @@ extension SidebarDocStore {
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
             move([item(group: group)], to: anchored.target, title: title)
         case .move(let ids, let group):
+            // The shown records: a group created a moment ago, still in flight, takes a move as it shows (#26382).
             let parent = item(group: group)
-            guard let section = records.items[parent]?.section else { return false }
+            guard let section = shownRecords.items[parent]?.section else { return false }
             move(items(ids), to: SidebarDocTarget(section: section, parent: parent), title: title)
         case .setPinned(let ids, let pinned):
             setPinned(items(ids), pinned)

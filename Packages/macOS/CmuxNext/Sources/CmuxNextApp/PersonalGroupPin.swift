@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -20,16 +21,12 @@ struct PersonalGroupPin {
     func handle(_ intent: SidebarIntent) -> Bool {
         switch intent {
         case let .setGroupPinned(group, pinned):
-            guard isServed else {
-                bridge.resync()
-                return true
-            }
+            guard isServed else { return unserved(intent, DaemonCapability.workspaceGroupPin) }
             send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
             return true
         case let .setGroupIcon(group, icon):
             guard bridge.statePersonal, home.supports(DaemonCapability.workspaceGroupIcon.rawValue) else {
-                bridge.resync()
-                return true
+                return unserved(intent, DaemonCapability.workspaceGroupIcon)
             }
             let update: FieldUpdate<String> = icon.map { .set($0) } ?? .clear
             send("update-personal-group", intent, held: true) { try await $0.state.updateWorkspaceGroup(group.rawValue, icon: update) }
@@ -48,6 +45,13 @@ struct PersonalGroupPin {
         default:
             return false
         }
+    }
+
+    /// A pin or icon change the home daemon cannot take: the group shows as it was, and the person sees why (#26382).
+    private func unserved(_ intent: SidebarIntent, _ capability: DaemonCapability) -> Bool {
+        let reason = bridge.statePersonal ? RefusalStrings.needsDaemonCapability(capability.rawValue) : home.personalStateUnavailableReason
+        bridge.saveFailed(intent)(ActionWorkFailure(reason))
+        return true
     }
 
     /// One home-daemon request for `intent`. `held`: the rows show `intent` now and hold it until the

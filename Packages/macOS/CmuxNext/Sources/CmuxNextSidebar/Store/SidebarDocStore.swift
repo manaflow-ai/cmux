@@ -273,8 +273,10 @@ public final class SidebarDocStore {
                 try await remote.apply(ops: stamped ?? data, key: key)
             }
         } catch {
+            // Refused at once (the document is not active, or the mirror refuses it): say why, as a later refusal does (#26382).
             foldRefusals[intent.idempotencyKey] = nil
             refused()
+            onRefused(error.message)
         }
     }
 
