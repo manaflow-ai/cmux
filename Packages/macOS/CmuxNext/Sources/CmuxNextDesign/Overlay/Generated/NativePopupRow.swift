@@ -9,7 +9,6 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     public var `description`: String?
     public var `icon`: String?
     public var `shortcut`: String?
-    public var `completion`: String?
     public var `disabled`: Bool?
     public var `disabledReason`: String?
     public var `checked`: Bool?
@@ -23,15 +22,15 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     public var `maximum`: Double?
     public var `step`: Double?
     public var `slider`: NativePopupSlider?
+    public var `completion`: String?
 
-    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, completion: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil) {
+    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil) {
         self.id = id
         self.kind = kind
         self.label = label
         self.description = description
         self.icon = icon
         self.shortcut = shortcut
-        self.completion = completion
         self.disabled = disabled
         self.disabledReason = disabledReason
         self.checked = checked
@@ -45,5 +44,6 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
         self.maximum = maximum
         self.step = step
         self.slider = slider
+        self.completion = completion
     }
 }

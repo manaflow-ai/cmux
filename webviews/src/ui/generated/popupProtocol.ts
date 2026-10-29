@@ -11,7 +11,14 @@ export type NativePopupRowKind =
   | "submenu"
   | "textField";
 
-export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "submit" | "complete" | "dismiss";
+export type NativePopupEventType =
+  | "pick"
+  | "change"
+  | "search"
+  | "highlight"
+  | "complete"
+  | "submit"
+  | "dismiss";
 
 export type NativePopupSide = "top" | "bottom";
 
@@ -79,7 +86,6 @@ export interface NativePopupRow {
   description?: string;
   icon?: string;
   shortcut?: string;
-  completion?: string;
   disabled?: boolean;
   disabledReason?: string;
   checked?: boolean;
@@ -93,6 +99,7 @@ export interface NativePopupRow {
   maximum?: number;
   step?: number;
   slider?: NativePopupSlider;
+  completion?: string;
 }
 
 export interface NativePopupModel {
