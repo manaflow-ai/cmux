@@ -318,6 +318,9 @@ struct EarlyTerminalKeysTests {
             let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
+            // The harness's window is never key, so `NSApplication.sendEvent` delivers a replayed key nowhere (fleet
+            // fbfdc200: mover.keys 0): the replays go to the window, as the app's `sendEvent` sends them.
+            coordinator.deliversThroughWindow = true
             let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
             window.contentView?.addSubview(composer)
             defer { composer.removeFromSuperview() }
@@ -350,7 +353,7 @@ struct EarlyTerminalKeysTests {
     /// finding 5: a resolved hold ran its keys into any first responder that was not another terminal).
     @Test func aResolvedHoldNeverRunsTerminalKeysIntoAnotherView() async throws {
         try await Self.withTerminal { h in
-            let (controller, window, paneKey, tab) = (h.controller, h.window, h.paneKey, h.tab)
+            let (controller, window) = (h.controller, h.window)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
             let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
@@ -363,7 +366,9 @@ struct EarlyTerminalKeysTests {
             }
             coordinator.resolve(ticket, landed: true, in: window) // its flush runs in a later turn
             window.makeFirstResponder(composer)
-            #expect(controller.focus.state.resolved == .terminal(pane: paneKey, tab: tab), "the test needs focus on the new terminal")
+            // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField), a programmatic
+            // move, not the person's: the keys typed for the new terminal still wait for it.
+            #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
             let before = coordinator.replayedCount
 
             let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
@@ -380,10 +385,9 @@ struct EarlyTerminalKeysTests {
     /// them first, in order, then goes on.
     @Test func theBoundNeverSendsTerminalKeysToAnotherView() async throws {
         try await Self.withTerminal { h in
-            let (controller, window, paneKey, tab, entry) = (h.controller, h.window, h.paneKey, h.tab, h.entry)
+            let (controller, window, entry) = (h.controller, h.window, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(50)
             let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
             window.contentView?.addSubview(composer)
             defer { composer.removeFromSuperview() }
@@ -395,9 +399,11 @@ struct EarlyTerminalKeysTests {
             window.makeFirstResponder(composer)
             let before = coordinator.replayedCount
             coordinator.resolve(ticket, landed: true, in: window)
-            #expect(controller.focus.state.resolved == .terminal(pane: paneKey, tab: tab), "the test needs focus on the new terminal")
+            // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField), a programmatic
+            // move, not the person's: the keys typed for the new terminal still wait for it.
+            #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
 
-            // Past the bound (50 ms after the reply): a forced flush would have run the keys by now.
+            // 600 ms after the reply (this test's bound was 50 ms): a forced flush would have run the keys by now.
             try? await PasswordManagerRouteTests.until({ coordinator.replayedCount != before }, within: .milliseconds(600))
             #expect(coordinator.replayedCount == before, "the hold's bound ran terminal keys into another view: \(Self.held(h))")
             #expect(composer.string.isEmpty, "keys typed for the new terminal reached another text input")
@@ -452,7 +458,8 @@ struct EarlyTerminalKeysTests {
 
     /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
     /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
-    /// that cannot come; the held keys go to that target once its view has the keyboard.
+    /// that cannot come. The keys typed for the failed terminal drop (reason targetFailed): they never go to another
+    /// target (lead's decision, lagFirstKey). The next key goes to the remaining terminal at once.
     @Test func aFailedCreationLeavesTheModelOnATargetThatTakesKeys() async throws {
         try await Self.withTerminal(panes: 2) { h in
             let (controller, window, tab) = (h.controller, h.window, h.tab)
@@ -484,7 +491,8 @@ struct EarlyTerminalKeysTests {
 
             window.makeFirstResponder(otherEntry.session.surfaceView)
             #expect(!router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window), "the key after the failure waited: \(Self.held(h))")
-            #expect(coordinator.replayedCount == before + 1, "the held key did not go to the target the model names")
+            #expect(coordinator.replayedCount == before, "a key typed for the failed terminal ran in another target")
+            #expect(coordinator.heldCount(in: window) == 0, "a key typed for the failed terminal still waits")
         }
     }
 }

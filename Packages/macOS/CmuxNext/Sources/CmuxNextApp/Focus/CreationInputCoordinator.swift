@@ -37,6 +37,9 @@ final class CreationInputCoordinator {
     private(set) var replayedCount = 0
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
+    /// Tests only: their window is never the key window, so `NSApplication.sendEvent` delivers a held key nowhere. True
+    /// runs it through the key router and then straight to its window, as `CmuxApplication.sendEvent` does.
+    var deliversThroughWindow = false
 
     init(router: KeyRouter) { self.router = router }
 
@@ -356,7 +359,14 @@ final class CreationInputCoordinator {
     private func runAgain(_ event: NSEvent, in window: NSWindow, router: KeyRouter) {
         replaying = true
         replayedCount += 1
-        router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { $0.application(event) }
+        if deliversThroughWindow {
+            router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in
+                guard !router.interceptKeyDown(event, in: window) else { return }
+                send.window(window, event)
+            }
+        } else {
+            router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { $0.application(event) }
+        }
         replaying = false
     }
 
