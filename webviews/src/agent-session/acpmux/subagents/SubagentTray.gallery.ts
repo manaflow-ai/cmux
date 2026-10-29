@@ -24,6 +24,7 @@ import {
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
+import { setComposerLook } from "../composerLook";
 import { trayPanelLook } from "./trayPanel.experiment";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
@@ -65,9 +66,9 @@ const devServer = activity(
  * command or a subagent?"). */
 const testRun = activity(
   [
-    tool("cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test", "execute", "completed", {
+    tool("bun test --alignment-fixture", "execute", "completed", {
       inputSummary: JSON.stringify({
-        command: "cd ~/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test",
+        command: "bun test --alignment-fixture",
         description: "Run red/green tests",
         run_in_background: true,
       }),
@@ -264,6 +265,40 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
 const openFold = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
   await ctx.click({ selector: ".cv-worked" });
+};
+
+const alignmentPanel = (harness: "claude" | "codex" = "claude") =>
+  chat(
+    [
+      user("Review the running lanes and stop the completed work", 2),
+      group(
+        ["UI", "daemon", "tests", "docs"].map((name, index) =>
+          agent("Lane " + name, 1.9 - index * 0.1, name === "docs" ? "waiting" : "running", {
+            kind: "general-purpose",
+            action: "Read " + name + " status",
+          }),
+        ),
+        1.9,
+      ),
+      testRun,
+    ],
+    { isWorking: true, harness },
+  );
+
+// Keep one live registry command in the alignment fixtures so the mock daemon exercises the
+// direct-child stop action that the running app renders for a background process.
+const alignmentProcess = {
+  "_acpmux/process/list": {
+    processes: [
+      {
+        id: "gallery-session/alignment-command",
+        sessionId: "gallery-session",
+        command: "bun test --alignment-fixture",
+        startedAt: minutesAgo(58.5),
+        state: "running",
+      },
+    ],
+  },
 };
 
 export default agentPaneEntry({
@@ -493,6 +528,79 @@ export default agentPaneEntry({
         ],
         { isWorking: true, harness: "codex" },
       ),
+    },
+    "alignment-collapsed": {
+      note: "Alignment evidence: four running lanes and one live command start folded so the collapsed tray and composer columns can be captured together.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        setComposerLook("claude", { remember: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
+          throw new Error("alignment collapsed state must start folded");
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel(),
+    },
+    "alignment-expanded": {
+      note: "Alignment evidence: the same four running lanes and live command with the tray expanded for row-column measurements.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        setComposerLook("claude", { remember: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            '.acpmux-running-tray__list .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
+          ),
+        );
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel(),
+    },
+    "alignment-codex-collapsed": {
+      note: "Codex alignment evidence: four running lanes and one live command start folded with the quiet composer.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
+          throw new Error("alignment collapsed state must start folded");
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
+    },
+    "alignment-codex-expanded": {
+      note: "Codex alignment evidence: the same four running lanes and live command with the tray expanded.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
+    },
+    "alignment-codex-narrow": {
+      note: "Codex narrow alignment evidence: the expanded tray keeps the composer's reduced action columns at the pane's narrow breakpoint.",
+      height: 560,
+      ready: { transport: "mock" },
+      play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+        if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+      },
+      native: alignmentProcess,
+      snapshot: alignmentPanel("codex"),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",

@@ -92,7 +92,7 @@ export function AgentLine({
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={!trayColumns && depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
@@ -106,6 +106,7 @@ export function AgentLine({
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
         data-state={status}
+        data-alignment-column="left-icon"
       >
         {working ? (
           <Spinner size={iconSize} loading />
@@ -159,7 +160,13 @@ export function AgentLine({
       ) : (
         button
       )}
-      {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
+      {trayColumns ? (
+        <span className="acpmux-agent-line__stop-slot" data-alignment-column="right-action">
+          {after}
+        </span>
+      ) : (
+        after
+      )}
     </div>
   );
 }

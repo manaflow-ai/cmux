@@ -227,21 +227,21 @@
 /* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, on the column's edges like every block in the chat. In the bottom stack's flow (bottomStack.css), so it never covers the dock or a question above it. */
 .acpmux-composer-queue{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:2px 0 4px;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;--acpmux-queue-fill:color-mix(in srgb,var(--acpmux-composer-tray) var(--acpmux-queue-glass,100%),transparent);background:var(--acpmux-queue-fill);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
 /* One compact muted line per queued prompt, as ChatGPT and Codex draw them (Leo, 2026-10-21): no header and no number; a hairline between rows. */
-.acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:24px;padding:3px 6px 3px 12px;box-sizing:border-box;color:var(--agent-text)}
+.acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:var(--grid-row);padding:4px var(--grid-queue-inset) 4px var(--grid-queue-text);box-sizing:border-box;color:var(--agent-text)}
 .acpmux-composer-queue>li+li{box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge)}
 .acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
 /* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
 /* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
-.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0}
+.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:var(--grid-base);height:var(--text-content--line-height);opacity:0}
 .acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
-.acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
+.acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:var(--grid-queue-control);height:var(--grid-pill);padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 /* Focus is the hover's soft pill, no ring (Leo, 2026-10-21); Increase Contrast keeps the shared ring. */
 .acpmux-queued-action:focus-visible{outline:none;background:var(--agent-control-hover);color:var(--agent-text)}
 @media (prefers-contrast:more){.acpmux-queued-action:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,var(--agent-text));outline-offset:-1px}}
-.acpmux-queue-paused{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:24px;padding:0 6px 0 12px;box-sizing:border-box;color:var(--agent-status-warning);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-queue-paused{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:var(--grid-row);padding:0 var(--grid-queue-inset) 0 var(--grid-queue-text);box-sizing:border-box;color:var(--agent-status-warning);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-queue-paused>span{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-queue-resume{grid-column:2;justify-self:end;height:22px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit}
 .acpmux-queue-resume:hover{background:var(--agent-control-hover)}

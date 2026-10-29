@@ -263,7 +263,9 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+      <span className="acpmux-running-tray__chevron">
+        <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+      </span>
     </button>
   );
   return (
@@ -275,6 +277,8 @@ export const SubagentTray = memo(function SubagentTray({
       data-placement={placement}
       data-look={look}
       data-motion={motion}
+      data-alignment-surface="tray"
+      data-alignment-inset="surface"
     >
       {headed && (
         <button
@@ -284,7 +288,11 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open ? listId : undefined}
           onClick={() => setOpened(!open)}
         >
-          <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
+          <span
+            className="acpmux-lineage__icon"
+            data-alignment-column="left-icon"
+            data-state={runs ? "running" : "done"}
+          >
             <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
@@ -292,9 +300,11 @@ export const SubagentTray = memo(function SubagentTray({
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
           <span className="acpmux-running-tray__status">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            <span className="acpmux-running-tray__chevron">
+              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            </span>
           </span>
-          <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
+          <span className="acpmux-running-tray__stop-slot" data-alignment-column="right-action" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
@@ -386,6 +396,7 @@ export const SubagentTray = memo(function SubagentTray({
                   name={item.command.command}
                   label={t("tray.stopCommand")}
                   stop={stopProcess}
+                  alignmentColumn="right-action"
                 />
               )
             }

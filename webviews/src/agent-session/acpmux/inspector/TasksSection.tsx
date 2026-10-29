@@ -159,12 +159,15 @@ export function StopButton({
   name,
   label: idleLabel,
   stop,
+  alignmentColumn,
 }: {
   id: string;
   name: string;
   /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
   label?: string;
   stop: (id: string) => Promise<unknown>;
+  /// A tray action sits outside the line button and participates in its shared right column.
+  alignmentColumn?: "right-action";
 }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
@@ -176,6 +179,7 @@ export function StopButton({
     <button
       type="button"
       className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-stop"
+      data-alignment-column={alignmentColumn}
       data-state={state}
       disabled={state === "stopping"}
       aria-label={label}
