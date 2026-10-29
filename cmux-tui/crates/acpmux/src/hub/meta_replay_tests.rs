@@ -95,3 +95,48 @@ fn meta_replay_the_read_mark_follows_its_status_records() {
     apply(&mut m, &rec(3, "status", json!({"status": "idle", "read": true})));
     assert!(!m.unread);
 }
+
+/// A hub on the memory store with one session `s` in it, as a restart loads it: not caught up
+/// (its log not read yet) when `loading`.
+fn hub_with_session(loading: bool) -> (std::sync::Arc<Hub>, std::sync::Arc<Session>) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let session = hub.make_session(meta());
+    session.caught_up.store(!loading, std::sync::atomic::Ordering::SeqCst);
+    hub.sessions.lock().unwrap().insert("s".to_owned(), session.clone());
+    (hub, session)
+}
+
+/// The lead's check of 982b5b26222's fast path: showing a read chat whose log is not read yet
+/// still takes the slow path. The replay there brings back the unread mark the log holds, and
+/// showing the chat must clear it (with its `read: true` record), not keep it.
+#[test]
+fn meta_replay_showing_a_chat_before_its_log_is_read_clears_a_replayed_unread_mark() {
+    let (hub, session) = hub_with_session(true);
+    // The log holds an unread mark the saved record (read, lastSeq 0) is behind on.
+    let unread = rec(1, "status", json!({"status": "idle", "read": false}));
+    hub.store.append("s", &unread).unwrap();
+    hub.attach_count(&session, 1, true);
+    assert!(session.caught_up.load(std::sync::atomic::Ordering::SeqCst), "not caught up");
+    assert!(!session.meta.lock().unwrap().unread, "showing the chat left the replayed mark");
+    let events = hub.store.events("s", 1, usize::MAX).unwrap();
+    assert!(
+        events.iter().any(|e| e.kind == "status" && e.msg["read"] == json!(true)),
+        "no read mark was logged: {events:?}"
+    );
+}
+
+/// And once caught up, showing a read chat logs nothing (the chat switch path).
+#[test]
+fn meta_replay_showing_a_read_chat_once_caught_up_logs_nothing() {
+    let (hub, session) = hub_with_session(false);
+    let before = session.seq.load(std::sync::atomic::Ordering::SeqCst);
+    hub.attach_count(&session, 1, true);
+    assert_eq!(
+        session.seq.load(std::sync::atomic::Ordering::SeqCst),
+        before,
+        "a record was logged"
+    );
+}
