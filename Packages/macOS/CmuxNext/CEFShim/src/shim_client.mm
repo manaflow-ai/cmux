@@ -951,4 +951,13 @@ void cmux_shim_set_cursor_events(int enabled) {
   cursor_events = enabled != 0;
 }
 
+// A flush during quit would reach a WebContents CefShutdown is destroying.
+int cmux_shim_tab_flush_back_forward_cache(int browser_id) {
+  ForkApi& api = fork_api();
+  if (!api.flush_back_forward_cache || stopping()) {
+    return 0;
+  }
+  return api.flush_back_forward_cache(browser_id);
+}
+
 }  // extern "C"

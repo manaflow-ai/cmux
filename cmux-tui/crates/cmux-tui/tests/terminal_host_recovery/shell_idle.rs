@@ -72,7 +72,7 @@ fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)
     );
     let surface = created["surface"].as_u64().unwrap();
     let screen = wait_for_screen(&harness.socket, surface, PROMPT);
-    assert!(screen.contains(PROMPT), "no {:?} on the screen: {screen:?}", PROMPT);
+    assert!(screen.contains(PROMPT), "no {PROMPT:?} on the screen: {screen:?}");
     wait_for_idle(&harness);
     Some((harness, surface))
 }

@@ -50,6 +50,11 @@ final class BookmarkChromiumSync {
         } apply: { [weak self] _ in
             self?.retryWaiting()
         }
+        // A store that loaded before this sync existed (it starts after the reveal,
+        // `LaunchStart.bookmarkSync`) asked for its first sync with no one listening.
+        for (engine, stores) in bridge.stores {
+            for store in stores { schedule(store, profile: BrowserProfileRecord.wireID(for: engine)) }
+        }
     }
 
     /// `profiles` changed in cmux (`BookmarkService.changed`).
