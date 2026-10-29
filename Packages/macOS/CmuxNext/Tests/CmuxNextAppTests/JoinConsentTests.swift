@@ -645,6 +645,7 @@ import Testing
         held.open()
         #expect(await grant.value == nil)
         #expect(model.consent?.screen == true, "the write's record, acpmux's answer to it")
+        #expect(!model.permitsMacScreen(control: false), "the switches show the write's record; Mac Screen waits for a read")
         await model.refresh()
         let data = try #require(model.pageData())
         let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

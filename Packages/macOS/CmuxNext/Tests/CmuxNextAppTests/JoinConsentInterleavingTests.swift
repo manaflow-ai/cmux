@@ -11,9 +11,10 @@ import Testing
 /// the scheduler interleaves starts and releases in a seeded random order. A reply is taken at its
 /// release, so a reply released before a write is the stale one it would be. After every step, once each
 /// started request is again waiting or done, the invariants are checked:
-/// - What the model allows Mac Screen is never more than acpmux's record grants (no stale grant, a revoke
-///   narrows the moment it starts, an unread record allows nothing).
-/// - A ticket serves only when acpmux allows its scope and no write is in flight; otherwise it is refused.
+/// - What the model allows Mac Screen is never more than a read of acpmux can see (no stale grant, a revoke
+///   narrows the moment it starts, an unread record allows nothing, a write's answer allows nothing).
+/// - A ticket serves only on its own read, at the current generation, that got through and grants its
+///   scope, with no write in flight; otherwise it is refused.
 /// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off.
 /// - A press during a write does nothing: a Deny never closes the sheet over it, an Allow never writes.
 /// - When all is done, no write is in flight and one more read brings the model to what acpmux holds.
@@ -30,13 +31,10 @@ import Testing
         var consentRequired: Bool?
         var readFails: Bool
 
-        /// What acpmux's record grants, whether or not a read of it gets through.
-        func holds(full: Bool) -> Bool {
-            consentRequired == false || (screen && (!full || control))
+        /// What Mac Screen may serve: a grant a read can see (a failing read sees none).
+        func allows(full: Bool) -> Bool {
+            !readFails && (consentRequired == false || (screen && (!full || control)))
         }
-
-        /// What a ticket may serve: a grant its own read can see.
-        func allows(full: Bool) -> Bool { !readFails && holds(full: full) }
     }
 
     nonisolated enum Current {
@@ -54,6 +52,8 @@ import Testing
         var done: Set<Int> = []
         /// Each write acpmux received, and whether the Labs switch was on when it was sent.
         var sends: [(write: String, enabled: Bool)] = []
+        /// What each request's latest record read answered (nil: the read failed).
+        var reads: [Int: JoinConsentRecord?] = [:]
         private(set) var model: JoinConsentModel!
 
         init(truth: Truth) {
@@ -94,7 +94,9 @@ import Testing
         var supportsConsent: Bool { true }
         func read() async -> JoinConsentRecord? {
             await world.boundary()
-            return world.truth.readFails ? nil : world.record
+            let answer = world.truth.readFails ? nil : world.record
+            if let op = Current.op { world.reads[op] = answer }
+            return answer
         }
         func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
             // The app sends the write here; acpmux takes it at the release.
@@ -118,10 +120,15 @@ import Testing
         }
     }
 
+    /// Tickets served with the Labs switch on, each checked against its own read.
+    static var servedChecked = 0
+
     @Test func everyScheduleKeepsTheInvariants() async {
+        Self.servedChecked = 0
         for seed in 0..<1500 {
             guard await Self.run(seed: UInt64(seed)) else { return }
         }
+        #expect(Self.servedChecked > 100, "the schedules serve tickets, so the serve invariant is exercised")
     }
 
     /// One seeded run; false when it could not finish (the test stops at the first such run).
@@ -156,7 +163,7 @@ import Testing
                 startedOp = op
                 world.started.insert(index)
                 tasks[index] = Task {
-                    let result = await Current.$op.withValue(index) { await Self.perform(op, on: world) }
+                    let result = await Current.$op.withValue(index) { await Self.perform(op, index: index, on: world, label: label) }
                     world.done.insert(index)
                     return result
                 }
@@ -196,12 +203,24 @@ import Testing
         return true
     }
 
-    private static func perform(_ op: Op, on world: World) async -> String {
+    private static func perform(_ op: Op, index: Int, on world: World, label: String) async -> String {
         let model = world.model!
         switch op {
         case .read: await model.refresh(); return "read"
-        case .ticketView: return await model.allowsMacScreen(control: false, requester: "Studio") ? "served" : "refused"
-        case .ticketFull: return await model.allowsMacScreen(control: true, requester: "Studio") ? "served" : "refused"
+        case .ticketView, .ticketFull:
+            let full = op == .ticketFull, enabled = world.enabled, start = model.generation
+            let served = await model.allowsMacScreen(control: full, requester: "Studio")
+            if served, enabled {
+                // The strict invariant: nothing serves without a read of its own, at the current
+                // generation, that got through and says granted.
+                servedChecked += 1
+                let read = world.reads[index] ?? nil
+                #expect(read.map { $0.consentRequired == false || ($0.screen && (!full || $0.control)) } == true,
+                        "served without its own read saying granted: \(label)")
+                #expect(model.generation == start + 1, "served on a read that is not the current generation: \(label)")
+                #expect(!model.writing, "served with a write in flight: \(label)")
+            }
+            return served ? "served" : "refused"
         case .grantScreen: return await model.set(.screen, on: true) ?? "set"
         case .grantControl: return await model.set(.control, on: true) ?? "set"
         case .revokeScreen: return await model.set(.screen, on: false) ?? "set"
@@ -215,11 +234,11 @@ import Testing
         }
     }
 
-    /// After every step: the model never allows more than acpmux's record grants.
+    /// After every step: the model never allows more than a read of acpmux can see.
     private static func check(_ world: World, label: String) {
         guard world.enabled else { return }
         for full in [false, true] where world.model.permitsMacScreen(control: full) {
-            #expect(world.truth.holds(full: full), "allows more than acpmux (full \(full)): \(label)")
+            #expect(world.truth.allows(full: full), "allows more than acpmux (full \(full)): \(label)")
         }
     }
 

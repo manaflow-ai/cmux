@@ -140,8 +140,12 @@ public struct JoinConsentServices {
 @MainActor @Observable
 public final class JoinConsentModel {
     public private(set) var status: JoinStatus?
-    /// acpmux's record; nil before the first read, when the read failed, or when acpmux has no record.
+    /// acpmux's record, as the switches show it; nil before the first read, when the read failed, or when
+    /// acpmux has no record. After a write whose own read failed, the record acpmux answered the write with.
     public private(set) var consent: JoinConsentRecord?
+    /// SECURITY: the record of the last applied read that got through, narrowed by a revoke the moment it
+    /// starts. Only this gates Mac Screen; the record a write answered with never does.
+    @ObservationIgnored private var verified: JoinConsentRecord?
     /// This Mac's acpmux has `machine-consent-v1` (without it nothing is granted); nil when none answered.
     public private(set) var consentSupported: Bool?
     /// Why the last write failed; nil after a success.
@@ -190,6 +194,7 @@ public final class JoinConsentModel {
         generation += 1
         status = nil
         consent = nil
+        verified = nil
         consentSupported = nil
         changed()
         if !enabled, ask != nil { dismissAsk() }
@@ -221,6 +226,7 @@ public final class JoinConsentModel {
     private func apply(_ reading: Reading) {
         status = reading.status
         consent = reading.consent
+        verified = reading.consent
         consentSupported = reading.supported
         changed()
         // The Labs switch went off, or the join went away or was revoked (said so, not merely unread): an
@@ -240,25 +246,32 @@ public final class JoinConsentModel {
         setWriting(true)
         defer { setWriting(false) }
         generation += 1
-        if !on, var record = consent {
+        if !on {
             // SECURITY: a revoke narrows at once, before acpmux answers: a running session stops now, and
             // no read that started before it (which may say granted) is applied. Its "not joined" goes too
             // (a join may have come since that read).
-            if surface == .screen { record.screen = false } else { record.control = false }
-            record.consentRequired = nil
-            consent = record
+            consent = consent.map { Self.narrowed($0, surface) }
+            verified = verified.map { Self.narrowed($0, surface) }
             changed()
         }
         let written: JoinConsentRecord?
         (lastError, written) = await write(surface, on: on)
         // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied.
-        // When that read fails, the record acpmux answered the write with stands in for it.
+        // When that read fails, the switches show the record acpmux answered the write with; Mac Screen
+        // still has nothing it may serve on until a read gets through.
         let (reading, current) = await read(afterWrite: true)
         if current, reading.consent == nil, reading.supported == true, let written {
             consent = written
             changed()
         }
         return lastError
+    }
+
+    private static func narrowed(_ record: JoinConsentRecord, _ surface: JoinConsentSurface) -> JoinConsentRecord {
+        var record = record
+        if surface == .screen { record.screen = false } else { record.control = false }
+        record.consentRequired = nil
+        return record
     }
 
     /// The write itself: the error to show (nil when acpmux took it) and the record acpmux answered with.
@@ -287,13 +300,14 @@ public final class JoinConsentModel {
         if ask != nil { redraw() }
     }
 
-    /// What the applied read allows a running Mac Screen session (no read, nothing). With the Labs
+    /// What the last applied read that got through allows a running Mac Screen session (no such read,
+    /// nothing; a write's answer never counts). With the Labs
     /// switch off, everything, as before. With it on: a Mac acpmux reports not joined
     /// (`consentRequired: false`) serves as before, which is acpmux's own rule; any other serves View
     /// Only with Screen sharing granted and Full Control with Control granted too.
     public func permitsMacScreen(control: Bool) -> Bool {
         guard services.enabled() else { return true }
-        return Self.permits(Reading(status: status, consent: consent, supported: consentSupported), control: control)
+        return Self.permits(Reading(status: status, consent: verified, supported: consentSupported), control: control)
     }
 
     private static func permits(_ reading: Reading, control: Bool) -> Bool {
