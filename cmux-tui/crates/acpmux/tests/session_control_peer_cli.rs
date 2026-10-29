@@ -256,7 +256,11 @@ async fn event_peer(session_id: &str) -> u16 {
                         }),
                     );
                     for note in [update, end] {
-                        if ws.send(Ws::Text(note.to_line().trim_end().to_owned().into())).await.is_err() {
+                        if ws
+                            .send(Ws::Text(note.to_line().trim_end().to_owned().into()))
+                            .await
+                            .is_err()
+                        {
                             return;
                         }
                     }
@@ -301,7 +305,12 @@ async fn cli(root: &Path, socket: &Path, args: &[&str]) -> (bool, String, String
     )
 }
 
-async fn cli_until(root: &Path, socket: &Path, args: &[&str], wait: Duration) -> (bool, String, String) {
+async fn cli_until(
+    root: &Path,
+    socket: &Path,
+    args: &[&str],
+    wait: Duration,
+) -> (bool, String, String) {
     let mut command = daemon_env::tokio_command(root, daemon_env::Agents::Deny);
     command
         .env("ACPMUX_SOCKET", socket)

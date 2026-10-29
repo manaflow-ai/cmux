@@ -804,7 +804,7 @@ pub(crate) async fn tail(
                 return Err(client.closed("following the session"));
             }
             let p = params.unwrap_or(Value::Null);
-            if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
+            if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id.as_str()) {
                 continue;
             }
             let seq = if m == method::MUX_EVENT {

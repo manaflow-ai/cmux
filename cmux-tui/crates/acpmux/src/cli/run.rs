@@ -39,5 +39,5 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
             e
         }
     })?;
-    Ok(v.get("sessionId").and_then(Value::as_str).unwrap_or(&key).to_owned())
+    crate::cli::resolve::routed_id(&v)
 }
