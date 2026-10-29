@@ -68,13 +68,7 @@ impl Desktop for X11Desktop {
         Ok(())
     }
 
-    fn encode(
-        &mut self,
-        damage: Rect,
-        force_idr: bool,
-        pts_us: i64,
-        out: &mut Vec<u8>,
-    ) -> Res<bool> {
+    fn capture(&mut self, damage: Rect) -> Res<()> {
         let (w, h) = self.size();
         let r = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }
             .align_even(w, h);
@@ -90,6 +84,10 @@ impl Desktop for X11Desktop {
                 2,
             );
         }
+        Ok(())
+    }
+
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
         self.enc.encode(&self.pic, force_idr, pts_us, out)
     }
 

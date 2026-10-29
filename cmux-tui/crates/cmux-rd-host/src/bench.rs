@@ -70,6 +70,9 @@ struct Viewer {
     upstream_closed_by_host: bool,
     /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
     snapshot: Option<(usize, usize, Vec<u8>)>,
+    /// The newest hardware-decoded picture for `--snapshot`, converted to RGB once, at the end.
+    #[cfg(target_os = "macos")]
+    newest_picture: Option<crate::vtdecode::Picture>,
     want_snapshot: bool,
     /// `--record PATH`: every received access unit (Annex-B), the stream the viewer decoded.
     record: Option<std::fs::File>,
@@ -122,9 +125,6 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(Some(picture)) => {
-                                if self.want_snapshot {
-                                    self.snapshot = Some(picture.rgb());
-                                }
                                 let origin = self.marker_origin;
                                 let read = picture.with_luma(|y, stride| {
                                     marker::decode_luma_at(y, stride, true, origin)
@@ -135,6 +135,9 @@ impl Viewer {
                                         self.marker_at_ns = t1;
                                         self.marker_capture_us = frame.body.t_capture_us;
                                     }
+                                }
+                                if self.want_snapshot {
+                                    self.newest_picture = Some(picture);
                                 }
                             }
                             Ok(None) => {}
@@ -147,6 +150,8 @@ impl Viewer {
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
+                            // OpenH264 lends its picture only for this call, so a snapshot
+                            // converts every frame: use --snapshot for pictures, not timing.
                             if self.want_snapshot {
                                 let (w, h) = yuv.dimensions();
                                 let mut rgb = vec![0u8; w * h * 3];
@@ -478,6 +483,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         stream_answer: None,
         upstream_closed_by_host: false,
         snapshot: None,
+        #[cfg(target_os = "macos")]
+        newest_picture: None,
         want_snapshot: opts.get("snapshot").is_some(),
         record: opts.get("record").map(std::fs::File::create).transpose()?,
         #[cfg(target_os = "macos")]
@@ -643,7 +650,13 @@ pub fn run(opts: &Opts) -> Res<()> {
 
 /// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
 fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
-    if let (Some(path), Some((w, h, rgb))) = (opts.get("snapshot"), &v.snapshot) {
+    #[cfg(target_os = "macos")]
+    let converted = v.newest_picture.as_ref().map(crate::vtdecode::Picture::rgb);
+    #[cfg(not(target_os = "macos"))]
+    let converted: Option<(usize, usize, Vec<u8>)> = None;
+    if let (Some(path), Some((w, h, rgb))) =
+        (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
+    {
         let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
         ppm.extend_from_slice(rgb);
         std::fs::write(path, ppm)?;

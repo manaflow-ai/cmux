@@ -302,11 +302,11 @@ impl MediaSession {
     }
 
     fn encode(&mut self, stream: &mut TcpStream, req: &EncodeRequest) -> Res<()> {
+        self.desktop.capture(req.damage)?;
         let t_capture_us = now_us();
         self.desktop.set_bitrate(req.target_kbps);
         let t0 = now_ns();
-        let idr =
-            self.desktop.encode(req.damage, req.force_idr, t_capture_us as i64, &mut self.au)?;
+        let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();

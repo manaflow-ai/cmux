@@ -16,15 +16,11 @@ pub trait Desktop {
     fn fd(&self) -> RawFd;
     /// Takes every damage report queued since the last call, without blocking.
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()>;
-    /// Captures `damage` (the source may capture more) and encodes the whole picture into
-    /// `out` as Annex-B. Returns true for an IDR.
-    fn encode(
-        &mut self,
-        damage: Rect,
-        force_idr: bool,
-        pts_us: i64,
-        out: &mut Vec<u8>,
-    ) -> Res<bool>;
+    /// Captures `damage` (the source may capture more) into the picture the next
+    /// [`Desktop::encode`] encodes.
+    fn capture(&mut self, damage: Rect) -> Res<()>;
+    /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;

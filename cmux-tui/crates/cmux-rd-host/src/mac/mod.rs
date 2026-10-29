@@ -34,6 +34,8 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
 
 pub struct MacDesktop {
     capture: Capture,
+    /// The frame [`Desktop::capture`] picked and its damage, for the next encode.
+    picked: Option<(screencapturekit::CVPixelBuffer, Rect)>,
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
@@ -61,7 +63,7 @@ impl MacDesktop {
         let name =
             format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
         let injector = Injector::new(capture.bounds(), (width, height))?;
-        Ok(Self { capture, encoder, injector, name })
+        Ok(Self { capture, picked: None, encoder, injector, name })
     }
 }
 
@@ -79,15 +81,16 @@ impl Desktop for MacDesktop {
         Ok(())
     }
 
-    fn encode(
-        &mut self,
-        damage: Rect,
-        force_idr: bool,
-        pts_us: i64,
-        out: &mut Vec<u8>,
-    ) -> Res<bool> {
-        let (width, height) = self.capture.size();
+    /// Picks the newest complete frame; ScreenCaptureKit already holds the pixels.
+    fn capture(&mut self, damage: Rect) -> Res<()> {
         let frame = self.capture.newest().ok_or("no captured frame yet")?;
+        self.picked = Some((frame, damage));
+        Ok(())
+    }
+
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+        let (width, height) = self.capture.size();
+        let (frame, damage) = self.picked.take().ok_or("encode before capture")?;
         let surface = frame.io_surface().ok_or("the captured frame has no IOSurface")?;
         // SAFETY: `frame` holds the pixel buffer and with it the IOSurface until this
         // function returns, which is after encode_surface returns.

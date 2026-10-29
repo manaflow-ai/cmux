@@ -14,6 +14,11 @@ use core_graphics::event::{
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use core_graphics::geometry::CGPoint;
 use std::collections::BTreeSet;
+
+/// The modifier flags of the held keys (left and right of a modifier set the same flag).
+fn held_flags(keys: &BTreeSet<CGKeyCode>) -> CGEventFlags {
+    keys.iter().filter_map(|&code| modifier_flag(code)).fold(CGEventFlags::empty(), |a, b| a | b)
+}
 use std::time::{Duration, Instant};
 
 /// Two presses of one button closer than this, and nearer than [`MULTI_CLICK_SLOP`] points,
@@ -130,10 +135,11 @@ impl Injector {
     }
 
     pub fn release_all(&mut self) {
-        for code in std::mem::take(&mut self.keys) {
+        // Each up carries the flags of the keys still held after it, so no modifier stays set.
+        while let Some(code) = self.keys.pop_last() {
+            self.flags = held_flags(&self.keys);
             self.post_key(code, false);
         }
-        self.flags = CGEventFlags::empty();
         for button in std::mem::take(&mut self.buttons) {
             self.mouse(button.events().1, Some(button), None);
         }
@@ -207,19 +213,14 @@ impl Injector {
 
     fn key(&mut self, usage: u32, down: bool) {
         let Some(code) = key_code(usage) else { return };
-        if let Some(flag) = modifier_flag(code) {
-            if down {
-                self.flags.insert(flag);
-            } else {
-                self.flags.remove(flag);
-            }
-        }
         if down {
             self.keys.insert(code);
         } else if !self.keys.remove(&code) {
             // An up for a key this session never pressed (released already).
             return;
         }
+        // From the held keys, so releasing one Shift keeps the other's flag.
+        self.flags = held_flags(&self.keys);
         self.post_key(code, down);
     }
 

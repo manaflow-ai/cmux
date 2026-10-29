@@ -27,7 +27,7 @@ struct RdMarkerClickLatencyTests {
         private var current: UInt16?
         private var seenAt: ContinuousClock.Instant?
         private var waiter: (value: UInt16, resume: CheckedContinuation<ContinuousClock.Instant?, Never>)?
-        private(set) var size: CGSize = .zero
+        private var size: CGSize = .zero
         private var newest: CVPixelBuffer?
         init(fraction: Double, originY: Double) { self.fraction = fraction; self.originY = originY }
 
@@ -50,6 +50,7 @@ struct RdMarkerClickLatencyTests {
         }
 
         var value: UInt16? { lock.withLock { current } }
+        var frameSize: CGSize { lock.withLock { size } }
         var pixels: CVPixelBuffer? { lock.withLock { newest } }
 
         /// When the marker first shows `value`, or nil when `cancelWait` ends the wait.
@@ -133,7 +134,7 @@ struct RdMarkerClickLatencyTests {
         for _ in 0 ..< 150 where reader.value == nil { try await Task.sleep(for: .milliseconds(100)) }
         let firstFrameMs = connectStart.duration(to: .now) / .milliseconds(1)
         try #require(reader.value != nil, "no marker in the video within 15 s")
-        let size = reader.size
+        let size = reader.frameSize
         // The marker's click pad (cells 20 to 23, never read), so the cursor the host draws
         // never covers a read cell; normalized to the display.
         let at = (x: 22 * fraction, y: originY + 0.5 * fraction * size.width / size.height)
