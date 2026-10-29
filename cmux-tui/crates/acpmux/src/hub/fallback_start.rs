@@ -155,24 +155,38 @@ impl ConversationMark {
     }
 }
 
-/// The turn's own error `e`, saying that its fallback `to` could not take the turn (`why`) and
-/// that the chat stays on `from`.
+/// The key of the note in a turn error's data: a bound route's failure already puts its own
+/// `fallback` there (`route_switch.rs` `route_failure`).
+const NOTE_KEY: &str = "fallbackProfile";
+
+/// The turn's own error `e`, marked (`data.fallbackProfile`) with the fallback `to` that could not take
+/// the turn (`why`) and the profile `from` the chat stays on. Its message stays the agent's own
+/// until the turn ends: `finish_turn` reads it as it was (a dead process's stderr line, a limit,
+/// a sign-in), then [`say_fallback`] adds the note.
 pub(super) fn fallback_not_started(e: &RpcError, from: &str, to: &str, why: &str) -> RpcError {
     let mut out = e.clone();
-    out.message = format!(
-        "{} (the fallback profile {to} cannot start: {why}; the chat stays on {from})",
-        e.message
-    );
-    let note = json!({"profile": to, "error": why});
+    let note = json!({"profile": to, "error": why, "stays": from});
     match &mut out.data {
         Some(Value::Object(data)) => {
-            data.insert("fallback".into(), note);
+            data.insert(NOTE_KEY.into(), note);
         }
-        None => out.data = Some(json!({"fallback": note})),
-        // Data that is no object stays as it was; the message says it.
+        None => out.data = Some(Value::Object([(NOTE_KEY.to_owned(), note)].into_iter().collect())),
+        // Data that is no object stays as it was, without the note.
         Some(_) => {}
     }
     out
+}
+
+/// A turn's error that [`fallback_not_started`] marked says, after its own reason, that the
+/// fallback could not take the turn, and why.
+pub(super) fn say_fallback(e: &mut RpcError) {
+    let Some(note) = e.data.as_ref().and_then(|d| d.get(NOTE_KEY)) else { return };
+    let text = |k: &str| note.get(k).and_then(Value::as_str).unwrap_or("?").to_owned();
+    let (to, why, from) = (text("profile"), text("error"), text("stays"));
+    e.message = format!(
+        "{} (the fallback profile {to} cannot start: {why}; the chat stays on {from})",
+        e.message
+    );
 }
 
 #[cfg(test)]
@@ -181,17 +195,28 @@ mod tests {
 
     #[test]
     fn the_turn_error_names_the_fallback_that_could_not_start() {
-        let e = RpcError::new(-32603, "API Error: 429 rate limit");
-        let out = fallback_not_started(&e, "claude", "cmux", "the local CodeRouter is not running");
-        assert!(out.message.starts_with("API Error: 429 rate limit"), "{}", out.message);
+        let e = RpcError::new(-32603, "agent process closed");
+        let mut out =
+            fallback_not_started(&e, "claude", "cmux", "the local CodeRouter is not running");
+        // The message stays the agent's own until the turn ends, so it still reads as a dead
+        // process (`recovery::dead_process`), whose stderr line `finish_turn` adds.
+        assert_eq!(out.message, "agent process closed");
+        assert!(crate::recovery::dead_process(&out));
+        assert_eq!(out.data.as_ref().unwrap()[NOTE_KEY]["profile"], "cmux");
+        say_fallback(&mut out);
+        assert!(out.message.starts_with("agent process closed"), "{}", out.message);
         assert!(out.message.contains("cmux cannot start"), "{}", out.message);
+        assert!(out.message.contains("CodeRouter is not running"), "{}", out.message);
         assert!(out.message.contains("stays on claude"), "{}", out.message);
-        assert_eq!(out.data.unwrap()["fallback"]["profile"], "cmux");
         // Data the error had stays.
         let e = e.with_data(json!({"reason": "limit"}));
         let out = fallback_not_started(&e, "claude", "cmux", "down");
         let data = out.data.unwrap();
         assert_eq!(data["reason"], "limit");
-        assert_eq!(data["fallback"]["error"], "down");
+        assert_eq!(data[NOTE_KEY]["error"], "down");
+        // An error no fallback marked keeps its message.
+        let mut plain = RpcError::new(-32603, "agent process closed");
+        say_fallback(&mut plain);
+        assert_eq!(plain.message, "agent process closed");
     }
 }

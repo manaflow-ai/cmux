@@ -944,6 +944,8 @@ impl Hub {
         // that exited, a harness that cannot start. A sign-in failure already says its fix.
         if let Err(e) = &mut result {
             crate::recovery::annotate_as(e, Some(&session.meta().cwd), dead && !signed_out);
+            // After the agent's own reason: its fallback could not take the turn, and why.
+            super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
         match &result {
