@@ -159,6 +159,7 @@ struct CrossMachineTabMoveTests {
         let result: Result<Void, any Error>
         do {
             let vmSocket = try await vmOwner.endpointProvider().socketPath
+            try Task.checkCancellation()
             services.daemon.start {
                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: macOwner.endpointProvider)
             }
@@ -166,7 +167,7 @@ struct CrossMachineTabMoveTests {
             machine.daemon.start(remote: { vmSocket })
             let deadline = ContinuousClock.now + .seconds(60)
             func macPane() -> PaneModel? { services.daemon.store.workspaces.first?.screens.first?.panes.first }
-            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while macPane() == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let pane = try #require(macPane(), "this Mac's daemon has no pane")
             let macConnection = try #require(services.daemon.connection)
             let vmConnection = try #require(machine.daemon.connection, "the other machine did not connect")
@@ -175,7 +176,7 @@ struct CrossMachineTabMoveTests {
             func target() -> WorkspaceModel? {
                 machine.daemon.store.workspaces.first { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } }
             }
-            while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+            while target() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
             try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
             result = .success(())
