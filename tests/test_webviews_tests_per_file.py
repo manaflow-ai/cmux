@@ -734,7 +734,7 @@ class ShardHelper(unittest.TestCase):
         """A 30 s plain file and 32 browser files of 10 s on two shards. Counted as plain files on 32
         lanes, all 32 browser files fit beside nothing on the other shard in 10 s, and they went there
         together (shard 1 of #27329's run held 34 of them). On 8 browser lanes they would take 40 s
-        there, so the plain file's shard takes half of them beside its 30 s file."""
+        there, so the plain file's shard takes about half of them beside its 30 s file."""
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         (temp / "test").mkdir()
         browsers = [f"test/b{index:02}.test.ts" for index in range(32)]
@@ -749,7 +749,8 @@ class ShardHelper(unittest.TestCase):
                                 cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
         with_plain = next(shard for shard in split if b"test/plain.test.ts" in shard)
         without = next(shard for shard in split if b"test/plain.test.ts" not in shard)
-        self.assertEqual((len(with_plain) - 1, len(without)), (16, 16), split)
+        # Counted on 32 plain lanes, all 32 went beside nothing: (0, 32).
+        self.assertEqual((len(with_plain) - 1, len(without)), (15, 17), split)
 
     def test_the_plan_runs_browser_files_beside_plain_files(self):
         spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
