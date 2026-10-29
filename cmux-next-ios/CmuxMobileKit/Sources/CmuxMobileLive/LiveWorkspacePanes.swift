@@ -184,13 +184,13 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
            replyScreen != nil, revision != nil { return .undone }
         if data["undone"] as? Bool == false, data["confirmation_required"] as? Bool == true,
            replyScreen == screen, let revision,
-           let closes = data["closes_panes"] as? [Any], !closes.isEmpty, closes.allSatisfy({ Self.integer($0) != nil }) {
+           let closes = data["closes_panes"] as? [Any], !closes.isEmpty, closes.allSatisfy({ (Self.integer($0) ?? -1) >= 0 }) {
             return .needsConfirmation(LayoutUndoConfirmation(screen: screen, pane: pane, revision: revision, closing: closes.count))
         }
         throw WorkspaceCreationError("The Mac's undo reply wasn't readable")
     }
 
-    /// A JSON integer (an `Id`), never a boolean, a fraction or a string.
+    /// A JSON integer, never a boolean, a fraction or a string (an `Id` is one that isn't negative).
     nonisolated static func integer(_ value: Any?) -> Int? {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               number.doubleValue == number.doubleValue.rounded() else { return nil }

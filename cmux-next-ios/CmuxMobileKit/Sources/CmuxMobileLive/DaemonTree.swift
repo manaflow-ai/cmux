@@ -323,7 +323,8 @@ public struct DaemonTree: Sendable {
         }
     }
 
-    /// A screen's viewport columns (`columns`), in order, with their widths, docks and rows;
+    /// A screen's viewport columns (`columns`), in order, with their widths, docks (edge and
+    /// mode) and rows;
     /// empty when the screen is one split tree. A column whose panes are all dead is left out.
     static func columns(_ screen: [String: Any], without dead: Set<Int> = []) -> [WorkspaceLayout.Column] {
         (screen["columns"] as? [[String: Any]] ?? []).compactMap { column in
@@ -333,8 +334,12 @@ public struct DaemonTree: Sendable {
             }
             let root = node(column["layout"])?.removing(dead)
             guard root != nil || !rows.isEmpty else { return nil }
-            return WorkspaceLayout.Column(width: (column["width"] as? NSNumber)?.doubleValue ?? 1,
-                                          isDocked: column["dock"] is [String: Any], root: root, rows: rows)
+            let dock = (column["dock"] as? [String: Any]).map { dock in
+                // A dock without a known edge is a side dock (the daemon's default edge is right).
+                WorkspaceLayout.Column.Dock(edge: WorkspaceLayout.Column.Dock.Edge(rawValue: dock["edge"] as? String ?? "") ?? .right,
+                                            isOverlay: dock["mode"] as? String == "overlay")
+            }
+            return WorkspaceLayout.Column(width: (column["width"] as? NSNumber)?.doubleValue ?? 1, dock: dock, root: root, rows: rows)
         }
     }
 

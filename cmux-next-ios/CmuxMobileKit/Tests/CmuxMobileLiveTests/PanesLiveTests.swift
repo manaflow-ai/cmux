@@ -276,7 +276,7 @@ import Testing
             ],
         ]
         let columns = DaemonTree.columns(screen, without: [9])
-        #expect(columns.map(\.isDocked) == [true, false])
+        #expect(columns.map(\.dock) == [.init(edge: .left), nil])
         #expect(columns.map(\.width) == [0.9, 0.6667])
         #expect(columns.last?.root == .pane(1))
     }
@@ -297,8 +297,34 @@ import Testing
         #expect(screen.autoLayoutSplit?.direction == .right)
         // Only docked columns' panes have no frame to compare: nothing scrolling is split.
         let docked = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [WorkspaceLayout.Pane(id: 4, tabIDs: [])], root: .pane(4),
-                                            columns: [WorkspaceLayout.Column(width: 1, isDocked: true, root: .pane(4))])
+                                            columns: [WorkspaceLayout.Column(width: 1, dock: .init(edge: .left), root: .pane(4))])
         #expect(docked.autoLayoutSplit == nil)
+    }
+
+    /// Docks take their room from the scrolling strip as on the Mac: a docked top band 30% of the
+    /// window high leaves two half-width columns 8 by 7, which split right (8 by 10 would split
+    /// down). An overlay side dock leaves the strip its full width; a docked one narrows it.
+    @Test func autoLayoutLeavesTheDocksRoomOutOfTheStrip() {
+        func screen(_ dock: WorkspaceLayout.Column) -> WorkspaceLayout.Screen {
+            WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 9].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) }, root: nil,
+                                   columns: [dock, WorkspaceLayout.Column(width: 0.5, root: .pane(1)), WorkspaceLayout.Column(width: 0.5, root: .pane(2))])
+        }
+        let band = screen(WorkspaceLayout.Column(width: 0.3, dock: .init(edge: .top), root: .pane(9)))
+        #expect(band.autoLayoutSplit?.pane == 1)
+        #expect(band.autoLayoutSplit?.direction == .right)
+        let overlayBand = screen(WorkspaceLayout.Column(width: 0.3, dock: .init(edge: .bottom, isOverlay: true), root: .pane(9)))
+        #expect(overlayBand.autoLayoutSplit?.direction == .right)
+        // A docked left dock half the window wide leaves 8 by 10: the halves are 4 by 10 and split down.
+        let docked = screen(WorkspaceLayout.Column(width: 0.5, dock: .init(edge: .left), root: .pane(9)))
+        #expect(docked.autoLayoutSplit?.pane == 1)
+        #expect(docked.autoLayoutSplit?.direction == .down)
+        // The same dock floating over the strip leaves it the whole width: halves 8 wide.
+        let overlay = screen(WorkspaceLayout.Column(width: 0.5, dock: .init(edge: .left, isOverlay: true), root: .pane(9)))
+        #expect(overlay.autoLayoutFrames[1]?.width == 8)
+        #expect(docked.autoLayoutFrames[1]?.width == 4)
+        #expect(band.autoLayoutFrames[1]?.height == 7)
+        #expect(band.autoLayoutFrames[1]?.minY == 3)
+        #expect(band.autoLayoutFrames[9] == nil)
     }
 
     @Test func autoLayoutPicksTheLargestPaneAndItsLongerSide() {
@@ -423,6 +449,7 @@ import Testing
             question.merging(["closes_panes": ["9"]]) { $1 },
             question.merging(["closes_panes": [9.5]]) { $1 },
             question.merging(["closes_panes": [true]]) { $1 },
+            question.merging(["closes_panes": [-1]]) { $1 },
         ] {
             #expect(throws: WorkspaceCreationError.self) { try outcome(broken) }
         }

@@ -159,21 +159,41 @@ public struct WorkspaceLayout: Hashable, Sendable {
             }
         }
 
-        /// Its width as a share of the Mac's viewport (`width`).
+        /// A column pinned to a viewport edge (`dock`, `dock-columns-v1`, `edge-docks-v1`).
+        public struct Dock: Hashable, Sendable {
+            public enum Edge: String, Hashable, Sendable { case left, right, top, bottom }
+            public var edge: Edge
+            /// `mode: "overlay"`: a side dock floats over the scrolling columns, which keep the
+            /// full width. A docked one (the default) takes its width out of theirs.
+            public var isOverlay: Bool
+
+            public init(edge: Edge, isOverlay: Bool = false) {
+                self.edge = edge
+                self.isOverlay = isOverlay
+            }
+
+            /// Top and bottom: a screen-wide band above or below the scrolling columns.
+            public var isBand: Bool { edge == .top || edge == .bottom }
+        }
+
+        /// Its width as a share of the Mac's viewport (`width`); a band's height as a share of
+        /// the viewport height.
         public var width: Double
-        /// Pinned to a viewport edge (`dock`): New Pane (Auto Layout) never splits it.
-        public var isDocked: Bool
+        /// Its edge when pinned (`dock`): New Pane (Auto Layout) never splits it.
+        public var dock: Dock?
         /// Its split tree; for a column with rows, the rows' compatibility chain.
         public var root: Node?
         /// Its rows, when it has two or more.
         public var rows: [Row]
 
-        public init(width: Double, isDocked: Bool = false, root: Node?, rows: [Row] = []) {
+        public init(width: Double, dock: Dock? = nil, root: Node?, rows: [Row] = []) {
             self.width = width
-            self.isDocked = isDocked
+            self.dock = dock
             self.root = root
             self.rows = rows
         }
+
+        public var isDocked: Bool { dock != nil }
 
         /// Each shown pane's frame in the column's `rect` (`rect.height` is the viewport's): its
         /// rows at their heights, else its tree at its ratios.
@@ -221,18 +241,38 @@ public struct WorkspaceLayout: Hashable, Sendable {
         /// 16:10 one.
         static let window = CGSize(width: 16, height: 10)
 
-        /// The frames New Pane (Auto Layout) compares, as the Mac lays the screen out: with
-        /// viewport columns, each scrolling column at its own width of the window (a docked
-        /// column is never split, so it is left out); else the screen's tree in the window.
+        /// The frames New Pane (Auto Layout) compares, as the Mac lays the screen out
+        /// (`ScreenGeometry`, `DockStripGeometry.place`, less its gaps and pixel minimums): with
+        /// viewport columns, the scrolling strip is the window less what the docks take (a docked
+        /// side dock its width, at most 75% of the window, 40% each with two; a top or bottom
+        /// band its height, at most half the window, a third each with two, in either mode), and
+        /// each scrolling column is its share of the strip's width at the strip's height, rows at
+        /// their heights. Docked columns are never split, so they are left out. Without columns,
+        /// the screen's tree in the window.
         var autoLayoutFrames: [Int: CGRect] {
             guard !columns.isEmpty else { return root?.frames(in: CGRect(origin: .zero, size: Self.window)) ?? [:] }
+            let docks = columns.compactMap(\.dock)
+            let sides = docks.filter { !$0.isBand }.count, bands = docks.filter(\.isBand).count
+            var stripWidth = Self.window.width
+            var stripHeight = Self.window.height
+            var stripTop: CGFloat = 0
+            for column in columns {
+                guard let dock = column.dock else { continue }
+                let share = CGFloat(max(column.width, 0))
+                if dock.isBand {
+                    let height = Self.window.height * min(share, bands > 1 ? 1.0 / 3.0 : 0.5)
+                    stripHeight -= height
+                    if dock.edge == .top { stripTop += height }
+                } else if !dock.isOverlay {
+                    stripWidth -= Self.window.width * min(share, sides > 1 ? 0.4 : 0.75)
+                }
+            }
             var frames: [Int: CGRect] = [:]
             var x: CGFloat = 0
-            for column in columns {
-                let width = Self.window.width * CGFloat(max(column.width, 0))
-                defer { x += width }
-                guard !column.isDocked else { continue }
-                frames.merge(column.frames(in: CGRect(x: x, y: 0, width: width, height: Self.window.height))) { lhs, _ in lhs }
+            for column in columns where column.dock == nil {
+                let width = max(stripWidth, 0) * CGFloat(max(column.width, 0))
+                frames.merge(column.frames(in: CGRect(x: x, y: stripTop, width: width, height: max(stripHeight, 0)))) { lhs, _ in lhs }
+                x += width
             }
             return frames
         }
