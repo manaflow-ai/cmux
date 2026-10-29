@@ -84,6 +84,7 @@ fn plan(harnesses: &[&str]) -> Plan {
         harnesses: harnesses.iter().map(|s| s.to_string()).collect(),
         remote_binary: DAEMON_BIN.into(),
         reverse: false,
+        lends_github: false,
     }
 }
 

@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -44,7 +44,9 @@
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
  *
  * Every VM and snapshot is named cmuxnp-dev-vmimg-<tag> unless --promotion
- * (unused for now) and is recorded in <out-dir>/resources.tsv the moment it
+ * (unused for now) or --prod-copy (cmuxnp-prod-vmimg-<tag>: the production
+ * copy of a recorded dev image, baked on the production account with the dev
+ * image's flags; prod-copy.ts plans it) and is recorded in <out-dir>/resources.tsv the moment it
  * exists. The builder is deleted whatever happens.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -136,6 +138,12 @@ export type BakeOptions = {
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
   devTree?: boolean;
+  /**
+   * The production copy of a recorded dev image (cloud-vm-image-bake.yml mode prod-copy): the same
+   * inputs and flags, baked on the production Freestyle account and named cmuxnp-prod-vmimg-<tag>,
+   * the prefix the production Worker boots.
+   */
+  prodCopy?: boolean;
 };
 
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
@@ -656,7 +664,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const lockText = readFileSync(options.lockPath, "utf8");
   const lock = parseInputsLock(lockText);
   const sha = (process.env.GITHUB_SHA ?? "0000000000").toLowerCase();
-  const name = imageResourceName({ promotion: options.promotion, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
+  const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
   const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
@@ -664,7 +672,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
-    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion });
+    builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     await firstExec(builder.vm, builder.t0);
     const ctx: Ctx = { vm: builder.vm, L, lock, lockText, options, result, name };
@@ -711,7 +719,10 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree]");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
+  if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
   return {
@@ -724,6 +735,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     agentTools: hasFlag("--agent-tools", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
+    prodCopy: hasFlag("--prod-copy", argv),
   };
 }
 

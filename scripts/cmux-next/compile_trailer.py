@@ -53,6 +53,7 @@ import os
 import time
 import re
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -741,8 +742,12 @@ def blobs(repo: Path, specs: list[str]) -> dict[str, str | None]:
     if not specs:
         return {}
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input="\n".join(specs).encode() + b"\n",
-                            capture_output=True, env=env, timeout=60)
+    # Through a file, never `input=`: a write into a pipe can block in the kernel past any timeout (git_batch.py).
+    with tempfile.TemporaryFile() as stdin:
+        stdin.write("\n".join(specs).encode() + b"\n")
+        stdin.seek(0)
+        result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], stdin=stdin, capture_output=True,
+                                env=env, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"git cat-file failed: {result.stderr.decode(errors='replace').strip()[:200]}")
     out, data, at = {}, result.stdout, 0

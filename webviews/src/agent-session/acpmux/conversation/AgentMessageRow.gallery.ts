@@ -255,6 +255,28 @@ const both = () =>
     summary(5.5, { status: "completed" }),
   ]);
 
+const received = (name: string, text: string, minutes: number) =>
+  user("", minutes, {
+    incoming: { kind: "message", message: { name, sessionId: name, text, raw: text } },
+    untyped: true,
+  });
+
+const foldedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.8),
+    received("claude-sr2", "I am checking the final screenshots now.", 3.6),
+    received("claude-sr2", "I will report back when the review lands.", 3.4),
+  ]);
+
+const foldedMixedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("codex-review", "Astra found no blocking findings.", 3.8),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.6),
+    received("codex-review", "The visual check is ready.", 3.4),
+  ]);
+
 export default agentPaneEntry({
   id: "agent-pane.agent-message-row",
   title: "Messages between agents",
@@ -317,6 +339,22 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
         await ctx.click({ selector: ".cv-received__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+      },
+    },
+    "folded-run": {
+      note: "Four consecutive messages fold to one quiet line naming claude-sr2; the message rows and their actions appear when opened.",
+      snapshot: foldedRun(),
+    },
+    "folded-run-mixed": {
+      note: "A consecutive burst from two agents folds to one count while retaining both sender names in the disclosure head.",
+      snapshot: foldedMixedRun(),
+    },
+    "folded-run-opened": {
+      note: "The folded burst opened: each received message keeps the shared compact row and its own full body.",
+      snapshot: foldedRun(),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-waiting__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
       },
     },
   },

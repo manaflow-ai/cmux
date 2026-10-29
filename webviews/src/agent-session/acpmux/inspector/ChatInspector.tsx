@@ -63,6 +63,7 @@ import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubsessionRow } from "../subagents/subsessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
@@ -87,9 +88,10 @@ import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./p
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
+import { SubagentSummaryCard } from "./SubagentSummaryCard";
 import { TasksSection } from "./TasksSection";
-import { WorkflowTasks } from "./WorkflowTasks";
-import type { WorkflowSummary } from "../summary/workflow";
+import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
@@ -291,6 +293,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  subsessions,
   onSetRunningLimit,
   workflows,
   onOpenFolder,
@@ -299,6 +302,7 @@ export function useChatInspector({
   subagent,
   covered = false,
   onUncover,
+  onBeforeOpen,
   beside,
   wide = false,
   onReconnectMcp,
@@ -310,6 +314,8 @@ export function useChatInspector({
   /// Closes that view: opening the Inspector (its toggle, the palette, a running line's count)
   /// brings the chat back first.
   onUncover?: () => void;
+  /// Clears a competing full-height view before any Inspector entry point opens it.
+  onBeforeOpen?: () => void;
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
@@ -342,10 +348,16 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -396,11 +408,12 @@ export function useChatInspector({
   useEffect(() => {
     if (!on) return;
     return registerPicker(label, () => {
+      onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
       setInspectorOpen(true);
     });
-  }, [on, label]);
+  }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -429,12 +442,14 @@ export function useChatInspector({
   const toggle = () => {
     if (shown) setInspectorOpen(false);
     else {
+      onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
+    onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
     setInspectorSection(section, true);
@@ -469,10 +484,12 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        subsessions={subagent ? undefined : subsessions}
         onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
+        onReveal={reveal}
         onStopProcess={onStopProcess}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
@@ -517,10 +534,12 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  subsessions = [],
   onSetRunningLimit,
   workflows,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   onOpenOutput,
   onOpenUrl,
@@ -556,11 +575,20 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
+  /// Opens a section, scrolls it into view and lights it (the header's reveal), so a click that
+  /// points at a section always answers, even when that section is already open.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
@@ -725,12 +753,15 @@ function InspectorPresence({
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={scope ? undefined : sessions?.list}
+        subsessions={scope ? undefined : subsessions}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
+        onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
+        onReveal={onReveal}
         onStopProcess={onStopProcess}
         sections={sections}
         onSection={setInspectorSection}
@@ -907,12 +938,16 @@ export function ChatInspector({
   listed = false,
   transcriptTasks = [],
   sessions = [],
+  subsessions = [],
   workflows = [],
   onStopWorkflow,
+  workflowAgentRowVariant,
+  onOpenWorkflowAgent,
   onOpenSession,
   onSetRunningLimit,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   sections,
   onSection,
@@ -963,16 +998,24 @@ export function ChatInspector({
   transcriptTasks?: readonly SummaryBackgroundTask[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
   /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
+  /// Gallery-only alternatives for the live workflow agent row.
+  workflowAgentRowVariant?: WorkflowAgentRowVariant;
+  /// Opens a workflow agent through its workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
   onRevealed?: () => void;
+  /// Opens, scrolls to and lights a section, so a click that points at one always answers.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
@@ -1165,26 +1208,59 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = (listedAgents.length + sessions.length > 0 || limitSet) && (
+  // A started chat also reported as a sub-session occupies one row and one running slot.
+  const subsessionIds = new Set(subsessions.map((row) => row.sessionId));
+  const children = sessions.filter((child) => !subsessionIds.has(child.sessionId));
+  const subagentsSection = (listedAgents.length + children.length + subsessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, children, subsessions))}
     >
-      <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
-      {listedAgents.length + sessions.length > 0 && (
+      <SubagentLimitStepper
+        chatId={chatId}
+        limits={limits}
+        sessions={children}
+        subsessions={subsessions}
+        onSet={setRunningLimit}
+      />
+      {listedAgents.length + children.length + subsessions.length > 0 && (
         <SubagentsSection
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
-          sessions={sessions}
+          sessions={children}
+          subsessions={subsessions}
           onOpenSession={onOpenSession}
         />
       )}
     </InspectorSection>
   );
+  const agentSummary =
+    listedAgents.length + children.length + subsessions.length > 0 ||
+    workflows.some((workflow) => workflow.agents.length > 0) ? (
+      <SubagentSummaryCard
+        agents={listedAgents}
+        waiting={waiting}
+        sessions={children}
+        subsessions={subsessions}
+        workflows={workflows}
+        onOpen={() => {
+          const section = listedAgents.length + children.length + subsessions.length > 0 ? "subagents" : "tasks";
+          if (onReveal) return onReveal(section);
+          // No host reveal: open it here and light it in place, so the click always answers.
+          fold(section)(true);
+          const element = body.current?.querySelector<HTMLElement>(`[data-section="${section}"]`);
+          element?.scrollIntoView?.({ block: "nearest" });
+          if (!element) return;
+          unlight();
+          element.dataset.revealed = "";
+          lit.current = { section: element, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+        }}
+      />
+    ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
@@ -1196,7 +1272,14 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
-      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
+      {workflows.length > 0 && (
+        <WorkflowTasks
+          workflows={workflows}
+          onStop={onStopWorkflow}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
+          agentRowVariant={workflowAgentRowVariant}
+        />
+      )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection
@@ -1227,8 +1310,9 @@ export function ChatInspector({
         </div>
       )}
       {/* What it runs. */}
-      {(subagentsSection || tasks) && (
+      {(agentSummary || subagentsSection || tasks) && (
         <div className="acpmux-chat-inspector-group" data-group="running">
+          {agentSummary}
           {subagentsSection}
           {tasks}
         </div>
