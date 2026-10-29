@@ -4,6 +4,7 @@ import {
   createContext,
   use,
   useCallback,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -40,6 +41,9 @@ interface MenuContextValue {
   opener: RefObject<Element | null>;
   /** The last input in the open menu was a key (Base UI's close type names how it opened). */
   keyed: RefObject<boolean>;
+  /** Names every popup of this menu, its submenus' too (`data-ui-menu-owner`): focus in any of them
+   *  is focus inside the menu. */
+  owner: string;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
   takePress(): boolean;
@@ -58,6 +62,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const trigger = useRef<HTMLButtonElement | null>(null);
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
+  const owner = useId();
   const captured = useRef(false);
   // Set by a mouse press that opened or closed the menu on its pointerdown; the press's mousedown
   // takes it (MenuButton).
@@ -77,6 +82,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
     trigger,
     opener,
     keyed,
+    owner,
     beginPointer(event) {
       pressed.current = false;
       if (!isMousePress(event)) return;
@@ -262,6 +268,14 @@ export interface MenuPopupProps {
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
   flip?: boolean;
+  /**
+   * False pins the popup to its anchor's edge: it never slides along the anchor to fit, and sizes
+   * to the room it has instead (`--available-height`). Default slides, as Base UI does.
+   */
+  shift?: boolean;
+  /** Moves the popup along its anchor's edge, in px (Base UI's `alignOffset`): a submenu whose first
+   *  row is inset from its top lines that row up with the row it opened from. */
+  alignOffset?: number;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -301,6 +315,8 @@ export function MenuPopup({
   className,
   side = "bottom",
   flip = true,
+  shift = true,
+  alignOffset,
   align = "start",
   anchor,
   finalFocus,
@@ -351,9 +367,12 @@ export function MenuPopup({
         positionMethod={positionMethod}
         anchor={anchor}
         side={side}
-        collisionAvoidance={flip ? undefined : { side: "none" }}
+        collisionAvoidance={
+          flip && shift ? undefined : { side: flip ? "flip" : "none", ...(shift ? {} : { align: "none" }) }
+        }
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
+        {...(alignOffset !== undefined ? { alignOffset } : {})}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
@@ -362,6 +381,7 @@ export function MenuPopup({
           id={id}
           aria-label={label}
           className={cx("ui-popup ui-glass ui-menu", className)}
+          data-ui-menu-owner={menu?.owner}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -405,7 +425,9 @@ function focusAfterClose(
 ): boolean | HTMLElement | null {
   if (!menu) return true;
   const active = menu.trigger.current?.ownerDocument.activeElement;
-  if (active && active !== active.ownerDocument.body && !popup?.contains(active)) return false;
+  // Focus in one of this menu's submenus (its own portal) is inside the menu too.
+  const inside = popup?.contains(active ?? null) || !!active?.closest?.(`[data-ui-menu-owner="${menu.owner}"]`);
+  if (active && active !== active.ownerDocument.body && !inside) return false;
   if (closeType === "keyboard" || menu.keyed.current) return menu.trigger.current ?? true;
   const opener = menu.opener.current;
   const target =
@@ -632,6 +654,18 @@ export interface SubmenuProps {
   disabled?: boolean;
   /** Vertical alignment of the nested popup; omitted keeps the room-aware default. */
   align?: "start" | "end";
+  /** The nested popup opened or closed (a panel that focuses its own field on open). */
+  onOpenChange?: (open: boolean) => void;
+  /** Keys the nested popup takes beyond Base UI's own (`MenuPopupProps.onKeyDown`). */
+  onPopupKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /** The nested popup stays at its row and sizes to the room it has (`MenuPopupProps.shift`). */
+  pinned?: boolean;
+  /** False opens the nested popup on a click, Enter or the arrow only: a pointer passing over the row
+   *  on its way to the next one opens nothing, and blocks nothing (Base UI's hover safe area). */
+  openOnHover?: boolean;
+  /** How far the nested popup's first row is inset from its top edge, in px: it opens that much
+   *  higher (lower when it grows up), so its first row lines up with this one. */
+  firstRowInset?: number;
   children: ReactNode;
 }
 
@@ -643,7 +677,19 @@ export interface SubmenuProps {
  * should open up top instead of bottom"), and down from the row's top in a menu that opened down. A
  * menu that opened sideways (a submenu's submenu) grows toward the room its row has. Base UI's
  * collision avoidance still flips or shifts it when that side has no room. */
-export function Submenu({ label, className, popupClassName, disabled, align: requestedAlign, children }: SubmenuProps) {
+export function Submenu({
+  label,
+  className,
+  popupClassName,
+  disabled,
+  align: requestedAlign,
+  onOpenChange,
+  onPopupKeyDown,
+  pinned = false,
+  openOnHover = true,
+  firstRowInset = 0,
+  children,
+}: SubmenuProps) {
   const surface = use(PopupSurface);
   const boundary = use(PopupBoundary);
   const trigger = useRef<HTMLDivElement | null>(null);
@@ -653,17 +699,27 @@ export function Submenu({ label, className, popupClassName, disabled, align: req
       onOpenChange={(open) => {
         const row = trigger.current;
         if (open && row) setAlign(requestedAlign ?? (growsUp(row, boundary) ? "end" : "start"));
+        onOpenChange?.(open);
       }}
     >
       <BaseMenu.SubmenuTrigger
         ref={trigger}
         className={cx("ui-menu-item ui-submenu-trigger", className)}
         disabled={disabled}
+        openOnHover={openOnHover}
       >
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align={align} className={popupClassName ?? surface}>
+      <MenuPopup
+        side="inline-end"
+        align={align}
+        shift={!pinned}
+        // Floating UI mirrors the offset for an end-aligned popup, so one sign lines up either way.
+        {...(firstRowInset ? { alignOffset: -firstRowInset } : {})}
+        className={popupClassName ?? surface}
+        onKeyDown={onPopupKeyDown}
+      >
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>
