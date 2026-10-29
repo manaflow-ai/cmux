@@ -501,3 +501,52 @@ fn a_report_consumed_then_resumed_without_an_assignment_does_not_reuse_its_old_r
         "the resumed report still reaches Chief"
     );
 }
+
+#[test]
+fn a_restart_redelivers_a_done_report_saved_before_deliver() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("host.json"),
+        serde_json::to_vec(&json!({
+            "conversation": CONV,
+            "spawns": {
+                "s1": {
+                    "conversation": CONV,
+                    "turn": "origin",
+                    "started_ms": 100,
+                    "subs": [{
+                        "id": "a1",
+                        "status": "done",
+                        "report": "recovered after restart",
+                        "run_ms": 100,
+                        "report_run": [CONV, "origin"],
+                        "answers": ["question-1"]
+                    }]
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::in_dir(dir, default_script(), owner.clone());
+
+    // Brain::new is the simulated restart. The outbox is rebuilt before the
+    // daemon reconnects, so no delivery callback is needed to recover it.
+    assert_eq!(h.brain.state().pending_reports.len(), 1);
+    h.connect();
+    let owner = owner.lock().unwrap();
+    assert!(
+        owner.run_steps.iter().any(|(_, run, steps)| {
+            run["id"] == optchat_chief::run::report_run_id("origin")
+                && steps.iter().any(|step| {
+                    step["kind"] == "note" && step["text"] == "[a1] recovered after restart"
+                })
+        }),
+        "the persisted Done report was not redelivered: {:?}",
+        owner.run_steps
+    );
+}
