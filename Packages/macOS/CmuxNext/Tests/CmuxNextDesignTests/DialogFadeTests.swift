@@ -54,6 +54,39 @@ import Testing
         #expect(seen.allSatisfy { $0 == 0 }, "the panel attached with the dialog showing: \(seen)")
     }
 
+    /// Alert polish (debug.dialog_strip): ordering the overlay panel in showed its window surface at
+    /// once, still holding the last dialog it drew at full opacity, for a frame before the new
+    /// dialog's fade (2 opens in 10 when the panel attached fresh, none while it stayed attached).
+    /// A freshly attached panel is transparent until it has drawn, then shows; one already attached
+    /// stays as it is, and a window on no screen shows it at once.
+    @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() })
+    func aFreshlyAttachedPanelShowsOnlyAfterItDrew() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        try #require(window.screen != nil)
+        let host = WindowOverlayHost.host(for: window)
+        let options = OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false)
+        let first = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90)), options: options)
+        defer { first.dismiss() }
+        #expect(host.panel.alphaValue == 0, "the panel showed its old surface as it ordered in")
+        #expect(await GUIAnimationTestSupport.settle { host.panel.alphaValue == 1 }, "the panel never showed")
+        let second = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 60)), options: options)
+        defer { second.dismiss() }
+        #expect(host.panel.alphaValue == 1, "an attached panel hid again")
+    }
+
+    @Test func aPanelOfAWindowOnNoScreenShowsAtOnce() throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        let host = WindowOverlayHost.host(for: window)
+        let handle = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90)),
+                                  options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false))
+        defer { handle.dismiss() }
+        #expect(host.panel.alphaValue == 1)
+    }
+
     /// Alert polish (2026-10-28, debug.dialog_strip): the card only faded, flat, while the palette
     /// grows in. It now grows from `Motion.panelOpenScale` about its center on the `appear` spring;
     /// under Reduce Motion it only fades (the scale applies at once).
