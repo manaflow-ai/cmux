@@ -347,6 +347,7 @@ async fn replacement_keeps_old_final_until_new_credential_is_recovered() {
         vec![
             Step::Redeem(200),
             Step::Live(None),
+            Step::Live(None), // preflight the final credential before replacement
             Step::Redeem(503),
             Step::Unknown,
             Step::LostReply,
@@ -412,6 +413,69 @@ async fn explicit_replace_resets_only_a_definitively_revoked_pending_proposal() 
     assert!(final_record["credential"] != old["credential"]);
     assert_complete(home.path(), &origin);
     server.join().unwrap();
+}
+
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn finalized_revoked_credential_is_reenrolled_without_replacement_proof() {
+    let consent = machine_consent_home::ConsentHome::isolated();
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = hub(
+        vec![
+            Step::Redeem(200),
+            Step::Live(None),
+            Step::Unavailable,
+            Step::Revoked,
+            Step::Redeem(200),
+            Step::Live(None),
+        ],
+        home.path(),
+        &consent.root,
+    );
+    assert_exit(&join(home.path(), Some(&origin), true, false).await, 0);
+    let original = std::fs::read(home.path().join(FINAL)).unwrap();
+    assert_eq!(read_json(&home.path().join(FINAL))["revoked"], false);
+    // An inconclusive preflight cannot discard the final proof or create a
+    // replacement attempt. A later definitive revoke permits fresh enrollment.
+    assert_exit(&join_with_input(home.path(), Some(&origin), Some(FRESH_TOKEN), true).await, 4);
+    assert!(!home.path().join(PENDING).exists());
+    assert!(std::fs::read(home.path().join(FINAL)).unwrap() == original);
+    assert_exit(&join_with_input(home.path(), Some(&origin), Some(FRESH_TOKEN), true).await, 0);
+    let old: Value = serde_json::from_slice(&original).unwrap();
+    assert!(read_json(&home.path().join(FINAL))["credential"] != old["credential"]);
+    assert_complete(home.path(), &origin);
+    server.join().unwrap();
+}
+
+#[tokio::test]
+#[ignore = "red path may mutate OS-account consent; run in a disposable Unix account"]
+async fn secret_prefix_machine_name_is_refused_before_http_or_pending_write() {
+    let _consent = machine_consent_home::ConsentHome::isolated();
+    for name in ["cmm_builder", "cmj_builder"] {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let mut child = cli(home.path())
+            .args(["host", "join", "--hub", &origin, "--name", name])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        input.write_all(format!("{TOKEN}\n").as_bytes()).await.unwrap();
+        drop(input);
+        let output = tokio::time::timeout(Duration::from_secs(15), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_redacted(&output);
+        assert_exit(&output, 2);
+        assert!(!home.path().join(PENDING).exists());
+        assert!(!home.path().join(FINAL).exists());
+        listener.set_nonblocking(true).unwrap();
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+    }
 }
 
 #[tokio::test]
