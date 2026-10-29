@@ -33,7 +33,7 @@ import Testing
             let q = p.applying(HomeBubbleColors(sent: fill))
             #expect(q.outgoingGradient.allSatisfy { $0.color == fill }, "\(name) \(hex): sent fill not flat")
             #expect(q.outgoingText.contrast(with: fill) >= 3, "\(name) \(hex): sent text \(q.outgoingText.contrast(with: fill)):1")
-            #expect(q.caret == fill, "\(name) \(hex): caret follows the sent colour")
+            #expect(q.caret == p.caret, "\(name) \(hex): the caret (and links on received bubbles) stays the theme's")
         }
     }
 

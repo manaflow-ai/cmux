@@ -263,7 +263,24 @@ public struct HomePalette: Hashable, Sendable {
     /// - Parameter colors: the chosen colours; empty returns this palette unchanged.
     /// - Returns: the palette the chat draws with.
     public func applying(_ colors: HomeBubbleColors) -> HomePalette {
-        self
+        guard !colors.isEmpty else { return self }
+        var p = self
+        if let fill = colors.sent?.with(alpha: 1) {
+            p.outgoingGradient = [GradientStop(location: 0, color: fill), GradientStop(location: 1, color: fill)]
+            // The caret stays the theme's: it also inks links in the other side's bubbles.
+            p.outgoingText = fill.readableText
+        }
+        if let ink = colors.sentText { p.outgoingText = ink.with(alpha: 1) }
+        if colors.received != nil || colors.receivedText != nil {
+            p.composeTextOverride = composeText
+        }
+        if let fill = colors.received?.with(alpha: 1) {
+            p.incomingBubble = fill
+            p.badge = fill
+            p.incomingText = incomingText.readable(on: fill)
+        }
+        if let ink = colors.receivedText { p.incomingText = ink.with(alpha: 1) }
+        return p
     }
 
     /// The outgoing colour at a fraction of the viewport height.
