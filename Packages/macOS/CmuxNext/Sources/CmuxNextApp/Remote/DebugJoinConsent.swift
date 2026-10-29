@@ -42,7 +42,8 @@ enum DebugJoinConsent {
         var isPerson: Bool { true }
         var supportsConsent: Bool { true }
         func read() async -> JoinConsentRecord? { record }
-        func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
+        func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
+            guard ticket?.write({}) ?? true else { return nil }
             if surface == .screen { record.screen = granted } else { record.control = granted }
             return record
         }

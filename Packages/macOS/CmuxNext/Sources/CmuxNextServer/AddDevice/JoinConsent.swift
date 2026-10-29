@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 
 /// What a joined machine's team may do on this Mac only after the person allows it here (the one-line
 /// join's consent gate, contract §5). The join itself grants mesh membership alone; acpmux blocks
@@ -88,8 +89,53 @@ public protocol JoinConsentLine: AnyObject {
     /// `_acpmux/machine_consent_get`; nil when it failed.
     func read() async -> JoinConsentRecord?
     /// `_acpmux/machine_consent_set`: the record acpmux holds after it, nil when it did not take it.
-    func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord?
+    /// SECURITY: a grant comes with its `ticket`, and the line writes its bytes only through
+    /// ``JoinConsentGrantTicket/write(_:)``, on the queue that writes the socket; a stale ticket sends
+    /// nothing and answers nil. A revoke has none.
+    func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord?
     func close()
+}
+
+/// SECURITY: what makes a grant stale where its bytes go out (round 15 P1). A grant takes a ticket when it
+/// starts; the Labs switch moving or a settings load invalidates every older one, and the line writes a
+/// grant only through ``JoinConsentGrantTicket/write(_:)``, which checks the ticket and writes under one
+/// lock. So once ``invalidate()`` returns, no older grant reaches acpmux: it was either out before (the
+/// lock waited for its write) or is never sent.
+public nonisolated final class JoinConsentGrantGate: Sendable {
+    private let epoch = OSAllocatedUnfairLock(initialState: 0)
+
+    public init() {}
+
+    /// The ticket a grant takes when it starts.
+    public func ticket() -> JoinConsentGrantTicket {
+        JoinConsentGrantTicket(gate: self, epoch: epoch.withLock { $0 })
+    }
+
+    /// Every ticket taken before this is stale. Waits for a grant being written with one (a few hundred
+    /// bytes to a local socket), never for acpmux's answer.
+    public func invalidate() {
+        epoch.withLock { $0 += 1 }
+    }
+
+    fileprivate func write(_ ticket: Int, _ bytes: () -> Void) -> Bool {
+        epoch.withLockUnchecked { epoch in
+            guard epoch == ticket else { return false }
+            bytes()
+            return true
+        }
+    }
+}
+
+/// One grant's ticket (``JoinConsentGrantGate``).
+public nonisolated struct JoinConsentGrantTicket: Sendable {
+    let gate: JoinConsentGrantGate
+    let epoch: Int
+
+    /// Runs `bytes` (the socket write of the grant) only while the ticket is current, holding the gate's
+    /// lock while it runs. False when it was stale: nothing was written.
+    public func write(_ bytes: () -> Void) -> Bool {
+        gate.write(epoch, bytes)
+    }
 }
 
 /// A team machine's screen or control request that acpmux refused with `consent_required`.
@@ -183,6 +229,8 @@ public final class JoinConsentModel {
     /// After each change applied: the app stops a Mac Screen session the consent no longer allows.
     @ObservationIgnored public var changed: @MainActor () -> Void = {}
     @ObservationIgnored private let services: JoinConsentServices
+    /// Invalidated by ``featureSwitched()`` and, in the app, by every settings load as it happens.
+    public nonisolated let grantGate = JoinConsentGrantGate()
     /// The newest request's generation; only its result is applied.
     @ObservationIgnored private(set) var generation = 0
     /// A read was asked for while a write was in flight (and dropped): the write reads again before it
@@ -227,6 +275,7 @@ public final class JoinConsentModel {
     /// longer counts, nothing is allowed until the next read (a running Mac Screen session stops when the
     /// switch turns on), a grant still on its way is never sent, and with it off an open sheet closes.
     public func featureSwitched() {
+        grantGate.invalidate()
         generation += 1
         status = nil
         consent = nil
@@ -295,7 +344,7 @@ public final class JoinConsentModel {
         // Nothing but the Labs switch moves the generation while a write is in flight (reads then take
         // none, tickets are refused, another write is busy): a grant is sent only at its own, and only
         // when no settings load came since it started.
-        let mine = generation, epoch = services.settingsEpoch()
+        let mine = generation, epoch = services.settingsEpoch(), ticket = grantGate.ticket()
         if !on {
             // SECURITY: a revoke narrows at once, before acpmux answers: a running session stops now, and
             // no read that started before it (which may say granted) is applied. Its "not joined" goes too
@@ -305,7 +354,7 @@ public final class JoinConsentModel {
             changed()
         }
         let written: JoinConsentRecord?
-        (lastError, written) = await write(surface, on: on, generation: mine, epoch: epoch)
+        (lastError, written) = await write(surface, on: on, generation: mine, epoch: epoch, ticket: ticket)
         // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied,
         // and when one was asked for, this reads again (until none was), so its news is not lost.
         var (reading, current) = await read(.afterWrite)
@@ -330,7 +379,8 @@ public final class JoinConsentModel {
     }
 
     /// The write itself: the error to show (nil when acpmux took it) and the record acpmux answered with.
-    private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int, epoch: Int) async -> (String?, JoinConsentRecord?) {
+    private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int, epoch: Int,
+                       ticket: JoinConsentGrantTicket) async -> (String?, JoinConsentRecord?) {
         let failed = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
         if on {
             // An on only for a joined, unrevoked Mac with the Labs switch on, as this read finds it (acpmux
@@ -355,9 +405,10 @@ public final class JoinConsentModel {
         if on, !line.isPerson { return (failed, nil) }
         guard line.supportsConsent else { return (on ? JoinConsentStrings.unsupported : failed, nil) }
         // The Labs switch may have turned off (and on again) while the line opened: a grant is sent only
-        // at its own generation, with the switch on and no settings load since it started.
+        // at its own generation, with the switch on and no settings load since it started. The line checks
+        // the ticket once more as it writes, since either can change after this check.
         if on, !enabled || generation != mine || services.settingsEpoch() != epoch { return (failed, nil) }
-        let written = await line.set(surface, granted: on)
+        let written = await line.set(surface, granted: on, ticket: on ? ticket : nil)
         return (written == nil ? failed : nil, written)
     }
 

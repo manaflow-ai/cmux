@@ -60,6 +60,15 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         queue.async { [self] in write(data) }
     }
 
+    /// Sends `data` only through `gate`, on this queue right before the bytes go out: the gate runs the
+    /// write (holding whatever makes its answer final) or refuses it, and a refused one closes the
+    /// connection, so its request answers nil (a consent grant whose ticket went stale is never sent).
+    public func send(_ data: Data, through gate: @escaping @Sendable (() -> Void) -> Bool) {
+        queue.async { [self] in
+            if !gate({ self.write(data) }) { finish() }
+        }
+    }
+
     public func cancel() {
         queue.async { [self] in
             onClose = nil

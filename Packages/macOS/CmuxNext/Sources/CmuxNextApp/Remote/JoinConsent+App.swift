@@ -70,8 +70,11 @@ final class JoinConsentPersonLine: JoinConsentLine {
         (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)
     }
 
-    func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
-        (await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted])).flatMap(JoinConsentRecord.parse)
+    func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
+        // SECURITY: a grant's ticket is checked on the line's queue, under the gate's lock, as it writes.
+        let gate: (@Sendable (() -> Void) -> Bool)? = ticket.map { ticket in { bytes in ticket.write(bytes) } }
+        return (await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted], through: gate))
+            .flatMap(JoinConsentRecord.parse)
     }
 
     func close() { line.close() }
@@ -108,6 +111,7 @@ extension JoinConsentModel {
     /// A change is taken at once, never behind a read still running. Everything ends with the model
     /// (``JoinConsentModel/following``), and the folder watch also when the switch turns off.
     func follow(settings: SettingsController) {
+        Self.invalidateGrants(grantGate, onEveryLoadOf: settings)
         // task-owner: the model's `following`, cancelled with it; one read per Labs change or folder burst
         following = Task { [weak self, weak settings] in
             var watch: Task<Void, Never>?
@@ -135,6 +139,26 @@ extension JoinConsentModel {
                         await refresh()
                     }
                 }
+            }
+        }
+    }
+
+    /// SECURITY: every settings load (the Labs switch moves only through one) invalidates the grant gate as
+    /// it happens, in the load itself (Observation's will-set, on the main actor), never behind a task: a
+    /// grant the line checks on its own queue right after a load is already stale. Armed again in the same
+    /// call, so a second load right after is caught too. Ends with the settings.
+    static func invalidateGrants(_ gate: JoinConsentGrantGate, onEveryLoadOf settings: SettingsController) {
+        withObservationTracking {
+            _ = settings.snapshot
+            _ = settings.loadCount
+        } onChange: { [weak settings] in
+            gate.invalidate()
+            guard let settings else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { invalidateGrants(gate, onEveryLoadOf: settings) }
+            } else {
+                // task-owner: re-arms one observation; never taken, since settings change on the main actor
+                Task { @MainActor in invalidateGrants(gate, onEveryLoadOf: settings) }
             }
         }
     }

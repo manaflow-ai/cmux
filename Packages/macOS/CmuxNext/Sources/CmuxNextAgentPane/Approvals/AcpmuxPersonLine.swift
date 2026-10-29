@@ -43,15 +43,18 @@ public final class AcpmuxPersonLine {
         return connection
     }
 
-    /// One request; its `result`, or nil when it failed or the connection closed.
-    public func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+    /// One request; its `result`, or nil when it failed or the connection closed. With `gate`, the
+    /// request is written only through it, on the line's queue right before the bytes go out; a refused
+    /// one closes the connection and answers nil (``AcpmuxCheckedLine/send(_:through:)``).
+    public func call(_ method: String, _ params: [String: Any],
+                     through gate: (@Sendable (() -> Void) -> Bool)? = nil) async -> [String: Any]? {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
         let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
         let reply: ResultBox? = await withCheckedContinuation { waiter in
             waiters[id] = waiter
-            line.send(frame)
+            if let gate { line.send(frame, through: gate) } else { line.send(frame) }
         }
         return reply?.value
     }

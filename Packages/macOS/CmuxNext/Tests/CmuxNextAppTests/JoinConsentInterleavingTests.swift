@@ -21,8 +21,8 @@ import Testing
 ///   read are done (the app can't know before a read).
 /// - A ticket serves only on its own read, at the current generation, that got through and grants its
 ///   scope, with no write in flight; otherwise it is refused.
-/// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off,
-///   nor without the device owner's confirm (which the scheduler answers confirmed, cancelled or
+/// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off
+///   (recorded where the line writes its bytes, after the write's boundary), nor without the device owner's confirm (which the scheduler answers confirmed, cancelled or
 ///   unavailable, seeded, and releases like any other boundary).
 /// - A press during a write does nothing: a Deny never closes the sheet over it, an Allow never writes.
 /// - When all is done, no write is in flight and one more read brings the model to what acpmux holds.
@@ -127,10 +127,14 @@ import Testing
             if let op = Current.op { world.reads[op] = answer }
             return answer
         }
-        func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
-            // The app sends the write here; acpmux takes it at the release.
-            world.sends.append(("\(surface.rawValue) \(granted)", world.enabled))
+        func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
+            // The app's line queues the write here and writes it at the release, as its queue does later:
+            // the Labs switch can turn off in between.
             await world.boundary()
+            // The real write point: a grant's bytes go out only through its ticket (a stale one sends nothing
+            // and the connection closes, so the call answers nil).
+            let send = { [world] in world.sends.append(("\(surface.rawValue) \(granted)", world.enabled)) }
+            guard ticket.map({ $0.write(send) }) ?? { send(); return true }() else { return nil }
             // acpmux takes a grant and a revoke only from the person's connection.
             guard world.truth.person else { return nil }
             if surface == .screen { world.truth.screen = granted } else { world.truth.control = granted }

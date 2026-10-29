@@ -31,8 +31,12 @@ import Testing
             takes = owner.takes
         }
         func read() async -> JoinConsentRecord? { owner.readFails ? nil : owner.record }
-        func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
-            writes.append("\(surface.rawValue) \(granted)")
+        func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
+            // Between the model's last check and the line's write (the app's line writes on its own queue).
+            await owner.beforeWrite?()
+            // The write point: a grant's bytes go out only through its ticket, as the app's line writes them.
+            let write = { self.writes.append("\(surface.rawValue) \(granted)") }
+            guard ticket.map({ $0.write(write) }) ?? { write(); return true }() else { return nil }
             // acpmux takes a grant and a revoke only from the person's connection.
             guard takes, isPerson else { return nil }
             if surface == .screen { owner.record.screen = granted } else { owner.record.control = granted }
@@ -63,6 +67,8 @@ import Testing
         var confirm = JoinConsentConfirm.confirmed
         /// Each confirm asked, by surface.
         var confirms: [String] = []
+        /// Runs inside a write, after the model's checks and before the line writes its bytes.
+        var beforeWrite: (@MainActor () async -> Void)?
 
         func services() -> JoinConsentServices {
             JoinConsentServices(
@@ -665,10 +671,6 @@ import Testing
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
 
-    /// The strict check takes only the HID system's input: source pid 0 (or the WindowServer's) and the
-    /// HID system's source state. A click posted from a private or combined-session source is refused even
-    /// with pid 0; one from a HID-state source (how the cmux-cua helper posts) is refused by its pid, as is
-    /// this process's own (DEBUG automation) and any other process's, in DEBUG builds too.
     @Test func theStrictPersonCheckTakesOnlyTheHIDSystemsInput() throws {
         let event = { (pid: Int64, state: CGEventSourceStateID) throws -> NSEvent in
             // No event source: making one (CGEventSource) can hang inside SkyLight on a headless Mac. The
@@ -839,6 +841,74 @@ import Testing
         #expect(await grant.value == JoinConsentStrings.onFailed)
         #expect(fake.writes.isEmpty)
         // With no settings change in between, the person's grant goes through.
+        #expect(await model.set(.screen, on: true) == nil)
+        #expect(fake.writes == ["screen true"])
+    }
+
+    /// The Labs switch turns off (and on again) after the model's last check, while the line holds the grant
+    /// to write: the line writes it only through its ticket, which the switch made stale, so it is never
+    /// sent. A revoke is written whatever moved.
+    @Test(arguments: [false, true]) func aGrantIsNeverWrittenWhenTheLabsSwitchMovesAfterItsLastCheck(onAgain: Bool) async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        fake.beforeWrite = { [unowned fake, unowned model] in
+            fake.enabled = false
+            model.featureSwitched()
+            if onAgain {
+                fake.enabled = true
+                model.featureSwitched()
+            }
+        }
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(fake.writes.isEmpty, "the stale grant's bytes never went out")
+        fake.beforeWrite = nil
+        fake.enabled = true
+        #expect(await model.set(.screen, on: true) == nil)
+        #expect(fake.writes == ["screen true"])
+        fake.beforeWrite = { [unowned fake, unowned model] in
+            fake.enabled = false
+            model.featureSwitched()
+        }
+        #expect(await model.set(.screen, on: false) == nil)
+        #expect(fake.writes == ["screen true", "screen false"], "a revoke is written whatever moved")
+    }
+
+    /// Through the real settings path: a settings load comes after the model's last check, while the line
+    /// holds the grant to write. The load invalidates the gate as it happens (the app's
+    /// ``JoinConsentModel/invalidateGrants(_:onEveryLoadOf:)``), so the grant is never sent, with the Labs
+    /// switch off and on again or with no change at all.
+    @Test(arguments: [true, false]) func aGrantIsNeverWrittenWhenTheSettingsLoadAfterItsLastCheck(labsMoves: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-join-labs-write-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
+        try labs(true)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let fake = Fake()
+        let base = fake.services()
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status, openLine: base.openLine,
+            enabled: { settings.snapshot.machineJoin }, settingsEpoch: { settings.loadCount }, confirmOwner: base.confirmOwner,
+            askShown: base.askShown, markAskShown: base.markAskShown))
+        JoinConsentModel.invalidateGrants(model.grantGate, onEveryLoadOf: settings)
+        await model.refresh()
+        fake.beforeWrite = {
+            if labsMoves {
+                try? labs(false)
+                await settings.reload()
+                try? labs(true)
+            }
+            await settings.reload()
+        }
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
+        #expect(settings.snapshot.machineJoin)
+        #expect(fake.writes.isEmpty, "the stale grant's bytes never went out")
+        // With no load in between, the person's grant goes through.
+        fake.beforeWrite = nil
         #expect(await model.set(.screen, on: true) == nil)
         #expect(fake.writes == ["screen true"])
     }
