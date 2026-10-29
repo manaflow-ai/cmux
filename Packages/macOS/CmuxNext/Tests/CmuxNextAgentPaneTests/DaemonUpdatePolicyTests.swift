@@ -232,6 +232,30 @@ import Testing
         #expect(fixture.states("swarm").last == .updated(build: "abc123def"))
     }
 
+    /// An offline machine that disconnected, then connects already on this build (updated by hand
+    /// meanwhile), leaves the board: its offline line does not stay.
+    @Test func anOfflineTargetThatDisconnectsThenConnectsCurrentClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("swarm", build: Self.older, outcomes: [.unreachable], started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        target.reach(nil)
+        release.fire()
+        await policy.drained()
+        #expect(fixture.states("swarm") == [.updating, .offline])
+
+        target.reach(Self.bundled)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls == ["swarm"])
+        #expect(fixture.states("swarm") == [.updating, .offline, .cleared])
+        #expect(fixture.ledger.targets.isEmpty)
+    }
+
     /// Offered again while it waits out an offline backoff (a source offers only connected
     /// machines, so it is back), a machine goes at once, not after the wait.
     @Test(.timeLimit(.minutes(1))) func anOfflineTargetOfferedAgainDoesNotWaitOutItsBackoff() async throws {

@@ -127,7 +127,8 @@ public actor DaemonUpdatePolicy {
     /// ledger nor this run's memory holds them back.
     private var retried: Set<String> = []
     /// Targets whose line says offline after their entry left the queue (still unreachable after
-    /// 6 hours): their next offer clears that line when they need no update.
+    /// 6 hours, or disconnected while offline): their next offer clears that line when they need
+    /// no update.
     private var offlineShown: Set<String> = []
 
     public init(_ dependencies: Dependencies) {
@@ -341,8 +342,12 @@ public actor DaemonUpdatePolicy {
             return await dropped(pending, asked: clearLine)
         }
         guard current != nil || urgent else {
-            // Still offline: its line stays until it connects and is offered again.
-            if pending.offline || offlineShown.contains(target.id), !clearLine { return nil }
+            // Still offline: its line stays until it connects and is offered again (remembered,
+            // so an offer that then needs no update clears it).
+            if pending.offline || offlineShown.contains(target.id), !clearLine {
+                offlineShown.insert(target.id)
+                return nil
+            }
             return await dropped(pending, asked: clearLine)
         }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
