@@ -87,11 +87,33 @@ fn save(record: &MachineCredential) -> Result<()> {
     crate::config::write_atomic(&credential_path(), &serde_json::to_vec_pretty(record)?)
 }
 
+fn configure_mesh_relay(hub: &str) -> Result<()> {
+    let mut config = crate::config::Config::load()?;
+    config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
+        url: hub.to_owned(),
+        token_command: Vec::new(),
+        credential: Some("join".to_owned()),
+    });
+    config.save()
+}
+
+fn mesh_relay_configured() -> bool {
+    crate::config::Config::load().ok().and_then(|config| config.mesh_relay).is_some_and(|relay| relay.credential.as_deref() == Some("join"))
+}
+
 fn load() -> Result<Option<MachineCredential>> {
     let path = credential_path();
     if !path.exists() { return Ok(None); }
     let file = crate::config::private_state_file(&path)?;
     Ok(Some(serde_json::from_reader(file).context("read machine credential")?))
+}
+
+/// The relay client reads the joined bearer in-process from the owner-only store.
+/// It never receives a command, URL or environment value containing the credential.
+pub(crate) fn read_join_credential() -> Result<String> {
+    let record = load()?.ok_or_else(|| anyhow!("machine credential is missing"))?;
+    anyhow::ensure!(record.credential.starts_with("cmm_"), "machine credential is malformed");
+    Ok(record.credential)
 }
 
 fn load_consent() -> Consent {
@@ -137,6 +159,7 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
     }
     let record = MachineCredential { credential: credential.to_owned(), machine_id: machine_id.to_owned(), team_id: team_id.to_owned(), name, hub_origin: hub.clone(), last_heartbeat: None, revoked: false, wg_public_key: returned_key.to_owned() };
     save(&record).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", e.to_string()).with_exit(5))?;
+    configure_mesh_relay(&hub).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", "mesh relay configuration failed").with_exit(5))?;
     if json_out { crate::cli::output::print_json(&json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":hub})); }
     else { println!("joined {} ({})", record.name, record.machine_id); }
     Ok(())
@@ -145,7 +168,7 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let fallback_hub = origin(hub)?;
     let record = load()?.unwrap_or(MachineCredential { credential: String::new(), machine_id: String::new(), team_id: String::new(), name: local_name(None), hub_origin: fallback_hub, last_heartbeat: None, revoked: false, wg_public_key: String::new() });
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":"0600", "daemonRunning":false, "meshRelayConfigured":state_dir().join("mesh-relay.json").exists(), "build": crate::hub::BUILD, "channel":"feat-cmux-next"});
+    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":"0600", "daemonRunning":false, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::BUILD, "channel":"feat-cmux-next"});
     if !record.credential.is_empty() {
         if let Ok(res) = http_client()?.post(format!("{}/v1/mesh/heartbeat", record.hub_origin.trim_end_matches('/')))
             .bearer_auth(&record.credential)
