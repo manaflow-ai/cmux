@@ -133,8 +133,8 @@ extension PaneController {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // main-hop-allow: the action's tracked work awaits the daemon connection's actor and the agent page's main-actor context; selection and focus run in its reply's job
         services.registry.track(Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            var landed: SurfaceID?
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, created: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -146,7 +146,7 @@ extension PaneController {
                 if let timing { services.cache.createTabs.expect(timing, surface: created.surface.rawValue) } // the tab's once the pane lists it
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
-                landed = true
+                landed = created.surface
                 then?(created.surface)
                 return nil
             } catch {
@@ -186,14 +186,14 @@ extension PaneController {
         selectWhenReported(surface: pending.surface)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         services.registry.track(Task { [services] in
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            var landed: SurfaceID?
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, created: landed, in: window) }
             do {
                 let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
-                landed = true
+                landed = created.surface
                 then?(created.surface)
                 return nil
             } catch is NewTerminalTabCancelled {

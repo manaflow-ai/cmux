@@ -141,8 +141,8 @@ enum PaneHandlers {
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
         }
         ctx.registry.track(Task {
-            var landed = false
-            defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            var landed: SurfaceID?
+            defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, created: landed, in: window) }
             do {
                 let created = if let intended {
                     try await intended()
@@ -151,7 +151,7 @@ enum PaneHandlers {
                 }
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
-                landed = true
+                landed = created.surface
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
             } catch {

@@ -216,8 +216,8 @@ extension PaneBrowserTabOpener {
         controller.selectWhenReported(surface: pending.surface)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and moves the page in its reply's job
         services.registry.track(Task {
-            var landed = false
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            var landed: SurfaceID?
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, created: landed, in: window) }
             do {
                 let surface = try await pending.send { surface in
                     guard let tab = controller.daemon.store.tab(surface: surface) else { return }
@@ -227,7 +227,7 @@ extension PaneBrowserTabOpener {
                 let selected = controller.stripModel.selectedID?.rawValue
                 if selected == nil || selected == pending.tab || controller.pendingSelectSurface == pending.surface { controller.selectWhenReported(surface: surface) }
                 controller.workspace?.expectFocus(on: surface, target: focusesAddressBar ? .addressBar : .content, generation: intent)
-                landed = true
+                landed = surface
                 then?(surface)
                 return nil
             } catch {

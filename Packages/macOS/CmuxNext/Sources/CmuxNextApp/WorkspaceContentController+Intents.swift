@@ -155,21 +155,20 @@ extension WorkspaceContentController {
         // After the create before it (a fast second press may target its stand-in). What it lands is the rest
         // of the person's key (`personAction`).
         let previous = pendingCreate
-        pendingCreate = services.mainWork.personAction(owner: "WorkspaceContent.createLanded") { () async -> Bool in
+        pendingCreate = services.mainWork.personAction(owner: "WorkspaceContent.createLanded") { () async -> SurfaceID? in
             await previous?.value
             do {
-                _ = try await send()
-                return true
+                return try await send().surface
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                return false
+                return nil
             }
         } then: { [services, state] landed in
-            if landed {
+            if landed != nil {
                 BenchSpans.mark("\(label).reply.optimistic")
                 then?()
             }
-            keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
+            keyRouter.creationInputCoordinator.resolve(keys, created: landed, in: window)
             // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
             withExtendedLifetime((services, state)) {}
         }

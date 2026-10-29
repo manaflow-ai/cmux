@@ -270,25 +270,21 @@ final class CreationInputCoordinator {
         syncMode()
     }
 
-    /// The creation behind `ticket` got its reply (`landed`: its focus was asked for) or failed (its keys drop).
-    func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
-        resolve(ticket, landed: landed, workspace: nil, in: window)
-    }
-
-    /// The creation behind `ticket` made surface `created`, or failed (nil).
+    /// The creation behind `ticket` made surface `created`, or failed (nil: its keys drop). Its keys go only to the tab of
+    /// that surface (review finding 5), never to the tab the focus model happens to name.
     func resolve(_ ticket: CreationInputBuffer.Ticket?, created: SurfaceID?, in window: NSWindow?) {
-        resolve(ticket, landed: created != nil, workspace: nil, in: window)
+        resolve(ticket, landed: created != nil, workspace: nil, surface: created, in: window)
     }
 
     /// The new workspace behind `ticket` (``beginWorkspace(in:)``) was made (`workspace`, its id) or not (nil: it
     /// failed or a close took it, and the keys typed for it drop).
     func resolve(_ ticket: CreationInputBuffer.Ticket?, workspace: String?, in window: NSWindow?) {
-        resolve(ticket, landed: workspace != nil, workspace: workspace, in: window)
+        resolve(ticket, landed: workspace != nil, workspace: workspace, surface: nil, in: window)
     }
 
     /// The keys go on in a new main-actor turn: outside the creation's task (its action scope) and after the focus events
     /// the reply queued.
-    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
+    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, surface: SurfaceID?, in window: NSWindow?) {
         if let window, let workspace, let ticket, let claim = claims[window.windowNumber], claim.ticket == ticket {
             claim.workspace = workspace
             _ = activeClaim(in: window) // the window may show it already (its delta came before the reply)
@@ -302,17 +298,43 @@ final class CreationInputCoordinator {
             settleFocusAfterFailure(in: window)
         }
         guard let hold, let creation else { return }
-        // Where its focus lands, read in the reply's turn: the expectation it asked for, or the tab that expectation
-        // already landed on (the topology listed it). A new workspace's lands once the window shows it.
-        if creation.landed, !creation.newWorkspace, let state = router?.focus(for: window).0?.focus.currentState(),
-           state.generation == creation.generation {
-            if let expectation = state.expectation, expectation.generation == creation.generation {
-                hold.landsOn[creation.target] = Self.landingKey(expectation.key)
-            } else if let tab = state.resolved.tab {
-                hold.landsOn[creation.target] = "tab:\(tab)"
-            }
-        }
         syncMode()
+        scheduleReconcile(in: window)
+        // The made surface is where its keys land. Whether it lands in this window is known once the store holds what the
+        // daemon emitted before the reply (``landingApplied(_:surface:in:)``). A new workspace's lands once the window
+        // shows it.
+        guard creation.landed, !creation.newWorkspace, let surface else { return }
+        let daemon = router?.focus(for: window).0?.workspaceContent?.daemon
+        // As `expectFocus(on:)` names it: the tab once the store lists it, its surface until then.
+        hold.landsOn[creation.target] = Self.landingKey(daemon?.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue)))
+        guard let daemon else { return landingApplied(ticket, surface: surface, in: window) }
+        daemon.whenApplied(.generate()) { [weak self, weak window] in
+            guard let self, let window else { return }
+            landingApplied(ticket, surface: surface, in: window)
+        }
+    }
+
+    /// The store holds the result of `ticket`'s creation (review finding 6b: every wait ends with its operation). A made
+    /// surface the window's shown workspace has: the window lays it out in this turn, so the focus model's topology
+    /// lists its tab and the creation's focus expectation lands; its keys wait only for its view (attached by the
+    /// window's presentation, which always runs). A surface the window does not show (it went elsewhere, or it is gone
+    /// already) can never take this window's keys: they drop (targetFailed) in this turn, and focus stays on a target
+    /// that exists. No timer ends the wait.
+    private func landingApplied(_ ticket: CreationInputBuffer.Ticket, surface: SurfaceID, in window: NSWindow) {
+        guard let hold = holds[window.windowNumber], let creation = hold.creations.creation(ticket) else { return }
+        let content = router?.focus(for: window).0?.workspaceContent
+        let store = content?.daemon.store
+        let shownHere = store?.pane(containing: surface).flatMap { store?.workspace(containing: $0.handle) }
+            .map { $0.handle == content?.workspace.handle } ?? false
+        guard let content, shownHere else {
+            if let failed = hold.creations.resolve(ticket, landed: false) { drop([failed], .targetFailed, in: hold) }
+            settleFocusAfterFailure(in: window)
+            syncMode()
+            return scheduleReconcile(in: window)
+        }
+        if let tab = store?.tab(surface: surface), hold.landsOn[creation.target] != nil { hold.landsOn[creation.target] = "tab:\(tab.id)" }
+        content.applyCurrent()
+        // The keys run in a fresh turn, outside the creation's action scope (``scheduleReconcile(in:)``).
         scheduleReconcile(in: window)
     }
 
@@ -585,18 +607,24 @@ final class CreationInputCoordinator {
         // is that creation's own landing): their keys drop, they hold nothing more.
         drop(hold.creations.remove { state.generation > $0.generation && $0.target != named && !Self.showsMadeWorkspace($0, state) },
              .focusMovedAway, in: hold)
-        // 2. A landed creation's keys follow the tab its focus lands on: the expectation its reply asked for (a daemon
-        // surface, the daemon's tab of a stand-in), or, when its tab was not known (a split made at the reply, a new
-        // workspace), the tab the model names under the creation's own intent once nothing is pending.
-        for (ticket, creation) in hold.creations.all
-            where creation.landed && (state.generation == creation.generation || Self.showsMadeWorkspace(creation, state)) {
-            if let expectation = state.expectation, expectation.generation == creation.generation {
-                hold.landsOn[creation.target] = Self.landingKey(expectation.key)
-                continue
-            }
-            if creation.newWorkspace, state.topology.workspace != creation.workspace { continue }
+        // 2. A landed creation's keys follow the tab of the surface it made, once the window lists it (never the tab the
+        // model happens to name: review finding 5). A new workspace's follow its expectation, or the tab the model names
+        // under the creation's own intent in that workspace.
+        for (ticket, creation) in hold.creations.all where creation.landed {
             let landed = hold.landsOn[creation.target].flatMap { Self.tab(landedOn: $0, in: state.topology) }
-            guard let tab = landed ?? (creation.awaitsTab ? named : nil), tab != creation.target else { continue }
+            var tab = landed
+            if creation.newWorkspace {
+                // A new workspace's terminal tab is not known from its reply: the expectation its creation asked for, or
+                // the tab the model names under its own intent in the workspace it made.
+                guard state.generation == creation.generation || Self.showsMadeWorkspace(creation, state) else { continue }
+                if let expectation = state.expectation, expectation.generation == creation.generation {
+                    hold.landsOn[creation.target] = Self.landingKey(expectation.key)
+                    continue
+                }
+                if state.topology.workspace != creation.workspace { continue }
+                tab = landed ?? (creation.awaitsTab ? named : nil)
+            }
+            guard let tab, tab != creation.target else { continue }
             hold.landsOn[creation.target] = nil
             follow(creation.target, to: tab, generation: creation.generation, in: hold)
             hold.creations.setTarget(tab, of: ticket)
