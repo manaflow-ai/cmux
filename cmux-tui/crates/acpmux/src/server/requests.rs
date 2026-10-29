@@ -1123,7 +1123,7 @@ async fn dispatch_request(
                     if conn.origin == super::Origin::Peer {
                         conn.send(&Message::notification(
                             method::MUX_EVENT,
-                            super::event_value(&s.id, rec),
+                            super::event_value(&s.id, &rec),
                         ));
                     } else {
                         conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
