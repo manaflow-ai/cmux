@@ -372,6 +372,8 @@ final class TerminalNotificationStore: ObservableObject {
         }.map { slot, destination in
             TerminalNotification(
                 id: snapshot.identities[slot]!, tabId: destination.workspaceID, surfaceId: destination.surfaceID,
+                panelId: AppDelegate.shared?.workspaceFor(tabId: destination.workspaceID)?
+                    .surfaceOwnershipTarget(for: destination.surfaceID)?.containerPanelID,
                 retargetsToLiveSurfaceOwner: false, title: destination.title, subtitle: "", body: destination.body,
                 createdAt: oldBySlot[slot]?.createdAt ?? Date(), isRead: false, paneFlash: false,
                 ownedAttentionSlot: slot
@@ -1192,6 +1194,17 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    func hasDismissibleUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        notifications.contains {
+            $0.ownedAttentionSlot == nil && !$0.isRead && $0.matches(tabId: tabId, surfaceId: surfaceId)
+        }
+    }
+
+    func hasDismissibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        hasDismissibleUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
+            (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
+    }
+
     /// Whether this store recorded the agent notification correlated with
     /// `correlationKey`, and whether it is still stored and unread wherever its
     /// pane lives now. A completion muted or dropped before recording reports
@@ -1980,7 +1993,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var activeIDs: [String] = []
         var drainedSuperseded: [String] = []
-        for index in updated.indices where ids.contains(updated[index].id) && !updated[index].isRead {
+        for index in updated.indices where ids.contains(updated[index].id) && !updated[index].isRead && updated[index].ownedAttentionSlot == nil {
             updated[index].isRead = true
             activeIDs.append(updated[index].id.uuidString)
             drainedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
@@ -2046,7 +2059,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         for index in updated.indices {
-            if updated[index].tabId == tabId && !updated[index].isRead {
+            if updated[index].tabId == tabId && !updated[index].isRead && updated[index].ownedAttentionSlot == nil {
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
@@ -2080,7 +2093,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
         for index in updated.indices {
             if updated[index].matches(tabId: tabId, surfaceId: surfaceId),
-               !updated[index].isRead {
+               !updated[index].isRead, updated[index].ownedAttentionSlot == nil {
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
                 supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(

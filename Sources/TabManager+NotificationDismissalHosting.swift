@@ -102,7 +102,7 @@ extension TabManager: NotificationDismissalHosting {
     }
 
     func storeHasUnreadNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+        AppDelegate.shared?.notificationStore?.hasDismissibleUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeHasPendingNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
@@ -112,7 +112,7 @@ extension TabManager: NotificationDismissalHosting {
 
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool {
         AppDelegate.shared?.notificationStore?
-            .hasVisibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+            .hasDismissibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {

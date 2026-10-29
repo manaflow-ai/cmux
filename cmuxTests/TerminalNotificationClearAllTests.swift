@@ -46,6 +46,32 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(mixedPanel.hasUnreadIndicator, true)
         XCTAssertEqual(mixedPanel.notifications?.map(\.id), [foreign.id])
     }
+    func testOwnedAttentionDoesNotParticipateInAutomaticDismissal() {
+        let store = TerminalNotificationStore.shared
+        let workspace = UUID(), surface = UUID()
+        let slot = OwnedAttentionSlot(
+            producerID: UUID(), target: OwnedAttentionTarget(workspaceID: workspace, surfaceID: surface)
+        )
+        let owned = TerminalNotification(
+            id: UUID(), tabId: workspace, surfaceId: surface, title: "Waiting", subtitle: "", body: "",
+            createdAt: Date(), isRead: false, paneFlash: false, ownedAttentionSlot: slot
+        )
+        let ordinary = TerminalNotification(
+            id: UUID(), tabId: workspace, surfaceId: surface, title: "Other", subtitle: "", body: "",
+            createdAt: Date(), isRead: false
+        )
+        store.replaceNotificationsForTesting([owned])
+        defer { store.replaceNotificationsForTesting([]) }
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace, surfaceId: surface))
+        XCTAssertFalse(store.hasDismissibleUnreadNotification(forTabId: workspace, surfaceId: surface))
+        XCTAssertFalse(store.hasDismissibleNotificationIndicator(forTabId: workspace, surfaceId: surface))
+        store.replaceNotificationsForTesting([owned, ordinary])
+        XCTAssertTrue(store.hasDismissibleUnreadNotification(forTabId: workspace, surfaceId: surface))
+        store.markRead(forTabId: workspace, surfaceId: surface)
+        XCTAssertEqual(store.notification(id: owned.id)?.isRead, false)
+        XCTAssertEqual(store.notification(id: ordinary.id)?.isRead, true)
+    }
+
     func testOwnedAttentionDefersBehindForeignUnreadAndRestoresAfterClear() throws {
         let store = TerminalNotificationStore.shared
         store.resetOwnedAttentionForTesting()
