@@ -35,8 +35,9 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
     const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 1_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 300; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
-    // The 301st intent exceeds the rolling daily ceiling.
+    for (let i = 0; i < 299; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
+    // The 300th intent is allowed; the 301st exceeds the rolling daily ceiling.
+    expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(299) })).status).toBe(200)
     const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(300) })
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")
