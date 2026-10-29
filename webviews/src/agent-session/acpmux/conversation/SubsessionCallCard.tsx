@@ -50,18 +50,17 @@ function RunningLine({ children }: { children: ReactNode }) {
 /// names a new session from its prompt, so its first line is that prompt's opening words, often cut
 /// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
 export function repeatsPrompt(line: string, prompt: string): boolean {
-  const words = (text: string) =>
-    text
-      .replace(/(?:\.\.\.|\u2026)\s*$/u, "")
-      .toLowerCase()
-      .split(/\s+/u)
-      .filter(Boolean);
+  const ellipsis = /(?:\.\.\.|\u2026)\s*$/u;
+  // Only a line that says it is cut (it ends in an ellipsis) may end mid-word; any other line must
+  // match the prompt's words exactly, so a real step ("Fix bug") never hides behind its prompt ("Fix bugs …").
+  const cut = ellipsis.test(line);
+  const words = (text: string) => text.replace(ellipsis, "").toLowerCase().split(/\s+/u).filter(Boolean);
   const head = words(line);
   if (head.length === 0) return false;
   const body = words(prompt).slice(0, head.length);
-  // The line's last word may be cut mid-word ("includi…").
+  if (body.length < head.length) return false;
   return head.every((word, index) =>
-    index === head.length - 1 ? (body[index] ?? "").startsWith(word) : body[index] === word,
+    cut && index === head.length - 1 ? body[index]!.startsWith(word) : body[index] === word,
   );
 }
 
