@@ -71,11 +71,11 @@ const DOCS_MORE_NAMES: usize = 60;
 
 pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
     script, `cmux.docs(query)` searches every cmux tool and returns its input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
-    one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
-    secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
-    cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
-    from the *_list tools; a unique prefix or <session>:<id> works. `current` is this chat's \
-    own workspace or pane; `focused` is the one the person looks at. A change takes \
+    one script and return what you need. Tools of the chat's other cmux servers (cua_*: \
+    computer use on Mac apps; secrets_*, sessions_*, subsessions_*, forum_*) come with \
+    their rules in `servers` of a cmux.docs answer: follow them. Objects have public ids \
+    (ws_…, pane_…, tab_…, term_…) from the *_list tools; a unique prefix or <session>:<id> \
+    works. `current` is this chat's own workspace or pane; `focused` is the one the person looks at. A change takes \
     idempotency_key: on in_progress, retry with the key from the error; another server's \
     call that fails in_progress has no key and may have run, so check its effect first. Tools \
     never move the \
@@ -85,12 +85,27 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux
     it when they ask to go there. In a chat reply, show UI: ![alt](/abs/path.png) or an image \
     path or https address draws as a thumbnail.";
 
+/// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
+pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
+/// What `cmux_exec` says when the chat has computer use.
+pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
+    and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
+    task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
+    lists them with their rules. Never type into a terminal or script tool, never copy app \
+    data out of the app unless the person asked, and stop before a payment, a password, \
+    sending a message or deleting that they did not ask for, and say what is left.";
+
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
 /// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
 /// is the full list, for the family summary in its description.
 pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
-    let families = families(tools)
+    let grouped = families(tools);
+    // A harness that shows one tool must still find computer use in it: a
+    // chat asked to "open Calculator" used osascript (2026-10-27).
+    let computer_use =
+        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
+    let families = grouped
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))
         .collect::<Vec<_>>()
@@ -99,8 +114,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "name": EXEC,
         "title": "Run a cmux script",
         "description": format!(
-            "Run JavaScript that calls cmux tools and return its result. The script is \
-             an async function body: use await and return a JSON value. \
+            "Run JavaScript that calls cmux tools and return its result.{computer_use} The \
+             script is an async function body: use await and return a JSON value. \
              `cmux.docs(query)` finds tools with their input schemas (words such as \
              \"pane split\", or nothing for every name by family); \
              `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls one and returns its \
@@ -190,7 +205,9 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .iter()
         .filter_map(|tool| {
             let name = tool["name"].as_str()?.to_lowercase();
-            let description = tool["description"].as_str().unwrap_or_default().to_lowercase();
+            let description =
+                super::upstream::without_rules(tool["description"].as_str().unwrap_or_default())
+                    .to_lowercase();
             let arguments = tool["inputSchema"]["properties"]
                 .as_object()
                 .map(|properties| properties.keys().cloned().collect::<Vec<_>>().join(" "))
