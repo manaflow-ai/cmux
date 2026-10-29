@@ -9,15 +9,17 @@ Which commits are the push's own (push_range.py, shared with guardrails.py, the 
 so all of them judge the same range): the commits of each pushed head that none of its remote head, its
 remote-tracking ref, this clone's origin/feat-cmux-next, the remote's HEAD and the integration branch it was cut
 from reaches. That last one is read, not guessed: the pushed branch's configured upstream when it is a
-remote-tracking ref (`git worktree add -b topic origin/perf/chrome-parity` records it, for any long-lived
-branch), plus the known integration refs (push_range.INTEGRATION_REFS: origin/perf/chrome-parity, origin/main)
-for a branch cut with --no-track. Each is one more `--not` of git's walk, so git itself stops at the nearest one
-by history; none is chosen by name, and none can hide a commit the remote lacks (a local-branch upstream is never
-used). With none of them nearer, nothing changes: the base is where HEAD meets origin/feat-cmux-next. (2026-10-29:
-a branch cut from perf was judged over its 9,426 commits past feat-cmux-next and refused for files it never
-touched.) Their boundary is the base: the remote head for a second push (every new commit is judged, nothing
-pushed before), where HEAD meets origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits
-the rebase brought in are not judged; the rebased commits are), where HEAD left perf for a branch cut from perf. A branch that merged origin/feat-cmux-next in is judged over the upstream it
+remote-tracking ref of the pushed remote (`git worktree add -b topic origin/perf/chrome-parity` records it, for
+any long-lived branch), plus the known integration refs (push_range.INTEGRATION_REFS: origin/perf/chrome-parity,
+origin/main) for a branch cut with --no-track. Each is one more `--not` of git's walk, so git itself stops at the
+nearest one by history; none is chosen by name, and none hides a commit nobody pushed (a local branch or another
+remote's branch never counts). A push onto an integration branch itself adds none of them. With none of them
+nearer, nothing changes: the base is where HEAD meets origin/feat-cmux-next. (2026-10-29: a branch cut from perf
+was judged over its 9,426 commits past feat-cmux-next and refused for files it never touched.)
+Their boundary is the base: the remote head for a second push (every new commit is judged, nothing pushed
+before), where HEAD meets origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits the
+rebase brought in are not judged; the rebased commits are), where HEAD left perf for a branch cut from perf.
+A branch that merged origin/feat-cmux-next in is judged over the upstream it
 merged, less what its old remote head already had over the upstream it started from (gate_own), so upstream's
 changes are never the push's and an upstream removal never pays for the branch's debt. With none of those refs
 in the clone, or a shallow clone cut below the pushed commits, every ref of the remote bounds the walk; when even
@@ -84,7 +86,7 @@ arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
-  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it was cut from
+  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it left
   scripts/cmux-next/prepush-gate.py --base A --head B  # exactly what B adds over A
   scripts/cmux-next/prepush-gate.py --pre-push       # the hook: reads pre-push stdin
   scripts/cmux-next/prepush-gate.py --commits A..B   # CI: each commit against its parent, named

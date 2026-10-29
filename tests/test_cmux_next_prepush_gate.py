@@ -499,7 +499,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0, output)
         self.assertIn("Topic.swift", output, "the branch's own try! is judged")
         self.assertNotIn("PerfDebt.swift", output, "perf's own debt is not the branch's")
-        self.assertIn(" 1 own commit(s)", output)
+        self.assertIn(" 1 own commit(s); cut from origin/perf/chrome-parity", output)
 
         self.git("reset", "--quiet", "--hard", "HEAD~1")
         self.kit("Topic", NEW_CLEAN.replace("Fresh", "Topic"))
@@ -557,6 +557,55 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0, output)
         self.assertIn("LocalDebt.swift", output, "an unpushed upstream's commits are the push's own")
         self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_upstream_on_another_remote_bounds_nothing(self):
+        # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
+        # commits are not on origin, so they are the push's own.
+        fork = self.root / "fork.git"
+        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        self.git("remote", "add", "fork", str(fork))
+        self.git("checkout", "--quiet", "-b", "contrib")
+        self.kit("ForkDebt", self.with_try("ForkDebt"))
+        self.commit("a contributor's debt, never on origin")
+        self.git("push", "--quiet", "--no-verify", "fork", "contrib")
+        self.git("fetch", "--quiet", "fork")
+        self.topic_from("fork/contrib", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/fork/contrib", "control: the upstream is on another remote")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
+        # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over
+        # feat-cmux-next as before: perf's commits are what it lands.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/chrome-parity")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+        self.assertNotIn("cut from", output)
+
+    def test_an_ordinary_branch_report_names_no_integration_ref(self):
+        # perf exists in the clone but this branch left feat-cmux-next: the report reads as before.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/feat-cmux-next", "--track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertNotIn("cut from", output)
+        self.assertNotIn("perf/chrome-parity", output)
 
     def test_a_base_given_on_the_command_line_wins_over_the_branch_s_integration_base(self):
         self.long_lived_branch("perf/chrome-parity", "PerfDebt")

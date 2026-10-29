@@ -6,17 +6,20 @@ remote has: the ref's remote head (pre-push stdin, or a --base), the remote-trac
 (refs/remotes/<remote>/<name>: the last head this clone saw there), this clone's origin/feat-cmux-next (the shared
 base every branch rebases onto or merges in), the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
 branch, a tag on main), and the integration branch the pushed branch was cut from:
-- its configured upstream (`<branch>@{upstream}`), when that is a remote-tracking ref: `git worktree add -b topic
-  origin/perf/chrome-parity` and `git checkout -b topic origin/x` record it, so it names any long-lived branch;
+- its configured upstream (`<branch>@{upstream}`), when that is a remote-tracking ref of the pushed remote:
+  `git worktree add -b topic origin/perf/chrome-parity` and `git checkout -b topic origin/x` record it, so it
+  names any long-lived branch;
 - the known integration refs (INTEGRATION_REFS: origin/perf/chrome-parity, origin/main), for a branch cut with
   --no-track or whose upstream `git push -u` has since moved to its own name.
 Every one of them is only another `--not` of the walk below, so no rule picks among them: git stops the walk at
 the first commit any of them reaches, which is the nearest integration branch by history, the fact of where the
 branch left it (2026-10-29: a branch cut from perf, 9,426 commits ahead of feat-cmux-next, was judged over all of
-them and refused for debt in files it never touched). Each is a ref the remote has, so none can hide a commit
-the remote does not have: an upstream that is a local branch (`git branch --track topic local-work`) is never
-used, and a ref this clone lacks bounds nothing. With none of them nearer, the base is where HEAD meets
-origin/feat-cmux-next, as before. So
+them and refused for debt in files it never touched). None of them may hide a commit nobody pushed: an upstream
+counts only when it is a remote-tracking ref of the pushed remote (not a local branch, not another remote's such
+as a contributor's fork, none for a push to a URL), and a ref this clone lacks bounds nothing. A push onto an
+integration branch itself (refs/heads/feat-cmux-next, perf/chrome-parity, main) adds none of them, so landing
+perf onto feat-cmux-next is judged over feat-cmux-next as before (and the compile trailer rule sees its Swift).
+With none of them nearer, the base is where HEAD meets origin/feat-cmux-next, as before. So
 
     own commits = git rev-list HEAD --not <those refs>
     edges       = the boundary of that walk (the parents of own commits that are not own themselves),
@@ -32,12 +35,13 @@ One edge is the base, and the push's own findings are those of base..HEAD:
 
 Several edges (a branch that merged origin/feat-cmux-next in): the base is the edge on the shared side (an
 ancestor of origin/feat-cmux-next, else of the remote's HEAD, else of the branch's upstream or an integration ref),
-so base..HEAD is the branch's whole delta over the upstream it merged. Each other edge X (the old remote head, or another merged base) gives a range the push does not
-own, merge-base(X, base)..X: what X's side already had over the upstream it started from. The push's own findings
-are those of base..HEAD less those of every such range (less(); a count: own_count()). Both are measured from
-upstream, so upstream's own changes are in neither: an upstream removal of a debt line never pays for a line the
-branch adds (as a count ratchet per file over the old remote head would let it), and an upstream addition is never
-the push's. What the branch pushed before is in both and cancels; the merge's resolution and every new commit count.
+so base..HEAD is the branch's whole delta over the upstream it merged. Each other edge X (the old remote head, or
+another merged base) gives a range the push does not own, merge-base(X, base)..X: what X's side already had over
+the upstream it started from. The push's own findings are those of base..HEAD less those of every such range
+(less(); a count: own_count()). Both are measured from upstream, so upstream's own changes are in neither: an
+upstream removal of a debt line never pays for a line the branch adds (as a count ratchet per file over the old
+remote head would let it), and an upstream addition is never the push's. What the branch pushed before is in both
+and cancels; the merge's resolution and every new commit count.
 
 Fallbacks:
 - none of those refs is in the clone (a first push from a single-branch clone, a remote named otherwise), or the
@@ -47,9 +51,9 @@ Fallbacks:
   caller refuses the push and says to fetch or unshallow). It never judges HEAD~1 alone.
 
 Limit: a branch stacked on another pushed topic that it does not track counts that topic's commits as its own
-(only the fallback bounds by every remote ref); the gate prints the own-commit count and the refs that bounded
-it, so a wide range shows. A base named on the command line (`--base A`) is used as given (given_range), whatever
-the branch tracks.
+(only the fallback bounds by every remote ref); the gate prints the own-commit count, and the integration ref
+the branch was cut from when that is not origin/feat-cmux-next, so a wide range shows. A base named on the
+command line (`--base A`) is used as given (given_range), whatever the branch tracks.
 """
 from __future__ import annotations
 
@@ -178,12 +182,13 @@ def tracking_ref(repo: Path, remote: str, remote_ref: str) -> str | None:
     return None
 
 
-def upstream_of(repo: Path, local_ref: str | None) -> str | None:
+def upstream_of(repo: Path, local_ref: str | None, remote: str | None) -> str | None:
     """The configured upstream of local branch LOCAL_REF (`refs/heads/topic` as pre-push stdin names it, or HEAD)
-    when it is a remote-tracking ref (refs/remotes/...), else None: a local branch upstream (remote ".") holds
-    commits the remote may not have, and a tag, a detached HEAD or a sha has no upstream. (`<ref>@{upstream}` does
-    not take a full ref name, so this reads for-each-ref's %(upstream).)"""
-    if not local_ref or local_ref.startswith("-") or re.fullmatch(r"[0-9a-f]{40,64}", local_ref):
+    when it is a remote-tracking ref of REMOTE (refs/remotes/<remote>/...), else None: a local branch upstream
+    (remote ".") or another remote's branch (a contributor's fork) holds commits REMOTE may not have, a push to a
+    URL names no remote, and a tag, a detached HEAD or a sha has no upstream. (`<ref>@{upstream}` does not take a
+    full ref name, so this reads for-each-ref's %(upstream).)"""
+    if not remote or not local_ref or local_ref.startswith("-") or re.fullmatch(r"[0-9a-f]{40,64}", local_ref):
         return None
     if not local_ref.startswith("refs/heads/"):
         code, local_ref = _git(repo, "rev-parse", "--quiet", "--symbolic-full-name", local_ref)  # HEAD -> refs/heads/x
@@ -193,7 +198,28 @@ def upstream_of(repo: Path, local_ref: str | None) -> str | None:
     code, out = _git(repo, "for-each-ref", "--format=%(refname) %(upstream)", local_ref)
     rows = dict(line.split(" ", 1) for line in out.splitlines() if " " in line) if code == 0 else {}
     upstream = rows.get(local_ref, "")
-    return upstream if upstream.startswith("refs/remotes/") else None
+    return upstream if upstream.startswith(f"refs/remotes/{remote}/") else None
+
+
+def _full_ref(ref: str) -> str:
+    """REF as a full ref name: `origin/x` -> `refs/remotes/origin/x`."""
+    return ref if ref.startswith("refs/") else f"refs/remotes/{ref}"
+
+
+def _cut_from_note(repo: Path, base: str, upstream_ref: str, cut_from: list[str], branch_upstream: str | None) -> str:
+    """The report's note on where the branch was cut: the refs of CUT_FROM that hold BASE when UPSTREAM_REF does
+    not (one `git for-each-ref --contains`), else "" (an ordinary feat-cmux-next branch reads as before)."""
+    if not cut_from:
+        return ""
+    wanted = {_full_ref(ref): ref for ref in cut_from}
+    code, out = _git(repo, "for-each-ref", f"--contains={base}", "--format=%(refname)", _full_ref(upstream_ref),
+                     *wanted)
+    holding = set(out.splitlines()) if code == 0 else set()
+    if _full_ref(upstream_ref) in holding:
+        return ""
+    names = [ref.removeprefix("refs/remotes/") + (" (the branch's upstream)" if ref == branch_upstream else "")
+             for full, ref in wanted.items() if full in holding]
+    return f"; cut from {', '.join(names)}" if names else ""
 
 
 def _shallow_roots(repo: Path) -> set[str]:
@@ -272,9 +298,14 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
     shown = name or remote or DEFAULT_REMOTE
     tracked_ref = tracking_ref(repo, name, remote_ref) if name and remote_ref else None
     remote_head = f"refs/remotes/{name}/HEAD" if name else None
-    branch_upstream = upstream_of(repo, local_ref or head)
-    cut_from = list(dict.fromkeys(ref for ref in (branch_upstream, *INTEGRATION_REFS)
-                                  if ref and ref not in (upstream_ref, remote_head, tracked_ref)))
+    integration = [upstream_ref, *INTEGRATION_REFS]
+    # A push onto an integration branch itself is judged over that branch alone (see the module docstring).
+    landing = remote_ref in {f"refs/heads/{ref.split('/', 1)[-1]}" for ref in integration} or (
+        tracked_ref is not None and _full_ref(tracked_ref) in {_full_ref(ref) for ref in integration})
+    known_refs = {_full_ref(ref) for ref in (upstream_ref, remote_head, tracked_ref) if ref}
+    branch_upstream = None if landing else upstream_of(repo, local_ref or head, name)
+    cut_from = [] if landing else list(dict.fromkeys(
+        ref for ref in (branch_upstream, *INTEGRATION_REFS) if ref and _full_ref(ref) not in known_refs))
     # Every revision in one rev-parse (it was one each: 4 or more git processes per push).
     resolved = commits_of(repo, [head, *known, tracked_ref, upstream_ref, remote_head, *cut_from])
     tip, known_shas = resolved[0], resolved[1:1 + len(known)]
@@ -291,13 +322,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         pushed_before.append(tracked)
     shared = [sha for sha in (upstream_sha, remote_head_sha, *cut_from_shas) if sha is not None]
     negatives = list(dict.fromkeys(pushed_before + shared))
-    # The refs that bound the walk beside today's (named in the report): those this clone has, at another commit.
-    seen = {tracked, upstream_sha, remote_head_sha}
-    bounds = []
-    for ref, sha in zip(cut_from, cut_from_shas):
-        if sha is not None and sha not in seen:
-            seen.add(sha)
-            bounds.append(ref.removeprefix("refs/remotes/") + (" (the branch's upstream)" if ref == branch_upstream else ""))
+    present = [ref for ref, sha in zip(cut_from, cut_from_shas) if sha is not None]
     every_ref = f"--remotes={name}" if name else "--remotes"
     shallow = _shallow_roots(repo)
     bound = None if negatives else every_ref
@@ -306,7 +331,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         # Cut at a shallow root, or no history in common with the named refs: every ref of the remote bounds it.
         bound = every_ref
         own, edge = _walk(repo, tip, negatives, bound)
-    how = f"; the walk also stops at {', '.join(bounds)}" if bounds else ""
+    how = ""
     if bound:
         why = (f"no remote head, tracking ref, {upstream_ref} or remote HEAD in this clone" if not negatives
                else "the walk did not meet those refs")
@@ -325,6 +350,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
         independent = set(out.split()) if code == 0 and out else set(edge)
         edge = [sha for sha in edge if sha in independent]
     if len(edge) == 1:
+        how = _cut_from_note(repo, edge[0], upstream_ref, present, branch_upstream) + how
         return OwnRange(tip, edge[0], (), len(own), f"{len(own)} own commit(s){how}")
 
     def side(sha: str) -> tuple[bool, ...]:
@@ -333,6 +359,7 @@ def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), up
             any(_is_ancestor(repo, sha, ref) for ref in pushed_before),)
 
     base = min(edge, key=side)  # min keeps git's order among equals
+    how = _cut_from_note(repo, base, upstream_ref, present, branch_upstream) + how
     before = []
     for other in edge:
         if other == base:
