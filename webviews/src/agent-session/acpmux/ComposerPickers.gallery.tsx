@@ -72,7 +72,7 @@ const claudeSnapshot: AcpmuxSnapshot = {
       availableModes: [
         { id: "default", name: "Default" },
         { id: "acceptEdits", name: "Accept edits" },
-        { id: "bypassPermissions", name: "Full access" },
+        { id: "bypassPermissions", name: "Bypass permissions" },
       ],
       currentModeId: "default",
     },
@@ -273,7 +273,7 @@ const openModel: Play = async (ctx) => {
 const openAccounts: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  await ctx.focus({ role: "menuitem", name: /^Account/ });
+  await ctx.focus({ role: "menuitem", name: /^Provider/ });
   await ctx.press("Enter");
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(

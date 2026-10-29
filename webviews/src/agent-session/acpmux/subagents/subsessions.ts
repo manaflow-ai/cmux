@@ -32,6 +32,12 @@ export type SubsessionInfo = {
   slot?: true;
   /// Its model, as acpmux names it.
   model?: string;
+  /// Its thinking effort, as acpmux names it.
+  effort?: string;
+  /// Its parent session id, from the proven `startedBy` link.
+  parent?: string;
+  /// The latest bounded message text from the session summary.
+  lastMessage?: string;
   /// acpmux's retry of its failed turn, while one waits (retryState.ts).
   retry?: RetryState;
   /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
@@ -88,6 +94,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
+    ...(entry.effort ? { effort: entry.effort } : {}),
+    ...(entry.startedBy ? { parent: entry.startedBy } : {}),
+    ...(entry.lastMessage ? { lastMessage: entry.lastMessage } : {}),
     // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
     ...(entry.retry ? { retry: entry.retry } : {}),
     ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),

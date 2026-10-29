@@ -76,6 +76,53 @@ password_file() {
   printf '%s/%s.password\n' "$state_dir" "$1"
 }
 
+# The user keychain search list from before the first create in this job. An
+# owned Mac outlives the job, so delete puts the list back: the login keychain
+# must stay in it for the jobs that run there next.
+search_list_file() {
+  printf '%s/search-list\n' "$state_dir"
+}
+
+save_search_list() {
+  # The user search list before create replaces it: written whole (a temporary file moved into place) and only
+  # after list-keychains succeeded. When the capture fails, a marker says so and delete falls back to the login
+  # keychain, so an owned Mac never keeps a deleted signing keychain as its only search-list entry.
+  local file
+  file="$(search_list_file)"
+  [ -e "$file" ] && return 0
+  if "$SECURITY_TOOL" list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file.tmp" \
+      && [ -s "$file.tmp" ]; then
+    mv -f "$file.tmp" "$file"
+  else
+    rm -f "$file.tmp"
+    : > "$file.failed"
+  fi
+}
+
+restore_search_list() {
+  local file entry list=()
+  file="$(search_list_file)"
+  [ -n "$state_dir" ] || return 0
+  if [ -s "$file" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] && [ -e "$entry" ] && list+=("$entry")
+    done < "$file"
+  fi
+  if [ "${#list[@]}" -eq 0 ] && { [ -e "$file" ] || [ -e "$file.failed" ]; }; then
+    # create ran but nothing it saw is left (or it could not read the list): the login keychain, if there is one
+    for entry in "$KEYCHAIN_DIR/login.keychain-db" "$KEYCHAIN_DIR/login.keychain"; do
+      if [ -e "$entry" ]; then
+        list=("$entry")
+        break
+      fi
+    done
+  fi
+  if [ "${#list[@]}" -gt 0 ]; then
+    "$SECURITY_TOOL" list-keychains -d user -s "${list[@]}" || true
+  fi
+  rm -f "$file" "$file.tmp" "$file.failed"
+}
+
 create_keychain() {
   local name="${keychain:-build.keychain}" password
   if [ -z "$state_dir" ]; then
@@ -101,6 +148,7 @@ create_keychain() {
   certificate="$certificate_dir/certificate.p12"
   trap 'rm -rf "${certificate_dir:-}"' EXIT
   password="$(uuidgen)"
+  save_search_list
 
   printf '%s\n' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
   "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || true
@@ -155,6 +203,7 @@ delete_keychains() {
   done
   if [ -n "$state_dir" ]; then
     rm -rf "$state_dir"/certificate.* 2>/dev/null || true
+    restore_search_list
   fi
   if [ "${#names[@]}" -gt 0 ]; then
     echo "Deleted signing keychain(s): ${names[*]}"
