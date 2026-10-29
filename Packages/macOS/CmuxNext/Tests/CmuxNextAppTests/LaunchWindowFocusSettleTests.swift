@@ -23,8 +23,9 @@ struct LaunchWindowFocusSettleTests {
         return tree
     }
 
-    /// The new-work context (NEW-WORK-INHERITS-CONTEXT) records the focused terminal at a focus settle: it shows whether
-    /// the launch window's settle reached the app's services.
+    /// The window record saver keeps the focused pane at a focus settle (`WindowRecordSaver.focusDidSettle`), before any
+    /// other check, and nothing else writes it for a window opened without a record: it shows whether the launch window's
+    /// settle reached the app's services.
     @Test func aWindowOpenedBeforeInputVerificationStartsSendsItsSettlesToTheServices() async throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
@@ -55,7 +56,7 @@ struct LaunchWindowFocusSettleTests {
         // The settle the app sends after the window's focus queue drained.
         let settle = try #require(controller.focus.settledObserver, "the window has no focus settle observer")
         settle(controller.focus.state)
-        try await PasswordManagerRouteTests.until({ services.workContext.entries.first?.tab == tab }, within: .seconds(2),
-                                                  report: { "the launch window's settle reached no service: work context \(services.workContext.entries)" })
+        try await PasswordManagerRouteTests.until({ controller.state.savedFocusedPane == paneKey }, within: .seconds(2),
+                                                  report: { "the launch window's settle reached no service: saved focused pane \(String(describing: controller.state.savedFocusedPane))" })
     }
 }
