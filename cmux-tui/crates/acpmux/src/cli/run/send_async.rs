@@ -20,7 +20,14 @@ pub(super) async fn queue(
     match queue_once(client, session, text, steer, prompt_id, superseding, json_out).await {
         Ok(()) => Ok(()),
         Err(error) if super::super::output::daemon_closed_error(&error) => {
-            let replacement = super::super::output::reconnect_after_update().await?;
+            let replacement =
+                super::super::output::reconnect_after_update().await.map_err(|e| {
+                    prompt_id.closed(
+                        client,
+                        session,
+                        &format!("reconnecting after daemon update: {e}"),
+                    )
+                })?;
             let mut retry = prompt_id.clone();
             retry.resend = true;
             queue_once(&replacement, session, text, steer, &retry, superseding, json_out).await
@@ -47,6 +54,9 @@ async fn queue_once(
         }
         Err(e) if e.to_string().contains("no session") => {
             return Err(errors::AppError::no_session(&key).into());
+        }
+        Err(_) if client.is_closed() => {
+            return Err(prompt_id.closed(client, &key, "queueing the prompt"));
         }
         Err(e) => return Err(e),
     };

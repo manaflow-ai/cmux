@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::json;
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
@@ -409,4 +409,52 @@ fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
     assert_ne!(after["pid"], before["pid"]);
     assert_eq!(after["listen"], before["listen"]);
     assert_eq!(after["webUrl"], before["webUrl"]);
+}
+
+#[test]
+fn a_thought_after_the_reply_does_not_print_the_reply_twice() {
+    let dir = scratch("trailing-thought");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
+    assert!(made.status.success(), "{}", text(&made));
+    let sent = cli(&dir, &["send", "--timeout", "10", "lane", "reply-then-thought"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    assert_eq!(String::from_utf8_lossy(&sent.stdout).trim(), "echo: reply-then-thought");
+}
+
+#[test]
+fn no_wait_lost_acceptance_keeps_the_generated_recovery_identity() {
+    let dir = scratch("outbox-close");
+    std::os::unix::fs::symlink(dir.join("outside"), dir.join("daemon.log")).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut lines = BufReader::new(stream.try_clone().unwrap()).lines();
+        while let Some(line) = lines.next() {
+            let msg: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+            let Some(id) = msg.get("id") else { continue };
+            if msg["method"] == "_acpmux/send_queue" {
+                // Recorded by the outbox, but its acknowledgement is lost.
+                return msg["params"]["request"]["_meta"]["acpmux"]["promptId"].clone();
+            }
+            let result = match msg["method"].as_str().unwrap() {
+                "initialize" => json!({}),
+                "_acpmux/info" => json!({"sessionId": "lane"}),
+                other => panic!("unexpected request {other}"),
+            };
+            writeln!(stream, "{}", json!({"jsonrpc":"2.0", "id": id, "result": result})).unwrap();
+        }
+        panic!("queue request never arrived")
+    });
+    let sent = cli(&dir, &["--json", "send", "--no-wait", "lane", "ambiguous"]);
+    let id = server.join().unwrap();
+    assert!(!sent.status.success(), "{}", text(&sent));
+    let envelope: serde_json::Value = serde_json::from_slice(&sent.stderr).unwrap();
+    assert!(id.is_string());
+    assert_eq!(envelope["error"]["detail"], "daemon_closed");
+    assert_eq!(envelope["error"]["promptId"], id);
+    assert_eq!(envelope["error"]["sessionId"], "lane");
+    assert_eq!(envelope["error"]["retryable"], true);
+    fs::remove_dir_all(dir).unwrap();
 }

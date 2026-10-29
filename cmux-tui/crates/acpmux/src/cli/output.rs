@@ -21,6 +21,7 @@ pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
 }
 
 pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Result<Arc<Client>> {
+    let budget = budget.min(UPDATE_RECONNECT_BUDGET);
     tokio::time::timeout(budget, crate::daemon::connect(true))
         .await
         .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
@@ -315,6 +316,7 @@ struct StreamProgress {
     /// Text already emitted for the trailing assistant item. After a gap,
     /// buffer deltas until the durable reply can fill the missing suffix.
     printed_assistant: String,
+    assistant_item: Option<usize>,
     reconnecting: bool,
     last_tool: String,
 }
@@ -405,6 +407,7 @@ pub(crate) async fn stream_prompt(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_prompt_once(
     client: Arc<Client>,
     id: &str,
@@ -510,13 +513,16 @@ async fn stream_prompt_once(
                         if quiet || progress.reconnecting { continue; }
                         let mut out = stdout.lock();
                         if let Some(Item::Assistant { text }) = t.items.last() {
+                            let item = t.items.len() - 1;
+                            if progress.assistant_item != Some(item) {
+                                progress.printed_assistant.clear();
+                                progress.assistant_item = Some(item);
+                            }
                             if text.len() > progress.printed_assistant.len() {
                                 let _ = write!(out, "{}", &text[progress.printed_assistant.len()..]);
                                 let _ = out.flush();
                                 progress.printed_assistant = text.clone();
                             }
-                        } else {
-                            progress.printed_assistant.clear();
                         }
                         if let Some(Item::Tool { title, status, kind, .. }) = t.items.last() {
                             let line = format!("[{kind} {status}] {title}");

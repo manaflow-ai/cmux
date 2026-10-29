@@ -1149,6 +1149,8 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+    if text == "reply-then-thought":
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "done"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
