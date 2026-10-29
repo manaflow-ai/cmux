@@ -179,6 +179,12 @@ struct PlacementDocumentWriteOrderTests {
             let reloaded = try #require(SidebarMirror.make())
             try #require(reloaded.load(remote.document))
             #expect(reloaded.rows(SidebarViewRequest(live: Self.live))?.compactMap(\.ref?.workspaceID) == Self.expected)
+            if ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1" {
+                try await PlacementDocumentCapture.captureIfRequested(
+                    controller: controller,
+                    committed: try #require(reloaded.rows(SidebarViewRequest(live: Self.live))).compactMap(\.ref?.workspaceID),
+                    expected: Self.expected, original: Self.original, operations: remote.calls.map(\.ops))
+            }
             await connection.close()
         } catch {
             await connection.close()
