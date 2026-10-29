@@ -114,9 +114,8 @@ import Testing
                              replacementRange: NSRange(location: NSNotFound, length: 0))
         model.revision = 2; model.title = "Updated"
         host.update(model)
-        editor.unmarkText()
-        field.stringValue = "committed"
-        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        editor.insertText("committed", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(!editor.hasMarkedText())
         #expect(content.model?.revision == 2)
         #expect(events.last?["type"] as? String == "search" && events.last?["value"] as? String == "committed")
         #expect(events.last?["revision"] as? Int == 1)
