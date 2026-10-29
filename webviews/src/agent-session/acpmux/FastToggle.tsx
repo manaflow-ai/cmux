@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { usePopupHost } from "../../ui/UiProvider";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { useT } from "./i18n";
 import { tooltipProps } from "./shortcuts";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import { useComposerPopup, popupChoice, popupIdentity } from "./nativeComposerPopup";
+import type { NativePopupEvent } from "../../ui/nativePopup";
 
 /// Codex's speed toggle (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the
 /// menu. KEEP it for Codex"): a lightning bolt in the box's trailing cluster, just left of the mic,
@@ -58,7 +61,8 @@ export function useSpeedToggle(speed: SpeedTiers | undefined): boolean {
 /// on/off.
 export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inline?: boolean }) {
   const t = useT();
-  if (speed.tiers.length === 0) return null;
+  const native = usePopupHost()?.native;
+  const offered = speed.tiers.length > 0;
   const at = speed.tiers.indexOf(speed.current ?? "");
   const nextAt = at + 1 < speed.tiers.length ? at + 1 : -1;
   const name = (index: number) => {
@@ -69,6 +73,31 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
     return speed.names?.[value] ?? value;
   };
   const label = t("composer.speedLabel", { tier: name(at) });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useComposerPopup({
+    open: Boolean(native) && offered && !inline && open,
+    anchor: () => trigger.current,
+    model: {
+      side: "top",
+      align: "start",
+      width: 220,
+      title: label,
+      rows: [speed.off, ...speed.tiers].map((value, index) =>
+        popupChoice(popupIdentity("speed", value), name(index - 1), {
+          checked: value === (speed.current ?? speed.off),
+        }),
+      ),
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type === "pick") {
+        const value = [speed.off, ...speed.tiers].find((value) => popupIdentity("speed", value) === event.id);
+        if (value !== undefined) speed.onPick(value);
+      }
+    },
+    onDismiss: () => setOpen(false),
+  });
+  if (!offered) return null;
   return (
     <span className="acpmux-speed">
       {inline ? (
@@ -79,8 +108,6 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           aria-pressed={at >= 0}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
-          // The inline glyph lives inside the model picker trigger. Stop the pointer gesture
-          // before the parent trigger sees it, so choosing Fast does not also open the picker.
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -106,7 +133,6 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           aria-pressed={at >= 0}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
-          // Keep focus and the caret in the prompt, as the mic does; Tab still reaches it.
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!)}
         >
@@ -114,8 +140,22 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           <span>{name(at < 0 ? 0 : at)}</span>
         </button>
       )}
-      {!inline && (
-        <Menu>
+      {native && !inline && (
+        <button
+          ref={trigger}
+          type="button"
+          className="acpmux-speed-choices"
+          aria-label={label}
+          data-menu="Speed"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+        >
+          ⌄
+        </button>
+      )}
+      {!native && !inline && (
+        <Menu open={open} onOpenChange={setOpen}>
           <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
             ⌄
           </MenuButton>

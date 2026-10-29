@@ -1,15 +1,16 @@
 import React, { useContext, useEffect, useId, useRef, useState } from "react";
+import { usePopupHost } from "../../ui/UiProvider";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import { EffortTrack } from "./EffortTrack";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
-import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
-import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import { useComposerPopup, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
+import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 import type { ReasoningSliderStyle } from "./composerSettings";
 
-/// A switch section in the reasoning menu: Claude Code's Fast Mode (On/Off) or Codex's Service
-/// Tier (Standard/Fast), and Claude Code's Ultracode. `on` is the choice the chip names.
 export type SpeedSection = {
   title: string;
   choices: Choice[];
@@ -18,20 +19,7 @@ export type SpeedSection = {
   onPick(value: string): void;
 };
 
-/// The reasoning chip and its menu (Lawrence 2026-10-09, MonoCode's picker): a Reasoning section
-/// with one checked row per level the model offers; then Ultracode and the speed section when the
-/// agent has them. The agent's own level ("default", `defaulted`) checks the level it resolves to,
-/// with a Default hint, and the chip names that level; unresolved, it says Reasoning, never the
-/// first level. The chip says Ultracode while that is on. No composer draws it since Leo 2026-10-20
-/// (one model button, its menu's Effort › and Fast mode rows, QuickModelMenu.tsx); it stays a
-/// standalone control with its gallery.
-/// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
-/// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
-/// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
-/// section is the model picker's stepped slider (EffortTrack) instead of the rows, when the model
-/// offers two or more levels. The slider picks as it moves and keeps the menu open; Escape closes
-/// it back to the chip. `sliderStyle` is an opt-in visual comparison choice and defaults to the
-/// current accent treatment.
+/** AppKit renders with native transport; browser previews keep the shared web menu. */
 export function EffortPicker({
   label,
   efforts,
@@ -43,50 +31,47 @@ export function EffortPicker({
   chevron,
   short,
   slider = false,
-  sliderStyle: requestedSliderStyle = "accent",
+  sliderStyle = "accent",
 }: {
-  /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
   efforts: Choice[];
   current?: string;
   onPick(value: string): void;
-  /// The agent runs its own level; `current` is the level that resolves to.
   defaulted?: boolean;
   ultracode?: SpeedSection;
   speed?: SpeedSection;
   chevron?: React.ReactNode;
-  /// The level's short name ("Med"), for a narrow composer row (composerRowFit.ts).
   short?: string;
-  /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
-  /// Visual treatment for the opt-in slider; the current accent treatment is the default.
   sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
-  // On New Tab the menu opens down (newTabComposer.ts).
+  const native = usePopupHost()?.native;
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
-  // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
-  // real levels in the menu so the first arrow lands on an actionable choice.
+  const trigger = useRef<HTMLButtonElement>(null);
   const visibleEfforts = efforts.filter((choice) => !isDefaultChoice(choice));
   const selectedVisible = visibleEfforts.find((choice) => choice.id === current);
   const level =
     ultracode && ultracode.current === ultracode.on
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
-  // One level is nothing to slide between: the list shows it as a single checked row.
-  const sliding = slider && visibleEfforts.length > 1;
-  const sliderStyle = requestedSliderStyle;
   const recommended = visibleEfforts.find((choice) => choice.recommended);
-  // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
-  const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
-  // Automation opens the menu by its label as a click does (see pickerOpeners.ts).
+  const sliderShown = selectedVisible ?? recommended ?? visibleEfforts[0];
+  const sliding = slider && visibleEfforts.length > 1;
+  // Match the browser slider's commit guard while the host is still echoing a pick.
+  const nativeSliderSent = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    nativeSliderSent.current = undefined;
+  }, [current, open]);
+
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+
   // Base UI initially focuses the popup while it measures its anchor. Move focus to the selected
   // reasoning row on the next frame, after the popup is mounted and positioned, so ArrowDown starts
   // from the visible choice for both a click and automation opening by label.
   useEffect(() => {
-    if (!open) return;
+    if (native || !open) return;
     const frame = requestAnimationFrame(() => {
       const range = document.querySelector<HTMLElement>(".acpmux-effort-menu .acpmux-effort-range");
       if (range) {
@@ -100,7 +85,123 @@ export function EffortPicker({
       selectedReasoning?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [native, open]);
+
+  const rows: NativePopupRow[] = [];
+  if (visibleEfforts.length > 0) {
+    if (sliding) {
+      const shownIndex = Math.max(
+        0,
+        visibleEfforts.findIndex((choice) => choice.id === sliderShown?.id),
+      );
+      rows.push({
+        id: "reasoning-slider",
+        kind: "slider",
+        label: t("picker.reasoning"),
+        value: String(shownIndex),
+        minimum: 0,
+        maximum: visibleEfforts.length - 1,
+        step: 1,
+        slider: {
+          stops: visibleEfforts.map((choice) => ({
+            value: choice.id,
+            label: choice.name,
+            description: choice.description,
+            accessibilityLabel: choice.recommended ? t("effort.valueRecommended", { level: choice.name }) : choice.name,
+          })),
+          selectedValue: selectedVisible?.id,
+          defaultValue: recommended?.id ?? visibleEfforts[0]?.id,
+          recommendedValue: recommended?.id,
+          recommendedLabel: recommended ? t("effort.recommendedLevel", { level: recommended.name }) : undefined,
+          minimumLabel: t("effort.faster"),
+          maximumLabel: t("effort.smarter"),
+          accessibilityLabel: t("effort.title"),
+          style: sliderStyle,
+        },
+      });
+    } else {
+      rows.push(
+        ...popupSection(
+          "reasoning",
+          t("picker.reasoning"),
+          visibleEfforts.map((choice) =>
+            popupChoice(popupIdentity("effort", choice.id), choice.name, {
+              description: choice.description,
+              checked: choice.id === selectedVisible?.id,
+              shortcut: defaulted && choice.id === selectedVisible?.id ? t("picker.default") : choice.hint,
+            }),
+          ),
+        ),
+      );
+    }
+  }
+  for (const [index, section] of [ultracode, speed].entries()) {
+    if (!section) continue;
+    rows.push({ id: `separator-${index}`, kind: "separator", label: "" });
+    rows.push(
+      ...popupSection(
+        `section-${index}`,
+        section.title,
+        section.choices.map((choice) =>
+          popupChoice(popupIdentity(index === 0 ? "ultracode" : "speed", choice.id), choice.name, {
+            description: choice.description,
+            checked: choice.id === section.current,
+            shortcut: choice.hint,
+          }),
+        ),
+      ),
+    );
+  }
+  const choiceById = new Map<string, { value: string; onPick(value: string): void }>();
+  visibleEfforts.forEach((choice) => choiceById.set(popupIdentity("effort", choice.id), { value: choice.id, onPick }));
+  for (const [index, section] of [ultracode, speed].entries()) {
+    if (!section) continue;
+    for (const choice of section.choices)
+      choiceById.set(popupIdentity(index === 0 ? "ultracode" : "speed", choice.id), {
+        value: choice.id,
+        onPick: section.onPick,
+      });
+  }
+
+  const pickChoice = (id: string) => {
+    const choice = choiceById.get(id);
+    if (!choice) return;
+    choice.onPick(choice.value);
+    setOpen(false);
+  };
+
+  useComposerPopup({
+    open: Boolean(native) && open,
+    anchor: () => trigger.current,
+    model: {
+      side: newTab ? "bottom" : "top",
+      align: "start",
+      width: 280,
+      title: label,
+      rows,
+      highlighted: sliding
+        ? "reasoning-slider"
+        : selectedVisible
+          ? popupIdentity("effort", selectedVisible.id)
+          : undefined,
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type === "change" && event.id === "reasoning-slider") {
+        if (!sliding || !event.value?.trim()) return;
+        const index = Number(event.value);
+        const choice = Number.isInteger(index) ? visibleEfforts[index] : undefined;
+        if (choice && choice.id !== selectedVisible?.id && choice.id !== nativeSliderSent.current) {
+          nativeSliderSent.current = choice.id;
+          onPick(choice.id);
+        }
+        return;
+      }
+      if (event.type !== "pick" || !event.id) return;
+      pickChoice(event.id);
+    },
+    onDismiss: () => setOpen(false),
+  });
+
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
   // One line per row, as a native menu: the label, a hint, and a short note (Ultracode) in secondary
@@ -125,82 +226,96 @@ export function EffortPicker({
       </span>
     </MenuRadioItem>
   );
+  if (!native)
+    return (
+      <span className="acpmux-picker acpmux-effort">
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+            <EffortLabel label={level} short={short && short !== level ? short : undefined} />
+            {chevron}
+          </MenuButton>
+          <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
+            {sliding && (
+              <ReasoningSlider
+                title={t("picker.reasoning")}
+                efforts={visibleEfforts}
+                current={selectedVisible?.id}
+                shown={sliderShown}
+                fallback={recommended?.id}
+                sliderStyle={sliderStyle}
+                onPick={onPick}
+                onClose={() => setOpen(false)}
+              />
+            )}
+            {!sliding && visibleEfforts.length > 0 && (
+              <MenuGroup label={t("picker.reasoning")}>
+                <MenuRadioGroup
+                  value={selectedVisible?.id ?? ""}
+                  onValueChange={(next) => {
+                    pickChoice(popupIdentity("effort", next));
+                  }}
+                >
+                  {visibleEfforts.map(levelRow)}
+                </MenuRadioGroup>
+              </MenuGroup>
+            )}
+            {[ultracode, speed].map((section, index) => {
+              if (!section) return null;
+              const rows = (
+                <MenuRadioGroup
+                  value={section.current ?? ""}
+                  onValueChange={(next) => {
+                    pickChoice(popupIdentity(index === 0 ? "ultracode" : "speed", next));
+                  }}
+                >
+                  {section.choices.map(row)}
+                </MenuRadioGroup>
+              );
+              const first = index === 0 || !ultracode;
+              return (
+                <React.Fragment key={section.title}>
+                  <MenuSeparator />
+                  <MenuGroup label={section.title}>
+                    {sliding && first ? (
+                      // Up from the first row under the slider climbs back to it; it is not a menu row.
+                      <div
+                        className="contents"
+                        // ui-allow: the menu's own row navigation cannot reach a non-row control.
+                        onKeyDownCapture={toSliderFromFirstRow}
+                      >
+                        {rows}
+                      </div>
+                    ) : (
+                      rows
+                    )}
+                  </MenuGroup>
+                </React.Fragment>
+              );
+            })}
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+
   return (
     <span className="acpmux-picker acpmux-effort">
-      <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <EffortLabel label={level} short={short && short !== level ? short : undefined} />
-          {chevron}
-        </MenuButton>
-        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
-          {sliding && (
-            <ReasoningSlider
-              title={t("picker.reasoning")}
-              efforts={visibleEfforts}
-              current={selectedVisible?.id}
-              shown={shown}
-              fallback={recommended?.id}
-              sliderStyle={sliderStyle}
-              onPick={onPick}
-              onClose={() => setOpen(false)}
-            />
-          )}
-          {!sliding && visibleEfforts.length > 0 && (
-            <MenuGroup label={t("picker.reasoning")}>
-              <MenuRadioGroup
-                value={selectedVisible?.id ?? ""}
-                onValueChange={(next) => {
-                  onPick(next);
-                  setOpen(false);
-                }}
-              >
-                {visibleEfforts.map(levelRow)}
-              </MenuRadioGroup>
-            </MenuGroup>
-          )}
-          {[ultracode, speed].map((section, index) => {
-            if (!section) return null;
-            const rows = (
-              <MenuRadioGroup
-                value={section.current ?? ""}
-                onValueChange={(next) => {
-                  section.onPick(next);
-                  setOpen(false);
-                }}
-              >
-                {section.choices.map(row)}
-              </MenuRadioGroup>
-            );
-            const first = index === 0 || !ultracode;
-            return (
-              <React.Fragment key={section.title}>
-                <MenuSeparator />
-                <MenuGroup label={section.title}>
-                  {sliding && first ? (
-                    // Up from the first row under the slider climbs back to it; it is not a menu row.
-                    <div
-                      className="contents"
-                      // ui-allow: the menu's own row navigation cannot reach a non-row control.
-                      onKeyDownCapture={toSliderFromFirstRow}
-                    >
-                      {rows}
-                    </div>
-                  ) : (
-                    rows
-                  )}
-                </MenuGroup>
-              </React.Fragment>
-            );
-          })}
-        </MenuPopup>
-      </Menu>
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-picker-button"
+        aria-label={t("effort.title")}
+        data-menu={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <EffortLabel label={level} short={short && short !== level ? short : undefined} />
+        {chevron}
+      </button>
     </span>
   );
 }
 
-/// The effort chip's label: the level, and its short name for a narrow composer row, which swaps
-/// one for the other whole (composerRowFit.ts). The short name is drawn, so the chip's text stays
-/// the level's name.
 function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
   if (!short) return <span>{label}</span>;
   return (

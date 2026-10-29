@@ -1979,6 +1979,16 @@ export function Composer({
                               ) : (
                                 <Icon name={entry.icon} size={18} />
                               ),
+                            nativeIcon:
+                              entry.id === "add.files"
+                                ? "composer.attach"
+                                : entry.id === "add.commands"
+                                  ? "composer.command"
+                                  : entry.id.startsWith("add.mode.")
+                                    ? planning
+                                      ? "mode.build"
+                                      : "mode.plan"
+                                    : entry.icon,
                             ...(entry.id === "add.mention" ? { hint: "@" } : {}),
                             ...(entry.id === "add.commands" ? { hint: "/" } : {}),
                           })),
