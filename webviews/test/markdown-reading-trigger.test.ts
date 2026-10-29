@@ -49,12 +49,13 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
             try {
               const page = await context.newPage();
               await page.goto(
-                base + galleryFrame("pages.markdown", {
-                  variant: "readme",
-                  colorScheme: theme,
-                  width,
-                  reducedMotion: reducedMotion === "reduce" ? "1" : "0",
-                }),
+                base +
+                  galleryFrame("pages.markdown", {
+                    variant: "readme",
+                    colorScheme: theme,
+                    width,
+                    reducedMotion: reducedMotion === "reduce" ? "1" : "0",
+                  }),
               );
               const trigger = page.locator(".md-reading-button");
               await trigger.waitFor({ state: "visible" });
