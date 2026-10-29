@@ -202,7 +202,11 @@ impl<'de> Deserialize<'de> for TerminalSizingPolicy {
         let wire = Wire::deserialize(deserializer)?;
         Ok(Self {
             handheld_first: wire.handheld_first.unwrap_or(false),
-            ..Self::new(wire.mode.unwrap_or_default(), wire.priority.unwrap_or_default(), wire.fixed)
+            ..Self::new(
+                wire.mode.unwrap_or_default(),
+                wire.priority.unwrap_or_default(),
+                wire.fixed,
+            )
         })
     }
 }
@@ -700,7 +704,9 @@ mod tests {
             wire,
             serde_json::json!({
                 "generation": 1, "cols": 118, "rows": 38, "reason": "latest", "owners": ["c3"],
-                "policy": {"mode": "latest", "priority": [], "fixed": null, "handheld_first": false},
+                "policy": {
+                    "mode": "latest", "priority": [], "fixed": null, "handheld_first": false
+                },
                 "participants": [{
                     "id": "c3", "user_id": "u_maya", "display_name": "Maya Ortiz",
                     "device_kind": "mac", "device_name": "Mac Studio", "device_id": null,
