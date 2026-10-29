@@ -34,7 +34,8 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
   }
 
   const ENTRY = "agent-pane.composer-pickers";
-  const VARIANT = "access-grants";
+  // The closed stage: the access-grants variant's play removes a rule before a test could read the menu.
+  const VARIANT = "closed";
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
