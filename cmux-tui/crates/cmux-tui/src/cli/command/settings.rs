@@ -15,22 +15,27 @@ pub(super) fn parse(
     argv: Option<&[String]>,
 ) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
-    let mut operands = words[1..].to_vec();
+    let (verb, args) = words.split_first().ok_or_else(|| {
+        UsageError::new(
+            "unknown or incomplete settings action; run `cmux settings --help` for its actions",
+        )
+    })?;
+    let mut operands = args.to_vec();
     if let Some(argv) = argv {
         operands.extend_from_slice(argv);
     }
-    match (words.first().map(String::as_str), operands.as_slice()) {
-        (Some("get"), [key]) => {
+    match (verb.as_str(), operands.as_slice()) {
+        ("get", [key]) => {
             request(ResourceOperation::SettingsGet, &selectors, flags, key_params(key))
         }
-        (Some("set"), [key, value]) => {
+        ("set", [key, value]) => {
             let value =
                 serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
             let mut params = key_params(key);
             params.insert("value".into(), value);
             request(ResourceOperation::SettingsSet, &selectors, flags, params)
         }
-        (Some("reset" | "unset"), [key]) => {
+        ("reset" | "unset", [key]) => {
             request(ResourceOperation::SettingsReset, &selectors, flags, key_params(key))
         }
         _ => Err(UsageError::new(
