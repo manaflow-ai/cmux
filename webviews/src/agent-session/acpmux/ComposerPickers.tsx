@@ -264,6 +264,7 @@ export function ComposerPickers({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
+            ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(entry.topModels ? { top: entry.topModels } : {}),

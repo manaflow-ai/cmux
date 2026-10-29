@@ -57,6 +57,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 mod cua_helper;
@@ -494,7 +495,11 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    resolve_with_cua_helper(inputs, cua_helper::installed)
+    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
+    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+        tools.servers.retain(|server| server.name != "cmux-cua");
+    }
+    tools
 }
 
 fn resolve_with_cua_helper(
@@ -816,7 +821,7 @@ impl AgentTools {
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec["callTimeoutSecs"] = json!(3600);
+                    spec.set("callTimeoutSecs", json!(3600));
                 }
                 spec
             })

@@ -38,7 +38,7 @@ impl Waiting {
     /// The first waiting record of the turn `turn_id`.
     pub(super) fn first_of_turn(&mut self, turn_id: Option<&Value>) -> Option<&mut EventRecord> {
         let i = *self.by_turn.get(turn_id.and_then(Value::as_str)?)?.first()?;
-        self.slots[i].as_mut()
+        self.slots.get_mut(i)?.as_mut()
     }
 
     /// Takes the records of the turn `turn_id` out.
@@ -55,7 +55,12 @@ impl Waiting {
         let other: Vec<usize> = slots
             .iter()
             .copied()
-            .filter(|&i| self.slots[i].as_ref().is_some_and(|q| q.msg.get("turnId") != turn_id))
+            .filter(|&i| {
+                self.slots
+                    .get(i)
+                    .and_then(Option::as_ref)
+                    .is_some_and(|q| q.msg.get("turnId") != turn_id)
+            })
             .collect();
         for i in other {
             self.take(i);
