@@ -1488,9 +1488,10 @@ impl Hub {
     /// Consumption is recorded in the same session log, so a daemon restart cannot replay it.
     /// Callers hold the session turn lock while taking messages, which makes the scan-and-mark
     /// operation single-consumer for a session.
-    pub(crate) fn take_team_messages(&self, session: &Arc<Session>) -> Vec<String> {
+    pub(crate) fn take_team_messages(&self, session: &Arc<Session>) -> Vec<(String, String)> {
         let mut messages = Vec::<(String, String)>::new();
         let mut consumed = HashSet::new();
+        let mut seen = HashSet::new();
         let _ = self.scan_events(&session.id, 0, &mut |event| {
             match event.kind.as_str() {
                 "team_message" => {
@@ -1498,7 +1499,9 @@ impl Hub {
                         event.msg.get("messageId").and_then(Value::as_str),
                         event.msg.get("text").and_then(Value::as_str),
                     ) {
-                        messages.push((id.to_owned(), text.to_owned()));
+                        if seen.insert(id.to_owned()) {
+                            messages.push((id.to_owned(), text.to_owned()));
+                        }
                     }
                 }
                 "team_message_consumed" => {
@@ -1512,10 +1515,13 @@ impl Hub {
         });
         let pending: Vec<_> =
             messages.into_iter().filter(|(id, _)| !consumed.contains(id)).collect();
-        for (id, _) in &pending {
+        pending
+    }
+
+    pub(crate) fn mark_team_messages(&self, session: &Arc<Session>, messages: &[(String, String)]) {
+        for (id, _) in messages {
             self.append(session, "mux", "team_message_consumed", json!({"messageId": id}));
         }
-        pending.into_iter().map(|(_, text)| text).collect()
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

@@ -144,6 +144,8 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
     let status = match receipt.state.as_str() {
         "leased" => "delivering",
         "delivered" => "delivered",
+        "read" => "read",
+        "acked" => "acked",
         "refused" | "expired" => "failed",
         _ => "queued",
     };

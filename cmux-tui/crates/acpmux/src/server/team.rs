@@ -128,7 +128,7 @@ fn claimed_address(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<String, RpcError>
         .caller()
         .and_then(|id| hub.resolve(id).ok())
         .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()))
-        .filter(|address| valid_address(address.trim()));
+        .filter(|address| valid_claim(address.trim()));
     address.ok_or_else(|| {
         RpcError::invalid_params("team inbox requires a claimed team address")
             .with_data(json!({"reason": "team.forbidden"}))
@@ -170,6 +170,14 @@ fn valid_address(address: &str) -> bool {
         && !role.is_empty()
         && scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn valid_claim(address: &str) -> bool {
+    let address = address.strip_prefix('@').unwrap_or(address);
+    valid_address(address)
+        || (!address.is_empty()
+            && address.len() <= 128
+            && address.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
 }
 
 #[cfg(test)]
