@@ -540,13 +540,73 @@ public struct WorkspacesList: View {
                    systemImage: group.isCollapsed ? "chevron.down" : "chevron.right") {
                 withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
             }
+            groupOptions(group, macID: macID)
         }
         Section {
             Button("Ungroup Workspaces", systemImage: "rectangle.stack.badge.minus") {
                 withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
             }
+            groupCloses(group, macID: macID)
             Button("Delete Group", systemImage: "trash", role: .destructive) {
                 deletingGroup = GroupTarget(group: group, macID: macID)
+            }
+        }
+    }
+
+    /// The Mac's group Options folder: Collapse Others, Collapse All Groups, Expand All Groups,
+    /// and Remove All Workspace Colors.
+    @ViewBuilder private func groupOptions(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        let groups = creator.shownGroups(on: macID)
+        let canCollapseOthers = groups.count > 1 && creator.canCollapseOthers(keeping: group, on: macID)
+        let canCollapseAll = groups.contains { !$0.isCollapsed }, canExpandAll = groups.contains(where: \.isCollapsed)
+        if canCollapseOthers || canCollapseAll || canExpandAll || creator.hasColors(on: macID) {
+            Menu {
+                if canCollapseOthers {
+                    Button("Collapse Others", systemImage: "arrow.down.forward.and.arrow.up.backward") {
+                        withAnimation(theme.motion.smooth.animation) { creator.collapseOtherGroups(keeping: group, on: macID) }
+                    }
+                }
+                if canCollapseAll {
+                    Button("Collapse All Groups", systemImage: "rectangle.compress.vertical") {
+                        withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, true) }
+                    }
+                }
+                if canExpandAll {
+                    Button("Expand All Groups", systemImage: "rectangle.expand.vertical") {
+                        withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, false) }
+                    }
+                }
+                removeAllColorsButton(macID)
+            } label: {
+                Label("Options", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+
+    /// Remove All Workspace Colors: every workspace of the Mac (the Mac also clears its groups'
+    /// colors; a phone may not, see `WorkspaceCreator.removeAllColors`).
+    @ViewBuilder private func removeAllColorsButton(_ macID: String) -> some View {
+        if creator.hasColors(on: macID) {
+            Button("Remove All Workspace Colors", systemImage: "circle.slash") {
+                withAnimation(theme.motion.smooth.animation) { creator.removeAllColors(on: macID) }
+            }
+        }
+    }
+
+    /// Close All in Group and Close Other Groups. The phone asks first, as for every close of
+    /// several workspaces.
+    @ViewBuilder private func groupCloses(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        let members = creator.members(of: [group], on: macID)
+        if let first = members.first {
+            Button("Close All in Group", systemImage: "xmark.square", role: .destructive) {
+                bulkClosing = BulkClose(kind: .all, workspace: first, targets: members, groups: [group])
+            }
+        }
+        let others = creator.shownGroups(on: macID).filter { $0.id != group.id }
+        let closing = creator.members(of: others, on: macID)
+        if let first = closing.first {
+            Button("Close Other Groups", systemImage: "xmark.circle", role: .destructive) {
+                bulkClosing = BulkClose(kind: .others, workspace: first, targets: closing, groups: others)
             }
         }
     }
@@ -640,7 +700,13 @@ public struct WorkspacesList: View {
                                 titleVisibility: .visible, presenting: bulkClosing) { bulk in
                 Button(bulk.targets.count == 1 ? "Close Workspace" : "Close Workspaces", role: .destructive) {
                     theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) { creator.close(bulk.targets) }
+                    withAnimation(theme.motion.smooth.animation) {
+                        if bulk.groups.isEmpty {
+                            creator.close(bulk.targets)
+                        } else {
+                            creator.closeGroups(bulk.groups, on: bulk.workspace.macID)
+                        }
+                    }
                 }
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
@@ -744,6 +810,7 @@ public struct WorkspacesList: View {
                 if ws.icon != nil {
                     Button("Remove Icon", systemImage: "minus.circle") { creator.setIcon(ws, nil) }
                 }
+                removeAllColorsButton(ws.macID)
             } label: {
                 Label("Appearance", systemImage: "paintbrush")
             }
@@ -760,16 +827,40 @@ public struct WorkspacesList: View {
                 Label("Options", systemImage: "ellipsis.circle")
             }
             groupFolder(ws)
-            if order.count > 1 {
+            let container = creator.container(of: ws)
+            let sortable = creator.containers(on: ws.macID).contains { $0.count > 1 }
+            if order.count > 1 || container.count > 1 || sortable {
                 Menu {
-                    Button("Move Workspace Up", systemImage: "arrow.up") {
-                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                    if order.count > 1 {
+                        Button("Move Workspace Up", systemImage: "arrow.up") {
+                            withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                        }
+                        .disabled(order.first?.id == ws.id)
+                        Button("Move Workspace Down", systemImage: "arrow.down") {
+                            withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                        }
+                        .disabled(order.last?.id == ws.id)
                     }
-                    .disabled(order.first?.id == ws.id)
-                    Button("Move Workspace Down", systemImage: "arrow.down") {
-                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                    if container.count > 1 {
+                        ForEach(WorkspaceEdge.allCases, id: \.self) { edge in
+                            Button(edge.title(grouped: ws.group != nil), systemImage: edge == .top ? "arrow.up.to.line" : "arrow.down.to.line") {
+                                withAnimation(theme.motion.smooth.animation) { creator.move(ws, to: edge) }
+                            }
+                            .disabled(edge.anchor(of: ws, in: container) == nil)
+                        }
                     }
-                    .disabled(order.last?.id == ws.id)
+                    if sortable {
+                        Menu {
+                            ForEach(WorkspaceSortKey.allCases, id: \.self) { key in
+                                Button(key.shortTitle, systemImage: key.systemImage) {
+                                    withAnimation(theme.motion.smooth.animation) { creator.sortWorkspaces(on: ws.macID, by: key) }
+                                }
+                                .accessibilityLabel(key.title)
+                            }
+                        } label: {
+                            Label("Sort Workspaces", systemImage: "arrow.up.arrow.down.square")
+                        }
+                    }
                 } label: {
                     Label("Move", systemImage: "arrow.up.arrow.down")
                 }
@@ -781,8 +872,8 @@ public struct WorkspacesList: View {
     /// this workspace's Mac. The phone asks first (the Mac closes at once).
     @ViewBuilder private func bulkCloseMenu(_ ws: Workspace, inbox: WorkspaceInbox) -> some View {
         let order = inbox.macSidebar(ws.macID).filter { creator.canManage($0) }
-        // The Mac's Close folder order: Other, Below, Above.
-        let kinds = [WorkspaceBulkClose.others, .below, .above].filter { !$0.targets(of: ws, in: order).isEmpty }
+        // The Mac's Close folder order: Other, Other in Group, Below, Above, All.
+        let kinds = [WorkspaceBulkClose.others, .othersInGroup, .below, .above, .all].filter { !$0.targets(of: ws, in: order).isEmpty }
         if !kinds.isEmpty {
             Menu {
                 ForEach(kinds, id: \.self) { kind in
@@ -1189,7 +1280,9 @@ struct BulkClose: Identifiable {
     var kind: WorkspaceBulkClose
     var workspace: Workspace
     var targets: [Workspace]
-    var id: String { "\(kind.rawValue)-\(workspace.id)" }
+    /// Close All in Group / Close Other Groups: the groups that close with their workspaces.
+    var groups: [MacWorkspaceGroup] = []
+    var id: String { "\(kind.rawValue)-\(workspace.id)-\(groups.map(\.id).joined(separator: ","))" }
 
     /// "a, b and c close on <Mac>, with their tabs."
     func message(macName: String) -> String {

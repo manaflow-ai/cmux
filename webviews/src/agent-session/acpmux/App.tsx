@@ -1912,6 +1912,10 @@ const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
 /// How soon the transcript asks again for an older page after an ask that brought nothing.
 const OLDER_RECHECK_MS = 500;
+/// How near the first loaded row, in viewports, the view asks for the next older page: far enough
+/// ahead that a page read from acpmux lands before a fast scroll up reaches the top (two viewports
+/// was a fraction of a second of a flick).
+const OLDER_AHEAD_VIEWPORTS = 6;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -3953,7 +3957,7 @@ export function VirtualTranscript({
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
   useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
-  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // Older history pages in before the reader reaches it: whenever the view is within six viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
@@ -3976,7 +3980,7 @@ export function VirtualTranscript({
       olderLoadRequested.current = undefined;
       return;
     }
-    if (node.scrollTop >= node.clientHeight * 2) {
+    if (node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
@@ -6878,10 +6882,16 @@ function AcpmuxPane() {
       }, 0),
     );
   }, [showsWhatItIs, drewKeptTail]);
+  const summary = snapshot.summary;
+  const localCwd =
+    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
-    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    if (forkable && forkSeq !== undefined) {
+      enabledCmuxActions.add("fork");
+      if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    }
     if (continueAvailable) enabledCmuxActions.add("continue");
     // A side session asks nothing aside: its composer answers in it.
     if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
@@ -6893,7 +6903,18 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows]);
+  }, [
+    snapshot,
+    projectDraft,
+    continueAvailable,
+    forkable,
+    forkSeq,
+    opensSideSessions,
+    isSideSession,
+    startingRows,
+    localCwd,
+    quick,
+  ]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -8248,9 +8269,6 @@ function AcpmuxPane() {
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
-  const summary = snapshot.summary;
-  const localCwd =
-    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
   // Another chat or folder: an instructions notice was about the one before.
   useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
@@ -9484,6 +9502,11 @@ function AcpmuxPane() {
                 // so sending it again can't start a second one.
                 started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
                 return started;
+              }
+              if (command.action === "side") {
+                if (!forkable || forkSeq === undefined || args?.trim()) return false;
+                ignoreFailure(callNative("chat.side", { throughSeq: forkSeq }));
+                return true;
               }
               if (command.action === "fork") {
                 if (!forkable || forkSeq === undefined || args?.trim()) return false;

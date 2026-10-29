@@ -1334,6 +1334,15 @@ async fn serve_connection_from(
                 };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
+                if m == method::INITIALIZE
+                    && conn.origin == Origin::Local
+                    && let Some(id) = params
+                        .as_ref()
+                        .and_then(|p| p.pointer("/_meta/acpmux/callerSession/sessionId"))
+                        .and_then(Value::as_str)
+                {
+                    hub.session_meta(id).await;
+                }
                 conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();

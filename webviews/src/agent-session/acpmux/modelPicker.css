@@ -310,6 +310,13 @@
 }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span { opacity: 0; }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle::after { opacity: 1; }
+/* A note (an empty search says what to do) wraps and grows past one row; it is never cut off. */
+.ui-menu-item.acpmux-quick-item.acpmux-quick-note {
+  height: auto;
+  min-height: var(--ui-row-height);
+  padding-block: var(--ds-space-1);
+  white-space: normal;
+}
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);
@@ -446,6 +453,32 @@
   padding-inline-start: 12px;
   color: var(--agent-muted);
   white-space: nowrap;
+}
+
+/* A searched row never cuts its name: two "OpenAI: GPT-6.1 Sol …" rows must read apart (Lawrence,
+   via Leo 2026-10-28: "search feels confusing here in the model picker"). A long name wraps, and the
+   row grows past one line only then. Rows that would still read the same show their model id under
+   the name. */
+.ui-menu-item.acpmux-quick-item.acpmux-quick-found {
+  height: auto;
+  min-height: var(--ui-row-height);
+  padding-block: 4px;
+}
+.acpmux-quick-found .acpmux-menu-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.acpmux-quick-found .acpmux-quick-value { flex: none; }
+.acpmux-quick-twin {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-quick-id {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  overflow-wrap: anywhere;
 }
 
 /* The compact menu's chip is a quiet label: the model, then its effort in secondary ink. */

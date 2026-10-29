@@ -5897,7 +5897,9 @@ jobs:
       # The final gate refused: a recovered build failed its lineage check, or
       # this pipeline is not the nightly-next writer (NIGHTLY_NEXT_WRITER read
       # live is not mac, or is unreadable).
-      refused: ${{ steps.gate.outputs.refused }}
+      # A superseded build (recheck) publishes nothing and is no failure: every job that would
+      # republish it reads refused, and report-nightly-failure reads refusal_reason, which it leaves empty.
+      refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
       # For publish-nightly-next-github: what to publish and the release body's parts.
       # feed_written is false when a newer build was already on the feed.

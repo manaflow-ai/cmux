@@ -176,7 +176,7 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
 /// Starts a chat whose turn waits on a FIFO and stops the daemon the way an update does (the
 /// agent outlives it); the next start holds its log load and adoption 3 s
 /// (`ACPMUX_TEST_DELAY_LOAD_LOGS_MS`). Returns the chat and its gate.
-async fn kept_turn(daemon: &mut Daemon) -> (String, PathBuf) {
+pub(super) async fn kept_turn(daemon: &mut Daemon) -> (String, PathBuf) {
     let mut rpc = daemon.rpc().await;
     let created = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
     let session = created["sessionId"].as_str().unwrap().to_owned();
@@ -286,4 +286,117 @@ async fn a_host_that_ends_before_adoption_settles_its_chat() {
     let new = seq_of(&events, |e| e["kind"] == "turn_started" && e["msg"]["promptId"] == "p-new")
         .expect("p-new started");
     assert!(continued < new, "p-new (seq {new}) ran ahead of the continuation (seq {continued})");
+}
+
+/// Same workload before/after: 300 stored chats, 25 actual hosted agents. Run explicitly on
+/// the Linux pool with `--test durable_agents startup_latency_300_chats -- --ignored --nocapture`.
+/// No injected delays: these timings measure filesystem checks, log scans and adoption.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "startup performance harness; run on the Linux pool"]
+async fn startup_latency_300_chats() {
+    let mut daemon = Daemon::new("latency", "approve-all");
+    let mut live_ids = Vec::new();
+    let mut clients = Vec::new();
+    for _ in 0..25 {
+        let mut rpc = daemon.rpc().await;
+        let created = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
+        let id = created["sessionId"].as_str().unwrap().to_owned();
+        let gate = daemon.home.join(format!("gate-{id}"));
+        make_fifo(&gate);
+        rpc.send(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+        daemon.wait_event(&id, "before-gate", |e| chunk(e, "before-gate"));
+        live_ids.push(id);
+        clients.push(rpc);
+    }
+    daemon.sigterm();
+    drop(clients);
+    let mut cfg: Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let store_list_ms = {
+        let store = acpmux::store::open(&cfg.store, &daemon.home).unwrap();
+        for i in 0..275 {
+            let id = format!("01a15800-0000-7000-9000-{i:012}");
+            stored_chat(&*store, &id, &daemon.home, "idle", 500);
+        }
+        store.flush().unwrap();
+        let listed = Instant::now();
+        assert_eq!(store.list().unwrap().len(), 300);
+        listed.elapsed().as_millis()
+    };
+    let started = Instant::now();
+    daemon.start();
+    let ready_line_ms = started.elapsed().as_millis();
+    let mut rpc = daemon.rpc().await;
+    let first_status = rpc.call("_acpmux/status", json!({})).await;
+    let status_ms = started.elapsed().as_millis();
+    let chosen = live_ids.last().unwrap();
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": chosen, "limit": 0})).await;
+    let first_attach_ms = started.elapsed().as_millis();
+    assert_eq!(attached["session"]["sessionId"].as_str(), Some(chosen.as_str()));
+    // Bounded test observation, not a daemon polling worker: stop once ready or fail in 120 s.
+    let (startup_ms, adopted_ms) = tokio::time::timeout(Duration::from_secs(120), async {
+        let mut startup_ms = (first_status["ready"] == true).then_some(status_ms);
+        let mut adopted_ms = (first_status["liveAgents"] == 25).then_some(status_ms);
+        let mut status = first_status;
+        let mut ticks = tokio::time::interval(Duration::from_millis(20));
+        loop {
+            let elapsed = started.elapsed().as_millis();
+            if status["ready"] == true {
+                startup_ms.get_or_insert(elapsed);
+            }
+            if status["liveAgents"] == 25 {
+                adopted_ms.get_or_insert(elapsed);
+            }
+            if let (Some(startup), Some(adopted)) = (startup_ms, adopted_ms) {
+                break (startup, adopted);
+            }
+            ticks.tick().await;
+            status = rpc.call("_acpmux/status", json!({})).await;
+        }
+    })
+    .await
+    .expect("startup completed within the harness deadline");
+    println!(
+        "acpmux-startup-latency: {}",
+        json!({"sessions": 300, "hosted": 25, "idle_records_each": 500,
+               "ready_line_ms": ready_line_ms, "status_ms": status_ms,
+               "first_attach_ms": first_attach_ms, "startup_ms": startup_ms,
+               "adopted_ms": adopted_ms, "store_list_ms": store_list_ms})
+    );
+    for id in &live_ids {
+        std::fs::write(daemon.home.join(format!("gate-{id}")), b"go").unwrap();
+    }
+    for id in &live_ids {
+        daemon.wait_event(id, "completed turn", |e| {
+            e["kind"] == "turn_result" && e["msg"]["status"] == "completed"
+        });
+    }
+}
+
+/// Socket readiness includes serving status and one chosen chat while the bulk metadata
+/// reader is deliberately held. The fixture's live agent survives the restart throughout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_and_attach_answer_while_the_session_store_is_loading() {
+    let mut daemon = Daemon::new("store-loading", "approve-all");
+    let (session, gate) = kept_turn(&mut daemon).await;
+    daemon.env = vec![("ACPMUX_TEST_DELAY_LOAD_STORE_MS".into(), "5000".into())];
+    let started = Instant::now();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert!(started.elapsed() < Duration::from_secs(3), "status waited for the whole store");
+    assert_eq!(status["loading"]["phase"], "loading-store", "{status:#}");
+    let initialized = rpc.call("initialize", json!({"protocolVersion": 1})).await;
+    assert_eq!(initialized["protocolVersion"], 1);
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 20})).await;
+    assert_eq!(attached["session"]["sessionId"], session);
+    assert!(started.elapsed() < Duration::from_secs(3), "attach waited for unrelated metadata");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "completed turn after adoption", |e| {
+        e["kind"] == "turn_result" && e["msg"]["status"] == "completed"
+    });
 }
