@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";

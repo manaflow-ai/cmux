@@ -732,6 +732,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
                 PeerCmd::Join { ticket: Some(ticket), name, peer_name, advertise, .. } => {
+                    let ticket = crate::cli::pairing::join_ticket(Some(ticket))?;
                     let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
                     return crate::cli::pairing::join(client, args, json_out).await;
                 }
