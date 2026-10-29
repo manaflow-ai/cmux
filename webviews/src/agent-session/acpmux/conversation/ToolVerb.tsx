@@ -25,10 +25,8 @@ type VerbColumn = { add: (verb: string) => () => void };
 const VerbColumnContext = createContext<VerbColumn | undefined>(undefined);
 
 /// A label's verb and the rest, split at its first space ("Ran git status": "Ran", "git status").
-/// Undefined when it does not start with a word and a space, and for an MCP call's plain name
-/// ("Coordination hub · read chat"), which starts with its server, not a verb.
+/// Undefined when it does not start with a word and a space.
 export function splitToolLabel(text: string): { verb: string; subject: string } | undefined {
-  if (text.includes(" · ")) return undefined;
   const match = /^(\p{L}+)\s+(\S[\s\S]*)$/u.exec(text);
   return match ? { verb: match[1]!, subject: match[2]! } : undefined;
 }
@@ -100,29 +98,34 @@ function ToolVerb({ column, skip, children }: { column: VerbColumn; skip?: boole
 /// A tool row's label with its verb in the column: `verb` and `subject` when the caller knows them
 /// (the parts of a translated "Ran {command}"), otherwise `text` split at its first space. A label
 /// with no verb to split off draws as `children` (or `text`) do, as does any label outside a column
-/// or in a language whose verb does not lead. `skip`: Find in Chat skips the verb.
+/// or in a language whose verb does not lead, and a `whole` one (an MCP call's plain name, "Hub ·
+/// read chat", starts with its server, not a verb). `skip`: Find in Chat skips the verb and the space
+/// after it, as it skipped "Ran " before the column.
 export function ToolLabel({
   text,
   verb,
   subject,
   skip,
+  whole,
   children,
 }: {
   text?: string;
   verb?: string;
   subject?: ReactNode;
   skip?: boolean;
+  whole?: boolean;
   children?: ReactNode;
 }) {
   const column = useContext(VerbColumnContext);
-  const split = column && verb === undefined && text !== undefined ? splitToolLabel(text) : undefined;
+  const split = column && !whole && verb === undefined && text !== undefined ? splitToolLabel(text) : undefined;
   const head = verb ?? split?.verb;
   if (!column || !head) return <>{children ?? text}</>;
   return (
     <>
       <ToolVerb column={column} skip={skip}>
         {head}
-      </ToolVerb>{" "}
+      </ToolVerb>
+      {skip ? <span data-find-skip> </span> : " "}
       {subject ?? split?.subject}
     </>
   );

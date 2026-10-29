@@ -5,12 +5,14 @@
 // bottom edge while more lies under it instead of cutting a line in half.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { act, type ReactNode } from "react";
+import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { McpCallDetails } from "./McpCallRows";
 import { ToolRows } from "./TurnRows";
+import { ToolRow } from "./ToolRow";
+import { ToolVerbColumn } from "./ToolVerb";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
 let dom: JSDOM | undefined;
@@ -94,6 +96,77 @@ test("a row that leaves takes its verb out of the column", async () => {
   expect(container.querySelector(".cv-tools")!.getAttribute("data-tool-verbs")).toBe("2");
   await act(async () => root!.render(<ToolRows row={{ ...turn(items.slice(0, 1)), version: 2 }} />));
   expect(container.querySelector<HTMLElement>(".cv-tools")!.style.getPropertyValue("--cv-tool-verbs")).toBe('"Read"');
+});
+
+/// The text of `element` that Find in Chat counts: every text node outside a `data-find-skip`.
+function findText(element: Element): string {
+  const walker = element.ownerDocument.createTreeWalker(element, 4);
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode())
+    if (!node.parentElement?.closest("[data-find-skip]")) text += node.textContent;
+  return text;
+}
+
+test("Find skips a command row's verb and the space after it, and counts the command", async () => {
+  const container = await render(
+    <ToolRows
+      row={turn([
+        call("git status", "execute", { command: "git status" }),
+        call("git diff", "execute", { command: "git diff" }),
+      ])}
+    />,
+  );
+  const lines = [...container.querySelectorAll(".cv-command__text")];
+  expect(lines.map((line) => line.textContent)).toEqual(["Ran git status", "Ran git diff"]);
+  expect(lines.map(findText)).toEqual(["git status", "git diff"]);
+  expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
+});
+
+test("an MCP call's verb joins the column; its plain name on a lone row stays whole", async () => {
+  const mcp = () => call("mcp__hub__frobnicate", "other", { inputSummary: JSON.stringify({}) });
+  const container = await render(<ToolRows row={turn([mcp(), thought("Then."), call("Read App.tsx", "read")])} />);
+  const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
+  expect(verbs).toEqual(["Called", "Read"]);
+  // A row that draws the call's plain name ("Hub · frobnicate") leads with its server: no verb.
+  await act(async () =>
+    root!.render(
+      <ToolVerbColumn className="cv-tools">
+        <ToolRow item={mcp()} />
+      </ToolVerbColumn>,
+    ),
+  );
+  const lone = container;
+  expect(lone.querySelector(".cv-tool__text")!.textContent).toContain(" · ");
+  expect(lone.querySelector(".cv-tool__verb")).toBeNull();
+});
+
+test("a call that finishes moves its row from Running to Ran in the column", async () => {
+  const running = call("bun test", "execute", { command: "bun test", status: "in_progress" });
+  const container = await render(<ToolRows row={turn([running])} />);
+  const column = () => container.querySelector<HTMLElement>(".cv-tools")!.style.getPropertyValue("--cv-tool-verbs");
+  expect(column()).toBe('"Running"');
+  const done = { ...running, tool: { ...running.tool!, status: "completed" } };
+  await act(async () => root!.render(<ToolRows row={{ ...turn([done]), version: 2 }} />));
+  expect(column()).toBe('"Ran"');
+});
+
+test("under StrictMode's double effects each verb counts once and leaves with its row", async () => {
+  const items = [call("Read App.tsx", "read"), thought("Then."), call("Searched for x", "search")];
+  const container = await render(
+    <StrictMode>
+      <ToolRows row={turn(items)} />
+    </StrictMode>,
+  );
+  const column = container.querySelector<HTMLElement>(".cv-tools")!;
+  expect(column.getAttribute("data-tool-verbs")).toBe("2");
+  await act(async () =>
+    root!.render(
+      <StrictMode>
+        <ToolRows row={{ ...turn(items.slice(0, 1)), version: 2 }} />
+      </StrictMode>,
+    ),
+  );
+  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Read"');
 });
 
 test("the verb column and the bottom fade are in the transcript's styles", () => {

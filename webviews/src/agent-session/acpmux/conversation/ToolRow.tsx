@@ -23,7 +23,7 @@ import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
-import { cleanText } from "./mcpCalls";
+import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolResult, type ToolResult } from "./toolResult";
 import { Markdown } from "./Markdown";
@@ -87,6 +87,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
+  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
+  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const failed = rowFailed(tool);
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
@@ -120,7 +122,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />}
+        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
