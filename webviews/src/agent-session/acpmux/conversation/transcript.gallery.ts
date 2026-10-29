@@ -132,8 +132,7 @@ const messageSurfaceChat = chat([
         kind: "message",
         message: {
           name: "review-lane",
-          text:
-            "The lane sent a review report.\n\n- CHANGELOG.md updated\n- Transcript checks pass\n- Light and dark captures are ready\n\nThe full report remains available with Show more.",
+          text: "The lane sent a review report.\n\n- CHANGELOG.md updated\n- Transcript checks pass\n- Light and dark captures are ready\n\nThe full report remains available with Show more.",
           raw: "[review-lane] The lane sent a review report.",
         },
       },
