@@ -76,6 +76,8 @@ struct TabSwitchSignpostPaneTests {
     private struct Rig {
         let services: AppServices
         let pane: PaneController
+        /// The pane's window state: the pane holds it weakly, as its window controller owns it in the app.
+        let state: WindowState
         let window: NSWindow
         /// Two page tabs shown once (warm), the second selected, and a third never shown (cold).
         let warm: [String]
@@ -108,8 +110,9 @@ struct TabSwitchSignpostPaneTests {
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
         let provider = Provider()
         services.pages.register(provider)
+        let state = WindowState(record: record)
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services,
-                                  state: WindowState(record: record))
+                                  state: state)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 400, height: 340), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -119,9 +122,10 @@ struct TabSwitchSignpostPaneTests {
         pane.syncStripFromStore()
         // Shown by the focus applier's call, which begins no switch: only `select` (the intent) does.
         for key in keys.prefix(2) { pane.applySelection(StripTabID(key)); pane.showSelected() }
+        #expect(keys.prefix(2).allSatisfy { services.pages.existingView($0) != nil }, "the first two tabs are warm")
         #expect(services.pages.existingView(keys[2]) == nil, "the third tab is cold")
         #expect(log.records.isEmpty)
-        return Rig(services: services, pane: pane, window: window, warm: Array(keys.prefix(2)), cold: keys[2])
+        return Rig(services: services, pane: pane, state: state, window: window, warm: Array(keys.prefix(2)), cold: keys[2])
     }
 
     @Test func aWarmAndAColdSwitchAreOnePairEachWithTheirKinds() throws {

@@ -101,7 +101,8 @@ struct TraceControlTests {
         let started = try await fixture.router.handle(ControlRequest(
             id: "2", method: "trace.start", params: ["categories": ["frame", "motion"], "seconds_cap": 30])).get()
         #expect(started["app"]?["state"] == "recording")
-        #expect(fixture.daemon.commands == [.start(categories: ["frame", "motion"], keys: false)])
+        // trace.status asks the daemon for its part too (its reply's `daemon`), so the idle status is the first command.
+        #expect(fixture.daemon.commands == [.status, .start(categories: ["frame", "motion"], keys: false)])
         let again = await fixture.router.handle(ControlRequest(id: "3", method: "trace.start", params: [:]))
         #expect(Self.code(again) == "already_recording")
 
@@ -134,10 +135,12 @@ struct TraceControlTests {
         #expect(fixture.app.stops == 0)
         fixture.clock.advance(by: .seconds(1))
         _ = await stops.next()
+        #expect(fixture.daemon.commands.last == .stop)
         let status = try await fixture.router.handle(ControlRequest(id: "2", method: "trace.status", params: [:])).get()
         #expect(status["recording"] == false)
         #expect(status["last_stop"]?["stopped_by"] == "cap")
-        #expect(fixture.daemon.commands.last == .stop)
+        // The status asks the daemon after the cap's stop.
+        #expect(Array(fixture.daemon.commands.suffix(2)) == [.stop, .status])
     }
 
     @Test func aMissingDaemonOrRingIsReportedNotFatal() async throws {

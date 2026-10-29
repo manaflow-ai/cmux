@@ -41,9 +41,10 @@ extension MainActorWorkQueueTests {
         try #require(posts.count == 3)
         #expect(Set(posts.map(\.arg1)).count == 3)
         #expect(Set(posts.map(\.arg1)) == Set(arrivals.map(\.arg1)), "each post's flow ends at its run")
-        #expect(posts.allSatisfy {
-            image.name(UInt16(truncatingIfNeeded: $0.arg0)) == "CmuxNextControlTests/MainActorWorkQueueTests+TaskTrace.swift"
-        })
+        // A ring name entry holds at most 55 UTF-8 bytes (trace.md "Name table"); this #fileID is 60, so its site
+        // reads cut at 55.
+        let file = String(decoding: "CmuxNextControlTests/MainActorWorkQueueTests+TaskTrace.swift".utf8.prefix(55), as: UTF8.self)
+        #expect(posts.allSatisfy { image.name(UInt16(truncatingIfNeeded: $0.arg0)) == file })
         #expect(Set(posts.map { $0.arg0 >> 16 & 0xFFFF_FFFF }) == [firstLine, secondLine, thirdLine])
         for post in posts {
             #expect(arrivals.first { $0.arg1 == post.arg1 }?.arg0 == post.arg0, "the run names its post's site")

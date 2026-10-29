@@ -113,6 +113,7 @@ import Testing
         for kind in Signposter.CEFHostInputKind.allCases { rig.cef.cefHostInput(kind) }
 
         #expect(rig.records(.cefHostInput).map(\.arg0) == [3, 4])
-        #expect(Signposter.CEFHostInputKind.allCases.filter(\.carriesKeyTiming) == [.key, .edit])
+        // IME text (CEFHostInputKind.ime: marked and inserted text) is keystroke timing too.
+        #expect(Signposter.CEFHostInputKind.allCases.filter(\.carriesKeyTiming) == [.key, .edit, .ime])
     }
 }

@@ -40,6 +40,8 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.control.", match: .prefix, qos: .utility),
         // Terminal (the key echo path).
         ThreadDeclaration("com.cmuxterm.next.terminal.output", qos: .userInteractive),
+        ThreadDeclaration("com.cmuxterm.next.terminal.attach-input", qos: .userInteractive),
+        ThreadDeclaration("com.cmuxterm.next.terminal.input-await", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.localpty.read", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.next.localpty.write", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.next.terminal.link-check", qos: .userInitiated),
@@ -54,6 +56,27 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.files.table-widths", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.onboarding.classic-migration", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.agent-pane.saved-environments", qos: .userInitiated),
+        // Actor executors (an I/O actor runs on its own serial queue): user-initiated where a person waits, utility for
+        // saves and caches nobody waits for.
+        ThreadDeclaration("cmux.next.agent-pane.acpmux-host", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.layout-templates", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.server-fix-ledger", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.bookmarks.file", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.browser.profile-book", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.cloud.machine-link", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.phone.android", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.remote.ssh-link", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.settings.config-file", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.agent-pane.owner-avatars", qos: .default),
+        ThreadDeclaration("com.cmuxterm.next.browser.site-permissions", qos: .default),
+        ThreadDeclaration("com.cmuxterm.next.browser.site-zoom", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.browser.download-temp-files", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.browser-import.store", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.chromium-runtime.installer", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.cloud.tunnel-hub", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.error-journal", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.mobile.host-supervisor", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.phone.recorder", qos: .utility),
         // Remote and mobile. The remote view's render queue is on the closed user-interactive list: a
         // compositor-class motion path (Chrome's kDisplayCritical, base/threading/platform_thread.h).
         ThreadDeclaration("com.cmuxterm.next.remote-localhost", qos: .userInitiated),
@@ -83,6 +106,12 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-host.supervisor", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-host.input", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.chromium-host.hang-watcher", qos: .utility),
+        // In the Chromium Host process: its helper-exit watch and its provider link to the browser host.
+        ThreadDeclaration("com.cmuxterm.chromium-host.helper-exits", qos: .userInitiated),
+        ThreadDeclaration("chromium-host.provider-link.read", qos: .userInitiated),
+        ThreadDeclaration("chromium-host.provider-link.write", qos: .userInitiated),
+        // In the browser host process (cmux-browser-host direct_relay.rs): the relay link's reader.
+        ThreadDeclaration("cmux-browser-host-relay-link", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.cef-children", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.import-history-sync", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-runtime.download", match: .operationQueue, qos: .utility),
@@ -121,11 +150,13 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmux.host-pressure", qos: .utility),
         ThreadDeclaration("debug.window_record", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.hang-reports.store", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.hang-reports.field-data", qos: .utility),
         // Launch and misc. The launch warm-up is on the closed user-interactive list: main reads what it builds
         // before the first frame (LaunchWarmup).
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux-next launch warm-up", qos: .userInteractive),
         ThreadDeclaration("cmux-next icon warm-up", qos: .userInitiated),
+        ThreadDeclaration("cmux-next terminal prefetch", qos: .userInitiated),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),

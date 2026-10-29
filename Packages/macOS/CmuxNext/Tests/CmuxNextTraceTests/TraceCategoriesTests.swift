@@ -86,7 +86,10 @@ struct TraceCategoriesTests {
             await MainActor.run { _ = blackBox.adoptFile() }
         }
         await adoptTable.flush()
-        #expect(adoptTable.sites.map(\.kind) == [.fileIO])
+        // Each POSIX step of the adoption runs through its own checked call (the directory, the ring file's map and
+        // block allocation, the crash-key page), and each site counts: every one is file I/O.
+        #expect(!adoptTable.sites.isEmpty)
+        #expect(Set(adoptTable.sites.map(\.kind)) == [.fileIO])
         #endif
     }
 

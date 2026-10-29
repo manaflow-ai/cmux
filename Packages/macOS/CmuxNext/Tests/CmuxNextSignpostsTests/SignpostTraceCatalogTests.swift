@@ -99,7 +99,8 @@ struct SignpostTraceCatalogTests {
 
     @Test("The webui names record under the webui bit only, outside the black box and MetricKit")
     func webuiNamesGateOnTheirBit() {
-        let webui: [SignpostName] = [.webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme]
+        // webui.agent_pane_step is an agent page's step: it fires per tab, so it is a webui name, not a launch one.
+        let webui: [SignpostName] = [.webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep]
         #expect(SignpostName.allCases.filter { $0.traceCategory == .webui } == webui)
         #expect(!SignpostCategory.webui.isBlackBoxDefault)
         #expect(!webui.contains(where: SignpostMetricKitMirror.mirrors))

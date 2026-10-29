@@ -672,8 +672,8 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   starts the next one), `com.cmuxterm.next.retry-wake` (user-initiated; its socket-folder watch wakes the
   reconnect while terminals are disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept` (utility), `com.cmuxterm.next.control.<id>` (utility)
-- Terminal: `com.cmuxterm.next.terminal.output` (user-interactive), `com.cmuxterm.next.terminal.attach-input`
-  (user-interactive, one per daemon terminal view; the session's input lane drains on it and the attach socket's
+- Terminal: `com.cmuxterm.next.terminal.output` (user-interactive), `com.cmuxterm.next.terminal.attach-input` (user-interactive,
+  one per daemon terminal view; the session's input lane drains on it and the attach socket's
   writer targets it, p04-input-058), `com.cmuxterm.next.terminal.input-await` (user-initiated, one per session
   whose IO has no input drain of its own: demos and tests), `com.cmuxterm.next.localpty.read` (user-interactive),
   `com.cmuxterm.next.localpty.write` (user-interactive),
@@ -730,12 +730,12 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.chromium-host.helper-exits` (user-initiated; in the host process, the same watch of the
   host's own helpers, HelperExitWatcher in host_helper_exits.h, p01-process-225: its kqueue's read source, no thread;
-  an end goes to the host's main thread as one HELPER_EXIT), `chromium-host.provider-link.read` and
+  an end goes to the host's main thread as one HELPER_EXIT), `chromium-host.provider-link.read` (user-initiated) and
   `chromium-host.provider-link.write` (user-initiated; in the host process, one each per provider link,
   p01-process-233: the reader dials the browser host, checks its pid and its code signature by audit token (a few
   Security calls, once per dial), then waits only in `read(2)` and holds at most 4096 frames the UI thread has not run (one UI task per batch); the writer waits
-  for frames, then in `write(2)`, and past 64 MiB waiting the link ends), `cmux-browser-host-relay-link` (the
-  browser host's reader of that link, one per link; waits only in `read(2)`),
+  for frames, then in `write(2)`, and past 64 MiB waiting the link ends), `cmux-browser-host-relay-link` (user-initiated;
+  the browser host's reader of that link, one per link; waits only in `read(2)`),
   `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (OperationQueue, utility, serial; the runtime download's URLSession
   delegate queue), `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request),
@@ -845,22 +845,23 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
 - Library WebRTC (WebRTC.framework, CmuxScreenKit, `RTCPeerConnectionFactory`; WebRTC's Thread SetName(name, obj)
   in rtc_base/thread.cc appends " 0x%p" to the name the factory gives): `network_thread <ptr>` (set-by-library),
   `worker_thread <ptr>` (set-by-library), `signaling_thread <ptr>` (set-by-library)
-- Actor executors (p02-threads R4, tasks 047-052: an actor whose job is I/O runs on a serial queue of its own, the
-  HomeCache pattern, `// executor: <label>`; its blocking file calls hold this queue, never a cooperative pool thread):
-  user-initiated (a person waits for the answer): `cmux.next.agent-pane.acpmux-host` (listed with the acpmux
-  client above; also its staged-file puts),
-  `com.cmuxterm.app.next.layout-templates`, `com.cmuxterm.app.next.server-fix-ledger`,
-  `com.cmuxterm.next.bookmarks.file`, `com.cmuxterm.next.browser.profile-book`, `com.cmuxterm.next.cloud.machine-link`,
-  `com.cmuxterm.next.phone.android`,
-  `com.cmuxterm.next.remote.ssh-link`, `com.cmuxterm.next.settings.config-file` (the settings file and the managed
-  preferences it reloads with; a keymap file the person picks goes through the files lane); default: `com.cmuxterm.app.next.agent-pane.owner-avatars`, `com.cmuxterm.next.browser.site-permissions`;
-  utility (saves and caches nobody waits for):
-  `com.cmuxterm.next.browser.site-zoom`, `com.cmuxterm.next.browser.download-temp-files`,
-  `com.cmuxterm.next.browser-import.store`, `com.cmuxterm.chromium-runtime.installer`,
-  `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal` (`HangReportStore` runs on
-  `com.cmuxterm.app.next.hang-reports.store`, listed above),
-  `com.cmuxterm.next.mobile.host-supervisor`, `com.cmuxterm.next.phone.recorder`; the table-widths,
-  classic-migration and saved-environments actors are listed under Settings and files (p02-threads-141..144)
+- Actor executors (p02-threads R4, tasks 047-052; an actor whose job is I/O runs on a serial queue of its own, the
+  HomeCache pattern, marked with an `// executor` comment; its blocking file calls hold this queue, never a cooperative
+  pool thread; user-initiated where a person waits for the answer, utility for saves and caches nobody waits for):
+  `cmux.next.agent-pane.acpmux-host` (user-initiated; listed with the acpmux client above; also its staged-file puts),
+  `com.cmuxterm.app.next.layout-templates` (user-initiated), `com.cmuxterm.app.next.server-fix-ledger` (user-initiated),
+  `com.cmuxterm.next.bookmarks.file` (user-initiated), `com.cmuxterm.next.browser.profile-book` (user-initiated),
+  `com.cmuxterm.next.cloud.machine-link` (user-initiated), `com.cmuxterm.next.phone.android` (user-initiated),
+  `com.cmuxterm.next.remote.ssh-link` (user-initiated), `com.cmuxterm.next.settings.config-file` (user-initiated; the
+  settings file and the managed preferences it reloads with; a keymap file the person picks goes through the files
+  lane), `com.cmuxterm.app.next.agent-pane.owner-avatars` (default),
+  `com.cmuxterm.next.browser.site-permissions` (default), `com.cmuxterm.next.browser.site-zoom` (utility),
+  `com.cmuxterm.next.browser.download-temp-files` (utility), `com.cmuxterm.next.browser-import.store` (utility),
+  `com.cmuxterm.chromium-runtime.installer` (utility),
+  `com.cmuxterm.next.cloud.tunnel-hub` (utility), `com.cmuxterm.next.error-journal` (utility; `HangReportStore` runs
+  on `com.cmuxterm.app.next.hang-reports.store`, listed above), `com.cmuxterm.next.mobile.host-supervisor` (utility),
+  `com.cmuxterm.next.phone.recorder` (utility); the table-widths, classic-migration and saved-environments actors
+  are listed under Settings and files (p02-threads-141..144)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 

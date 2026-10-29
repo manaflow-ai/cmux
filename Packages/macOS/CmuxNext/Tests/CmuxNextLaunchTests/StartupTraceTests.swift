@@ -163,8 +163,9 @@ import Testing
     @Test func aTruncatedChunkedFileStillParses() async throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file) }
+        // `now` at the process start: the 5 s deadline is ahead (the host's real uptime is past it).
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file, chunkBytes: 1_024),
-                                 processStartNanos: 0, clock: ManualClock())
+                                 processStartNanos: 0, clock: ManualClock(), now: { 0 })
         let work = BackgroundWork(label: "test.startup-trace")
         trace.start(writingOn: work)
         for index in 0..<500 { trace.mark("mark \"\(index)\"\n") }
@@ -188,8 +189,9 @@ import Testing
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file) }
         // 1 KiB writes and 8 records: a drain is due at 4 pending records.
+        // `now` at the process start: the 5 s deadline is ahead (the host's real uptime is past it).
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file, capacity: 8, chunkBytes: 1_024),
-                                 processStartNanos: 0, clock: ManualClock())
+                                 processStartNanos: 0, clock: ManualClock(), now: { 0 })
         // One slot per priority, so the gate below holds the drains.
         let work = BackgroundWork(filesWidths: .serial, label: "test.startup-trace", onRan: trace.laneJobSink)
         trace.start(writingOn: work)
@@ -242,8 +244,9 @@ import Testing
     @Test func closeHooksRunOnceAfterTheClose() async throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file) }
+        // `now` at the process start: the 5 s deadline is ahead (the host's real uptime is past it).
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file), processStartNanos: 0,
-                                 clock: ManualClock())
+                                 clock: ManualClock(), now: { 0 })
         let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
         trace.whenClosed { calls.withLock { $0.append("before") } }
         trace.start(writingOn: BackgroundWork(label: "test.startup-trace"))

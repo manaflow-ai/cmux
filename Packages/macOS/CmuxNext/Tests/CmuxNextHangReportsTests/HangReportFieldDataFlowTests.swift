@@ -226,13 +226,16 @@ struct HangReportFieldDataFlowTests {
         #expect(next.collector.blackBoxSnapshot().isEmpty, "released once the report is queued")
     }
 
-    /// A ring file of process `role` with one `name` record, written where that process writes it.
+    /// A ring file of process `role` with one `name` record, written where that process writes it. The ring starts
+    /// at trace time 0, so the record (at 1000 ns and on) is in its recording: a decode keeps only the records at or
+    /// after the ring's start.
     static func writeRing(_ role: TraceRuntime.Role, pid: UInt32, name: StaticString, to folder: URL) throws {
         let daemonBit = UInt8(6)
         let blackBox = TraceBlackBox(role: role, directory: folder.path(percentEncoded: false), runtime: TraceRuntime(role: role),
                                      process: TraceBlackBox.ProcessFacts(pid: pid),
                                      catalog: TraceRing.nameTable(names: [(id: 1, category: daemonBit, text: name)],
-                                                                  categories: [(bit: daemonBit, text: "daemon")]))
+                                                                  categories: [(bit: daemonBit, text: "daemon")]),
+                                     clock: TraceClock(reader: .init(uptimeNanos: { 0 }, continuousNow: { ContinuousClock.now })))
         blackBox.ring.write(name: 1, phase: .instant, timestamp: 1_000 + UInt64(pid), arg0: 7)
         _ = try #require(blackBox.adoptFile())
     }

@@ -183,7 +183,8 @@ struct SignposterTraceRingTests {
         let records = log.records
         try #require(records.count == 3)
         #expect(records.map(\.phase) == [.begin, .end, .instant])
-        #expect(records.map(\.name) == [74, 74, 75])
+        // 74 is stall.render_starved, which took its id first; these two have 75 and 76.
+        #expect(records.map(\.name) == [75, 75, 76])
         #expect(records[0].arg0 == 1)
         #expect(records[1].arg0 == Signposter.EndCode.ended)
         #expect(records[2].arg0 == 8 && records[2].arg1 == 3)

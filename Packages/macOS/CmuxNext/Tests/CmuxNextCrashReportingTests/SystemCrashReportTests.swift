@@ -432,7 +432,8 @@ import Testing
     // MARK: - Fixtures
 
     /// A ring of `role` in process `pid` in `folder`, as cmux-trace's `init_blackbox` leaves it: one kept record
-    /// (`holder.spawn`), a key record and a per-key PTY hop.
+    /// (`holder.spawn`), a key record and a per-key PTY hop. The ring starts at trace time 0, so its records at
+    /// 1000 ns and on are in its recording (a decode keeps only the records at or after the ring's start).
     static func plantRing(_ role: TraceRuntime.Role, pid: UInt32, buildUUID: [UInt8], start: UInt64 = start,
                           in folder: URL) throws {
         let daemonBit = UInt8(6)
@@ -443,7 +444,8 @@ import Testing
             catalog: TraceRing.nameTable(names: [(id: 1, category: daemonBit, text: "holder.spawn"),
                                                  (id: 2, category: keyBit, text: "key.echo.host_pty_read"),
                                                  (id: 3, category: daemonBit, text: "holder.pty.read")],
-                                         categories: [(bit: keyBit, text: "key"), (bit: daemonBit, text: "daemon")]))
+                                         categories: [(bit: keyBit, text: "key"), (bit: daemonBit, text: "daemon")]),
+            clock: TraceClock(reader: .init(uptimeNanos: { 0 }, continuousNow: { ContinuousClock.now })))
         blackBox.ring.write(name: 1, phase: .instant, timestamp: 1_000, arg0: 7)
         blackBox.ring.write(name: 2, phase: .instant, timestamp: 1_001, arg0: 65)
         blackBox.ring.write(name: 3, phase: .instant, timestamp: 1_002, arg0: 1)

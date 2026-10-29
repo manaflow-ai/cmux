@@ -163,6 +163,9 @@ extension HangReportServiceTests {
     @Test func anOverCapReportDropsInputLatencyBeforeAnyHang() throws {
         var report = InputLatencyReportTests.report(InputLatencyReportTests.fieldSnapshot())
         report.inputLatency = Self.inputRows()
+        // Input latency is schema 3 only, and schema 3's cap is its own 48 KiB, not schema 2's 64 KiB.
+        let cap = HangReportService.bodyLimit(of: report)
+        #expect(cap == HangReport.WireSchema.v3.maxBodyBytes)
         let inputBytes = try Self.size(report)
         // Hangs that fit alone with room to spare, but not with the input rows.
         var hangs: [HangSample] = []
@@ -172,13 +175,13 @@ extension HangReportServiceTests {
             probe.scrollJank = nil
             probe.inputLatencyBucketEdgesMs = nil
             probe.hangs = hangs + [Self.deepHang(5_000 - hangs.count)]
-            guard try Self.size(probe) <= HangReport.maxBodyBytes - inputBytes / 2 else { break }
+            guard try Self.size(probe) <= cap - inputBytes / 2 else { break }
             hangs = probe.hangs
         }
         report.hangs = hangs
-        try #require(try Self.size(report) > HangReport.maxBodyBytes)
+        try #require(try Self.size(report) > cap)
         let fitted = HangReportService.fitted(report)
-        #expect(try Self.size(fitted) <= HangReport.maxBodyBytes)
+        #expect(try Self.size(fitted) <= cap)
         #expect(fitted.hangs == hangs, "every hang stays")
         let rows = try #require(fitted.inputLatency)
         #expect(!rows.isEmpty && rows.count < 64)
@@ -189,11 +192,12 @@ extension HangReportServiceTests {
         var report = InputLatencyReportTests.report(InputLatencyReportTests.fieldSnapshot())
         report.inputLatency = Self.inputRows()
         report.hangs = (0..<HangReport.maxHangs).map { Self.deepHang(9_000 - $0) }
+        let cap = HangReportService.bodyLimit(of: report)
         var hangsOnly = report
         hangsOnly.inputLatency = nil
-        try #require(try Self.size(hangsOnly) > HangReport.maxBodyBytes)
+        try #require(try Self.size(hangsOnly) > cap)
         let fitted = HangReportService.fitted(report)
-        #expect(try Self.size(fitted) <= HangReport.maxBodyBytes)
+        #expect(try Self.size(fitted) <= cap)
         #expect(fitted.inputLatency == nil && fitted.scrollJank == nil && fitted.inputLatencyBucketEdgesMs == nil,
                 "the three input keys go together")
         #expect(!fitted.hangs.isEmpty)

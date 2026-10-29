@@ -63,7 +63,10 @@ extension BackgroundWorkTests {
         #expect(records.named(.taskRun, .end).count == 3)
         #expect(Set(posts.map(\.arg1)).count == 3, "each post has its own flow")
         #expect(Set(posts.map(\.arg1)) == Set(arrivals.map(\.arg1)), "each flow ends at a run")
-        #expect(posts.allSatisfy { records.site($0).file == "CmuxNextControlTests/BackgroundWorkTests+TaskTrace.swift" })
+        // A ring name entry holds at most 55 UTF-8 bytes (trace.md "Name table"); this #fileID is 56, so its site
+        // reads cut at 55.
+        let file = String(decoding: "CmuxNextControlTests/BackgroundWorkTests+TaskTrace.swift".utf8.prefix(55), as: UTF8.self)
+        #expect(posts.allSatisfy { records.site($0).file == file })
         #expect(Set(posts.map { records.site($0).line }) == [filesLine, cpuLine, systemLine])
 
         // BlockingLane.rawValue in bits 8-15, WorkPriority.rawValue in bits 0-7
