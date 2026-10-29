@@ -4521,12 +4521,36 @@
             "null"
           ]
         },
+        "excludeStatus": {
+          "description": "`_acpmux/sessions` only: exclude these statuses before pagination.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "limit": {
           "description": "Page size, at least 1. Without it the reply is the whole list.",
           "format": "uint64",
           "minimum": 1,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "localOnly": {
+          "description": "`_acpmux/sessions` only: exclude peer sessions before pagination.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "orderBy": {
+          "description": "`_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.",
+          "type": [
+            "string",
             "null"
           ]
         },

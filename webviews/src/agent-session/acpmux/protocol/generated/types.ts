@@ -1110,8 +1110,14 @@ export type SessionSummary = {
 export interface SessionsParams {
   /** A previous reply's `nextCursor`: the page starts after that session. */
   cursor?: (string | null);
+  /** `_acpmux/sessions` only: exclude these statuses before pagination. */
+  excludeStatus?: (string[] | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
+  localOnly?: (boolean | null);
+  /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
+  orderBy?: (string | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
    * (its name, e.g. `huge-blue`). Empty is no filter.
