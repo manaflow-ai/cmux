@@ -317,7 +317,13 @@ export class FsBucket {
     // its descriptor. A path-based rename can follow a parent that an actor swaps after checkDir.
     this.checkDir(dir, area)
     this.options.afterPathCheck?.(to)
-    const directory = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    let directory: number
+    try {
+      directory = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    } catch (error) {
+      if (["ELOOP", "ENOTDIR", "ENOENT"].includes(errorCode(error) ?? "")) throw linkError()
+      throw error
+    }
     try {
       this.checkFd(directory, dir, area)
       const fdPath = process.platform === "linux" ? `/proc/self/fd/${directory}` : `/dev/fd/${directory}`
@@ -380,10 +386,10 @@ export class FsBucket {
   private metaAt(file: string): StoredMeta | null {
     const meta = this.readJson<StoredMeta>(`${file}.meta.json`, "key")
     if (!meta) return null
-    if (typeof meta.contentHash !== "string" || meta.contentHash !== meta.etag) return null
     const fd = this.openFile(file, "key")
     if (fd === null) return null
     try {
+      if (typeof meta.contentHash !== "string" || meta.contentHash !== meta.etag) return null
       const stat = fstatSync(fd)
       if (!stat.isFile() || stat.size !== meta.size) return null
       // Hash in bounded chunks. A crash between the data and metadata renames, or an equal-sized
