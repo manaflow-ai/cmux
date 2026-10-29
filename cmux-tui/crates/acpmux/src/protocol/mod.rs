@@ -188,6 +188,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKFLOWS, Request),
         untyped(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
+        untyped(method::MUX_GITHUB_ACTION, Request),
+        untyped(method::MUX_GITHUB_APP_LEASE, Request),
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
@@ -296,6 +298,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).

@@ -77,8 +77,9 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
           expect(step.anchorMoves ?? []).toEqual([]);
         }
         // Graded as every play test is (support/galleryPlay.ts): a thrown play, a moved anchor and a
-        // layout shift fail it; the runner's frame timing does not (cx-mfkky). Picking a project
-        // keeps its layout too, at CLS 0 (#26850; new-tab-headline-selection-cls.test.ts).
+        // unexpected layout shift fail it; the runner's frame timing does not (cx-mfkky).
+        // The headline play measures stable slots and its menu anchor while the footer's
+        // content-sized project chevron follows the newly selected label.
         expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
         if (variant === "picked" || variant === "picker-open") {
           expect(receipt.headline).toContain("cmux");
