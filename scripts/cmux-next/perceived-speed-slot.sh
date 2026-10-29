@@ -54,6 +54,8 @@ stage() {
   ssh "$1" "export PATH=\$HOME/.local/bin:\$PATH; rm -rf $cache.part && mkdir -p $cache.part && cmux-ci artifact '$job' $cache.part/app.zip >/dev/null \
     && cd $cache.part && ditto -x -k app.zip . && rm app.zip && rm -rf $cache && mv $cache.part $cache"
 }
+# Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
+export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
 prefer=()
 for attempt in 1 2 3; do
   # The lease lives as long as the acquire process; keep it in its own session.

@@ -37,6 +37,8 @@ mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
 
+# Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
+export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
 capture-host acquire --slot --exclusive >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
