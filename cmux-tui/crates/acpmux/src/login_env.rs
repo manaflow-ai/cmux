@@ -90,6 +90,8 @@ struct State {
     /// Names of secret variables the login shell sets (values not cached).
     secret_names: Vec<String>,
     last_check: Option<Instant>,
+    /// Machine-env metadata from the last successful shell import.
+    applied_machine_stamp: Option<String>,
 }
 
 static STATE: RwLock<State> = RwLock::new(State {
@@ -98,9 +100,12 @@ static STATE: RwLock<State> = RwLock::new(State {
     fingerprint: None,
     secret_names: Vec::new(),
     last_check: None,
+    applied_machine_stamp: None,
 });
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static REFRESHING: AtomicBool = AtomicBool::new(false);
+/// Coalesce concurrent agent starts awaiting a changed machine secret file.
+static MACHINE_REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Whether this daemon reads the login environment: always, unless
 /// `ACPMUX_LOGIN_ENV=0`.
@@ -228,6 +233,8 @@ async fn import_once(read: &str) -> bool {
     let started = Instant::now();
     let before = pairs();
     let marker = run_marker();
+    // Capture before reading the shell. import() retries when files change mid-read.
+    let machine_stamp = machine_files_stamp();
     let output = run_shell(&shell, &marker).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
@@ -252,6 +259,7 @@ async fn import_once(read: &str) -> bool {
     let added = imported.vars.len();
     let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
     st.imported = Some(imported);
+    st.applied_machine_stamp = machine_stamp;
     st.outcome = Outcome::Shell;
     drop(st);
     tracing::info!(shell = %shell, added, ms = elapsed.as_millis() as u64, "imported login shell environment");
@@ -262,6 +270,29 @@ async fn import_once(read: &str) -> bool {
 /// last resolution (checked at most every `RECHECK`), refresh in the
 /// background. Never waits. The startup-file watcher (`watch.rs`) refreshes
 /// at once on an edit; this check covers what it cannot watch.
+/// A delivered cloud secret file may have changed after acpmux cached the
+/// shell environment. A new harness must use the new values, or refuse to
+/// start rather than inheriting a stale, possibly revoked secret.
+/// This reads only file metadata; secret values remain shell-owned.
+pub async fn machine_env_fresh_before_spawn() -> bool {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return true;
+    }
+    let applied = || STATE.read().unwrap_or_else(|e| e.into_inner()).applied_machine_stamp.clone();
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    let _one = MACHINE_REFRESH.lock().await;
+    // The watcher or an earlier spawn may already have completed this import.
+    if machine_files_stamp() == applied() {
+        return true;
+    }
+    import().await;
+    let current = machine_files_stamp();
+    let st = STATE.read().unwrap_or_else(|e| e.into_inner());
+    st.outcome == Outcome::Shell && st.applied_machine_stamp == current
+}
+
 pub fn refresh_if_changed() {
     refresh(true);
 }
@@ -1021,6 +1052,43 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
 
 /// The startup files and tool-manager configs a login shell reads: path,
 /// size and mtime of each (absent ones count too), plus the shell itself.
+/// Files created by cloud apply-machine-config and deliver-secrets. Their
+/// metadata is enough to detect delivery, rotation and deletion; never read
+/// or hash a credential value on the spawn decision path.
+fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
+    let mut any = false;
+    let mut stamp = String::new();
+    for name in ["machine.env", "machine-secrets.env"] {
+        let path = home.join(".config/cmux").join(name);
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) => {
+                any = true;
+                let kind = if meta.is_file() { 'f' } else if meta.file_type().is_symlink() { 'l' } else { 'o' };
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                stamp.push_str(&format!("{name}:{kind}:{}:{modified};", meta.len()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                stamp.push_str(&format!("{name}:absent;"));
+            }
+            Err(e) => {
+                any = true;
+                stamp.push_str(&format!("{name}:error:{:?};", e.kind()));
+            }
+        }
+    }
+    any.then_some(stamp)
+}
+
+fn machine_files_stamp() -> Option<String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    machine_files_stamp_in(&home)
+}
+
 fn fingerprint() -> String {
     use sha2::{Digest, Sha256};
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -1076,6 +1144,9 @@ fn startup_files() -> Vec<PathBuf> {
         ".config/direnv/direnvrc",
         ".nvmrc",
         ".config/claude/env",
+        // Both machine configuration and delivered secrets can change after daemon startup.
+        ".config/cmux/machine.env",
+        ".config/cmux/machine-secrets.env",
     ] {
         files.push(home.join(f));
     }
