@@ -195,8 +195,12 @@ test("Trust in a chat sends its trust-refused prompt even after a switch away an
     const home = client.selectedSession!;
     const other = MockAcpmuxSocket.live!.seedLoadSession(2);
     const replays: (() => void)[] = [];
+    // Trust's replay sends without waiting (failedRowTrustRetry); the test waits for the sends it started.
+    const started: Promise<unknown>[] = [];
+    const track = <T>(send: Promise<T>) => (started.push(send), send);
+    const settled = () => Promise.allSettled(started.splice(0));
     const rowRetry = failedRowTrustRetry({
-      retry: (rowIds, ticket, anchor) => client.retryPrompts(rowIds, ticket, anchor),
+      retry: (rowIds, ticket, anchor) => track(client.retryPrompts(rowIds, ticket, anchor)),
       runOf: (row) => [row],
       hold: () => undefined,
       takeTicket: () => undefined,
@@ -218,14 +222,14 @@ test("Trust in a chat sends its trust-refused prompt even after a switch away an
     expect(pane.rows().some((row) => row.failed)).toBe(false);
     // Trust: both replays run; only the prompt that was still failed goes, once.
     for (const again of replays) again();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settled();
     expect(pane.prompts).toEqual(["ship it", "drop me", "ship it"]);
     const users = pane.rows().filter((row) => row.kind === "user" && row.text === "ship it");
     expect(users).toHaveLength(1);
     expect(users[0]!.failed).not.toBe(true);
     // A second Trust replay of the same row sends nothing more.
     replays[0]!();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settled();
     expect(pane.prompts).toEqual(["ship it", "drop me", "ship it"]);
   } finally {
     pane.client.close?.();
@@ -247,8 +251,12 @@ test("a failed prompt removed or edited after a switch cleared it stays gone aft
     const home = client.selectedSession!;
     const other = MockAcpmuxSocket.live!.seedLoadSession(2);
     const replays: (() => void)[] = [];
+    // Trust's replay sends without waiting (failedRowTrustRetry); the test waits for the sends it started.
+    const started: Promise<unknown>[] = [];
+    const track = <T>(send: Promise<T>) => (started.push(send), send);
+    const settled = () => Promise.allSettled(started.splice(0));
     const rowRetry = failedRowTrustRetry({
-      retry: (rowIds, ticket, anchor) => client.retryPrompts(rowIds, ticket, anchor),
+      retry: (rowIds, ticket, anchor) => track(client.retryPrompts(rowIds, ticket, anchor)),
       runOf: (row) => [row],
       hold: () => undefined,
       takeTicket: () => undefined,
@@ -270,7 +278,7 @@ test("a failed prompt removed or edited after a switch cleared it stays gone aft
     client.takeFailedPrompt(edited);
     await client.select(home);
     for (const again of replays) again();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settled();
     expect(pane.prompts).toEqual(["remove me", "edit me"]);
   } finally {
     pane.client.close?.();
