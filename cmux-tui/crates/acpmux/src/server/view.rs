@@ -93,6 +93,7 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
 /// `_acpmux/detach`.
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).remove(&s.id);
     if let Some(before) = subs.remove(&s.id) {
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {

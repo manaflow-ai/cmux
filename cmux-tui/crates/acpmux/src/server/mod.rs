@@ -46,6 +46,35 @@ pub struct SubOpts {
     pub remote: bool,
 }
 
+/// Which `_acpmux/message` notices one chat's `session/load` replay and its live stream sent a
+/// connection, so each goes once: the live stream from its first record on (`live_from`, in seq
+/// order), the replay up to its last (`replayed`).
+#[derive(Default)]
+pub(super) struct MessageNotices {
+    replayed: u64,
+    live_from: Option<u64>,
+}
+
+impl MessageNotices {
+    /// The replay's notice of record `seq`: sent unless the live stream sent it.
+    pub(super) fn replay(&mut self, seq: u64) -> bool {
+        if self.live_from.is_some_and(|from| seq >= from) {
+            return false;
+        }
+        self.replayed = self.replayed.max(seq);
+        true
+    }
+
+    /// The live notice of record `seq`: sent unless the replay sent it.
+    pub(super) fn live(&mut self, seq: u64) -> bool {
+        if seq <= self.replayed {
+            return false;
+        }
+        self.live_from.get_or_insert(seq);
+        true
+    }
+}
+
 pub struct Conn {
     pub id: String,
     /// The listener this connection came in on.
@@ -70,6 +99,8 @@ pub struct Conn {
     /// Responses waiting for a queue slot; notifications cannot consume these slots.
     outbound_pending_controls: Arc<AtomicUsize>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// The chats a `session/load` replayed here: their message notices go once.
+    message_notices: StdMutex<HashMap<String, MessageNotices>>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
@@ -1325,6 +1356,7 @@ async fn serve_connection_from(
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
         subs: StdMutex::new(HashMap::new()),
+        message_notices: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
@@ -1620,9 +1652,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ));
             }
         }
-        if rec.dir == "mux" && rec.kind == "_acpmux/message" {
-            // Routed as the event beside it: a peer's chat id alone may match one here.
-            conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
+        // An event stream hears only the kinds it asked for, this notice too.
+        if rec.dir == "mux"
+            && rec.kind == "_acpmux/message"
+            && (!sub.event_stream || sub.filter.matches(rec))
+        {
+            let mut notices = conn.message_notices.lock_or_recover();
+            if notices.get_mut(&ev.session_id).is_none_or(|n| n.live(rec.seq)) {
+                // Routed as the event beside it: a peer's chat id alone may match one here.
+                conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
+            }
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
@@ -2075,3 +2114,26 @@ mod outbound_queue_tests {
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+#[cfg(test)]
+mod message_notice_tests {
+    use super::MessageNotices;
+
+    /// A replay racing the live stream sends each message notice once, whichever sends first.
+    #[test]
+    fn a_message_notice_goes_once_across_replay_and_live() {
+        // The live stream sent seq 5 while the replay was at 3: the replay stops at 5.
+        let mut n = MessageNotices::default();
+        assert!(n.live(5));
+        assert!(n.replay(3));
+        assert!(!n.replay(5));
+        assert!(!n.replay(6));
+        assert!(n.live(6));
+        // The replay sent 3 and 4 before the live stream reached them.
+        let mut n = MessageNotices::default();
+        assert!(n.replay(3));
+        assert!(n.replay(4));
+        assert!(!n.live(4));
+        assert!(n.live(5));
+    }
+}

@@ -752,3 +752,66 @@ async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
     let e = c.call(method::MUX_INFO, json!({"sessionId": other})).await.unwrap_err();
     assert!(e.contains("no session"), "{e}");
 }
+
+/// An event stream hears only the kinds it asked for: a session message reaches a plain
+/// attachment as `_acpmux/message`, and an event stream of `turn_result` never hears it.
+#[tokio::test]
+async fn a_filtered_event_stream_hears_no_message_notice() {
+    let h = hub();
+    let mut person = C::new(h.clone()).await;
+    let mut new_session = async |name: &str| {
+        person
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                       "_meta": {"acpmux": {"name": name}}}),
+            )
+            .await
+            .unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let sender = new_session("filter-sender").await;
+    let receiver = new_session("filter-receiver").await;
+    let mut plain = C::new(h.clone()).await;
+    plain.call(method::MUX_ATTACH, json!({"sessionId": receiver})).await.unwrap();
+    let mut filtered = C::new(h.clone()).await;
+    filtered
+        .call(
+            method::MUX_ATTACH,
+            json!({"sessionId": receiver, "eventStream": true, "kinds": ["turn_result"]}),
+        )
+        .await
+        .unwrap();
+    person
+        .send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": receiver, "prompt": [{"type": "text", "text": "hello"}],
+                   "_meta": {"acpmux": {"promptId": "p-filter", "provenance": {
+                       "kind": "agent_message", "from": format!("acp:{sender}"),
+                       "fromName": "filter-sender", "to": format!("acp:{receiver}"),
+                       "msgId": "m-filter", "threadId": "t-filter"}}}}),
+        )
+        .await;
+    plain
+        .notified(method::MUX_MESSAGE, Duration::from_secs(20), |p| p["messageId"] == "m-filter")
+        .await
+        .expect("a plain attachment hears the message");
+    // The message is recorded when the prompt is accepted, before its turn ends: any notice of it
+    // would come before the turn's result.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let line = tokio::time::timeout_at(deadline, filtered.rx.recv())
+            .await
+            .expect("the turn's result")
+            .expect("open");
+        if let Ok(Message::Notification { method: m, params }) = Message::parse(&line) {
+            let p = params.unwrap_or(Value::Null);
+            assert_ne!(m, method::MUX_MESSAGE, "a turn_result stream heard {p}");
+            if m == method::MUX_EVENT && p["kind"] == "turn_result" {
+                break;
+            }
+        }
+    }
+}

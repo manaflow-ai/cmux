@@ -1104,6 +1104,12 @@ async fn dispatch_request(
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // Before the attach: a message the live stream sends during the replay is not
+            // replayed again, nor one replayed sent live (`MessageNotices`).
+            conn.message_notices
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(s.id.clone(), super::MessageNotices::default());
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             // One record at a time, the first 100,000 as before: the log is never held whole.
@@ -1126,7 +1132,11 @@ async fn dispatch_request(
                             super::event_value(&s.id, &rec),
                         ));
                     } else {
-                        conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+                        let mut notices =
+                            conn.message_notices.lock().unwrap_or_else(|e| e.into_inner());
+                        if notices.get_mut(&s.id).is_none_or(|n| n.replay(rec.seq)) {
+                            conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+                        }
                     }
                 } else if rec.dir == "in"
                     && !rec.kind.ends_with(".replay")
