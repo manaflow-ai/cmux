@@ -123,10 +123,14 @@ def parse_probe(spec):
     """A probe: a dict {name, method, params, regex, min} (spec files), or NAME|METHOD|PARAMS_JSON|REGEX|MIN, where only
     the first three and the last `|` split (a regex may hold `|`)."""
     if isinstance(spec, dict):
-        return spec["name"], spec["method"], spec.get("params") or {}, re.compile(spec["regex"]), float(spec["min"])
+        # "max" instead of "min": the mechanism ran when every matched value is <= max (a value the on arm lowers,
+        # for example a renderer count a rendererless spare takes to 0); "absent": true counts no match as ran.
+        bound = ("max", float(spec["max"])) if "max" in spec else ("min", float(spec["min"]))
+        return (spec["name"], spec["method"], spec.get("params") or {}, re.compile(spec["regex"]), bound,
+                bool(spec.get("absent")))
     name, method, params, rest = spec.split("|", 3)
     regex, _, minimum = rest.rpartition("|")
-    return name, method, json.loads(params or "{}"), re.compile(regex), float(minimum)
+    return name, method, json.loads(params or "{}"), re.compile(regex), ("min", float(minimum)), False
 
 
 def parse_validity(spec):
@@ -204,7 +208,7 @@ def run_one(opts, inner_args, arm, index):
     env["PROOF_AB_ENABLE" if arm == "on" else "PROOF_AB_DISABLE"] = opts.toggle
     env["PROOF_AB_FEATURES_OUT"] = features_out
     if opts.probes_parsed:
-        env["PROOF_AB_PROBES"] = json.dumps([[method, params] for _n, method, params, _r, _m in opts.probes_parsed])
+        env["PROOF_AB_PROBES"] = json.dumps([[method, params] for _n, method, params, _r, _b, _a in opts.probes_parsed])
     else:
         env.pop("PROOF_AB_PROBES", None)
     if opts.inner == "memory":
@@ -247,10 +251,16 @@ def run_one(opts, inner_args, arm, index):
             for n in toggles) for s in states)
     probe_rows = [c["probes"] for c in checks if "probes" in c]
     probes, scenario_ok = {}, None
-    for name, method, _params, regex, minimum in opts.probes_parsed:
-        values = [v for reply in probe_rows for p, v in flatten(reply.get(method)) if regex.search(p)]
-        probes[name] = {"max": max(values) if values else None, "n": len(values), "min_to_run": minimum,
-                        "ran": bool(values) and max(values) >= minimum}
+    for name, method, _params, regex, bound, absent_ok in opts.probes_parsed:
+        replies = [reply.get(method) for reply in probe_rows]
+        values = [v for reply in replies for p, v in flatten(reply) if regex.search(p)]
+        answered = any(isinstance(r, (dict, list)) and not (isinstance(r, dict) and ("probe_error" in r or "error" in r)) for r in replies)
+        kind, limit = bound
+        if kind == "max":
+            ran = all(v <= limit for v in values) and (bool(values) or (absent_ok and answered))
+        else:
+            ran = bool(values) and max(values) >= limit
+        probes[name] = {"max": max(values) if values else None, "n": len(values), kind + "_to_run": limit, "ran": ran}
     if opts.probes_parsed and probe_rows:
         scenario_ok = all(p["ran"] for p in probes.values())  # no probe rows at all: the bench failed before the quit
     invalid = []
