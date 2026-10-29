@@ -38,6 +38,7 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", colorScheme: theme, reducedMotion: "true" })}`,
         );
+        await page.locator('[data-section="environment"]').waitFor();
         expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(theme);
         expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
         const save = page.locator('[data-section="environment"] button.acpmux-chat-inspector-link');
