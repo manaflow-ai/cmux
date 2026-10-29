@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import { VmDatabaseError } from "./errors";
@@ -14,6 +15,8 @@ import {
   vmLastApiActivityFromRow,
   VM_IDLE_PROBE_TIMEOUT_MS,
   type VmIdleDecision,
+  type VmIdleLastDecision,
+  type VmIdleOutcome,
   type VmIdleProbe,
 } from "./idlePause";
 import { VmProviderGateway } from "./providerGateway";
@@ -47,9 +50,11 @@ export type VmIdlePauseSummary = {
   /** Paused at the provider, but a write landed meanwhile and won (see undoLostPause). */
   readonly aborted: number;
   readonly errors: number;
+  readonly claim_refused: number;
 };
 
-type Outcome = "paused" | "idle" | "active" | "unknown" | "off" | "aborted" | "error";
+type Outcome = VmIdleOutcome;
+type CheckDecision = Pick<VmIdleLastDecision, "outcome" | "reason">;
 
 /**
  * The `vm-idle-pause` cron body (services/vms/idlePause.ts): probe each running
@@ -62,24 +67,33 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const candidates = repo.idlePauseCandidates;
-    if (!candidates || !repo.recordIdleObservation || !repo.claimIdlePause || !repo.claimIdleResume || !providers.pause) {
+    if (!candidates || !repo.recordIdleDecision || !repo.recordIdleObservation || !repo.claimIdlePause || !repo.claimIdleResume || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
     const startedAt = Date.now();
     const rows = yield* candidates({ limit });
-    const outcomes = yield* Effect.forEach(
-      rows,
-      (vm) => checkMachine(vm, input.now ?? Date.now).pipe(
-        Effect.catchAll((error) => Effect.sync((): Outcome => {
+    let checked = 0;
+    const now = input.now ?? Date.now;
+    const results = yield* Effect.forEach(rows, (vm) => Effect.gen(function* () {
+      const decision = yield* checkMachine(vm, now).pipe(
+        Effect.catchAll((error) => Effect.sync((): CheckDecision => {
           console.error("[VM] idle pause failed", { vmId: vm.id, error });
-          return "error";
+          return { outcome: "error", reason: "check_failed" };
         })),
-      ),
-      { concurrency: PROBE_CONCURRENCY },
-    );
-    warnIfSaturated(rows.length, limit, Date.now() - startedAt);
-    const tally = (outcome: Outcome) => outcomes.filter((o) => o === outcome).length;
+      );
+      checked += 1;
+      const lastDecision = { ...decision, at: now(), run: { checked, elapsedMs: Date.now() - startedAt } };
+      // Persist each check immediately, including errors and lost fences, even if the route later times out.
+      const checkId = randomUUID();
+      yield* recordDecision(vm, lastDecision, checkId);
+      return { vm, decision: lastDecision, checkId };
+    }), { concurrency: PROBE_CONCURRENCY });
+    const run = { checked, elapsedMs: Date.now() - startedAt };
+    // Completed runs publish their totals to each checked row. An overlapping newer check wins.
+    yield* Effect.forEach(results, ({ vm, decision, checkId }) => recordDecision(vm, { ...decision, run }, checkId), { concurrency: PROBE_CONCURRENCY });
+    warnIfSaturated(checked, limit, run.elapsedMs);
+    const tally = (outcome: Outcome) => results.filter((r) => r.decision.outcome === outcome).length;
     return {
       checked: rows.length,
       paused: tally("paused"),
@@ -89,8 +103,21 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
       off: tally("off"),
       aborted: tally("aborted"),
       errors: tally("error"),
+      claim_refused: tally("claim_refused"),
     } satisfies VmIdlePauseSummary;
   });
+}
+
+function recordDecision(vm: CloudVmRow, decision: VmIdleLastDecision, checkId: string) {
+  return Effect.gen(function* () {
+    if (!vm.providerVmId) return;
+    const repo = yield* VmRepository;
+    yield* repo.recordIdleDecision!({ id: vm.id, providerVmId: vm.providerVmId, decision, checkId });
+  }).pipe(Effect.catchAll((error) => Effect.sync(() => {
+    // Diagnostics must not cancel another machine's in-flight pause or recovery.
+    // The final run-total write retries a failed per-check write.
+    console.error("[VM] idle decision could not be recorded", { vmId: vm.id, error });
+  })));
 }
 
 /**
@@ -107,10 +134,13 @@ function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
 function checkMachine(vm: CloudVmRow, now: () => number) {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || vm.status === "destroyed") return "off" as const;
+    if (!providerVmId || vm.status === "destroyed") return { outcome: "off", reason: "machine_unavailable" } as const;
     // A claim an earlier run left is resolved first, whatever the row's status now.
-    if (vmIdlePauseClaimFromRow(vm) !== null) return yield* settleLeftClaim(vm, providerVmId, now());
-    if (vm.status !== "running") return "off" as const;
+    if (vmIdlePauseClaimFromRow(vm) !== null) {
+      const outcome = yield* settleLeftClaim(vm, providerVmId, now());
+      return { outcome, reason: `recover_claim:${outcome}` };
+    }
+    if (vm.status !== "running") return { outcome: "off", reason: "not_running" } as const;
     const minutes = vmIdlePauseMinutesFromRow(vm);
     const addresses = vmIdlePrivateAddressesFromRow(vm);
     const decide = (probe: VmIdleProbe | null, at: number) => decideVmIdlePause({
@@ -126,48 +156,54 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
     const checkedAt = now();
     const decision = decide(probe, checkedAt);
     const claimed = decision.pause ? yield* claimPause(vm, providerVmId) : null;
-    if (claimed) {
+    if (claimed && "row" in claimed) {
       // Guest activity (typing, a command, ssh, a forwarded port) moves no fence, so look once more
       // just before the provider pause. What starts within the provider call itself is not seen.
       const recheck = decide(yield* probeMachine(vm, providerVmId, addresses), now());
       if (!recheck.pause) {
         console.info("[VM] idle pause skipped: the re-probe was not idle", JSON.stringify({ vmId: vm.id, reason: recheck.reason }));
         yield* recordObservation(vm, providerVmId, null, checkedAt, claimed.epoch);
-        return recheck.reason.startsWith("unknown:") ? "unknown" as const : "active" as const;
+        return { outcome: outcomeOf(recheck), reason: `recheck:${recheck.reason}` };
       }
       const paused = yield* pauseIdleVmRow(claimed.row, providerVmId, claimed.epoch);
-      if (!paused) return yield* undoLostPause(vm, providerVmId, claimed.epoch);
+      if (!paused) {
+        const outcome = yield* undoLostPause(vm, providerVmId, claimed.epoch);
+        return { outcome, reason: `lost_pause:${outcome}` };
+      }
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
-      return "paused" as const;
+      return { outcome: "paused", reason: decision.reason } as const;
     }
     // Every checked machine records when it was checked, so the next run starts with the others.
     const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm, providerVmId, observation, checkedAt, vmIdleEpochFromRow(vm));
-    // A pause skipped because the row moved: something used the machine since the candidate read.
-    return decision.pause ? "active" as const : outcomeOf(decision);
+    const stored = yield* recordObservation(vm, providerVmId, observation, checkedAt, vmIdleEpochFromRow(vm));
+    if (claimed && "reason" in claimed) return { outcome: "claim_refused", reason: claimed.reason } as const;
+    if (!stored) return { outcome: "aborted", reason: "observation_fence_changed" } as const;
+    return { outcome: outcomeOf(decision), reason: decision.reason };
   });
 }
 
 /**
  * The cron's last check before pausing: the row re-read and claimed at the
- * idle fence it had when the cron read it. Null when it is no longer the same
+ * idle fence it had when the cron read it. A refusal reason when it is no longer the same
  * running machine, it changed since the candidate read (an attach or resume
  * bumps updatedAt), or anything moved the fence since (an exec, files or
  * attach call, a setting change, a status write, another run's observation).
  * `epoch` is the claimed fence the pause record must still find.
  */
-function claimPause(vm: CloudVmRow, providerVmId: string) {
+function claimPause(vm: CloudVmRow, providerVmId: string): Effect.Effect<
+  { readonly row: CloudVmRow; readonly epoch: number } | { readonly reason: string }, VmDatabaseError, VmRepository
+> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
-    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
+    if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return { reason: "machine_changed" };
+    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return { reason: "updated_at_changed" };
     // A person's or the allowance enforcer's pause under way: never claim over it.
-    if (hasOutstandingPauseIntent(current, yield* Clock.currentTimeMillis)) return null;
-    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
-    if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return null;
+    if (hasOutstandingPauseIntent(current, yield* Clock.currentTimeMillis)) return { reason: "pause_in_progress" };
+    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return { reason: "api_activity_changed" };
+    if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return { reason: "idle_epoch_changed" };
     const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
-    return epoch === null ? null : { row: current, epoch };
+    return epoch === null ? { reason: "claim_fence_changed" } : { row: current, epoch };
   });
 }
 

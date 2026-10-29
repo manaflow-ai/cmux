@@ -167,6 +167,8 @@ import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
   vmIdlePauseMinutesFromRow,
+  vmIdlePauseDiagnosticsFromRow,
+  type VmIdlePauseDiagnostics,
   vmIdleEpochFromRow,
   vmLastApiActivityFromRow,
   vmPauseIntentEpochFromRow,
@@ -252,6 +254,7 @@ export type VmEntry = {
   readonly agentUpdates: VmAgentUpdatesSetting;
   /** Minutes without activity before the machine pauses by itself; 0 is Off (services/vms/idlePause.ts). */
   readonly idlePauseMinutes: VmIdlePauseMinutes;
+  readonly idlePause: VmIdlePauseDiagnostics;
   /** Why a paused machine is paused: "idle" (auto-pause) or "user"; null when running or unknown. */
   readonly pauseReason: VmPauseReason | null;
   /**
@@ -6720,6 +6723,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
     agentUpdates: vmAgentUpdatesFromRow(row),
     idlePauseMinutes: vmIdlePauseMinutesFromRow(row),
+    idlePause: vmIdlePauseDiagnosticsFromRow(row),
     pauseReason: vmPauseReasonFromRow(row),
     resourceReservation: hasVmResourceReservationMetadata(row.providerMetadata)
       ? (({ vcpus, memoryMb }) => ({ vcpus, memoryMb }))(vmResourceReservationFromMetadata(row.providerMetadata))

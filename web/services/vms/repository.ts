@@ -45,6 +45,8 @@ import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResour
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_EPOCH_KEY,
+  VM_IDLE_LAST_DECISION_KEY,
+  type VmIdleLastDecision,
   VM_IDLE_OBSERVATION_KEY,
   VM_IDLE_PAUSE_CLAIM_KEY,
   VM_IDLE_PAUSE_MINUTES_KEY,
@@ -426,6 +428,13 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     /** The idle fence the cron read (VM_IDLE_EPOCH_KEY); a moved fence makes this a stale write (false). */
     readonly epoch: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Diagnostics alone: preserve updatedAt and the idle epoch, and reject an older check or replaced machine. */
+  readonly recordIdleDecision?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly decision: VmIdleLastDecision;
+    readonly checkId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /**
    * The idle cron's last check before it pauses a machine at the provider:
    * moves the fence if the row is still that running machine at `epoch`, and
@@ -1426,7 +1435,7 @@ function providerMetadataPatchForPersistence(
       key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY &&
       key !== VM_IDLE_PAUSE_MINUTES_KEY &&
       key !== VM_IDLE_OBSERVATION_KEY &&
-      key !== VM_IDLE_PROBED_AT_KEY &&
+      ![VM_IDLE_PROBED_AT_KEY, VM_IDLE_LAST_DECISION_KEY].includes(key) &&
       key !== VM_IDLE_EPOCH_KEY &&
       key !== VM_IDLE_PAUSE_CLAIM_KEY &&
       key !== VM_PAUSE_INTENT_EPOCH_KEY &&
@@ -2134,6 +2143,24 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ))
         .returning({ id: cloudVms.id });
       return rows.length > 0;
+    }),
+  recordIdleDecision: (input) =>
+    dbEffect("recordIdleDecision", async () => {
+      const previousAt = sql`case when jsonb_typeof(${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text -> 'at') = 'number'
+        then (${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text ->> 'at')::numeric else 0 end`;
+      await cloudDb().update(cloudVms).set({
+        // Do not move updatedAt or the idle epoch: observing the cron must never prevent its pause.
+        providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+          || ${JSON.stringify({ [VM_IDLE_LAST_DECISION_KEY]: { ...input.decision, checkId: input.checkId } })}::jsonb
+          || jsonb_build_object(${VM_IDLE_PROBED_AT_KEY}::text, greatest(${metadataMillis(VM_IDLE_PROBED_AT_KEY)}, ${input.decision.at}::bigint))`,
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        lte(previousAt, input.decision.at),
+        // First stored check wins a timestamp tie. Only its own totals can amend it.
+        or(lt(previousAt, input.decision.at),
+          sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_LAST_DECISION_KEY}::text ->> 'checkId') = ${input.checkId}`),
+      ));
     }),
   claimIdlePause: (input) =>
     dbEffect("claimIdlePause", async () => {

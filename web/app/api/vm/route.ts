@@ -244,6 +244,7 @@ export async function GET(request: Request): Promise<Response> {
         agentUpdates: entry.agentUpdates,
         // Minutes idle before the machine pauses by itself; 0 is Off.
         idlePauseMinutes: entry.idlePauseMinutes,
+        idlePause: entry.idlePause,
         // "idle" or "user" on a machine the control plane paused, else null.
         pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
