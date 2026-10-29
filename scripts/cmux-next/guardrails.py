@@ -58,7 +58,7 @@ whole grows (the same total check-app-size.sh --base computes, a split file's ne
 bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
-`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
+`app-type`, its own rule (so a fault in its brace scan fails only it, which then refuses alone), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
 depth: top-level, a member of an `extension`, or nested with more than PRIVATE_TYPE_MAX source lines (a type's
 `extension` blocks in its file count toward its size); a small private or nested helper and `// app-type-allow:`
@@ -77,6 +77,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import collections
+import collections.abc
 import concurrent.futures
 import dataclasses
 import functools
@@ -3791,8 +3792,32 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
-BLOCKING_CONTEXT: dict[str, object] = {}
+class ThreadContext(threading.local, collections.abc.MutableMapping):
+    """A dict of its own on each thread. check_own() runs measure() for a merge's ranges on several threads at once,
+    and each sets the context of its own revision (load_blocking_context); one shared dict let a range's rules read
+    the other range's manifest, actor tree and doc, or raise KeyError between a key's test and its read."""
+
+    def __init__(self):
+        self.values: dict[str, object] = {}
+
+    def __getitem__(self, key: str) -> object:
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: object) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+# HEAD's threading doc and package manifest, and loaded helpers; measure() refreshes them per run, on its own thread.
+BLOCKING_CONTEXT: ThreadContext = ThreadContext()
 
 
 class Prefiltered:
@@ -4953,8 +4978,9 @@ def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
-    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    """Keeps HEAD's threading doc and package manifest for the rules above, on this thread (a missing doc makes
+    thread-doc raise, so it refuses), and, given REPO, names HEAD's tree for pool-blocking's actor index
+    (repo_actor_index reads it on demand)."""
     for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
@@ -6097,7 +6123,9 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     """
     lines = []
     if warnings:
-        lines.append("guardrails: warnings (never refuse):")
+        lines.append("guardrails: warnings (these never refuse; a rule that failed refuses below):"
+                     if any(isinstance(h, RuleFailure) for _, hits in refusals for h in hits)
+                     else "guardrails: warnings (never refuse):")
         lines += [f"  [{kind}] {text}" for kind, text in warnings]
     skip = os.environ.get(SKIP_ENV, "").strip()
     skip_ids, skip_error = parse_skip(skip) if skip else (set(), None)
