@@ -635,7 +635,11 @@ function shapeTurn(
   for (let at = turn.length - 1; at > end && lastSummary < 0; at -= 1)
     if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
   const offers = retryable && !live;
-  const resumable = offers && lastSummary < 0 && isStopped(summary);
+  // A late/replayed result can sit beside the stopped turn. Only a summary carrying this turn's
+  // identity may authorize Continue; legacy records without ids retain the existing behavior.
+  const summaryBelongsToTurn =
+    summary.turnId === undefined || user.turnId === undefined || summary.turnId === user.turnId;
+  const resumable = offers && lastSummary < 0 && summaryBelongsToTurn && isStopped(summary);
   shaped.push({
     ...summary,
     folded,
@@ -661,8 +665,11 @@ function shapeTurn(
   // flight on the one live line under them, timed from the summary.
   const tail = turn.slice(end + 1);
   // Its version moves past any acpmux gives the row (VERSION_SPAN), so the memoized footer redraws.
-  if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
-    const stopped = tail[lastSummary]!;
+  const tailSummary = tail[lastSummary];
+  const tailBelongsToTurn =
+    tailSummary?.turnId === undefined || user.turnId === undefined || tailSummary.turnId === user.turnId;
+  if (offers && lastSummary >= 0 && tailBelongsToTurn && isStopped(tailSummary)) {
+    const stopped = tailSummary;
     tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
   }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))

@@ -196,6 +196,9 @@ export type AcpmuxRow = {
   kind: string;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
+  /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
+  /// transcript rows that belong to one turn use this identity when it is available.
+  turnId?: string;
   text?: string;
   streaming?: boolean;
   pending?: boolean;

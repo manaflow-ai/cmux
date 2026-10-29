@@ -1343,6 +1343,10 @@ export class AcpmuxDirectClient {
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not cancel the grace.
   private stopAfterSeq?: number;
+  /// The daemon turn a Stop was sent to. A later result for another turn cannot settle this Stop.
+  private stopTurnId?: string;
+  /// The daemon's current turn identity, when the live records name one.
+  private runningTurnId?: string;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -1876,6 +1880,8 @@ export class AcpmuxDirectClient {
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+    this.stopTurnId = undefined;
+    this.runningTurnId = undefined;
     this.events = [];
     this.turnOpener = undefined;
     this.historyExhausted = false;
@@ -3538,6 +3544,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.runningTurnId = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -3758,12 +3765,17 @@ export class AcpmuxDirectClient {
     return undefined;
   }
 
-  /// A turn event newer than Stop ends its grace and its give-up.
+  /// Only the terminal result for the stopped turn ends its grace and give-up. A compaction update,
+  /// turn_end, or result for another turn is not evidence that this Stop settled.
   private stopAnswered(event: EventRecord): void {
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
+    if (event.kind !== "turn_result") return;
+    const turnId = typeof event.msg?.turnId === "string" && event.msg.turnId ? event.msg.turnId : undefined;
+    if (this.stopTurnId !== undefined && turnId !== this.stopTurnId) return;
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+    this.stopTurnId = undefined;
   }
 
   /// A decided question stays in the transcript as a compact record where its card was: what was
@@ -4059,6 +4071,7 @@ export class AcpmuxDirectClient {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
+        if (msg.steer !== true && typeof msg.turnId === "string") this.runningTurnId = msg.turnId;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
           promptId ??
@@ -4160,6 +4173,7 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptId ? { promptId } : {}),
+          ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
@@ -4188,6 +4202,7 @@ export class AcpmuxDirectClient {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        if (typeof msg.turnId === "string") this.runningTurnId = msg.turnId;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
@@ -4243,14 +4258,19 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
-        if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
+        const turnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        if (event.kind === "turn_result" && turnId) {
+          this.endedTurns.add(turnId);
+          if (this.runningTurnId === turnId) this.runningTurnId = undefined;
+        }
         if (event.kind === "turn_result")
-          this.rows.set(`summary-${event.seq}`, {
-            id: `summary-${event.seq}`,
+          this.rows.set(`summary-${turnId ?? event.seq}`, {
+            id: `summary-${turnId ?? event.seq}`,
             version: 1,
             at: event.at,
             kind: "turnSummary",
             seq: event.seq,
+            ...(turnId ? { turnId } : {}),
             ...this.turnTotals(event.at),
             ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
             status,
@@ -4262,14 +4282,16 @@ export class AcpmuxDirectClient {
             ...(checkpoint ? { checkpoint } : {}),
           });
         // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.
-        if (event.kind === "turn_result" && msg.cancelForced === true)
-          this.rows.set(`notice-stop-${event.seq}`, {
-            id: `notice-stop-${event.seq}`,
+        if (event.kind === "turn_result" && msg.cancelForced === true) {
+          const noticeId = `notice-stop-${turnId ?? event.seq}`;
+          this.rows.set(noticeId, {
+            id: noticeId,
             version: 1,
             at: event.at,
             kind: "notice",
             text: translate("stop.forced"),
           });
+        }
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
@@ -5480,6 +5502,13 @@ export class AcpmuxDirectClient {
   }
   async cancel(): Promise<void> {
     if (!this.actingSessionId || !this.socket) return;
+    // Stop is idempotent until its terminal turn_result. A second click while the daemon is
+    // settling must not enqueue another cancel or another forced-end notice.
+    if (
+      this.stopAfterSeq !== undefined &&
+      (this.runningTurnId === undefined || this.runningTurnId === this.stopTurnId)
+    )
+      return;
     // Stop ends the turn: a prompt sent now before it no longer continues the turn.
     this.interrupting = undefined;
     const text = JSON.stringify({
@@ -5495,6 +5524,12 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     clearTimeout(this.stopTimer);
     this.stopAfterSeq = this.lastSeq;
+    const openerTurnId = this.turnOpener?.msg?.turnId;
+    const listedTurnId = this.summary?.turn?.turnId;
+    this.stopTurnId =
+      this.runningTurnId ??
+      (typeof openerTurnId === "string" && openerTurnId ? openerTurnId : undefined) ??
+      (typeof listedTurnId === "string" && listedTurnId ? listedTurnId : undefined);
     this.stopTimer = setTimeout(() => {
       if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
       if (!this.turnOpen && this.summary?.status !== "running") return;
@@ -6719,6 +6754,8 @@ export class AcpmuxDirectClient {
       optimisticPromptTexts: this.optimisticPromptTexts,
       promptAccepts: this.promptAccepts,
       compactionHeardAt: this.compactionHeardAt,
+      runningTurnId: this.runningTurnId,
+      stopTurnId: this.stopTurnId,
       // A Send now still waiting for the cancel it causes is the live turn's, never the page's.
       interrupting: this.interrupting,
       awaiting: this.awaiting,
