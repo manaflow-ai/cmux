@@ -14,12 +14,12 @@ struct HopRecord {
     /// Computed, not a stored static: the recording thread never runs a lazy global initializer.
     static var noAddresses: Addresses { (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) }
 
-    var lane: MainJobGateDiagnostics.Lane
-    /// ``MainJobGateDiagnostics/Origin`` (Swift) or ``MainJobGateDiagnostics/RunLoopModeName`` (non-Swift).
+    var lane: InputTurnHopRecorder.Lane
+    /// ``InputTurnHopRecorder/Origin`` (Swift) or ``InputTurnHopRecorder/RunLoopModeName`` (non-Swift).
     var origin: UInt8
     var priority: UInt8 = 0
-    var turn: MainJobGateDiagnostics.InputTurn
-    var callout: MainJobGateDiagnostics.CalloutKind = .sources
+    var turn: InputTurnHopRecorder.InputTurn
+    var callout: InputTurnHopRecorder.CalloutKind = .sources
     var nanos: UInt64 = 0
     /// A sampled non-Swift callout: the return address of its site (``CalloutStackSampler``); 0 when
     /// the callout was not sampled or its site was not found.
@@ -77,8 +77,8 @@ struct HopRecord {
             | UInt64(callout.rawValue) << 32 | UInt64(addressCount) << 40 | (swiftJob ? UInt64(1) << 48 : 0)
     }
 
-    init(lane: MainJobGateDiagnostics.Lane, origin: UInt8, priority: UInt8 = 0, turn: MainJobGateDiagnostics.InputTurn,
-         callout: MainJobGateDiagnostics.CalloutKind = .sources, nanos: UInt64 = 0) {
+    init(lane: InputTurnHopRecorder.Lane, origin: UInt8, priority: UInt8 = 0, turn: InputTurnHopRecorder.InputTurn,
+         callout: InputTurnHopRecorder.CalloutKind = .sources, nanos: UInt64 = 0) {
         self.lane = lane
         self.origin = origin
         self.priority = priority
@@ -88,10 +88,10 @@ struct HopRecord {
     }
 
     init(meta: UInt64, nanos: UInt64, site: UInt, stack: [UInt]) {
-        self.init(lane: MainJobGateDiagnostics.Lane(rawValue: UInt8(truncatingIfNeeded: meta)) ?? .nonswift,
+        self.init(lane: InputTurnHopRecorder.Lane(rawValue: UInt8(truncatingIfNeeded: meta)) ?? .nonswift,
                   origin: UInt8(truncatingIfNeeded: meta >> 8), priority: UInt8(truncatingIfNeeded: meta >> 16),
-                  turn: MainJobGateDiagnostics.InputTurn(rawValue: UInt8(truncatingIfNeeded: meta >> 24)),
-                  callout: MainJobGateDiagnostics.CalloutKind(rawValue: UInt8(truncatingIfNeeded: meta >> 32)) ?? .sources,
+                  turn: InputTurnHopRecorder.InputTurn(rawValue: UInt8(truncatingIfNeeded: meta >> 24)),
+                  callout: InputTurnHopRecorder.CalloutKind(rawValue: UInt8(truncatingIfNeeded: meta >> 32)) ?? .sources,
                   nanos: nanos)
         self.site = site
         swiftJob = meta & (1 << 48) != 0

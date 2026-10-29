@@ -2,8 +2,8 @@
 import CmuxNextCompat
 import Foundation
 
-/// The fold's tables of ``MainJobGateDiagnostics``: hops by site, since launch and since the last
-/// reset, each at most ``MainJobGateDiagnostics/siteLimit`` sites. Only the fold (under the
+/// The fold's tables of ``InputTurnHopRecorder``: hops by site, since launch and since the last
+/// reset, each at most ``InputTurnHopRecorder/siteLimit`` sites. Only the fold (under the
 /// recorder's lock, never on the main thread) touches it.
 struct HopSites {
     /// The most resolved addresses cached; past it the cache starts over, between two records.
@@ -30,20 +30,20 @@ struct HopSites {
         case truncated
         case noStack
         case calloutFrame(UInt)
-        case callout(MainJobGateDiagnostics.CalloutKind)
+        case callout(InputTurnHopRecorder.CalloutKind)
     }
 
     /// One site's hops.
     struct Accumulator {
-        var lane: MainJobGateDiagnostics.Lane
+        var lane: InputTurnHopRecorder.Lane
         var site: String
-        var frame: MainJobGateDiagnostics.Frame?
-        var stack: [MainJobGateDiagnostics.Frame]
+        var frame: InputTurnHopRecorder.Frame?
+        var stack: [InputTurnHopRecorder.Frame]
         var count = 0
         var turns: UInt8 = 0
         var origins: [UInt8: Int] = [:]
         var priorities: Set<UInt8> = []
-        var callouts: Set<MainJobGateDiagnostics.CalloutKind> = []
+        var callouts: Set<InputTurnHopRecorder.CalloutKind> = []
         var swiftJobs = false
         var totalNanos: UInt64 = 0
         var maxNanos: UInt64 = 0
@@ -64,22 +64,22 @@ struct HopSites {
             maxNanos = max(maxNanos, record.nanos)
         }
 
-        var row: MainJobGateDiagnostics.Row {
+        var row: InputTurnHopRecorder.Row {
             let origin = Dictionary(origins.map { (Self.originName($0.key, lane: lane), $0.value) }, uniquingKeysWith: +)
             let timed = lane == .nonswift
-            return MainJobGateDiagnostics.Row(
-                site: site, lane: lane, count: count, kinds: MainJobGateDiagnostics.InputTurn(rawValue: turns).names,
+            return InputTurnHopRecorder.Row(
+                site: site, lane: lane, count: count, kinds: InputTurnHopRecorder.InputTurn(rawValue: turns).names,
                 origin: origin, priorities: priorities.sorted().map { Int($0) },
-                callouts: timed ? MainJobGateDiagnostics.CalloutKind.allCases.filter { callouts.contains($0) }.map(\.name) : nil,
+                callouts: timed ? InputTurnHopRecorder.CalloutKind.allCases.filter { callouts.contains($0) }.map(\.name) : nil,
                 includesSwiftJobs: timed ? swiftJobs : nil,
                 totalMilliseconds: timed ? Double(totalNanos) / 1e6 : nil, maxMilliseconds: timed ? Double(maxNanos) / 1e6 : nil,
                 frame: frame, stack: stack)
         }
 
-        private static func originName(_ raw: UInt8, lane: MainJobGateDiagnostics.Lane) -> String {
+        private static func originName(_ raw: UInt8, lane: InputTurnHopRecorder.Lane) -> String {
             switch lane {
-            case .swift: MainJobGateDiagnostics.Origin(rawValue: raw)?.name ?? "?"
-            case .nonswift: MainJobGateDiagnostics.RunLoopModeName(rawValue: raw)?.name ?? "?"
+            case .swift: InputTurnHopRecorder.Origin(rawValue: raw)?.name ?? "?"
+            case .nonswift: InputTurnHopRecorder.RunLoopModeName(rawValue: raw)?.name ?? "?"
             }
         }
     }
@@ -94,7 +94,7 @@ struct HopSites {
         mutating func add(_ record: HopRecord, key: Key, new: () -> Accumulator) {
             recorded &+= 1
             if sites[key] == nil {
-                guard sites.count < MainJobGateDiagnostics.siteLimit else {
+                guard sites.count < InputTurnHopRecorder.siteLimit else {
                     overflow &+= 1
                     return
                 }
@@ -120,11 +120,11 @@ struct HopSites {
         droppedAtReset = dropped
     }
 
-    func snapshot(sinceLaunch launch: Bool, dropped: UInt64, pending: Int) -> MainJobGateDiagnostics.Snapshot {
+    func snapshot(sinceLaunch launch: Bool, dropped: UInt64, pending: Int) -> InputTurnHopRecorder.Snapshot {
         let window = launch ? sinceLaunch : sinceReset
         let rows = window.sites.values.map(\.row).sorted { ($0.count, $1.site) > ($1.count, $0.site) }
         let sinceResetDropped = dropped >= droppedAtReset ? dropped - droppedAtReset : 0
-        return MainJobGateDiagnostics.Snapshot(sinceLaunch: launch, recorded: window.recorded,
+        return InputTurnHopRecorder.Snapshot(sinceLaunch: launch, recorded: window.recorded,
                                                dropped: launch ? dropped : sinceResetDropped,
                                                sitesOverflow: window.overflow, pending: pending, rows: rows)
     }
@@ -156,7 +156,7 @@ struct HopSites {
     private static func accumulator(_ record: HopRecord, key: Key, siteFrame: ImageOffsetResolver.Resolved?,
                                     frames: [ImageOffsetResolver.Resolved?]) -> Accumulator {
         let named = zip(record.stack, frames).map { address, resolved in
-            resolved.map(frame) ?? MainJobGateDiagnostics.Frame(image: "?", imageUUID: nil, offset: UInt64(address), nearestSymbol: nil)
+            resolved.map(frame) ?? InputTurnHopRecorder.Frame(image: "?", imageUUID: nil, offset: UInt64(address), nearestSymbol: nil)
         }
         let lane = record.lane
         switch key {
@@ -175,8 +175,8 @@ struct HopSites {
         }
     }
 
-    private static func frame(_ resolved: ImageOffsetResolver.Resolved) -> MainJobGateDiagnostics.Frame {
-        MainJobGateDiagnostics.Frame(image: resolved.image.name, imageUUID: resolved.image.uuid?.uuidString, offset: UInt64(resolved.offset),
+    private static func frame(_ resolved: ImageOffsetResolver.Resolved) -> InputTurnHopRecorder.Frame {
+        InputTurnHopRecorder.Frame(image: resolved.image.name, imageUUID: resolved.image.uuid?.uuidString, offset: UInt64(resolved.offset),
                                      nearestSymbol: resolved.nearestSymbol)
     }
 }

@@ -17,7 +17,7 @@ struct HopFrameResolver {
         case other
     }
 
-    /// The image that calls the MainJobGate hook: `swift_task_enqueueMainExecutor`.
+    /// The image that calls a main-executor hook: `swift_task_enqueueMainExecutor`.
     static let concurrencyRuntime = MainJobRing.concurrencyRuntimeImage
 
     /// The frames a main-actor job's enqueue passes through between the hook and the code that

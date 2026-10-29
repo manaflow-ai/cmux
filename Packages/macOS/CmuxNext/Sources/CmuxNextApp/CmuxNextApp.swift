@@ -273,14 +273,6 @@ public struct CmuxNextApp {
         watchdog.startupStep("main.launch_order")
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap, startupTag: startupTag, wakeUps: mainWakeUps,
                                 budgetPlacement: features.isEnabled(.mainBudgetTurn) ? .afterCommit : .inTick) { DebugTimings.markLaunch($0) }
-        // Main-actor jobs by task priority (decision-gated; feature mainExecutorHook, default off).
-        order.mainWork.installMainExecutorHook(requested: MainExecutorHook.isRequested(feature: features.isEnabled(.mainExecutorHook),
-                                                                                      environment: ProcessInfo.processInfo.environment))
-        // Main-actor jobs wait behind pending input; installed as `debug.mainJobGate` says (AppServices.settings).
-        // Classed main work (post(class:), MainNotificationObserver) waits behind the same input.
-        if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
-            (app as? CmuxApplication)?.jobGate = MainJobGateSwitch(pending: pending, holding: order.mainWork)
-        }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered
         #if DEBUG || CMUX_BENCH_HOOKS
         mainJobs?.freeze(after: order.startup)

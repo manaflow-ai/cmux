@@ -4,6 +4,7 @@ public import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
+import Darwin
 import GhosttyNextKit
 import IOSurface
 import os
@@ -27,6 +28,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
+    /// When this view was made (`CLOCK_UPTIME_RAW` nanoseconds): a late key's log says how new its terminal was.
+    public let createdNanos: UInt64 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
     /// userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object for every callback.
     @safe let bridge: Unmanaged<SurfaceBridge>
@@ -673,3 +676,5 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
 extension TerminalSurfaceView: ParkingObserver {
     public func parkingDidChange() { syncPlacement() }
 }
+
+extension TerminalSurfaceView: InputCreationStamped {}

@@ -37,6 +37,8 @@ public final class CreationInputBuffer {
     /// A creation of this hold still waits for its reply: until then its keys never expire.
     public var hasPendingCreation: Bool { !pending.isEmpty }
     public var isEmpty: Bool { events.isEmpty }
+    /// How many keys it holds.
+    public var count: Int { events.count }
     /// How many creations this hold opened: a key run again that opened another one changes it.
     public var openedCount: Int { nextID }
 
@@ -79,6 +81,16 @@ public final class CreationInputBuffer {
 
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
+
+    /// The early tab of the newest pending creation, if it has one: the only view held keys may go to before the
+    /// creation resolves.
+    public var newestEarlyTab: String? { pending.keys.max().flatMap { earlyTabs[$0] } }
+
+    /// Pending creation tab `key` is the daemon's tab `real` now (a Ctrl-` stand-in its daemon tab adopted).
+    public func rekey(tab key: String, to real: String) {
+        for (id, tab) in earlyTabs where tab == key { earlyTabs[id] = real }
+        for (id, tab) in tabs where tab == key { tabs[id] = real }
+    }
 
     /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
     public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
