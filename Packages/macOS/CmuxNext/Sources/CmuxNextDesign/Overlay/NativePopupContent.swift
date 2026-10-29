@@ -206,6 +206,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             button.isEnabled = row.disabled != true && action.disabled != true
             if let icon = action.icon { button.image = NSImage.icon(IconName(icon), size: 14) }
             bind(button) { [weak self] _ in self?.emit(.pick, action.id, nil) }
+            editableControls[action.id] = button
             trailing.append(button)
         }
         if row.kind == .submenu {
@@ -367,7 +368,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let value = field.stringValue
         let isSearch = field === search
         if isSearch, model?.search?.autoHighlight != nil {
-            searchHasInput = true
+            searchHasInput = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             selected = nil; selectionReason = "none"
             paintSelection()
         }
