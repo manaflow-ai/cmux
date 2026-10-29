@@ -905,6 +905,20 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    if text == "orchestration-fields":
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": [
+            {"id": "reasoning_effort", "name": "Reasoning", "type": "select", "category": "thought_level",
+             "currentValue": "high", "options": [{"value": "high", "name": "High"}]}]})
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "orch-child",
+                     "model": "gpt-6", "effort": "high", "name": "Review"})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "first",
+                             "content": {"type": "text", "text": "old answer"}})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
+                             "content": {"type": "text", "text": "é" * 300}})
+        update("orch-child", {"sessionUpdate": "usage_update", "used": 1234, "size": 200000})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native
     # subagent sessions, a subagent_spawned per child and each child's own
     # updates under its session id; without, only "Start subagent" tool calls.
@@ -1503,6 +1517,14 @@ def main():
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
+            # file exists: a long answer then waits in the agent host's stdin writer, as it does
+            # for a harness that stopped reading.
+            hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
+            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+                import time as clock  # main() binds `time` locally
+                while not os.path.exists(hold):
+                    clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:

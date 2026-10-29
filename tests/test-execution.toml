@@ -270,6 +270,10 @@ path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -391,6 +395,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_display_suites.py"
 lane = "linux-guard"
 
 [[test]]
@@ -730,7 +738,7 @@ path = "tests/test_ci_quota_hold_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pr_size_advisory.py"
+path = "tests/test_ci_pr_size.py"
 lane = "linux-guard"
 
 [[test]]
@@ -982,6 +990,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -1035,6 +1047,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1433,6 +1449,14 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_check_isolation.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
@@ -1567,6 +1591,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_election_budget.py"
+lane = "manual"
+reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. The repo adds no new CI tests (CLAUDE.md, 2026-10-23), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
@@ -1706,6 +1735,10 @@ path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_owned_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_dispatch.py"
 lane = "linux-guard"
 
@@ -1731,6 +1764,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_stop_if_publish_doomed.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1799,6 +1836,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_pages.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1903,6 +1944,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_capture_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_perf_section_check.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2079,6 +2124,10 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -2104,4 +2153,28 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fresh_home_launch_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"

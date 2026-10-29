@@ -1,4 +1,4 @@
-import { auditEvents, automationRuns, automations, connections, homeConversations, homeInvites, homeMessageSearch, homeParticipants, hosts, installs, memberships, teams, users } from "@cmux/db/schema-mysql"
+import { auditEvents, automationRuns, automations, cloudEnvironments, connections, homeConversations, homeInvites, homeMessageSearch, homeParticipants, hosts, installs, memberships, teams, users } from "@cmux/db/schema-mysql"
 import { and, eq, lt, lte, sql, type SQL } from "drizzle-orm"
 import type { MySqlColumn } from "drizzle-orm/mysql-core"
 import { drizzle } from "drizzle-orm/mysql-proxy"
@@ -200,6 +200,24 @@ const statements: Record<string, (p: Payload, stream: string, seq: number) => St
             { messageId: homeMessageSearch.messageId, authorId: homeMessageSearch.authorId, authorKind: homeMessageSearch.authorKind, editedAt: homeMessageSearch.editedAt, body: homeMessageSearch.body }
           )
         })
+    ),
+  // MySQL only (cmux-next keeps new tables off Postgres): the Postgres drain skips these kinds.
+  "cloud.environment.upsert": (p, stream, seq) =>
+    render(
+      db.insert(cloudEnvironments)
+        .values({
+          id: String(p.id), teamId: String(p.team_id), name: String(p.name), repo: text(p.repo), status: String(p.status), snapshotId: text(p.snapshot_id), createdBy: String(p.created_by),
+          createdAt: dt(p.created_at)!, updatedAt: dt(p.updated_at)!, deletedAt: null, sourceStream: stream, sourceSeq: seq
+        })
+        .onDuplicateKeyUpdate({
+          set: guardedSet({ sourceStream: cloudEnvironments.sourceStream, sourceSeq: cloudEnvironments.sourceSeq }, { name: cloudEnvironments.name, repo: cloudEnvironments.repo, status: cloudEnvironments.status, snapshotId: cloudEnvironments.snapshotId, updatedAt: cloudEnvironments.updatedAt, deletedAt: cloudEnvironments.deletedAt })
+        })
+    ),
+  "cloud.environment.delete": (p, stream, seq) =>
+    render(
+      db.update(cloudEnvironments)
+        .set({ deletedAt: sql`CURRENT_TIMESTAMP(3)` as never, sourceStream: stream, sourceSeq: seq })
+        .where(and(eq(cloudEnvironments.teamId, String(p.team_id)), eq(cloudEnvironments.id, String(p.id)), lt(cloudEnvironments.sourceSeq, seq)))
     ),
   "home.message.delete": (p, stream, seq) =>
     render(

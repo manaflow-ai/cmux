@@ -393,6 +393,64 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     assert!(capabilities.contains("agent-session-start-vm-kind-v1"), "{identity}");
 }
 
+/// Folder trust on a Cloud VM takes the start's rule: only the caller's
+/// `vm_kind: "owner"` reaches it, never the VM's own record, and team
+/// evidence refuses even then. A page cannot vouch for the Cloud API's
+/// answer, so its routed operations never reach a Cloud VM's trust.
+#[test]
+fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
+    // `kind` null leaves the param out.
+    let trust = |daemon: &Daemon, surface: u64, kind: Value| {
+        let cwd = daemon.dir.join("work");
+        let mut request =
+            json!({"id": 30, "cmd": "agent-session-trust", "surface": surface, "cwd": cwd});
+        if !kind.is_null() {
+            request["vm_kind"] = kind;
+        }
+        daemon.rpc(request)
+    };
+    let owner = Daemon::start_cloud("trustvm", "owner");
+    let surface = owner.own_agent_tab();
+    for kind in [json!(null), json!("team"), json!("Owner")] {
+        let reply = trust(&owner, surface, kind);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    }
+    let read = trust(&owner, surface, json!("owner"));
+    assert_eq!(read["ok"], true, "{read}");
+    let identity = owner.rpc(json!({"id": 31, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-trust-vm-kind-v1"), "{identity}");
+    assert!(capabilities.contains("agent-transfer-vm-kind-v1"), "{identity}");
+    let cwd = owner.dir.join("work").to_str().unwrap().to_owned();
+    let read = json!({"surface": surface, "cwd": cwd, "machine": "current", "session": "current"});
+    let (mut page, _) = owner.page_relay("agent");
+    let got = page.v2("agent_session.trust.get", &read, json!({}));
+    assert_eq!(got["error"]["details"]["extra"]["code"], "agent_session.host_unverified", "{got}");
+    let mut vouched = read.clone();
+    vouched["vm_kind"] = json!("owner");
+    let got = page.v2("agent_session.trust.get", &vouched, json!({}));
+    assert_eq!(got["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{got}");
+
+    let team = Daemon::start_cloud("trustteam", "team");
+    let surface = team.own_agent_tab();
+    let reply = trust(&team, surface, json!("owner"));
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+
+    // A machine that shows no Cloud sign (its root may have removed them):
+    // a word that is not `owner`, an explicit `null` included, refuses.
+    let plain = Daemon::start("trustplain", None);
+    let surface = plain.own_agent_tab();
+    let cwd = plain.dir.join("work");
+    for kind in [json!(null), json!("team")] {
+        let request = json!({"id": 32, "cmd": "agent-session-trust", "surface": surface,
+                             "cwd": cwd, "vm_kind": kind});
+        let reply = plain.rpc(request);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{kind}: {reply}");
+    }
+    let read = trust(&plain, surface, Value::Null);
+    assert_eq!(read["ok"], true, "{read}");
+}
+
 #[test]
 fn an_unknown_host_kind_value_keeps_the_detected_kind() {
     // An unknown value is no kind: the daemon keeps what it detects (here:
