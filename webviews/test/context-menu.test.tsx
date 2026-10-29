@@ -186,8 +186,16 @@ test("a native context menu anchors at the pointer over nested SVG and routes pi
       listener({ type: "pick", popupId: model.id, revision: model.revision, id: "open" });
   });
   expect(picked).toEqual(["open"]);
+  // The native host hides terminal actions without a separate dismiss event.
+  expect(listeners.size).toBe(0);
+  expect(dismissed).toBe(0);
   await act(async () => {
-    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision });
+    container.querySelector("[data-target]")!.dispatchEvent(event);
+  });
+  expect(shown).toHaveLength(2);
+  const reopened = shown[1]!;
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "dismiss", popupId: reopened.id, revision: reopened.revision });
   });
   expect(dismissed).toBe(1);
   expect(listeners.size).toBe(0);

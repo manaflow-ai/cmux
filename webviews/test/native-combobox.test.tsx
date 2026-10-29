@@ -1,12 +1,24 @@
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Combobox } from "../src/ui/Combobox";
 import { UiProvider } from "../src/ui/UiProvider";
+import { Menu, MenuButton, MenuPopup } from "../src/ui/Menu";
+import { Popover } from "../src/ui/Popover";
 import { comboboxDescription } from "../src/ui/popupDescriptors";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
+
+const menuModel = {
+  side: "bottom" as const,
+  align: "start" as const,
+  width: 220,
+  rows: [
+    { id: "hold", kind: "action" as const, label: "Keep open", keepOpen: true },
+    { id: "done", kind: "action" as const, label: "Done" },
+  ],
+};
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -125,4 +137,62 @@ test("native combobox presents once its own input anchor mounts", async () => {
   });
   expect(shown).toHaveLength(1);
   expect(container.querySelector('[role="option"]')).toBeNull();
+});
+
+test("controlled native menu closes on terminal picks and reopens without a dismiss event", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const changes: boolean[] = [];
+  function Fixture() {
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" data-reopen onClick={() => setOpen(true)}>Reopen</button>
+        <Menu open={open} onOpenChange={(next) => { changes.push(next); setOpen(next); }} native={{ model: menuModel }}>
+          <MenuButton label="Actions">Actions</MenuButton>
+          <MenuPopup>Page rows must not mount</MenuPopup>
+        </Menu>
+      </>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<UiProvider container={container} popupHost={host}><Fixture /></UiProvider>);
+  });
+  expect(shown).toHaveLength(1);
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "hold" });
+  });
+  expect(changes).toEqual([]);
+  expect(listeners.size).toBe(1);
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "done" });
+  });
+  expect(changes).toEqual([false]);
+  expect(listeners.size).toBe(0);
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-reopen]")!.click());
+  expect(shown).toHaveLength(2);
+});
+
+test("native popover preserves Escape cancellation details", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const changes: { open: boolean; escape: boolean | undefined }[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Popover open label="Details" anchor={container} native={{ model: menuModel, anchor: () => container }}
+          onOpenChange={(open, details) => changes.push({ open, escape: details?.escape })}>
+          Page rows must not mount
+        </Popover>
+      </UiProvider>,
+    );
+  });
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision, reason: "escape" });
+  });
+  expect(changes).toEqual([{ open: false, escape: true }]);
 });
