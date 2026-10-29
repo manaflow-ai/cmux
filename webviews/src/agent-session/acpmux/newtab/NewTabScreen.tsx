@@ -455,7 +455,7 @@ export function NewTabScreen(props: Props) {
       : undefined
     : none
       ? undefined
-      : picked && project
+      : project && (projectPeer !== undefined || project !== props.cwd)
         ? project
         : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
@@ -465,7 +465,7 @@ export function NewTabScreen(props: Props) {
   // project (the handshake starts its chat there), so the first frame shows it.
   const askFolder = none
     ? undefined
-    : picked && project
+    : project && (projectPeer !== undefined || project !== props.cwd)
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const localAskFolder = projectPeer === undefined ? askFolder : undefined;
@@ -1350,7 +1350,7 @@ export function NewTabScreen(props: Props) {
     <SavedEnvironmentPanel
       key={saved.editing?.id ?? "new"}
       {...(saved.editing ? { environment: saved.editing } : {})}
-      initial={{ kind: "local", ...(askFolder ? { folder: askFolder } : {}) }}
+      initial={{ kind: "local", ...(localAskFolder ? { folder: localAskFolder } : {}) }}
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}

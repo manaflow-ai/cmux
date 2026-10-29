@@ -83,6 +83,8 @@ const noop = () => {};
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 
 type RenderOptions = {
+  cwd?: string;
+  home?: string;
   projects?: { cwd: string; label: string }[];
   onAsk?: (...args: unknown[]) => void;
   headlineOff?: boolean;
@@ -115,7 +117,8 @@ async function render(
         now={MORNING}
         snapshot={options.snapshot ?? noChat(manySessions(12))}
         lastAgent="claude"
-        cwd="/Users/you/src/atlas"
+        cwd={options.cwd ?? "/Users/you/src/atlas"}
+        {...(options.home ? { home: options.home } : {})}
         {...(startCwd ? { startCwd } : {})}
         projects={options.projects ?? [{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
         loadChatsPage={async () => ({ ready: true, chats: [] })}
@@ -376,39 +379,98 @@ test("the headline respects a peer's reconnecting state", async () => {
   }
 });
 
-test("a remote headline project stays remote in the composer and Projects card", async () => {
+for (const remoteFolder of ["/Users/you/src/atlas", "/srv/remote-app"]) {
+  test(`a remote headline project ${remoteFolder} stays scoped in composer and local-only surfaces`, async () => {
+    const snapshot = noChat([
+      {
+        sessionId: "remote-project",
+        cwd: remoteFolder,
+        harness: "claude",
+        status: "idle",
+        turnCount: 1,
+        updatedAt: Date.now(),
+        peer: "devbox",
+        host: "devbox",
+      },
+    ]);
+    snapshot.peers = ["devbox"];
+    snapshot.peerKinds = { devbox: "ssh" };
+    const asked: unknown[][] = [];
+    const savedEnvironments: SavedEnvironmentHost = {
+      list: async () => [],
+      save: async (draft) => ({ ...draft, id: "new", updatedAt: 1 }),
+      remove: async () => undefined,
+    };
+    const root = await render("minimal", ["greeting", "projects"], undefined, {
+      machineName: "studio",
+      snapshot,
+      environments: true,
+      savedEnvironments,
+      onAsk: (...args) => asked.push(args),
+      projects: [{ cwd: "/Users/you/src/atlas", label: "atlas" }],
+    });
+    try {
+      await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+      const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+        row.textContent?.includes("devbox"),
+      )!;
+      await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
+      const project = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+        row.querySelector(`[data-path="${remoteFolder}"]`),
+      )!;
+      await act(async () => project.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      expect(host.querySelector('.nt-location button[aria-label="Folder"]')?.textContent).toContain(
+        remoteFolder.split("/").at(-1)!,
+      );
+      expect(host.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]') === null).toBe(true);
+      if (remoteFolder !== "/Users/you/src/atlas")
+        expect(host.querySelector(`.nt-env button[title="${remoteFolder}"]`) === null).toBe(true);
+      const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+      const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+      await act(async () => {
+        setValue.call(field, "use remote project");
+        field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+      expect(asked[0]?.[2]).toBe(remoteFolder);
+      expect(asked[0]?.[6]).toEqual({ peer: "devbox" });
+      await act(async () =>
+        [...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')]
+          .at(-1)!
+          .click(),
+      );
+      const create = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+        row.textContent?.includes("Create environment"),
+      )!;
+      await act(async () => create.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      expect(host.querySelector('.acpmux-env-panel button[aria-label="Folder"]')?.getAttribute("title")).toBeNull();
+      expect(host.querySelector(".acpmux-env-panel")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
+
+test("an automatically selected recent project remains visible without an explicit pick", async () => {
   const snapshot = noChat([
     {
-      sessionId: "remote-project",
-      cwd: "/Users/you/src/atlas",
+      sessionId: "recent",
+      cwd: "/Users/you/src/recent",
       harness: "claude",
       status: "idle",
       turnCount: 1,
       updatedAt: Date.now(),
-      peer: "devbox",
-      host: "devbox",
     },
   ]);
-  snapshot.peers = ["devbox"];
-  snapshot.peerKinds = { devbox: "ssh" };
-  const root = await render("minimal", ["greeting", "projects"], undefined, {
-    machineName: "studio",
+  const root = await render("minimal", ["greeting"], undefined, {
+    cwd: "/Users/you",
+    home: "/Users/you",
     snapshot,
-    projects: [{ cwd: "/Users/you/src/atlas", label: "atlas" }],
+    projects: [{ cwd: "/Users/you/src/recent", label: "recent" }],
   });
   try {
-    await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
-    const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
-      row.textContent?.includes("devbox"),
-    )!;
-    await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
-    await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
-    const project = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
-      row.querySelector('[data-path="/Users/you/src/atlas"]'),
-    )!;
-    await act(async () => project.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
-    expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
-    expect(host.querySelector(".nt-env .nt-stage-detail")?.textContent).not.toContain("atlas");
+    expect(host.querySelector(".nt-location")?.textContent).toContain("recent");
   } finally {
     await act(async () => root.unmount());
   }
