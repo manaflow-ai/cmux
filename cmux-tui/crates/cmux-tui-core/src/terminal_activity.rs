@@ -1250,6 +1250,50 @@ mod tests {
         assert_eq!(activity.idle_since(), None, "A/B shell: `make deploy` waits");
     }
 
+    /// Review 9 of cp/daemon-foreground-state, should-fix 2: an accept key the
+    /// daemon cannot read (zsh's Alt-a accept-and-hold, any binding) runs a
+    /// line nothing counted; the prompt after that command must not pay a line
+    /// typed ahead while it ran. (Fails without the uncounted-command rule.)
+    #[test]
+    fn shell_idle_a_command_no_counted_line_started_pays_no_typed_ahead_line() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 900);
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        activity.note_input(b"sleep 5\x1ba");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"make deploy\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        assert_eq!(activity.idle_since(), None, "`make deploy` waits");
+    }
+
+    /// Should-fix 1: Ctrl-O typed while a command runs is a line typed ahead
+    /// (it accepts `true` when the shell reads it), so the prompt after `true`
+    /// must not read idle while `echo typed`, typed after it, still waits.
+    #[test]
+    fn shell_idle_ctrl_o_typed_while_a_command_runs_is_a_line_typed_ahead() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 900);
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        activity.note_input(b"sleep 1\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"true\x0f");
+        activity.note_input(b"echo typed\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        assert_eq!(activity.idle_since(), None, "two lines wait");
+        // The shell runs `true` (accepted by Ctrl-O).
+        activity.observe(ShellMark::CommandStart, 1_400);
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_500);
+        activity.observe(ShellMark::PromptStart, 1_600);
+        check_at_b(&mut activity, 1_601);
+        assert_eq!(activity.idle_since(), None, "`echo typed` still waits");
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
