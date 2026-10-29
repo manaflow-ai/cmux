@@ -481,7 +481,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
 /// a client is connected, and exits soon after the app is gone and the last
 /// client left (the stop rule: no client, no live owner, no live work).
 #[tokio::test]
-async fn a_daemon_follows_its_fake_owner_app_and_stops_after_it_is_gone() {
+async fn owner_liveness_a_daemon_follows_its_fake_owner_app_and_stops_after_it_is_gone() {
     fn stop(child: &mut std::process::Child) {
         let _ = child.kill();
         let _ = child.wait();

@@ -353,3 +353,73 @@ fn serve_takes_a_panic_log_and_serves() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The stop rule with a real owner app (cmux-owner-liveness): a fake app
+/// process connects as the provider, so the host follows that process
+/// (the provider socket's peer pid). The app's process keeps the host also
+/// with its provider link down, past the idle delay; once the process is
+/// gone and nothing uses the host, it exits at once, not after the delay.
+#[cfg(unix)]
+#[test]
+fn owner_liveness_a_host_follows_its_fake_provider_app_and_stops_after_it_is_gone() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::{Duration, Instant};
+
+    fn stop(app: &mut std::process::Child, host: &mut std::process::Child) {
+        let _ = app.kill();
+        let _ = app.wait();
+        let _ = host.kill();
+        let _ = host.wait();
+    }
+
+    let dir = std::env::temp_dir().join(format!("cmux-host-own-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // A delay the test never waits out: an exit within it is the owner's.
+    let (mut host, _socket, _listeners) = spawn_activated_host(&dir, 120_000, &[]);
+    let mut app = Command::new("python3")
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_provider.py"))
+        .arg(dir.join("browser-host-provider.sock"))
+        .arg("s".repeat(64))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("a fake app (python3)");
+    let mut said = BufReader::new(app.stdout.take().unwrap());
+    let mut line = String::new();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line, "acked\n", "the host did not ack the fake app's provider");
+    // The app drops its provider link and keeps running.
+    writeln!(app.stdin.as_mut().unwrap(), "close").unwrap();
+    line.clear();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line, "closed\n");
+    std::thread::sleep(Duration::from_secs(3));
+    if host.try_wait().unwrap().is_some() {
+        stop(&mut app, &mut host);
+        panic!("the host exited while its app runs (its provider link down)");
+    }
+    // What an idle host costs while its app runs (the price of the rule).
+    let rss = Command::new("ps").args(["-o", "rss=", "-p"]).arg(host.id().to_string()).output();
+    let rss = rss.map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned());
+    eprintln!("owner_liveness: idle cmux-browser-host RSS {} KiB", rss.unwrap_or_default());
+    // The app is gone: nothing keeps the host.
+    let _ = app.kill();
+    let _ = app.wait();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = host.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() > deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    if status.is_none() {
+        stop(&mut app, &mut host);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let status = status.expect("the host ran 10 s after its app was gone, with nothing to serve");
+    assert_eq!(status.code(), Some(0), "the stop exits with code 0");
+}
