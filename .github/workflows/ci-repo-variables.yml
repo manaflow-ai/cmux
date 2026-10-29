@@ -28,6 +28,7 @@ on:
       - scripts/ci/runner_label_policy.py
       - scripts/ci/runs_on_values.py
       - scripts/ci/signing_runner_variables.py
+      - scripts/ci/python-with-yaml.sh
       - scripts/ci/runner_pools.py
       - .github/runners.json
   workflow_dispatch:
@@ -53,8 +54,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # Signing jobs on feat-cmux-next read runner variables too (scripts/ci/signing_runner_variables.py).
+      # Without this checkout the check fails closed: every runner variable must be ephemeral.
+      - name: Check out feat-cmux-next's workflows
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .signing-workflows/feat-cmux-next
+          sparse-checkout: .github/workflows
+          persist-credentials: false
+
       - name: Check the live values
         env:
+          SIGNING_WORKFLOW_DIRS: .signing-workflows/feat-cmux-next/.github/workflows
           CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           # Present while the cloud overflow switch has Blacksmith overflow off.
@@ -89,7 +103,7 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
             NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
-        run: python3 scripts/ci/check_repo_variables.py
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py
 
       # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
       # one of its declared members. A missing pool fails every job that reads it.
