@@ -15,12 +15,44 @@ use super::*;
 const GRACE: Duration = OWNER_EXIT_GRACE;
 const HOUR: Duration = Duration::from_secs(3600);
 
+/// The owner app: set by the test, or a real follow of a stand-in app.
+enum FakeOwner {
+    Manual(OwnerState),
+    Real(Arc<OwnerLiveness>),
+}
+
+impl Default for FakeOwner {
+    /// The app runs.
+    fn default() -> Self {
+        Self::Manual(OwnerState::Alive)
+    }
+}
+
 #[derive(Default)]
 struct FakeFacts {
     clients: AtomicUsize,
     terminals: AtomicUsize,
     unreadable: AtomicBool,
     brains: AtomicUsize,
+    owner: Mutex<FakeOwner>,
+}
+
+impl FakeFacts {
+    fn owner(&self) -> OwnerState {
+        match &*self.owner.lock().unwrap() {
+            FakeOwner::Manual(state) => *state,
+            FakeOwner::Real(liveness) => liveness.state(),
+        }
+    }
+
+    fn keeps(&self) -> Keeps {
+        chief_owner_keeps(
+            self.clients(),
+            self.owner(),
+            self.live_terminals(),
+            self.brains.load(Ordering::SeqCst),
+        )
+    }
 }
 
 impl OrphanFacts for FakeFacts {
@@ -37,7 +69,14 @@ impl OrphanFacts for FakeFacts {
     }
 
     fn exits(&self) -> bool {
-        chief_owner_exits(self.live_terminals(), self.brains.load(Ordering::SeqCst))
+        let keeps = self.keeps();
+        let exits = keeps.exits(true);
+        cmux_owner_liveness::check("chief owner (test)", exits, keeps, true);
+        exits
+    }
+
+    fn kept_by_reported_fact(&self) -> bool {
+        self.owner() == OwnerState::Alive
     }
 }
 
@@ -71,7 +110,7 @@ impl Fixture {
     fn start(facts: FakeFacts) -> Self {
         let clock = Arc::new(FakeClock(Mutex::new(Instant::now())));
         let facts = Arc::new(facts);
-        let watch = watch(clock.clone(), facts.clone());
+        let watch = OrphanWatch::with_timing(clock.clone(), facts.clone(), CHIEF_OWNER_TIMING);
         let (tx, fired) = channel();
         let waiter = watch.clone();
         std::thread::spawn(move || {
@@ -100,6 +139,39 @@ impl Fixture {
         self.facts.clients.store(clients, Ordering::SeqCst);
         self.watch.clients_changed();
     }
+
+    /// The owning app exits, and its kernel watch reports it.
+    fn app_quits(&self) {
+        *self.facts.owner.lock().unwrap() = FakeOwner::Manual(OwnerState::Gone);
+        self.watch.facts_changed();
+    }
+
+    /// Follows a real stand-in app, and the apps `file` names after it.
+    fn follow_real(&self, app: OwnerApp, file: Option<PathBuf>) {
+        let liveness = OwnerLiveness::new(file);
+        let observer = Arc::downgrade(&self.watch);
+        liveness.observe(move || {
+            if let Some(watch) = observer.upgrade() {
+                watch.facts_changed();
+            }
+        });
+        *self.facts.owner.lock().unwrap() = FakeOwner::Real(liveness.clone());
+        follow(&liveness, app);
+    }
+
+    /// Moves the clock a grace at a time until the owner exits (the kernel
+    /// reports an exit on its own thread).
+    fn fires_soon(&self, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            self.advance(GRACE);
+            if let Ok(fired) = self.fired.recv_timeout(Duration::from_millis(50)) {
+                assert!(fired);
+                return;
+            }
+            assert!(Instant::now() < deadline, "{what}");
+        }
+    }
 }
 
 impl Drop for Fixture {
@@ -121,7 +193,7 @@ fn chief_owner_exit_never_while_its_app_runs() {
 fn chief_owner_exit_soon_after_its_app_quits() {
     let f = Fixture::start(FakeFacts::default());
     f.advance(HOUR);
-    owner_exited(&f.watch);
+    f.app_quits();
     f.advance(GRACE - Duration::from_millis(500));
     f.not_yet();
     f.advance(Duration::from_millis(500));
@@ -134,7 +206,7 @@ fn chief_owner_exit_waits_for_the_brain_host_at_work() {
     // (Keep Sessions Running): the owner stays until it leaves.
     let f = Fixture::start(FakeFacts::default());
     f.set_clients(1);
-    owner_exited(&f.watch);
+    f.app_quits();
     f.advance(HOUR);
     f.not_yet();
     f.set_clients(0);
@@ -147,7 +219,7 @@ fn chief_owner_exit_waits_for_the_brain_host_at_work() {
 #[test]
 fn chief_owner_exit_waits_for_a_live_brain_of_another_chief() {
     let f = Fixture::start(FakeFacts { brains: AtomicUsize::new(1), ..FakeFacts::default() });
-    owner_exited(&f.watch);
+    f.app_quits();
     f.advance(GRACE);
     f.not_yet();
     f.facts.brains.store(0, Ordering::SeqCst);
@@ -158,7 +230,7 @@ fn chief_owner_exit_waits_for_a_live_brain_of_another_chief() {
 #[test]
 fn chief_owner_exit_waits_for_a_live_terminal() {
     let f = Fixture::start(FakeFacts { terminals: AtomicUsize::new(1), ..FakeFacts::default() });
-    owner_exited(&f.watch);
+    f.app_quits();
     f.advance(HOUR);
     f.not_yet();
     f.facts.terminals.store(0, Ordering::SeqCst);
@@ -169,7 +241,7 @@ fn chief_owner_exit_waits_for_a_live_terminal() {
 #[test]
 fn chief_owner_exit_stays_with_an_unreadable_registry() {
     let f = Fixture::start(FakeFacts { unreadable: AtomicBool::new(true), ..FakeFacts::default() });
-    owner_exited(&f.watch);
+    f.app_quits();
     f.advance(HOUR);
     f.not_yet();
 }
@@ -178,56 +250,38 @@ fn chief_owner_exit_stays_with_an_unreadable_registry() {
 /// killed), and the grace starts with no polling of the process.
 #[test]
 fn chief_owner_exit_watches_the_app_process_in_the_kernel() {
-    let mut app = std::process::Command::new("sleep").arg("600").spawn().expect("a stand-in app");
+    let app = std::process::Command::new("sleep").arg("600").spawn().expect("a stand-in app");
     let f = Fixture::start(FakeFacts::default());
-    watch_owner(OwnerApp::parse(Some(&app.id().to_string())), None, &f.watch);
+    f.follow_real(OwnerApp::parse(Some(&app.id().to_string())), None);
     f.advance(HOUR);
     f.not_yet();
-    app.kill().expect("the stand-in app ends");
-    app.wait().expect("reaped");
-    // The watch thread arms the grace once the kernel reports the exit.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        f.advance(GRACE);
-        if let Ok(fired) = f.fired.recv_timeout(Duration::from_millis(50)) {
-            assert!(fired);
-            break;
-        }
-        assert!(Instant::now() < deadline, "the app's exit never armed the Chief owner's exit");
-    }
+    quit(app);
+    f.fires_soon("the app's exit never ended the Chief owner");
 }
 
 /// A newer app reused this owner (it wrote the pid file): the first app's
-/// exit does not start the grace; the newer app's does.
+/// exit does not end it; the newer app's does.
 #[test]
 fn chief_owner_exit_follows_the_newer_app_that_reused_the_owner() {
     let dir = tempfile::tempdir().expect("dir");
     let file = dir.path().join("owner-app.pid");
-    let mut first = std::process::Command::new("sleep").arg("600").spawn().expect("first app");
-    let mut second = std::process::Command::new("sleep").arg("600").spawn().expect("second app");
+    let first = std::process::Command::new("sleep").arg("600").spawn().expect("first app");
+    let second = std::process::Command::new("sleep").arg("600").spawn().expect("second app");
     std::fs::write(&file, format!("{}\n", second.id())).expect("pid file");
     let f = Fixture::start(FakeFacts::default());
-    watch_owner(OwnerApp::parse(Some(&first.id().to_string())), Some(file), &f.watch);
-    first.kill().expect("first app ends");
-    first.wait().expect("reaped");
+    f.follow_real(OwnerApp::parse(Some(&first.id().to_string())), Some(file));
+    quit(first);
     for _ in 0..10 {
         f.advance(GRACE);
         f.not_yet();
     }
-    second.kill().expect("second app ends");
-    second.wait().expect("reaped");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        f.advance(GRACE);
-        if let Ok(fired) = f.fired.recv_timeout(Duration::from_millis(50)) {
-            assert!(fired);
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the newer app's exit never armed the Chief owner's exit"
-        );
-    }
+    quit(second);
+    f.fires_soon("the newer app's exit never ended the Chief owner");
+}
+
+fn quit(mut app: std::process::Child) {
+    app.kill().expect("the stand-in app ends");
+    app.wait().expect("reaped");
 }
 
 // cp/redesign-quit-helpers (principled audit, R2/R3): whether an owning
@@ -271,7 +325,7 @@ fn chief_owner_exit_owner_level_a_newer_app_after_the_quit_keeps_the_owner() {
 
 /// The owner follows the app `pid` and then the apps `file` names.
 fn follow_app(f: &Fixture, pid: u32, file: &Path) {
-    watch_owner(OwnerApp::parse(Some(&pid.to_string())), Some(file.to_path_buf()), &f.watch);
+    f.follow_real(OwnerApp::parse(Some(&pid.to_string())), Some(file.to_path_buf()));
 }
 
 #[test]
@@ -294,8 +348,12 @@ fn chief_owner_exit_applies_only_to_a_chief_owner_an_app_started() {
 
 #[test]
 fn chief_owner_exit_rule() {
-    assert!(chief_owner_exits(Some(0), 0));
-    assert!(!chief_owner_exits(Some(1), 0));
-    assert!(!chief_owner_exits(None, 0));
-    assert!(!chief_owner_exits(Some(0), 1));
+    let exits =
+        |terminals, brains, owner| chief_owner_keeps(0, owner, terminals, brains).exits(true);
+    assert!(exits(Some(0), 0, OwnerState::Gone));
+    assert!(!exits(Some(0), 0, OwnerState::Alive));
+    assert!(!exits(Some(1), 0, OwnerState::Gone));
+    assert!(!exits(None, 0, OwnerState::Gone));
+    assert!(!exits(Some(0), 1, OwnerState::Gone));
+    assert!(!chief_owner_keeps(1, OwnerState::Gone, Some(0), 0).exits(true));
 }

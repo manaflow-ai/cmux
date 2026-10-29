@@ -37,6 +37,8 @@ bench = []
 # Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
 cmux-threads.workspace = true
 cmux-blocking.workspace = true
+# The owner app as a level and the helpers' one stop rule (crates/cmux-owner-liveness).
+cmux-owner-liveness.workspace = true
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true

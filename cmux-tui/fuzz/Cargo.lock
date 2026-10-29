@@ -21,6 +21,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-lock-rank",
  "cmux-memory",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
@@ -891,6 +892,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-owner-liveness"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "libc",
+]
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
@@ -1108,6 +1117,7 @@ dependencies = [
  "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-process",
  "cmux-remote",

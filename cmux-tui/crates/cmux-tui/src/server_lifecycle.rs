@@ -25,7 +25,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use super::dev_orphan_exit::{self, OrphanExit, OrphanFacts, OrphanWatch, SystemClock, Timing};
-use acpmux::daemon_lifecycle::OwnerApp;
+use cmux_owner_liveness::{Keeps, OwnerApp, OwnerLiveness, OwnerState};
 use cmux_tui_core::Mux;
 
 /// How long the owner stays with nothing that needs it.
@@ -35,14 +35,17 @@ pub(crate) const IDLE_EXIT_GRACE: Duration = acpmux::daemon_lifecycle::IDLE_EXIT
 /// found something live.
 pub(crate) const IDLE_TIMING: Timing = Timing { delay: IDLE_EXIT_GRACE, recheck: IDLE_EXIT_GRACE };
 
-/// The rule past the grace: nothing live and no owning app. An unreadable
-/// terminal registry keeps the owner.
+/// The rule past the grace (the helpers' one stop rule, `cmux-owner-liveness`,
+/// with no client): nothing live and no owning app. An unreadable terminal
+/// registry keeps the owner.
 pub(crate) fn idle_exits(
     live_terminals: Option<usize>,
     live_agents: bool,
     owner_alive: bool,
 ) -> bool {
-    live_terminals == Some(0) && !live_agents && !owner_alive
+    let owner = if owner_alive { OwnerState::Alive } else { OwnerState::Gone };
+    let live_work = live_terminals != Some(0) || live_agents;
+    Keeps { clients: false, owner, live_work }.exits(false)
 }
 
 /// The headless owner's facts.
@@ -50,7 +53,7 @@ pub(crate) struct IdleFacts {
     pub(crate) mux: Weak<Mux>,
     /// A Chief brain supervisor runs: its brains are agents.
     pub(crate) chief_brains: bool,
-    pub(crate) owner: OwnerApp,
+    pub(crate) owner: Arc<OwnerLiveness>,
 }
 
 impl OrphanFacts for IdleFacts {
@@ -67,7 +70,7 @@ impl OrphanFacts for IdleFacts {
     }
 
     fn exits(&self) -> bool {
-        idle_exits(self.live_terminals(), self.chief_brains, self.owner.alive())
+        idle_exits(self.live_terminals(), self.chief_brains, self.owner.owner_alive())
     }
 }
 
@@ -83,7 +86,8 @@ pub(crate) fn start_for_owner(mux: &Arc<Mux>, chief_brains: bool) -> Option<Orph
     if !enabled() {
         return None;
     }
-    let owner = OwnerApp::parse(crate::startup_env::owner_app_pid().as_deref());
+    let app = OwnerApp::parse(crate::startup_env::owner_app_pid().as_deref());
+    let (owner, _) = OwnerLiveness::following(app, None);
     let facts = Arc::new(IdleFacts { mux: Arc::downgrade(mux), chief_brains, owner });
     let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, IDLE_TIMING);
     let session = mux.session.clone();

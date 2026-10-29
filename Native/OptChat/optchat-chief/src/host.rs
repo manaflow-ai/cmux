@@ -970,17 +970,29 @@ fn start(
     // channel until the brain runs.
     let (tx, rx) = channel();
     let _ = STOP_TX.set(tx.clone());
-    // The app this host serves: its exit stops an idle brain (owner_app.rs).
-    // The event waits in the channel until the brain runs.
-    if let Some(app) = crate::owner_app::from_env() {
-        let exited = tx.clone();
-        let watched = crate::owner_app::watch(app, crate::owner_app::pid_file(home), move || {
-            log("the app this host serves quit");
-            let _ = exited.send(Input::OwnerAppExited);
-        });
-        if !watched {
-            log("no watch of the app this host serves: it runs until it is stopped");
+    // The app this host serves, as a level (owner_app.rs): the brain stops
+    // once it is gone and nothing keeps it. A change waits in the channel
+    // until the brain runs.
+    let changed = tx.clone();
+    let owner = crate::owner_app::follow(
+        crate::owner_app::from_env(),
+        crate::owner_app::pid_file(home),
+        move || {
+            let _ = changed.send(Input::OwnerChanged);
+        },
+    );
+    match &owner {
+        Some((_, cmux_owner_liveness::Watch::Polled(e))) => {
+            log(format!(
+                "the app this host serves is checked every second (no kernel handle: {e})"
+            ));
         }
+        Some((_, cmux_owner_liveness::Watch::Unwatched(e))) => {
+            log(format!(
+                "no watch of the app this host serves ({e}): read at each input"
+            ));
+        }
+        _ => {}
     }
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
@@ -1666,6 +1678,9 @@ fn start(
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
     .with_workspaces(workspaces);
     let mut brain = brain;
+    if let Some((owner, _)) = owner {
+        brain.set_owner(Arc::new(move || owner.state()));
+    }
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);

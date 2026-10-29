@@ -241,6 +241,7 @@ mod unix {
         secret: String,
         engines: &HostEngines,
         on_change: Arc<dyn Fn() + Send + Sync>,
+        on_provider: cmux_browser_host::server::OnProvider,
     ) -> Result<(), String> {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
@@ -251,7 +252,12 @@ mod unix {
             move || {
                 let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
                 let _ = cmux_browser_host::server::serve_providers_notifying(
-                    listener, secret, slot, bundle, on_change,
+                    listener,
+                    secret,
+                    slot,
+                    bundle,
+                    on_change,
+                    on_provider,
                 );
             },
         )
@@ -323,34 +329,44 @@ mod unix {
                     .is_some_and(|provider| provider.closed_reason().is_none())
             }
         };
+        // The app whose provider connected last: its process, as a level
+        // (cmux-owner-liveness); the idle stop's owner.
+        let owner = cmux_owner_liveness::OwnerLiveness::new(None);
         let idle = options.idle_exit_ms.filter(|_| options.supervised).map(|ms| {
-            let (probe_host, provider_open) = (Arc::downgrade(&host), provider_open.clone());
-            let busy = move || {
-                let sessions = probe_host
-                    .upgrade()
-                    .is_some_and(|host| host.session_count() > 0 || host.connection_count() > 0);
-                sessions || provider_open()
+            let (probe_host, provider_open, owner) =
+                (Arc::downgrade(&host), provider_open.clone(), owner.clone());
+            let keeps = move || {
+                let host = probe_host.upgrade();
+                cmux_owner_liveness::Keeps {
+                    clients: provider_open()
+                        || host.as_ref().is_some_and(|host| host.connection_count() > 0),
+                    owner: owner.state(),
+                    live_work: host.as_ref().is_some_and(|host| host.session_count() > 0),
+                }
             };
-            IdleExit::new(Duration::from_millis(ms), Arc::new(SystemClock), Box::new(busy))
+            IdleExit::new(Duration::from_millis(ms), Arc::new(SystemClock), Box::new(keeps))
         });
         let idle_weak = idle.as_ref().map(Arc::downgrade);
+        // The owner app exited (or a newer one is followed): the stop reads the rule again.
+        let owner_changed = idle_weak.clone();
+        owner.observe(move || {
+            if let Some(idle) = owner_changed.as_ref().and_then(std::sync::Weak::upgrade) {
+                idle.changed();
+            }
+        });
         let signal = Arc::downgrade(&engines);
-        // Whether a provider was connected at the last change: its leaving is an edge.
-        let had_provider = std::sync::atomic::AtomicBool::new(false);
-        // A provider connected or left: the idle stop and waiting sessions see it.
+        // A session, connection or provider changed: the idle stop and waiting sessions see it.
         let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             if let Some(idle) = idle_weak.as_ref().and_then(std::sync::Weak::upgrade) {
-                let open = provider_open();
-                if had_provider.swap(open, std::sync::atomic::Ordering::SeqCst) && !open {
-                    // The app that served this host went (a quit): exit now unless in use.
-                    idle.provider_left();
-                } else {
-                    idle.changed();
-                }
+                idle.changed();
             }
             if let Some(engines) = signal.upgrade() {
                 engines.provider_changed();
             }
+        });
+        // A provider was acked: its app is the owner from now.
+        let on_provider: cmux_browser_host::server::OnProvider = Arc::new(move |stream| {
+            let _ = owner.follow(cmux_owner_liveness::peer_app(stream));
         });
         host.on_sessions_changed(on_change.clone());
         if let Some(secret) = secret {
@@ -363,7 +379,7 @@ mod unix {
                 .map_err(|error| error.to_string()),
             };
             let started = provider_listener.and_then(|listener| {
-                start_provider_listener(listener, secret, &engines, on_change)
+                start_provider_listener(listener, secret, &engines, on_change, on_provider)
             });
             if let Err(error) = started {
                 eprintln!("cmux-browser-host: provider listener: {error}");

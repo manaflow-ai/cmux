@@ -1,4 +1,4 @@
-//! The leftover daemon idle exit on a fake clock (`cargo test -p acpmux idle_exit`).
+//! The daemon's stop rule on a fake clock (`cargo test -p acpmux idle_exit`).
 
 use super::*;
 use crate::clock::ManualClock;
@@ -10,7 +10,10 @@ const GRACE: Duration = IDLE_EXIT_GRACE;
 struct Facts {
     agents: AtomicUsize,
     processes: AtomicUsize,
+    /// The owning app runs.
     owner: AtomicBool,
+    /// An app named this daemon (its exit makes the owner gone, not unnamed).
+    named: AtomicBool,
 }
 
 impl Liveness for Facts {
@@ -22,8 +25,14 @@ impl Liveness for Facts {
         self.processes.load(Ordering::SeqCst)
     }
 
-    fn owner_app_alive(&self) -> bool {
-        self.owner.load(Ordering::SeqCst)
+    fn owner(&self) -> OwnerState {
+        if self.owner.load(Ordering::SeqCst) {
+            OwnerState::Alive
+        } else if self.named.load(Ordering::SeqCst) {
+            OwnerState::Gone
+        } else {
+            OwnerState::Unnamed
+        }
     }
 }
 
@@ -31,7 +40,6 @@ struct Run {
     clock: Arc<ManualClock>,
     presence: Arc<ClientPresence>,
     facts: Arc<Facts>,
-    owner_exit: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     exit: tokio::task::JoinHandle<()>,
 }
 
@@ -40,28 +48,21 @@ impl Run {
         let clock = ManualClock::new();
         let presence = Arc::new(ClientPresence::default());
         let facts = Arc::new(facts);
-        let (owner_exit, exited) = tokio::sync::oneshot::channel::<()>();
         let exit = {
             let (clock, presence, facts) = (clock.clone(), presence.clone(), facts.clone());
             tokio::spawn(async move {
-                // A dropped sender is no exit (the test ended without one).
-                let owner = async move {
-                    if exited.await.is_err() {
-                        std::future::pending::<()>().await;
-                    }
-                };
-                wait_for_idle_exit(&presence, clock, facts.as_ref(), GRACE, owner).await;
+                wait_for_daemon_exit(&presence, clock, facts.as_ref(), false).await;
             })
         };
-        Self { clock, presence, facts, owner_exit: std::sync::Mutex::new(Some(owner_exit)), exit }
+        Self { clock, presence, facts, exit }
     }
 
-    /// The owning app's process exits (the facts say so, then the watch fires).
+    /// The owning app's process exits: the owner level says gone, and its
+    /// kernel watch reports the change ([`OwnerLiveness::observe`]).
     async fn owner_exits(&self) {
+        self.facts.named.store(true, Ordering::SeqCst);
         self.facts.owner.store(false, Ordering::SeqCst);
-        let sender = self.owner_exit.lock().unwrap().take().expect("one owner exit per run");
-        // A waiter that no longer watches has dropped the receiver; the asserts say what that did.
-        let _ = sender.send(());
+        self.presence.work_changed();
         settle().await;
     }
 
@@ -123,7 +124,8 @@ async fn idle_exit_stays_with_a_live_agent() {
     run.advance(GRACE * 3).await;
     assert!(!run.exited(), "exited with a live agent");
     run.facts.agents.store(0, Ordering::SeqCst);
-    // The next look is one grace after the last one.
+    // The hub reports the end of the agent's work (Hub::status_changed).
+    run.presence.work_changed();
     run.advance(GRACE).await;
     assert!(run.exited());
 }
@@ -140,7 +142,9 @@ async fn idle_exit_stays_while_the_owning_app_runs() {
     let run = Run::start(Facts { owner: AtomicBool::new(true), ..Facts::default() });
     run.advance(GRACE * 3).await;
     assert!(!run.exited(), "exited while its app runs");
+    // No app names it any more; the change is reported.
     run.facts.owner.store(false, Ordering::SeqCst);
+    run.presence.work_changed();
     run.advance(GRACE).await;
     assert!(run.exited());
 }
@@ -156,6 +160,7 @@ async fn idle_exit_closes_to_new_clients() {
 /// A client that connects between the deadline's read and the close (the
 /// read sees no client; the client is there before the fence).
 struct ArrivesAtTheDeadline {
+    clock: Arc<ManualClock>,
     presence: Arc<ClientPresence>,
     armed: AtomicBool,
     client: std::sync::Mutex<Option<ClientGuard>>,
@@ -163,7 +168,8 @@ struct ArrivesAtTheDeadline {
 
 impl Liveness for ArrivesAtTheDeadline {
     fn live_agents(&self) -> usize {
-        if self.armed.swap(false, Ordering::SeqCst) {
+        // The rule's read at the deadline (the daemon reads it at every change too).
+        if self.clock.now() >= GRACE && self.armed.swap(false, Ordering::SeqCst) {
             *self.client.lock().unwrap() = self.presence.connect();
         }
         0
@@ -173,8 +179,8 @@ impl Liveness for ArrivesAtTheDeadline {
         0
     }
 
-    fn owner_app_alive(&self) -> bool {
-        false
+    fn owner(&self) -> OwnerState {
+        OwnerState::Unnamed
     }
 }
 
@@ -183,6 +189,7 @@ async fn idle_exit_a_client_at_the_deadline_keeps_the_daemon() {
     let clock = ManualClock::new();
     let presence = Arc::new(ClientPresence::default());
     let liveness = Arc::new(ArrivesAtTheDeadline {
+        clock: clock.clone(),
         presence: presence.clone(),
         armed: AtomicBool::new(true),
         client: Default::default(),
@@ -190,8 +197,7 @@ async fn idle_exit_a_client_at_the_deadline_keeps_the_daemon() {
     let exit = {
         let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
         tokio::spawn(async move {
-            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE, std::future::pending())
-                .await;
+            wait_for_daemon_exit(&presence, clock, liveness.as_ref(), false).await;
         })
     };
     settle().await;
@@ -210,20 +216,23 @@ async fn idle_exit_a_client_at_the_deadline_keeps_the_daemon() {
 }
 
 /// Work that starts between the deadline's read and the close: the second
-/// read, under the fence, finds it.
-struct StartsAtTheDeadline(AtomicUsize);
+/// read at the deadline, under the fence, finds it.
+struct StartsAtTheDeadline(Arc<ManualClock>, AtomicUsize);
 
 impl Liveness for StartsAtTheDeadline {
     fn live_agents(&self) -> usize {
-        usize::from(self.0.fetch_add(1, Ordering::SeqCst) == 1)
+        if self.0.now() < GRACE {
+            return 0;
+        }
+        usize::from(self.1.fetch_add(1, Ordering::SeqCst) == 1)
     }
 
     fn live_processes(&self) -> usize {
         0
     }
 
-    fn owner_app_alive(&self) -> bool {
-        false
+    fn owner(&self) -> OwnerState {
+        OwnerState::Unnamed
     }
 }
 
@@ -231,12 +240,11 @@ impl Liveness for StartsAtTheDeadline {
 async fn idle_exit_work_found_under_the_fence_reopens() {
     let clock = ManualClock::new();
     let presence = Arc::new(ClientPresence::default());
-    let liveness = Arc::new(StartsAtTheDeadline(AtomicUsize::new(0)));
+    let liveness = Arc::new(StartsAtTheDeadline(clock.clone(), AtomicUsize::new(0)));
     let exit = {
         let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
         tokio::spawn(async move {
-            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE, std::future::pending())
-                .await;
+            wait_for_daemon_exit(&presence, clock, liveness.as_ref(), false).await;
         })
     };
     settle().await;
@@ -250,32 +258,6 @@ async fn idle_exit_work_found_under_the_fence_reopens() {
     clock.advance(GRACE);
     settle().await;
     assert!(exit.is_finished());
-}
-
-#[test]
-fn idle_exit_policy_asks_liveness_only_past_the_grace() {
-    let mut policy = IdlePolicy::new(GRACE);
-    policy.presence(Duration::ZERO, 0, false);
-    let asked = AtomicBool::new(false);
-    let early = policy.step(GRACE / 2, || asked.swap(true, Ordering::SeqCst));
-    assert_eq!(early, Step::Wait(GRACE / 2));
-    assert!(!asked.load(Ordering::SeqCst));
-    assert_eq!(policy.step(GRACE, || false), Step::Exit);
-    policy.presence(GRACE, 1, true);
-    assert_eq!(policy.step(GRACE * 2, || false), Step::Serve);
-}
-
-#[test]
-fn idle_exit_owner_pid_parse() {
-    assert_eq!(OwnerApp::parse(None), OwnerApp::default());
-    assert_eq!(OwnerApp::parse(Some("1")), OwnerApp::default());
-    assert_eq!(OwnerApp::parse(Some("abc")), OwnerApp::default());
-    assert!(!OwnerApp::parse(None).alive());
-    #[cfg(unix)]
-    {
-        let me = std::process::id().to_string();
-        assert!(OwnerApp::parse(Some(&me)).alive());
-    }
 }
 
 #[tokio::test]
@@ -349,8 +331,10 @@ async fn idle_exit_owner_exit_keeps_a_working_daemon() {
     run.advance(GRACE * 2).await;
     assert!(!run.exited(), "exited with a live agent");
     run.facts.agents.store(0, Ordering::SeqCst);
-    run.advance(GRACE).await;
-    assert!(run.exited(), "stayed past a full grace after the agent's work ended");
+    // The hub reports the end of the agent's work (Hub::status_changed).
+    run.presence.work_changed();
+    run.advance(OWNER_EXIT_GRACE).await;
+    assert!(run.exited(), "stayed past the owner-exit grace after the agent's work ended");
 }
 
 #[tokio::test]
@@ -360,53 +344,25 @@ async fn idle_exit_without_an_owner_exit_keeps_the_full_grace() {
     assert!(!run.exited(), "a daemon whose owner did not exit took the short grace");
 }
 
-/// `OwnerApp::exited` resolves when a real process (here a child) exits, and
-/// at once for one that is already gone.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-#[tokio::test]
-async fn idle_exit_owner_watch_sees_the_process_exit() {
-    let mut child =
-        std::process::Command::new("/bin/sleep").arg("60").spawn().expect("spawn sleep");
-    let owner = OwnerApp::parse(Some(&child.id().to_string()));
-    let watch = tokio::spawn(owner.exited());
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!watch.is_finished(), "the watch fired while the owner runs");
-    child.kill().expect("kill sleep");
-    child.wait().expect("reap sleep");
-    tokio::time::timeout(Duration::from_secs(10), watch)
-        .await
-        .expect("the watch missed the owner's exit")
-        .expect("the watch task");
-    // Gone before this watch starts (the pid was reaped above).
-    tokio::time::timeout(Duration::from_secs(10), owner.exited())
-        .await
-        .expect("the watch of an owner already gone never fired");
-}
-
 /// The daemon's exit with `leftoverDaemonIdleExit` off (every channel's
-/// default, and v1.1's): the owning app's quit still ends an idle daemon.
+/// default, and v1.1's): a daemon no app named stays; the owning app's quit
+/// still ends an idle daemon.
 struct OffRun {
     clock: Arc<ManualClock>,
-    owner_exit: Option<tokio::sync::oneshot::Sender<()>>,
+    presence: Arc<ClientPresence>,
     exit: tokio::task::JoinHandle<()>,
 }
 
 fn start_with_the_feature_off(facts: Arc<Facts>) -> OffRun {
     let clock = ManualClock::new();
     let presence = Arc::new(ClientPresence::default());
-    let (owner_exit, exited) = tokio::sync::oneshot::channel::<()>();
     let exit = {
-        let clock = clock.clone();
+        let (clock, presence) = (clock.clone(), presence.clone());
         tokio::spawn(async move {
-            let owner = async move {
-                if exited.await.is_err() {
-                    std::future::pending::<()>().await;
-                }
-            };
-            wait_for_daemon_exit(false, &presence, clock, facts.as_ref(), owner).await;
+            wait_for_daemon_exit(&presence, clock, facts.as_ref(), true).await;
         })
     };
-    OffRun { clock, owner_exit: Some(owner_exit), exit }
+    OffRun { clock, presence, exit }
 }
 
 #[tokio::test]
@@ -422,14 +378,26 @@ async fn idle_exit_off_never_exits_while_the_owner_runs() {
 }
 
 #[tokio::test]
+async fn idle_exit_off_a_daemon_no_app_named_stays() {
+    let run = start_with_the_feature_off(Arc::new(Facts::default()));
+    for _ in 0..3 {
+        settle().await;
+        run.clock.advance(GRACE);
+        settle().await;
+    }
+    assert!(!run.exit.is_finished(), "the feature off, the CLI's daemon exited idle");
+}
+
+#[tokio::test]
 async fn idle_exit_off_the_owners_quit_ends_an_idle_daemon() {
     let facts = Arc::new(Facts { owner: AtomicBool::new(true), ..Facts::default() });
-    let mut run = start_with_the_feature_off(facts.clone());
+    let run = start_with_the_feature_off(facts.clone());
     settle().await;
     run.clock.advance(GRACE * 2);
     settle().await;
+    facts.named.store(true, Ordering::SeqCst);
     facts.owner.store(false, Ordering::SeqCst);
-    let _ = run.owner_exit.take().expect("one exit").send(());
+    run.presence.work_changed();
     settle().await;
     assert!(!run.exit.is_finished(), "exited before the owner-exit grace");
     run.clock.advance(OWNER_EXIT_GRACE);

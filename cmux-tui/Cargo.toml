@@ -57,6 +57,7 @@ members = [
     "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
+    "crates/cmux-owner-liveness",
     "crates/cmux-trace",
     "crates/cmux-hang-watch",
     "crates/cmux-wake",
@@ -135,6 +136,7 @@ default-members = [
     "crates/cmux-memory",
     "crates/cmux-process",
     "crates/cmux-threads",
+    "crates/cmux-owner-liveness",
     "crates/cmux-wake",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
@@ -233,6 +235,7 @@ cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-features = { path = "crates/cmux-features" }
 cmux-threads = { path = "crates/cmux-threads" }
+cmux-owner-liveness = { path = "crates/cmux-owner-liveness" }
 cmux-wake = { path = "crates/cmux-wake" }
 cmux-trace = { path = "crates/cmux-trace" }
 cmux-hang-watch = { path = "crates/cmux-hang-watch" }

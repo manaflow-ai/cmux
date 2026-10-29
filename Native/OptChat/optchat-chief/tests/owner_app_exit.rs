@@ -8,6 +8,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use cmux_owner_liveness::OwnerState;
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::{Input, OWNER_APP_EXITED, PARENT};
@@ -43,7 +44,7 @@ fn an_idle_chief_stops_when_its_app_quits() {
     h.say("user_local", "hello");
     h.settle_posts();
     assert!(h.brain.fatal().is_none());
-    h.brain.step(Input::OwnerAppExited);
+    app_quits(&mut h);
     assert!(
         stopped_for_the_quit(&h),
         "an idle Chief outlived its app's quit: {:?}, held by {:?}",
@@ -61,7 +62,7 @@ fn a_running_turn_keeps_the_chief_until_it_ends() {
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
         h.step();
     }
-    h.brain.step(Input::OwnerAppExited);
+    app_quits(&mut h);
     assert!(h.brain.fatal().is_none(), "the quit cut a running turn");
     h.agents.hold(false);
     h.agents.release();
@@ -86,7 +87,7 @@ fn a_child_at_work_keeps_the_chief_until_it_ends() {
     h.settle_posts();
     h.brain
         .step(Input::from(AgentEvent::Up(vec![child("bg-1", "running")])));
-    h.brain.step(Input::OwnerAppExited);
+    app_quits(&mut h);
     assert!(h.brain.fatal().is_none(), "the quit ended a child at work");
     h.brain.step(Input::from(AgentEvent::SessionChanged(child(
         "bg-1", "idle",
@@ -103,6 +104,7 @@ fn a_child_at_work_keeps_the_chief_until_it_ends() {
 #[test]
 fn a_chief_whose_app_runs_never_stops_idle() {
     let mut h = Harness::new(default_script());
+    h.brain.set_owner(std::sync::Arc::new(|| OwnerState::Alive));
     h.connect();
     h.say("user_local", "hello");
     h.settle_posts();
@@ -110,62 +112,21 @@ fn a_chief_whose_app_runs_never_stops_idle() {
     assert!(h.brain.fatal().is_none(), "{:?}", h.brain.fatal());
 }
 
-/// The kernel watch: the app's process exits, and the next app named in the
-/// pid file is followed until it exits too.
 #[test]
-fn the_watch_follows_the_next_app_and_reports_the_last_exit() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("owner-app.pid");
-    let mut first = std::process::Command::new("sleep")
-        .arg("600")
-        .spawn()
-        .unwrap();
-    let mut second = std::process::Command::new("sleep")
-        .arg("600")
-        .spawn()
-        .unwrap();
-    let (tx, rx) = std::sync::mpsc::channel();
-    assert!(optchat_chief::owner_app::watch(
-        first.id() as i32,
-        file.clone(),
-        move || {
-            let _ = tx.send(());
-        }
-    ));
-    // The second app opened Home: it serves the host now.
-    std::fs::write(&file, format!("{}\n", second.id())).unwrap();
-    first.kill().unwrap();
-    first.wait().unwrap();
-    assert!(
-        rx.recv_timeout(Duration::from_millis(300)).is_err(),
-        "the host stopped while a newer app still runs"
-    );
-    second.kill().unwrap();
-    second.wait().unwrap();
-    rx.recv_timeout(Duration::from_secs(5))
-        .expect("the last app's exit was never reported");
+fn a_chief_no_app_named_never_stops_idle() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "hello");
+    h.settle_posts();
+    h.brain.step(Input::OwnerChanged);
+    assert!(h.brain.fatal().is_none(), "{:?}", h.brain.fatal());
 }
 
-#[test]
-fn the_next_owner_is_another_live_process() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("owner-app.pid");
-    let alive = |pid: i32| pid == 77;
-    assert_eq!(optchat_chief::owner_app::next_owner(5, &file, &alive), None);
-    std::fs::write(&file, "5\n").unwrap();
-    assert_eq!(optchat_chief::owner_app::next_owner(5, &file, &alive), None);
-    std::fs::write(&file, "78\n").unwrap();
-    assert_eq!(optchat_chief::owner_app::next_owner(5, &file, &alive), None);
-    std::fs::write(&file, "77\n").unwrap();
-    assert_eq!(
-        optchat_chief::owner_app::next_owner(5, &file, &alive),
-        Some(77)
-    );
-}
-
-/// The app quits (its process is gone and no newer app took the host over).
+/// The app quits (its process is gone and no newer app took the host over):
+/// the owner level says gone, and its kernel watch reports the change.
 fn app_quits(h: &mut Harness) {
-    h.brain.step(Input::OwnerAppExited);
+    h.brain.set_owner(std::sync::Arc::new(|| OwnerState::Gone));
+    h.brain.step(Input::OwnerChanged);
 }
 
 // cp/redesign-quit-helpers (principled audit, R5): on the base an idle host
