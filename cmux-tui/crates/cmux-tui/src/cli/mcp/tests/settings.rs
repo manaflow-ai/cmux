@@ -95,3 +95,59 @@ fn settings_mutations_force_mcp_origin_and_keep_idempotency() {
         assert_eq!(request["idempotency_key"], key);
     }
 }
+
+#[test]
+fn settings_owner_refusals_and_retry_keys_are_preserved() {
+    for code in
+        ["settings.managed", "settings.invalid", "settings.agent_refused", "revision.conflict"]
+    {
+        let error = json!({"code": code, "message": "owner refused", "details": {"key": "appearance.theme"}, "retryable": false});
+        let mut server =
+            Server::new(Fake { resource_error: Some(error.clone()), ..Fake::default() }, None);
+        let result = call(
+            &mut server,
+            "settings_set",
+            json!({"key": "appearance.theme", "value": "dark", "idempotency_key": "write-1"}),
+        );
+        assert_eq!(result["isError"], true);
+        assert_eq!(result["structuredContent"]["error"], error);
+        assert_eq!(result["structuredContent"]["state"], "rejected");
+        assert_eq!(result["structuredContent"]["idempotency_key"], "write-1");
+    }
+}
+
+#[test]
+fn settings_list_is_sorted_and_pages_after_filtering_raw_rows() {
+    let mut server = Server::new(
+        Fake {
+            resource_result: Some(json!([
+                {"key": "terminal.fontSize", "value": 14},
+                {"key": "private.token", "value": "secret"},
+                {"key": "appearance.theme", "value": "dark"}
+            ])),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "settings_list", json!({"offset": 1, "limit": 1}));
+    assert_eq!(result["structuredContent"]["items"][0]["key"], "terminal.fontSize");
+    assert_eq!(result["structuredContent"]["total"], 2);
+    assert_eq!(result["structuredContent"]["next_offset"], Value::Null);
+}
+
+#[test]
+fn settings_get_redacts_invalid_effective_values() {
+    let mut server = Server::new(
+        Fake {
+            resource_result: Some(
+                json!({"key": "terminal.fontSize", "value": {"token": "secret"}}),
+            ),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "settings_get", json!({"key": "terminal.fontSize"}));
+    assert_eq!(result["structuredContent"]["value"], Value::Null);
+    assert_eq!(result["structuredContent"]["value_redacted"], true);
+    assert!(!result.to_string().contains("secret"));
+}

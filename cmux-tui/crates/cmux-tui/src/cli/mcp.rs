@@ -29,6 +29,7 @@ mod messages;
 mod placement;
 mod render_tool;
 mod schema;
+mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
@@ -624,6 +625,7 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -838,6 +840,9 @@ impl<B: Backend> Server<B> {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
+        }
+        if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
