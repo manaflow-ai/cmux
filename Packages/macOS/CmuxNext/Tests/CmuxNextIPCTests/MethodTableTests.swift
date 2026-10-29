@@ -272,7 +272,9 @@ private func dense<Entry: Hashable & Sendable>(
         let names = ["send", "close-tab", "workspace.list", "output", "", "no-such-method"]
             + (tables.first?.v12Families.compactMap { $0?.entries.last??.name } ?? [])
         var hits = 0
-        func allocations(_ lookup: (MethodTable, UInt16, String) -> Bool) -> Int? {
+        // `@Sendable`: the probe's body closure takes the test's isolation, and a Release build refuses
+        // to send a non-Sendable parameter into it (SendingRisksDataRace). The lookups capture nothing.
+        func allocations(_ lookup: @Sendable (MethodTable, UInt16, String) -> Bool) -> Int? {
             MallocProbe.allocations {
                 for table in tables {
                     for raw in UInt16.min...UInt16.max where lookup(table, raw, "") { hits += 1 }
