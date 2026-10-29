@@ -152,6 +152,11 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
     ("No fleet host names in gallery fixtures",
      ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
+    # A target's new import of another local target must be declared (2026-10-29: a63986a4 and e875485c each pushed
+    # an undeclared test import straight to feat-cmux-next and turned this CI step red on every pull request).
+    # Pure Python, no build: it reads the manifest and the pushed Swift files.
+    ("Package dependency lists sorted",
+     ["python3", "-I", "{s}/check-package-dependency-lists.py", "{pkg}/Package.swift"], (PKG + "/",)),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).

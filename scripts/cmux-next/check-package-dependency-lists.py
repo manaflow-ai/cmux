@@ -28,14 +28,24 @@ symbol, on the fleet's Linux pool and on a warm macOS slot. The imports undeclar
 are listed in IMPORT_BASELINE (each one is debt: declare it, or stop importing it, and drop its line); a new
 one fails.
 
-Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [PACKAGE_SWIFT]
-  --fix  rewrite each marked list in canonical order (a merge resolution that
-         kept both sides' lines in any order becomes canonical)
+Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [--fix-imports] [--json] [PACKAGE_SWIFT]
+  --fix          rewrite each marked list in canonical order (a merge resolution that
+                 kept both sides' lines in any order becomes canonical)
+  --fix-imports  declare each new undeclared import in its target's dependencies: a marked list
+                 gets the entry in sorted order, an inline list `["A", "B"]` gets it before `]`, any
+                 other list gets it as its own line before `]`
+  --json         print {"problems": [...], "missing": [{"target", "module"}]} on stdout
+
+The pre-push gate (scripts/cmux-next/prepush-gate.py) runs this check on a push that changes the CmuxNext
+package (2026-10-29: a63986a4 and e875485c each added a test import its target did not declare, straight to
+the branch, and "Package dependency lists sorted" was red on every pull request after them until #27173 and
+#27219).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -218,19 +228,95 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     return sorted(found)
 
 
+def missing_imports(text: str, package_root: Path) -> list[tuple[str, str]]:
+    """(target, module) for each undeclared import IMPORT_BASELINE does not hold: what --fix-imports declares."""
+    return [tuple(pair.split(": ", 1)) for pair in undeclared_imports(text, package_root) if pair not in IMPORT_BASELINE]
+
+
 def import_problems(text: str, package_root: Path) -> list[str]:
     found = undeclared_imports(text, package_root)
-    problems = [f"{pair.split(':')[0]}: imports {pair.split(': ')[1]} but does not declare it in its dependencies "
-                "(an incremental build then keeps objects compiled against its old interface)"
-                for pair in found if pair not in IMPORT_BASELINE]
+    problems = [f"{target}: imports {module} but does not declare it in its dependencies (an incremental build then "
+                f"keeps objects compiled against its old interface). Fix: add \"{module}\" to the dependencies of {target}, "
+                "or run scripts/cmux-next/check-package-dependency-lists.py --fix-imports"
+                for target, module in missing_imports(text, package_root)]
     problems += [f"IMPORT_BASELINE lists {pair}, which is declared or gone now: drop its line"
                  for pair in sorted(IMPORT_BASELINE - set(found))]
     return problems
 
 
+class FixError(Exception):
+    pass
+
+
+def add_dependency(text: str, target: str, module: str) -> str:
+    """TEXT with "MODULE" added to TARGET's dependencies list (see --fix-imports); FixError when it can't be."""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if TARGET.match(line)
+                  and any(re.search(rf'name:\s*"{re.escape(target)}"', lines[j]) for j in range(i, min(i + 3, len(lines))))),
+                 None)
+    if start is None:
+        raise FixError(f"no target named {target}")
+    depth, end = 0, start
+    for end in range(start, len(lines)):
+        depth += lines[end].count("(") - lines[end].count(")")
+        if depth <= 0:
+            break
+    entry = f'"{module}"'
+    for i in range(start, end + 1):
+        line = lines[i]
+        if not re.match(r"^\s*dependencies:\s*\[", line):
+            continue
+        if OPEN.match(line):  # a marked list: one line per entry, then canonical order
+            entries, close = entries_of(lines, i)
+            indent = (entries[0][1][:len(entries[0][1]) - len(entries[0][1].lstrip())] if entries
+                      else OPEN.match(line).group(1) + "    ")
+            lines.insert(close, f"{indent}{entry},")
+            return check("\n".join(lines), fix=True)[1]
+        if top_level_brackets_close(line):  # inline: `dependencies: ["A", "B"],`
+            head, _, tail = line.rpartition("]")
+            inside = head[head.index("[") + 1:].strip()
+            lines[i] = f"{head}{', ' if inside and not inside.endswith(',') else ''}{entry}]{tail}"
+            return "\n".join(lines)
+        for close in range(i + 1, end + 1):  # multi-line: its own line before the closing bracket
+            if lines[close].strip() in ("]", "],"):
+                previous = close - 1
+                if previous > i and lines[previous].strip() and not lines[previous].rstrip().endswith(","):
+                    lines[previous] = lines[previous].rstrip() + ","
+                body = lines[previous] if previous > i else lines[close] + "    "
+                indent = body[:len(body) - len(body.lstrip())]
+                lines.insert(close, f"{indent}{entry},")
+                return "\n".join(lines)
+        raise FixError(f"{target}: its dependencies list never closes")
+    # No dependencies at all: one goes after the name.
+    name_line = next(j for j in range(start, end + 1) if re.search(r'name:\s*"', lines[j]))
+    indent = lines[name_line][:len(lines[name_line]) - len(lines[name_line].lstrip())]
+    lines.insert(name_line + 1, f"{indent}dependencies: [{entry}],")
+    return "\n".join(lines)
+
+
+def top_level_brackets_close(line: str) -> bool:
+    """The `[` this dependencies line opens closes on the same line."""
+    depth = 0
+    quoted = False
+    for char in line[line.index("["):]:
+        if char == '"':
+            quoted = not quoted
+        elif quoted:
+            continue
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fix", action="store_true")
+    parser.add_argument("--fix-imports", action="store_true")
+    parser.add_argument("--json", action="store_true")
     parser.add_argument("manifest", nargs="?", type=Path, default=DEFAULT_MANIFEST)
     args = parser.parse_args()
     text = args.manifest.read_text(encoding="utf-8")
@@ -240,8 +326,25 @@ def main() -> int:
             args.manifest.write_text(fixed, encoding="utf-8")
             print(f"sorted the dependency lists in {args.manifest}")
         problems, _ = check(fixed, False)
-    if (args.manifest.parent / "Sources").is_dir():  # a package tree, not a bare manifest (the tests' --fix runs)
+        text = fixed
+    package_tree = (args.manifest.parent / "Sources").is_dir()  # a package tree, not a bare manifest (the tests' --fix runs)
+    missing = missing_imports(text, args.manifest.parent) if package_tree else []
+    if args.fix_imports and missing:
+        declared = text
+        for target, module in missing:
+            try:
+                declared = add_dependency(declared, target, module)
+                print(f"declared {module} in the dependencies of {target}")
+            except (FixError, ListError) as error:
+                print(f"{args.manifest}: could not declare {module} in {target}: {error}", file=sys.stderr)
+        args.manifest.write_text(declared, encoding="utf-8")
+        text = declared
+        problems, _ = check(text, False)
+        missing = missing_imports(text, args.manifest.parent)
+    if package_tree:
         problems += import_problems(text, args.manifest.parent)
+    if args.json:
+        print(json.dumps({"problems": problems, "missing": [{"target": t, "module": m} for t, m in missing]}))
     for problem in problems:
         print(f"{args.manifest}: {problem}", file=sys.stderr)
     if problems:

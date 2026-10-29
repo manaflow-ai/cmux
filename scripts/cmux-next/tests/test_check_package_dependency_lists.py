@@ -4,6 +4,7 @@ line, so two pull requests that each add a module merge without a conflict (2026
 pull requests were CONFLICTING again within twenty minutes of a rebase on that list)."""
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -177,6 +178,124 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(lint.check(result.merged, fix=False)[0], [])
         self.assertIn('"CmuxNextBrowserHistory",', result.merged)
         self.assertIn('"CmuxNextNowPlaying",', result.merged)
+
+
+# Three targets in the shapes Package.swift has: an inline list, a multi-line list with several entries per line
+# and a marked sorted list.
+FIX_MANIFEST = (
+    "let package = Package(\n"
+    "    targets: [\n"
+    "        .target(\n"
+    '            name: "CmuxNextCompat"\n'
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextHome",\n'
+    '            dependencies: ["CmuxNextCompat"],\n'
+    "        ),\n"
+    "        .testTarget(\n"
+    '            name: "CmuxNextHomeEngineTests",\n'
+    "            dependencies: [\n"
+    '                "CmuxNextHomeEngine", "CmuxNextDaemon",\n'
+    '                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),\n'
+    "            ],\n"
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextHomeEngine"\n'
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextDaemon"\n'
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextAppCore"\n'
+    "        ),\n"
+    "        .testTarget(\n"
+    '            name: "CmuxNextAppTests",\n'
+    "            dependencies: [  MARKER_PLACEHOLDER\n"
+    '                "CmuxNextApp",\n'
+    '                "CmuxNextApps",\n'
+    '                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),\n'
+    "            ],\n"
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextApp"\n'
+    "        ),\n"
+    "        .target(\n"
+    '            name: "CmuxNextApps"\n'
+    "        ),\n"
+    "    ]\n"
+    ")\n"
+)
+
+
+class FixImportsTests(unittest.TestCase):
+    """--fix-imports declares a new undeclared import where the list keeps its shape (2026-10-29: the two pushes
+    #27173 and #27219 repaired by hand)."""
+
+    def manifest_text(self) -> str:
+        return FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER)
+
+    def test_a_marked_list_gets_the_entry_in_sorted_order(self):
+        fixed = lint.add_dependency(self.manifest_text(), "CmuxNextAppTests", "CmuxNextAppCore")
+        self.assertIn('                "CmuxNextApp",\n                "CmuxNextAppCore",\n                "CmuxNextApps",\n',
+                      fixed)
+        self.assertEqual(lint.check(fixed, fix=False)[0], [])
+
+    def test_a_multi_line_list_gets_the_entry_on_its_own_line_before_the_bracket(self):
+        fixed = lint.add_dependency(self.manifest_text(), "CmuxNextHomeEngineTests", "CmuxNextHome")
+        self.assertIn('.product(name: "CmuxHomeCore", package: "CmuxHomeCore"),\n                "CmuxNextHome",\n'
+                      "            ],", fixed)
+
+    def test_an_inline_list_gets_the_entry_before_the_bracket(self):
+        fixed = lint.add_dependency(self.manifest_text(), "CmuxNextHome", "CmuxNextDaemon")
+        self.assertIn('dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],', fixed)
+
+    def test_a_target_without_dependencies_gets_a_list(self):
+        fixed = lint.add_dependency(self.manifest_text(), "CmuxNextCompat", "CmuxNextDaemon")
+        self.assertIn('name: "CmuxNextCompat"\n            dependencies: ["CmuxNextDaemon"],\n', fixed)
+
+    def test_only_the_named_target_changes(self):
+        # CmuxNextApp is a prefix of CmuxNextApps and CmuxNextAppTests: the exact name is the one changed.
+        fixed = lint.add_dependency(self.manifest_text(), "CmuxNextApp", "CmuxNextDaemon")
+        self.assertIn('name: "CmuxNextApp"\n            dependencies: ["CmuxNextDaemon"],\n', fixed)
+        self.assertEqual(fixed.count("CmuxNextDaemon"), self.manifest_text().count("CmuxNextDaemon") + 1)
+
+    def test_an_unknown_target_is_an_error(self):
+        with self.assertRaises(lint.FixError):
+            lint.add_dependency(self.manifest_text(), "CmuxNextNope", "CmuxNextDaemon")
+
+    def run_script(self, root: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(SCRIPT), *args, str(root / "Package.swift")],
+                              capture_output=True, text=True)
+
+    def test_the_two_real_incidents_are_found_named_and_fixed(self):
+        # a63986a4: a CmuxNextHomeEngineTests file gained `import CmuxNextHome`; e875485c: a CmuxNextAppTests file
+        # gained `@testable import CmuxNextAppCore`. Neither target declared it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Package.swift").write_text(self.manifest_text(), encoding="utf-8")
+            for folder, text in (("Tests/CmuxNextHomeEngineTests/Unanswered.swift", "import CmuxNextHome\n"),
+                                 ("Tests/CmuxNextAppTests/Restore.swift", "@testable import CmuxNextAppCore\n"),
+                                 ("Sources/CmuxNextCompat/A.swift", "import Foundation\n")):
+                (root / folder).parent.mkdir(parents=True, exist_ok=True)
+                (root / folder).write_text(text, encoding="utf-8")
+            with unittest.mock.patch.dict(os.environ, {}):
+                red = self.run_script(root, "--json")
+            self.assertEqual(red.returncode, 1, red.stderr)
+            self.assertIn('Fix: add "CmuxNextHome" to the dependencies of CmuxNextHomeEngineTests', red.stderr)
+            self.assertIn('Fix: add "CmuxNextAppCore" to the dependencies of CmuxNextAppTests', red.stderr)
+            missing = json.loads(red.stdout)["missing"]
+            self.assertEqual(missing, [{"target": "CmuxNextAppTests", "module": "CmuxNextAppCore"},
+                                       {"target": "CmuxNextHomeEngineTests", "module": "CmuxNextHome"}])
+
+            fixed = self.run_script(root, "--fix-imports", "--json")
+
+            # The fixture holds none of IMPORT_BASELINE's targets, so its lines read as stale here; nothing else is red.
+            after = json.loads(fixed.stdout.splitlines()[-1])
+            self.assertEqual(after["missing"], [])
+            self.assertEqual([p for p in after["problems"] if "IMPORT_BASELINE lists" not in p], [])
+            self.assertIn("declared CmuxNextHome in the dependencies of CmuxNextHomeEngineTests", fixed.stdout)
+            again = self.run_script(root, "--json")
+            self.assertNotIn("does not declare", again.stderr)
 
 
 if __name__ == "__main__":

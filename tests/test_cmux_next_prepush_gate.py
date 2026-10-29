@@ -485,6 +485,52 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
 
+    # A package whose test target declares one local target (one target per block, as Package.swift writes them).
+    DEPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextApp"
+        ),
+        .target(
+            name: "CmuxNextKit"
+        ),
+        .testTarget(
+            name: "CmuxNextKitTests",
+            dependencies: ["CmuxNextKit"]
+        ),
+    ]
+)
+"""
+
+    def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
+        # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
+        # "Package dependency lists sorted" was red on every pull request after them.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("Package dependency lists sorted", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.commit("declare it")
+        declared = self.push()
+        self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
+
     def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
         # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
         # cmux_process::Command can inherit a PTY master the daemon is receiving on another thread.
