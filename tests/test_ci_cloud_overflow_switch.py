@@ -7,6 +7,8 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
+import textwrap
 import sys
 import tempfile
 import unittest
@@ -753,6 +755,52 @@ class MainTests(unittest.TestCase):
                               FakeActions(probe_job(0)), writer)
         self.assertEqual((code, writer.writes), (1, []))
 
+
+
+class PythonDependencyTests(unittest.TestCase):
+    def test_watch_bootstraps_yaml_in_a_job_local_environment(self) -> None:
+        # Execute the workflow's actual shell command with a clean Python stand-in:
+        # it cannot import YAML until the pinned installation has completed.
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        step = next(step for step in workflow["jobs"]["watch"]["steps"] if step.get("id") == "switch")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binaries = root / "bin"
+            binaries.mkdir()
+            fake = binaries / "python3"
+            fake.write_text(f"#!{sys.executable}\n" + textwrap.dedent("""\
+                import json, os, pathlib, sys
+                root = pathlib.Path(os.environ['PYTHON_FIXTURE_ROOT'])
+                args = sys.argv[1:]
+                with (root / 'events').open('a') as out:
+                    out.write(json.dumps([sys.executable, *args]) + '\\n')
+                if args == ['-c', 'import yaml']:
+                    raise SystemExit(0 if (root / 'installed').exists() else 1)
+                if args[:2] == ['-m', 'venv']:
+                    target = pathlib.Path(args[2]) / 'bin' / 'python'
+                    target.parent.mkdir(parents=True)
+                    target.write_text(pathlib.Path(__file__).read_text())
+                    target.chmod(0o755)
+                elif args[:3] == ['-m', 'pip', 'install']:
+                    if 'PyYAML==6.0.3' not in args:
+                        raise SystemExit('expected pinned PyYAML')
+                    (root / 'installed').touch()
+                elif args == ['scripts/ci/cloud_overflow_switch.py']:
+                    if not (root / 'installed').exists():
+                        raise SystemExit("ModuleNotFoundError: No module named 'yaml'")
+                    (root / 'executed').touch()
+                else:
+                    raise SystemExit('unexpected python call: ' + repr(args))
+                """))
+            fake.chmod(0o755)
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step['run']], cwd=ROOT,
+                                    env={**os.environ, 'PATH': f'{binaries}:{os.environ["PATH"]}',
+                                         'RUNNER_TEMP': str(root / 'runner'), 'PYTHON_FIXTURE_ROOT': str(root),
+                                         'GITHUB_PATH': str(root / 'github-path')},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / 'executed').exists())
+            self.assertTrue((root / 'installed').exists())
 
 class WorkflowTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")
