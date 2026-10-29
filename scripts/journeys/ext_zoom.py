@@ -41,8 +41,8 @@ import time
 
 D = None  # the driver module (install)
 CMD_SHIFT_RETURN = ("return", ["cmd", "shift"])
-DATA_URL = ("data:text/html,<title>ZoomPage</title><body style='margin:0;background:%23fff;font:40px sans-serif'>"
-            "<div style='padding:40px'>zoom page body</div></body>")
+# The core tour's page (scripts/cmux-next/media/tours/core.json): cmux opens http(s) pages only.
+DATA_URL = "https://example.com"
 
 
 def install(driver):
