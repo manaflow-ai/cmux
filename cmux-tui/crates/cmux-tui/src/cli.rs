@@ -237,6 +237,7 @@ fn remote_family_word(rest: &[String]) -> bool {
 /// The remote family's refusal of `remote <word>` when `<word>` is neither a
 /// remote action nor an app action's CLI name, in place of the mux grammar's
 /// unknown-scope error for `remote`.
+#[cfg(unix)]
 fn unknown_remote_action(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_action_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("remote") {
@@ -520,6 +521,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             if let Some(code) = run_app_action_fallback(args) {
                 return code;
             }
+            #[cfg(unix)]
             if let Some(code) = unknown_remote_action(args) {
                 return code;
             }
