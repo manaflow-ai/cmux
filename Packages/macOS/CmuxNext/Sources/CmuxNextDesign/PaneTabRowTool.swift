@@ -1,7 +1,7 @@
 import Foundation
 
 /// A menu row supplied by an agent page for the native tab-row toolbar.
-public struct PaneTabRowMenuItem: Equatable, Sendable {
+public nonisolated struct PaneTabRowMenuItem: Equatable, Sendable {
     public let id: String
     public let label: String
     public let enabled: Bool
@@ -21,7 +21,7 @@ public struct PaneTabRowMenuItem: Equatable, Sendable {
 }
 
 /// One content-supplied native control in the shared pane tab row.
-public struct PaneTabRowTool: Equatable, Sendable {
+public nonisolated struct PaneTabRowTool: Equatable, Sendable {
     public let id: String
     public let symbol: String
     public let label: String

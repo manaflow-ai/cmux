@@ -2,13 +2,13 @@ import CmuxNextDesign
 import Foundation
 
 /// Strict decoding for the page's declarative native tab-row controls.
-enum AgentPaneTabRowTools {
-    static let maximumTools = 16
-    static let maximumMenuItems = 32
-    static let maximumDepth = 2
-    static let maximumText = 64
+nonisolated enum AgentPaneTabRowTools {
+    nonisolated static let maximumTools = 16
+    nonisolated static let maximumMenuItems = 32
+    nonisolated static let maximumDepth = 2
+    nonisolated static let maximumText = 64
 
-    static func list(_ raw: Any?) -> [PaneTabRowTool]? {
+    nonisolated static func list(_ raw: Any?) -> [PaneTabRowTool]? {
         guard let raw = raw as? [Any], raw.count <= maximumTools else { return nil }
         var tools: [PaneTabRowTool] = []
         tools.reserveCapacity(raw.count)
@@ -19,7 +19,7 @@ enum AgentPaneTabRowTools {
         return tools
     }
 
-    private static func tool(_ raw: Any) -> PaneTabRowTool? {
+    private nonisolated static func tool(_ raw: Any) -> PaneTabRowTool? {
         guard let object = raw as? [String: Any],
               let id = text(object["id"]), let symbol = text(object["symbol"]), let label = text(object["label"]),
               object["enabled"] is Bool, object["toggled"] is Bool,
@@ -30,14 +30,14 @@ enum AgentPaneTabRowTools {
                               badge: badge, menu: menu)
     }
 
-    private static func menu(_ raw: Any?, depth: Int) -> [PaneTabRowMenuItem]? {
+    private nonisolated static func menu(_ raw: Any?, depth: Int) -> [PaneTabRowMenuItem]? {
         guard let raw else { return [] }
         guard depth <= maximumDepth, let list = raw as? [Any], list.count <= maximumMenuItems else { return nil }
         let rows = list.compactMap { item($0, depth: depth) }
         return rows.count == list.count ? rows : nil
     }
 
-    private static func item(_ raw: Any, depth: Int) -> PaneTabRowMenuItem? {
+    private nonisolated static func item(_ raw: Any, depth: Int) -> PaneTabRowMenuItem? {
         guard let object = raw as? [String: Any], let id = text(object["id"]), let label = text(object["label"]),
               object["enabled"] is Bool, let enabled = object["enabled"] as? Bool,
               let checked = optionalBool(object["checked"]), let role = optionalRole(object["role"]),
@@ -45,22 +45,22 @@ enum AgentPaneTabRowTools {
         return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role, children: children)
     }
 
-    private static func text(_ value: Any?) -> String? {
+    private nonisolated static func text(_ value: Any?) -> String? {
         guard let value = value as? String, !value.isEmpty, value.count <= maximumText else { return nil }
         return value
     }
 
-    private static func optionalText(_ value: Any?) -> String? {
+    private nonisolated static func optionalText(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return nil }
         return text(value)
     }
 
-    private static func optionalBool(_ value: Any?) -> Bool? {
+    private nonisolated static func optionalBool(_ value: Any?) -> Bool? {
         guard let value, !(value is NSNull) else { return nil }
         return value as? Bool
     }
 
-    private static func optionalRole(_ value: Any?) -> String? {
+    private nonisolated static func optionalRole(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return nil }
         guard let value = value as? String, value == "destructive" else { return nil }
         return value

@@ -71,31 +71,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
 
-    /// The current declarative native tab-row controls.
-    public static func tabRowTools(_ tools: [PaneTabRowTool]) -> AgentPageEvent {
-        let value = tools.map { tool in
-            var object: [String: Any] = ["id": tool.id, "symbol": tool.symbol, "label": tool.label,
-                                         "enabled": tool.enabled, "toggled": tool.toggled]
-            if let badge = tool.badge { object["badge"] = badge }
-            if !tool.menu.isEmpty { object["menu"] = tool.menu.map(menuObject) }
-            return object
-        }
-        return AgentPageEvent(kind: "tabRowTools", value: JSONValue(foundation: value) ?? .array([]))
-    }
-
     /// A native tab-row control or one of its menu items was invoked.
     public static func tabRowToolInvoked(id: String, menuItemId: String? = nil) -> AgentPageEvent {
         var value: [String: Any] = ["id": id]
         if let menuItemId { value["menuItemId"] = menuItemId }
         return AgentPageEvent(kind: "tabRowToolInvoked", value: JSONValue(foundation: value) ?? .null)
-    }
-
-    private static func menuObject(_ item: PaneTabRowMenuItem) -> [String: Any] {
-        var object: [String: Any] = ["id": item.id, "label": item.label, "enabled": item.enabled]
-        if let checked = item.checked { object["checked"] = checked }
-        if let role = item.role { object["role"] = role }
-        if !item.children.isEmpty { object["children"] = item.children.map(menuObject) }
-        return object
     }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).

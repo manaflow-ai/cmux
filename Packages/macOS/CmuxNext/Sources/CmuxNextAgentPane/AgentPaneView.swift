@@ -205,10 +205,6 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
-        model.onTabRowToolsChange = { [weak self] in
-            guard let self else { return }
-            self.deliver([.tabRowTools(self.model.tabRowTools)], scripts: [])
-        }
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.pageEvents?.publish(.tabRowToolInvoked(id: id, menuItemId: menuItemID))
         }

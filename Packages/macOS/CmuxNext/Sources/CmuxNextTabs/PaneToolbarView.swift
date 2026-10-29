@@ -170,6 +170,28 @@ public final class PaneToolbarView: NSView {
         return menu
     }
 
+    /// Native tools remain reachable from the overflow menu when a narrow pane cannot fit every
+    /// supplied button. The same invoker path keeps the page event identical to a direct press.
+    public func nativeOverflowItems() -> [NSMenuItem] {
+        nativeItems.map { tool in
+            let row = NSMenuItem(title: tool.label, action: nil, keyEquivalent: "")
+            row.isEnabled = tool.enabled
+            row.state = tool.toggled ? .on : .off
+            if tool.menu.isEmpty {
+                let invoker = NativeMenuInvoker { [weak self] in self?.onNativeTool?(tool.id, nil) }
+                row.action = #selector(NativeMenuInvoker.run)
+                row.target = invoker
+                row.representedObject = invoker
+            } else {
+                let submenu = NSMenu(title: tool.label)
+                submenu.autoenablesItems = false
+                tool.menu.forEach { submenu.addItem(menuItem($0, toolID: tool.id)) }
+                row.submenu = submenu
+            }
+            return row
+        }
+    }
+
     private func menuItem(_ item: PaneTabRowMenuItem, toolID: String) -> NSMenuItem {
         let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
         row.isEnabled = item.enabled

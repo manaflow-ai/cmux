@@ -161,10 +161,12 @@ final class PaneToolbar {
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
-        let nativeItems = nativeEnabled ? nativeItems : []
-        view.show(buttons.compactMap(item), more: shown, lit: zoomed && shown,
+        // A native page list needs an overflow route when a narrow pane cannot fit every real
+        // button. It also keeps chat panes discoverable, which otherwise have no pane "…".
+        let nativeTools = nativeEnabled ? nativeItems : []
+        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1,
-                  nativeItems: nativeItems)
+                  nativeItems: nativeTools)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
@@ -208,31 +210,38 @@ final class PaneToolbar {
     /// "…": the content's own rows (the Chief's), what opens in the pane, the actions without a button
     /// with their keys, Search Tabs, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
-        guard let registry = registry(), let target, kind != nil else { return nil }
+        guard let registry = registry(), let target else { return nil }
         let menu = newTabMenu() ?? NSMenu()
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
         view.layoutSubtreeIfNeeded()
-        let buttons = zip(view.items, view.buttons).compactMap { item, button in
-            button.isHidden ? nil : ActionID(rawValue: item.id)
+        if kind != nil {
+            let buttons = zip(view.items, view.buttons).compactMap { item, button in
+                button.isHidden ? nil : ActionID(rawValue: item.id)
+            }
+            let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
+                                                  entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
+            if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
+            for item in tabOwn.items {
+                tabOwn.removeItem(item)
+                menu.addItem(item)
+            }
+            // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.
+            let search = registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])
+            if !search.items.isEmpty { menu.addItem(.separator()) }
+            for item in search.items {
+                search.removeItem(item)
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+            menu.addItem(showInTabBarItem(registry: registry))
         }
-        let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                              entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
-        if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
-        for item in tabOwn.items {
-            tabOwn.removeItem(item)
-            menu.addItem(item)
+        let native = view.nativeOverflowItems()
+        if !native.isEmpty {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            native.forEach(menu.addItem)
         }
-        // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.
-        let search = registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])
-        if !search.items.isEmpty { menu.addItem(.separator()) }
-        for item in search.items {
-            search.removeItem(item)
-            menu.addItem(item)
-        }
-        menu.addItem(.separator())
-        menu.addItem(showInTabBarItem(registry: registry))
         // Every row in the theme's highlight, like the sidebar's ⋮ menus and the strip's plus.
         return menu.themeRows(in: view.themeScope.fullStrength)
     }

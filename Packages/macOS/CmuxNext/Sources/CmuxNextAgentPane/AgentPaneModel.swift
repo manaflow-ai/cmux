@@ -101,7 +101,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Declarative native controls published by the page for the shared tab row.
     public private(set) var tabRowTools: [PaneTabRowTool] = []
-    @ObservationIgnored public var onTabRowToolsChange: (() -> Void)?
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
@@ -492,7 +491,6 @@ public final class AgentPaneModel {
     func setTabRowTools(_ tools: [PaneTabRowTool]) {
         guard tabRowTools != tools else { return }
         tabRowTools = tools
-        onTabRowToolsChange?()
     }
 
     func setCheckpointAvailable(_ available: Bool) {
