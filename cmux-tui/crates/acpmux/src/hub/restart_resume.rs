@@ -272,84 +272,22 @@ fn bounded_text(value: &str) -> String {
         .collect()
 }
 
-/// Unlike the generic prose scanner, a decoded tool input has explicit assignment
-/// syntax. Redact a sensitive assignment's entire shell word, including whitespace, escaped quotes
-/// and concatenated quoted/unquoted fragments. An unfinished quote consumes the rest
-/// of the bounded preview rather than exposing a partial credential.
+/// A tool input may be shell, Python, JSON, or another language whose quote rules
+/// conflict. Once it names a sensitive assignment, keep only the safe prefix and
+/// redact the remainder of this already bounded preview. Do not guess where a
+/// credential ends: preserving a later command suffix is less important than
+/// avoiding disclosure across ordinary, escaped, concatenated or unclosed quotes.
 fn mask_input_assignments(text: &str) -> String {
     static ASSIGNMENT: LazyLock<Option<regex::Regex>> =
         LazyLock::new(|| regex::Regex::new(r#"\b([a-zA-Z0-9_-]+)["']?\s*[=:]\s*"#).ok());
-    // A broken matcher must hide the preview, never expose an unscanned input.
     let Some(assignment_pattern) = ASSIGNMENT.as_ref() else { return "[secret]".into() };
-    let mut masked = String::with_capacity(text.len());
-    let mut copied = 0;
     for captures in assignment_pattern.captures_iter(text) {
         let Some(assignment) = captures.get(0) else { continue };
-        if assignment.start() < copied || !sensitive_key(&captures[1]) {
-            continue;
+        if sensitive_key(&captures[1]) {
+            return format!("{}[secret]", &text[..assignment.end()]);
         }
-        let mut end = assignment.end();
-        let bytes = text.as_bytes();
-        // Shell assignments can begin unquoted and concatenate quoted segments, or
-        // escape spaces without any quotes. Only colon-delimited unquoted prose is
-        // left to the generic scanner: Authorization: Bearer TOKEN must retain its
-        // scheme so masking does not strip the context needed to recognize TOKEN.
-        let shell_assignment = assignment.as_str().contains('=');
-        if !shell_assignment && !matches!(bytes.get(end), Some(b'"' | b'\'')) {
-            continue;
-        }
-        let mut quote = None;
-        let mut ansi_c = false;
-        while end < bytes.len() {
-            let byte = bytes[end];
-            if byte == b'\\'
-                && (!shell_assignment || quote != Some(b'\'') || ansi_c)
-                && end + 1 < bytes.len()
-            {
-                // Consume an escaped quote as content, not the end of its value.
-                end += 2;
-                continue;
-            }
-            // Substitutions can contain spaces, nested quotes and shell commands.
-            // Without evaluating shell syntax, hide the remaining bounded preview
-            // rather than exposing part of a credential at an ambiguous boundary.
-            if shell_assignment
-                && quote != Some(b'\'')
-                && (byte == b'`'
-                    || (byte == b'$' && matches!(bytes.get(end + 1), Some(b'(' | b'{')))
-                    || (matches!(byte, b'<' | b'>') && bytes.get(end + 1) == Some(&b'(')))
-            {
-                end = bytes.len();
-                break;
-            }
-            if quote.is_none() && byte == b'$' && bytes.get(end + 1) == Some(&b'\'') {
-                quote = Some(b'\'');
-                ansi_c = true;
-                end += 2;
-                continue;
-            }
-            if let Some(delimiter) = quote {
-                if byte == delimiter {
-                    quote = None;
-                    ansi_c = false;
-                }
-            } else if matches!(byte, b'\"' | b'\'') {
-                quote = Some(byte);
-                ansi_c = false;
-            } else if byte.is_ascii_whitespace()
-                || byte == b';'
-                || (!shell_assignment && matches!(byte, b',' | b'}' | b']'))
-            {
-                break;
-            }
-            end += 1;
-        }
-        masked.push_str(&text[copied..assignment.end()]);
-        masked.push_str("[secret]");
-        copied = end;
     }
-    masked.push_str(&text[copied..]);
-    masked
+    text.to_owned()
 }
 
 fn masked_scan(value: &str) -> String {
@@ -902,7 +840,7 @@ mod tests {
         let text = continue_text(&[], &tools, omitted);
         assert!(text.contains("Run tests (id: call 1)"), "{text}");
         assert!(!text.contains(&credential), "credentials must not enter the continuation");
-        assert!(text.contains("[auth token]"));
+        assert!(text.contains("[secret]"));
         assert!(!text.contains('\u{1b}') && !text.contains('\u{0}'));
         for prefix in [" ".repeat(270), "x".repeat(240)] {
             let masked = input_prefix(
@@ -932,7 +870,7 @@ mod tests {
             let masked = input_prefix(&json!({"rawInput": raw})).unwrap();
             assert!(!masked.contains(&password), "quoted assignment leaked into restart input");
             assert!(masked.contains("[secret]"), "{masked}");
-            assert!(masked.contains("./deploy"), "{masked}");
+            assert!(!masked.contains("./deploy"), "suffix must be redacted: {masked}");
         }
     }
 
@@ -949,11 +887,7 @@ mod tests {
             r#"PASSWORD="open sesame"suffix ./deploy"#,
             r#"PASSWORD="x" API_KEY='y z' ./deploy"#,
         ] {
-            let expected = if command.contains("API_KEY") {
-                r#""PASSWORD=[secret] API_KEY=[secret] ./deploy""#
-            } else {
-                r#""PASSWORD=[secret] ./deploy""#
-            };
+            let expected = r#""PASSWORD=[secret]""#;
             assert_eq!(input_prefix(&json!({"rawInput": command})).unwrap(), expected);
             let nested = input_prefix(&json!({"rawInput": {"command": command}})).unwrap();
             assert_eq!(nested, format!("{{\"command\":{expected}}}"));
@@ -984,11 +918,7 @@ mod tests {
             r#"PASSWORD=abc]correcthorse ./deploy"#,
             r#"PASSWORD=abc{correcthorse,more}[tail] ./deploy"#,
         ] {
-            let expected = if command.contains("API_KEY") {
-                "PASSWORD=[secret] API_KEY=[secret] ./deploy"
-            } else {
-                "PASSWORD=[secret] ./deploy"
-            };
+            let expected = "PASSWORD=[secret]";
             assert_eq!(mask_input_assignments(command), expected, "{command}");
             for (value, masked) in [
                 (json!(command), json!(expected)),
@@ -1027,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn quoted_assignments_distinguish_literal_and_ansi_c_backslashes() {
+    fn quoted_assignments_redact_literal_and_ansi_c_backslashes() {
         for command in [
             r#"PASSWORD='prefix\'"it's open sesame" ./deploy"#,
             r#"PASSWORD='prefix\'"open sesame" ./deploy"#,
@@ -1036,9 +966,9 @@ mod tests {
             r#"PASSWORD=$'prefix\\'"it's open sesame" ./deploy"#,
         ] {
             for (raw, expected) in [
-                (json!(command), r#""PASSWORD=[secret] ./deploy""#),
-                (json!({"command": command}), r#"{"command":"PASSWORD=[secret] ./deploy"}"#),
-                (json!([command]), r#"["PASSWORD=[secret] ./deploy"]"#),
+                (json!(command), r#""PASSWORD=[secret]""#),
+                (json!({"command": command}), r#"{"command":"PASSWORD=[secret]"}"#),
+                (json!([command]), r#"["PASSWORD=[secret]"]"#),
             ] {
                 assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), expected, "{command}");
             }
@@ -1046,9 +976,9 @@ mod tests {
     }
 
     #[test]
-    fn colon_delimited_quoted_values_keep_data_escape_semantics() {
+    fn colon_delimited_quoted_values_redact_ambiguous_data_escapes() {
         let code = r#"config = {'password': 'prefix\' open sesame'}"#;
-        let safe = "config = {'password': [secret]}";
+        let safe = "config = {'password': [secret]";
         for (raw, expected) in [
             (json!(code), json!(safe)),
             (json!({"code": code}), json!({"code": safe})),
