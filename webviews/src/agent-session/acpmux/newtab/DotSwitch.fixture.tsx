@@ -12,7 +12,7 @@ export default function DotSwitchFixture() {
       <button ref={returnTarget} type="button">
         Before dots
       </button>
-      <DotSwitch
+      <DotSwitch<(typeof options)[number]>
         options={options}
         current={current}
         label="Page look"
