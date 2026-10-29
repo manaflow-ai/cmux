@@ -592,17 +592,22 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 - A machine is idle only when nobody typed through an attached client for the whole timeout (an
   app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
   a turn or a pending permission, no terminal running a command (anything but a shell at its
-  prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
   inbound connection on its private address (the app's own link to the daemon port does not count, but a port the app forwards over that link counts while the daemon holds a stream to it, in legacy mode too), and CPU use since the previous probe below
   `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch. A probe without
   a CPU sample, or a `/proc/net/tcp` (or an existing `tcp6`) it cannot read, is unknown; a missing
   `tcp6` (IPv6 off) is no IPv6 connections. A stored observation without a CPU sample does not
-  carry the stretch. Anything the probe cannot read is unknown, and unknown never pauses.
+  carry the stretch. A `/proc/<pid>/stat`, `cmdline` or daemon `fd` entry that cannot be read
+  or parsed makes terminals, ssh or inbound connections unknown; only a process that exited
+  mid-read is skipped. Anything the probe cannot read is unknown, and unknown never pauses.
 - Machines whose cmux-tui predates `subscribe-activity` (every image up to a9b104f3) are decided
   in legacy mode. The probe enters it only when the daemon refuses `subscribe-activity` as an
-  unknown variant (acpmux then reads as none when the CLI refuses `acp` as an unknown resource
-  scope); any other answer stays unknown. Legacy mode has no input or agent times, so it decides
+  unknown variant, and the whole answer must be serde's message, optionally ending in
+  serde_json's `at line L column C`. acpmux then reads as none when the CLI refuses `acp` as an
+  unknown resource scope. Any other answer stays unknown. Legacy mode has no input or agent times, so it decides
   from busy terminals (an agent CLI in a terminal is busy), ssh, inbound connections, CPU and
   API calls: a person sitting at an idle shell prompt for the whole timeout is paused, and
   opening the machine resumes it. Its decision reasons end in `;legacy_daemon`.
@@ -630,11 +635,26 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   cron's observation, API activity, the idle setting, any status write and a resume. The
   cron's observation write requires the fence it read, so a probe that overlapped another
   run, an exec, or a pause and resume stores nothing instead of bringing back an old
-  `idleSince`. Before the provider pause the cron re-reads the row and claims the fence
-  (`claimIdlePause`); after it, the pause is recorded only if the row is still running at the
-  claimed fence. If an exec, files or attach call or a switch to Off landed during the provider
-  call, the record loses and the cron resumes the machine through the open path's resume; if a
-  person's pause landed, it stays theirs. Both are logged and counted as `aborted`.
+  `idleSince`.
+- Before the provider pause the cron re-reads the row and claims the fence (`claimIdlePause`),
+  which also leaves the claim in the row (`cmuxIdlePauseClaim`). It then probes the guest once
+  more and skips the pause unless that probe is idle too. After the provider call, the pause is
+  recorded only if the row still holds the claimed fence. Guest activity that starts during the
+  provider call itself (a few seconds) is not seen; that window is accepted, because an idle
+  pause is undone by opening the machine.
+- A pause that says why (a person's Pause Machine, or the cron's own idle pause) stamps the
+  fence its write set (`cmuxPauseIntentEpoch`); the status reconciler's paused write says
+  nothing and stamps nothing. When the cron's record loses, a person's pause stamped after the
+  claim is kept. Anything else (an exec, files or attach call, a switch to Off, or the
+  reconciler recording the provider's pause) is undone. The compensating resume is fenced too
+  (`claimIdleResume`, then a running record at the claimed fence), so a person's pause that
+  lands while it runs wins and the machine is paused again. All of it is logged and counted as
+  `aborted`.
+- A provider error or timeout on the pause is not taken as "no pause". The cron reads the
+  provider back; a pause that went through is recorded, or undone if the fence moved. If the
+  read-back cannot tell, the claim stays in the row, and the next run reads the provider again
+  and settles it: running clears the claim, paused records the idle pause (or undoes it if the
+  fence moved), and unreadable waits another run.
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
