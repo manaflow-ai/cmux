@@ -31,9 +31,14 @@ if ! python3 - "$HEAD_SHA" "$SOURCE_REMOTE" <<'PY_FETCH'
 import subprocess
 import sys
 
+# A depth flag only in an already-shallow checkout: in a developer's full clone it
+# would make every worktree sharing the git directory shallow.
+is_shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                            capture_output=True, text=True, check=False).stdout.strip() == "true"
+depth = ["--depth=8"] if is_shallow else []
 try:
     result = subprocess.run(
-        ["git", "-c", "fetch.parallel=1", "fetch", "--depth=8",
+        ["git", "-c", "fetch.parallel=1", "fetch", *depth,
          "--no-tags", "--no-recurse-submodules", sys.argv[2], sys.argv[1]],
         check=False,
         timeout=150,
@@ -90,13 +95,30 @@ assert_measurement_checkout() {
   local checkout="$1" source="$2"
   [ "$(git -C "$checkout" rev-parse HEAD)" = "$source" ] || die "capture checkout HEAD changed"
   git -C "$checkout" diff --cached --quiet || die "capture checkout index changed"
-  git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH" || die "capture changed product or unrelated tracked files"
+  if ! git -C "$checkout" diff --quiet -- . ":(exclude)$REGRESSION_PATH"; then
+    echo "NATIVE_FADE_TRACKED_MUTATION checkout=$checkout source=$source" >&2
+    git -C "$checkout" diff --name-status -- . ":(exclude)$REGRESSION_PATH" >&2
+    die "capture changed product or unrelated tracked files"
+  fi
   [ "$(git -C "$checkout" hash-object "$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "capture regression test blob changed"
 }
 WORK="$(mktemp -d /tmp/nx-ellipsis-fade.XXXXXX)"
 OUT="$WORK/out"
 mkdir -p "$OUT"
 printf '%s\n' "$IDENTITY_RECEIPT" > "$OUT/source-identities.txt"
+# Rejected measurements stay rejected, with their partial frames and source
+# diagnostics retained so a failed source fence can be diagnosed remotely.
+keep_failed_attempt() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -ne 0 ]; then
+    printf 'NATIVE_FADE_FAILED exit=%s\n' "$status" > "$OUT/failure.txt"
+    mkdir -p "$ROOT/artifacts"
+    tar -czf "$ROOT/artifacts/pane-overflow-fade.tar.gz" -C "$OUT" . || true
+  fi
+  exit "$status"
+}
+trap keep_failed_attempt EXIT
 cat > "$WORK/PaneMoreFadeFrameProbe.swift" <<'NX_FADE_PROBE'
 import AppKit
 @testable import CmuxNextApp
@@ -267,6 +289,10 @@ git worktree add --detach "$WORK/before" "$RED_SHA"
 git worktree add --detach "$WORK/after" "$HEAD_SHA"
 prepare_before_regression "$WORK/before"
 assert_measurement_checkout "$WORK/before" "$RED_SHA"
+# The old cache installer deletes tracked GENERATED.md placeholders. Use the
+# tooling checkout's narrow setup wrapper in both historical checkouts; product,
+# test and other tracked-source fences remain unchanged.
+export CMUX_WEB_BUNDLES_BUILD="$ROOT/scripts/measure/pane-overflow-bundle-setup.py"
 # These worktrees belong to this one attempt; keep them and their receipts on failure.
 for label in before after; do
   checkout="$WORK/$label"

@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",

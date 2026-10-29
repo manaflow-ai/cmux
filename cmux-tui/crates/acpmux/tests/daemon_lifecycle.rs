@@ -452,6 +452,12 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let bundled = dir.join("cmux.app/Contents/Resources/bin");
     std::fs::create_dir_all(&bundled).unwrap();
     write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    // The app's URL opener (scripts/cmux-next/url-open/cmux-open-url): an
+    // agent's `BROWSER`, as in the app's terminals, so a sign-in page a tool
+    // opens (`gh auth login`, `aws sso login`, Python's webbrowser) lands in a
+    // cmux tab, and prezto's `.zprofile` (`BROWSER=open` when unset) in the
+    // agent's `zsh -lc` keeps it.
+    write_executable(bundled.join("cmux-open-url"), "#!/bin/sh\nexit 0\n");
     // The app's agent zsh layer (Resources/cmux-cli-path/zsh-agent): the
     // agent's own `zsh -lc` runs the user's .zprofile, which may put the old
     // `cmux` first again; the layer moves the bundled one back after it.
@@ -480,6 +486,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .env("CMUX_SOCKET_PATH", &app_socket)
         .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
         .env("ZDOTDIR", &user_zdotdir)
+        .env_remove("BROWSER")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -506,8 +513,14 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let mut answers = Vec::new();
-    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "ZDOTDIR", "CMUX_CLI_AGENT_ZDOTDIR"]
-    {
+    for name in [
+        "PATH",
+        "CMUX_SOCKET_PATH",
+        "CMUX_BUNDLE_ID",
+        "ZDOTDIR",
+        "CMUX_CLI_AGENT_ZDOTDIR",
+        "BROWSER",
+    ] {
         rpc.call(
             "session/prompt",
             json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
@@ -539,5 +552,90 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
     assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
     assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
+    assert_eq!(seen[5], "BROWSER=cmux-open-url", "{seen:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path under `dir` (itself included) whose mode lets the group or
+/// others write it, with that mode.
+fn writable_by_others(dir: &Path) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(path) = todo.pop() {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o022 != 0 {
+            found.push(format!("{mode:o} {}", path.display()));
+        }
+        if meta.is_dir() {
+            todo.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `acpmux ARGS` for home `home` under umask 002.
+fn umask_002_cli(dir: &Path, home: &Path, args: &[&str]) -> std::process::Output {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = daemon_env::acpmux(dir);
+    cmd.args(args)
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null());
+    // SAFETY: umask is async-signal-safe and changes only the child.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::umask(0o002);
+            Ok(())
+        });
+    }
+    cmd.output().unwrap()
+}
+
+/// Shuts down the daemon of `home`, also when an assert failed.
+struct ShutDown(PathBuf, PathBuf);
+
+impl Drop for ShutDown {
+    fn drop(&mut self) {
+        let _ = umask_002_cli(&self.0, &self.1, &["daemon", "shutdown"]);
+    }
+}
+
+/// A host whose umask is 002 (a Linux account in a shared group): the home and
+/// the log a daemon start makes are owner-only all the same, nothing the daemon
+/// makes in its home is writable by the group, and the next start finds
+/// nothing to refuse (ergo-walk2, 2026-10-25: "daemon run/start on a host with
+/// umask 002 -> refuses group-writable ~/.acpmux and daemon.log").
+#[test]
+fn a_daemon_started_under_umask_002_keeps_its_home_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("umask");
+    // Missing: `daemon start` makes it.
+    let home = dir.join("h");
+    let cli = |args: &[&str]| umask_002_cli(&dir, &home, args);
+    let _stop = ShutDown(dir.clone(), home.clone());
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    for start in ["first", "second"] {
+        let out = cli(&["daemon", "start"]);
+        assert!(
+            out.status.success(),
+            "{start} start: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(mode(&home), 0o700, "{start} start: the home");
+        assert_eq!(mode(&home.join("daemon.log")), 0o600, "{start} start: the log");
+        let status = cli(&["daemon", "status"]);
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        let shutdown = cli(&["daemon", "shutdown"]);
+        assert!(shutdown.status.success(), "{}", String::from_utf8_lossy(&shutdown.stderr));
+        let loose = writable_by_others(&home);
+        assert!(loose.is_empty(), "{start} start left paths the group may write: {loose:?}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

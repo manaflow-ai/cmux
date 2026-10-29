@@ -116,15 +116,35 @@ export const cloudCases = (c: Corpus): void => {
   c.op(dmHost, "dm: participants.remove", ALICE, "r1", { kind: "participants.remove", participant: CAROL }, "kind_forbids")
 
   const chief = new CoreHost(chiefHead())
-  c.op(chief, "chief: participants.add", ALICE, "p1", { kind: "participants.add", participant: human(BOB) }, "kind_forbids")
   c.op(chief, "chief: invite.create", ALICE, "i1", inviteOp(), "kind_forbids")
+  // A Chief's conversation shared with teammates (cmux#25569): only its owner adds people, never an agent or an admin.
+  c.op(chief, "chief: the chief adds a person", CHIEF, "p0", { kind: "participants.add", participant: human(BOB) }, "forbidden")
+  c.op(chief, "chief: the owner adds another agent", ALICE, "p0", { kind: "participants.add", participant: agent("agent_second", ALICE) }, "invalid_participant")
+  c.op(chief, "chief: the owner adds an admin", ALICE, "p0", { kind: "participants.add", participant: human(BOB), role: "admin" }, "forbidden")
+  // The first share turns history to since_join (the commit's head says so): the teammate sees what comes next.
+  c.op(chief, "chief: the owner shares it with a teammate", ALICE, "p1", { kind: "participants.add", participant: human(BOB, "Bob") }, "commit")
+  if (chief.head.settings?.history_visible !== "since_join") throw new Error("chief share: history_visible should be since_join")
+  c.op(chief, "chief: a teammate shares it further", BOB, "p2", { kind: "participants.add", participant: human(CAROL) }, "forbidden")
+  c.op(chief, "chief: a teammate talks", BOB, "s1", send("s1", "hi from bob"), "commit")
+  c.op(chief, "chief: a teammate cannot rename it", BOB, "t1", { kind: "title.set", title: "x" }, "kind_forbids")
+  c.op(chief, "chief: a teammate cannot remove the chief", BOB, "r0", { kind: "participants.remove", participant: CHIEF }, "kind_forbids")
+  c.op(chief, "chief: the owner cannot remove the chief", ALICE, "r0", { kind: "participants.remove", participant: CHIEF }, "kind_forbids")
+  c.op(chief, "chief: the owner cannot leave", ALICE, "r0", { kind: "participants.remove", participant: ALICE }, "kind_forbids")
+  c.op(chief, "chief: a teammate cannot make itself an admin", BOB, "sr0", { kind: "participants.set_role", participant: BOB, role: "admin" }, "forbidden")
+  c.op(chief, "chief: the owner makes a teammate read-only", ALICE, "sr1", { kind: "participants.set_role", participant: BOB, role: "read_only" }, "commit")
+  c.op(chief, "chief: a read-only teammate cannot talk", BOB, "s2", send("s2", "still me"), "read_only")
+  c.op(chief, "chief: the owner makes the teammate a member again", ALICE, "sr2", { kind: "participants.set_role", participant: BOB, role: "member" }, "commit")
+  c.op(chief, "chief: no ban list to manage", ALICE, "rb", { kind: "participants.remove", participant: BOB, ban: true }, "kind_forbids")
   // Questions follow the local rules on a cloud head: the chief asks, its owner answers.
   c.op(chief, "chief: the owner may not post a question", ALICE, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "invalid_parts")
   c.op(chief, "chief: the chief posts a question", CHIEF, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "commit")
   const asked = chief.messages.at(-1)!.id
   const answer = (selections: unknown): Op => ({ kind: "question.answer", message_id: asked, part_index: 0, answer: { selections } }) as never
   c.op(chief, "chief: the chief may not answer", CHIEF, "a1", answer({ q0: { option_ids: ["oauth"] } }), "human_only")
+  c.op(chief, "chief: a teammate may not answer the chief's question", BOB, "a1", answer({ q0: { option_ids: ["oauth"] } }), "forbidden")
   c.op(chief, "chief: the owner answers", ALICE, "a1", answer({ q0: { option_ids: ["oauth"] } }), "commit")
+  c.op(chief, "chief: a teammate leaves", BOB, "r1", { kind: "participants.remove", participant: BOB }, "commit")
+  c.op(chief, "chief: a teammate who left cannot talk", BOB, "s3", send("s3", "back?"), "not_participant")
   c.op(chief, "chief: a second answer", ALICE, "a2", answer({ q0: { option_ids: ["keys"] } }), "question_closed")
 
   const local = new CoreHost()

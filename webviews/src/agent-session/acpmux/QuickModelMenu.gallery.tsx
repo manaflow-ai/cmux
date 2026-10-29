@@ -7,7 +7,18 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
 
-type Props = { tab?: string; expand?: boolean };
+type Props = {
+  tab?: string;
+  expand?: boolean;
+  chat?: boolean;
+  fast?: boolean;
+  many?: boolean;
+  placement?: "left" | "top" | "compact";
+  stress?: boolean;
+  anchorTop?: boolean;
+  anchorMiddle?: boolean;
+  routeLayout?: QuickMenu["routeLayout"];
+};
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
 
@@ -29,6 +40,7 @@ const families: QuickFamily[] = [
   {
     id: "opencode",
     name: "OpenCode",
+    mark: "opencode",
     models: models("opencode", [
       "opencode/Beam Free",
       "Big Pickle",
@@ -40,12 +52,15 @@ const families: QuickFamily[] = [
       ...Array.from({ length: 40 }, (_, index) => `opencode/Sample Model ${index + 1}`),
     ]),
   },
-  { id: "unii", name: "Unii", models: [], more: [], note: "Signed out" },
+  { id: "claude-sr", name: "Claude Code (sr)", mark: "claude", models: [], more: [], launch: true },
 ];
 
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
   effort: {
-    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) })),
+    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
+      id,
+      name: id[0]!.toUpperCase() + id.slice(1),
+    })),
     current: "high",
     onPick: () => undefined,
   },
@@ -68,13 +83,48 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand }: Props) {
+        function GalleryQuickModelMenu({
+          tab,
+          expand,
+          chat,
+          fast = false,
+          many,
+          anchorTop,
+          anchorMiddle,
+          placement = "left",
+          stress,
+          routeLayout,
+        }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
-          const list = tab ? [...families].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : families;
+          const [isFast, setFast] = useState(fast);
+          const [selection, setSelection] = useState("");
+          const available = many
+            ? [
+                ...families,
+                ...(stress
+                  ? Array.from({ length: 36 }, (_, index) => `Harness ${index + 5}`)
+                  : ["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"]
+                ).map((name) => ({
+                  id: name.toLowerCase(),
+                  mark: name.toLowerCase(),
+                  name,
+                  models: models(name.toLowerCase(), [name + " model"]),
+                  more: [],
+                })),
+              ]
+            : families;
+          const list = tab ? [...available].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : available;
           return (
-            <OnNewTab.Provider value={true}>
-              <div style={{ padding: 16 }} data-expand={expand ? "" : undefined}>
+            <OnNewTab.Provider value={!chat}>
+              <div
+                style={{
+                  padding: 16,
+                  paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16,
+                }}
+                data-expand={expand ? "" : undefined}
+                data-selection={selection}
+              >
                 <QuickModelMenu
                   open={isOpen}
                   onOpenChange={setOpen}
@@ -85,10 +135,39 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
+                    harnessPlacement: placement,
+                    routeLayout,
+                    search: {
+                      find: (query) =>
+                        list
+                          .flatMap((family) => [...family.models, ...family.more])
+                          .filter((model) => model.name.toLowerCase().includes(query.toLowerCase())),
+                      pick: (model) => setSelection(model.id),
+                    },
+                    account: {
+                      sessionId: "gallery",
+                      accounts: {
+                        list: async () => ({
+                          accounts: [
+                            {
+                              id: "subscription",
+                              name: "Claude subscription",
+                              kind: "direct-subscription",
+                            },
+                            { id: "api", name: "API key", kind: "direct-api-key" },
+                            { id: "cmux", name: "Cmux", kind: "cmux-router" },
+                          ],
+                          active: "subscription",
+                        }),
+                        set: async () => undefined,
+                      },
+                    },
+                    fast: { checked: isFast, onChange: setFast },
                     families: {
                       list,
                       current: tab ?? "claude",
                       onPick: () => undefined,
+                      onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
                     },
                   }}
@@ -102,6 +181,48 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "provider-submenu": {
+      props: { chat: true, routeLayout: "submenu" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.press("Enter");
+      },
+    },
+    "provider-inline": { props: { chat: true, routeLayout: "inline" }, play: open },
+    "provider-grouped": {
+      props: { chat: true, routeLayout: "grouped" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.press("Enter");
+      },
+    },
+    "roomy-more-models": {
+      height: 1000,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
+    "short-more-models": {
+      height: 320,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
+    "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
+    "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
+    "claude-many-harnesses": { props: { many: true }, play: open },
+    combined: { props: { chat: true }, play: open },
+    "combined-fast": { props: { chat: true, fast: true }, play: open },
+    "harness-left": { props: { placement: "left" }, play: open },
+    "harness-top": { props: { placement: "top" }, play: open },
+    "harness-compact": { props: { placement: "compact" }, play: open },
+    "harness-stress": { props: { many: true, stress: true }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {
       props: {},

@@ -8,9 +8,10 @@ and every fix is rate-limited. It writes /run/cmux/machine-health.json:
 problems: what is wrong now and could not be fixed. fixed: the last 24 h of actions, at most 20.
 
   dns     A public name, and this machine's MagicDNS name when it is logged in to a tailnet,
-          resolve. Else (at most once per 15 min): restart systemd-resolved, relink
-          /etc/resolv.conf to its stub if it is not, restart tailscaled when installed (so it
-          picks resolved mode again), and check again.
+          resolve. Once they have failed dnsFailuresBeforeHeal passes in a row (at most once per
+          15 min): restart systemd-resolved, relink /etc/resolv.conf to its stub if it is not, and
+          check again. tailscaled is restarted too (so it picks resolved mode again) only when the
+          config sets restartTailscaled: a restart drops every Tailscale SSH session and tunnel.
   disk    Free space on / stays above a floor. Else start the hygiene commands, each as its own
           transient unit (at most once per 15 min). Under the floor the problem has severity
           "warning"; under the hard floor, "critical".
@@ -49,6 +50,8 @@ GB = 10**9
 DEFAULTS = {
     "dnsNames": ["github.com"],
     "tailnetName": True,
+    "dnsFailuresBeforeHeal": 3,  # passes in a row (one a minute); one slow lookup under load is not an outage
+    "restartTailscaled": False,  # opt in per host: the restart cuts every Tailscale SSH session and tunnel
     "diskPath": "/",
     "diskFloorBytes": None,  # max(min(10 GB, 20% of the disk), 5% of the disk)
     "diskHardFloorBytes": None,  # min(3 GB, 10% of the disk)
@@ -72,6 +75,7 @@ FIXED_ACTIONS = re.compile("|".join([
     r"forced a reconnect of the peer link to ([A-Za-z0-9][A-Za-z0-9._-]{0,79}|a peer with an unreadable name)"
 ]))
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
+DNS_FAILURES_MAX = 60  # the count of failed dns passes kept in state saturates here, the largest dnsFailuresBeforeHeal
 ORDER = ["acpmux", "cmux", "dns", "disk", "ram", "peer", "loop"]
 UNIT_NAME = re.compile(r"[A-Za-z0-9@._:*?\[\]-]{1,100}")
 # What a unit check may restart: its own namespace only, a literal prefix then at most a narrow
@@ -317,7 +321,9 @@ class Pass:
         self.host, self.config, self.heal = host, config, heal
         self.start = host.mono()
         state = state if isinstance(state, dict) else {}
-        since, last, fixed = state.get("since"), state.get("last"), state.get("fixed")
+        since, last, fixed, dns_failures = state.get("since"), state.get("last"), state.get("fixed"), state.get("dnsFailures")
+        self.dns_failures_was = dns_failures if isinstance(dns_failures, int) and not isinstance(dns_failures, bool) and 0 < dns_failures <= DNS_FAILURES_MAX else 0
+        self.dns_failures = self.dns_failures_was
         stamp = lambda v: isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) is not None
         self.since_was = {k: v for k, v in since.items() if isinstance(k, str) and stamp(v)} if isinstance(since, dict) else {}
         self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
@@ -379,13 +385,14 @@ class Pass:
     def check_dns(self):
         names = list(self.config["dnsNames"]) + [n for n in [self.tailnet_name()] if n]
         failing = [n for n in names if not self.resolves(n)]
-        if failing and self.may("fix:dns", 15 * 60, needs_s=20):
+        self.dns_failures = min(self.dns_failures_was + 1, DNS_FAILURES_MAX) if failing else 0
+        if failing and self.dns_failures >= self.config["dnsFailuresBeforeHeal"] and self.may("fix:dns", 15 * 60, needs_s=20):
             if self.run(["systemctl", "restart", "systemd-resolved.service"], 15)[0] == 0:
                 self.fixed("dns", "restarted systemd-resolved")
             if not self.host.stub_linked() and self.host.stub_ready():
                 self.host.relink()
                 self.fixed("dns", "relinked /etc/resolv.conf to the systemd-resolved stub")
-            if self.run(["systemctl", "show", "-p", "LoadState", "--value", "tailscaled.service"], 5)[1].strip() == "loaded":
+            if self.config["restartTailscaled"] and self.run(["systemctl", "show", "-p", "LoadState", "--value", "tailscaled.service"], 5)[1].strip() == "loaded":
                 if self.run(["systemctl", "restart", "tailscaled.service"], 15)[0] == 0:
                     self.fixed("dns", "restarted tailscaled so it picks systemd-resolved")
             until = self.host.mono() + 10
@@ -394,6 +401,8 @@ class Pass:
                 if not failing or self.host.mono() >= until or self.left() < 8:
                     break
                 self.host.sleep(1)
+            if not failing:
+                self.dns_failures = 0
         for n in failing:
             self.problem("dns", f"dns:{n}", f"DNS: {n} does not resolve")
 
@@ -540,7 +549,7 @@ class Pass:
     def report(self):
         day_ago = iso(self.host.now() - 86400)
         fixed = ([f for f in self.fixed_was if f.get("at", "") >= day_ago] + self.new_fixed)[-20:]
-        state = {"since": self.since, "last": {k: v for k, v in self.last.items() if self.host.now() - v < 86400}, "fixed": fixed}
+        state = {"since": self.since, "last": {k: v for k, v in self.last.items() if self.host.now() - v < 86400}, "fixed": fixed, "dnsFailures": self.dns_failures}
         problems = sorted(self.problems, key=lambda p: ORDER.index(p["check"]))[:MAX_PROBLEMS]
         health = {"schema": 1, "checkedAt": iso(self.host.now()), "problems": problems, "fixed": fixed}
         return health, state
@@ -562,8 +571,12 @@ def config_problems(given):
         problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
     if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
         problems.append("dnsNames must be host names")
-    if "tailnetName" in given and not isinstance(given["tailnetName"], bool):
-        problems.append("tailnetName must be true or false")
+    for key in ("tailnetName", "restartTailscaled"):
+        if key in given and not isinstance(given[key], bool):
+            problems.append(f"{key} must be true or false")
+    v = given.get("dnsFailuresBeforeHeal")
+    if "dnsFailuresBeforeHeal" in given and (isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= DNS_FAILURES_MAX):
+        problems.append("dnsFailuresBeforeHeal must be a whole number from 1 to 60")
     if "diskPath" in given and not (isinstance(given["diskPath"], str) and given["diskPath"].startswith("/")):
         problems.append("diskPath must be an absolute path")
     for key in ("diskFloorBytes", "diskHardFloorBytes", "ramFloorBytes"):

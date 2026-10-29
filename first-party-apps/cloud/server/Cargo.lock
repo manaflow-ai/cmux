@@ -101,9 +101,11 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -253,6 +255,12 @@ dependencies = [
  "equivalent",
  "foldhash",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "icu_collections"

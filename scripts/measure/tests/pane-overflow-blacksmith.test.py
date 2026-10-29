@@ -50,4 +50,11 @@ printf 'MEASURED=%s\n' "$1"
     assert f"MEASURED={product}" in (out / "pane-fade.log").read_text()
     assert tip in (out / "receipt.json").read_text()
     assert product in (out / "receipt.json").read_text()
+    # A source-fence failure must keep the failed attempt's own frame archive.
+    (out / "pane-overflow-fade.tar.gz").unlink()
+    measure.write_text(measure.read_text() + "exit 17\n")
+    result = subprocess.run(["bash", "-c", command], cwd=repo, env=env,
+                            capture_output=True, text=True)
+    assert result.returncode != 0, "failed measurement was accepted"
+    assert (out / "pane-overflow-fade.tar.gz").read_bytes() == b"archive fixture"
 print("PASS Blacksmith fade part: exact product forwarded, no full app build, proof archive retained")

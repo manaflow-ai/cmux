@@ -103,6 +103,101 @@ pub fn patches(bytes: &[u8]) -> Vec<(String, String)> {
     patches
 }
 
+/// Each file's git blob identity from the `index` and mode lines in a patch.
+/// This survives the hunk-only patch shape sent to agent panes and also covers
+/// binary sections, which have no `@@` body.
+pub fn blob_fingerprints(bytes: &[u8]) -> Vec<(String, String)> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut fingerprints = Vec::new();
+    let mut section: Vec<&str> = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if is_section_start(line) && !section.is_empty() {
+            insert_blob_fingerprint(&mut fingerprints, &section);
+            section.clear();
+        }
+        section.push(line);
+    }
+    if !section.is_empty() {
+        insert_blob_fingerprint(&mut fingerprints, &section);
+    }
+    fingerprints
+}
+
+fn insert_blob_fingerprint(out: &mut Vec<(String, String)>, section: &[&str]) {
+    let index = section.iter().find(|line| line.starts_with("index ")).map(|line| line.trim_end());
+    let Some(index) = index else { return };
+    let modes: Vec<&str> = section
+        .iter()
+        .copied()
+        .filter(|line| {
+            line.starts_with("old mode ")
+                || line.starts_with("new mode ")
+                || line.starts_with("new file mode ")
+                || line.starts_with("deleted file mode ")
+        })
+        .map(str::trim_end)
+        .collect();
+    let path = section
+        .iter()
+        .find_map(|line| header_path(line, "+++ ", "b/"))
+        .or_else(|| section.iter().find_map(|line| header_path(line, "--- ", "a/")))
+        .or_else(|| section.iter().find_map(|line| binary_path(line)))
+        .or_else(|| section.iter().find_map(|line| git_header_path(line)));
+    let Some(path) = path else { return };
+    let mut input = index.to_string();
+    for mode in modes {
+        input.push('\n');
+        input.push_str(mode);
+    }
+    out.push((path, format!("blob:{}", fnv1a(&input))));
+}
+
+fn binary_path(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("Binary files ")?.trim_end();
+    let (old, new) = rest.rsplit_once(" and ")?;
+    let new = new.strip_suffix(" differ")?.trim();
+    let _ = old;
+    new.strip_prefix("b/").map(str::to_string)
+}
+
+/// Binary diffs have no `---`/`+++` headers. Decode the two paths from the
+/// `diff --git` header instead; Git quotes each path as one shell-like token.
+fn git_header_path(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("diff --git ")?.trim_end();
+    let (old, remainder) = git_path_token(rest)?;
+    let (new, _) = git_path_token(remainder.trim_start())?;
+    let _ = old;
+    new.strip_prefix("b/").map(str::to_string)
+}
+
+fn git_path_token(input: &str) -> Option<(String, &str)> {
+    if input.starts_with('"') {
+        let mut escaped = false;
+        for (index, byte) in input.bytes().enumerate().skip(1) {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                return Some((unquote(&input[..=index])?, &input[index + 1..]));
+            }
+        }
+        None
+    } else {
+        let end = input.find(' ').unwrap_or(input.len());
+        Some((input[..end].to_string(), &input[end..]))
+    }
+}
+
+fn fnv1a(text: &str) -> String {
+    let mut hash: u32 = 0x811c9dc5;
+    for byte in text.encode_utf16() {
+        hash ^= byte as u32;
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    format!("{hash:08x}")
+}
+
 fn is_section_start(line: &str) -> bool {
     line.starts_with("diff --git ") || line.starts_with("diff --cc ")
 }
@@ -230,4 +325,29 @@ pub fn file_list(bytes: &[u8]) -> Vec<String> {
 
 fn tokens(bytes: &[u8]) -> impl Iterator<Item = String> + '_ {
     bytes.split(|byte| *byte == 0).map(|token| String::from_utf8_lossy(token).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blob_fingerprints;
+
+    #[test]
+    fn blob_fingerprints_cover_hunk_and_binary_sections() {
+        let patch = concat!(
+            "diff --git a/src/a.txt b/src/a.txt\n",
+            "index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644\n",
+            "--- a/src/a.txt\n+++ b/src/a.txt\n",
+            "@@ -1 +1 @@\n-old\n+new\n",
+            "diff --git a/assets/logo.png b/assets/logo.png\n",
+            "index aaaaaaa..bbbbbbb 100644\n",
+            "Binary files a/assets/logo.png and b/assets/logo.png differ\n",
+        );
+        let values = blob_fingerprints(patch.as_bytes());
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].0, "src/a.txt");
+        assert_eq!(values[1].0, "assets/logo.png");
+        assert_eq!(values[0].1, "blob:8df14ed8");
+        assert!(values.iter().all(|(_, fingerprint)| fingerprint.starts_with("blob:")));
+        assert_ne!(values[0].1, values[1].1);
+    }
 }

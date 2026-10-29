@@ -16,11 +16,12 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
             """,
         "newCloudMachine": """
-            Creates a Cloud machine and returns machine_id, title, status and target (machine:<id>) once the \
-            server has it; its first workspace opens when it is ready. After 30 s it answers pending: true \
-            with a creation_id and the create goes on, so check `cmux cloud list-machines` before creating \
-            another. A create an agent or script starts may ask the person first, and a plan without Cloud \
-            machines shows an upgrade card instead.
+            Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
+            After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
+            before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
+            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
+            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
+            ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -76,8 +77,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudSSH": """
             Opens a new terminal tab in the machine's first workspace (--target machine:<id>), resuming a \
-            paused machine first. Returns no ids: \
-            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
+            paused machine first, and returns machine_id, workspace_id and the tab's surface_id (terminal_id \
+            when known). The window shows it only with --focus. When the run takes longer than 30 s it answers \
+            machine_id and pending: true, and the tab still opens.
             """,
         "cloudExec": """
             Runs a shell command on the machine through the Cloud API and returns machine_id, exit_code, \
@@ -89,6 +91,12 @@ nonisolated enum CloudActionDescriptions {
             a GitHub CLI sign-in there; no token leaves this Mac. Returns ok, gh_status (logged_in, pending, \
             missing or failed), the identity it set and, while the sign-in waits, device_code and \
             verification_uri for the person to approve; --focus also opens that page.
+            """,
+        "cloudEnrollMachine": """
+            Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
+            --ssh-key (default ~/.ssh/id_ed25519.pub) for its cmux user, pins its host key, writes a Host \
+            block in ~/.ssh/cmux-cloud/config named --name that dials through this app's tunnel, then peers \
+            acpmux. Returns ssh_host, address, steps_done, steps_pending, rerun_command and registry_command.
             """,
         "cloudFilesList": """
             Lists a directory on the machine (--target machine:<id> --path /absolute/dir) and returns path, \
@@ -166,14 +174,22 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
-            machine first, and returns machine_id and workspace_id. The window shows it only with --focus. When \
-            the whole run (resume, connect and the new workspace) takes longer than 30 s it answers machine_id and \
-            pending: true, and the workspace still opens.
+            machine first, and returns machine_id, workspace_id and, when known, the terminal's surface_id. \
+            With --workspace <id> (a workspace_id it returned) it adds a terminal tab to that workspace of the \
+            machine instead and returns its surface_id; an id the machine does not have is refused. The window \
+            shows it only with --focus. When the whole run takes longer than 30 s it answers machine_id and \
+            pending: true, and the terminal still opens.
             """,
         "cloudOpenMachine": """
             Shows the machine's first workspace in the window (creating one when it has none), connecting \
             it and resuming it when paused. Not a CLI verb: \
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
+            """,
+        "cloudOpenDesktop": """
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
+            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
+            web, the default). Refused when the machine has no desktop or address, or the browser is \
+            unavailable. Answers at once with no fields, before the page loads.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
@@ -201,6 +217,18 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudCopyMachineID": """
             Copies the machine's id to the clipboard. Not a CLI verb: `cmux cloud list-machines` returns ids.
+            """,
+        "cloudApplyMachineConfig": """
+            Applies a .cmux/machine.toml (env, secret names, setup) to the machine (--target machine:<id>): \
+            --machine-config FILE uploads one, else the machine takes its --repo checkout's or the last \
+            upload. Answers status (started, running or failed) at once; the machine writes the outcome to \
+            ~/.cmux/machine-config/status.json, read with `cmux cloud file-read --target machine:<id> --path …`.
+            """,
+        "cloudDeliverSecrets": """
+            Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
+            machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
+            over its daemon link, never the Cloud API. Returns status (delivered, unchanged or pending), \
+            delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
             Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \

@@ -14,7 +14,8 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var sparkleDisabledReason: UpdateDisabledReason?
     /// Sparkle's `SUEnableAutomaticChecks` (the legacy app's setting).
     public var automaticChecks: Bool
-    /// Sparkle's `SUAutomaticallyUpdate`.
+    /// Whether a found update downloads and installs by itself now: `updates.downloadAutomatically`
+    /// as applied (``UpdaterService/applyDownloadPolicy()``), never Sparkle's `SUAutomaticallyUpdate`.
     public var automaticDownloads: Bool
     /// ``UpdatePhase`` of the Sparkle flow; `idle` when Sparkle is off.
     public var phase: UpdatePhase

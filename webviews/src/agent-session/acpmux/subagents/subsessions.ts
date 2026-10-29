@@ -8,6 +8,7 @@
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
+import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
@@ -31,6 +32,18 @@ export type SubsessionInfo = {
   slot?: true;
   /// Its model, as acpmux names it.
   model?: string;
+  /// Its thinking effort, as acpmux names it.
+  effort?: string;
+  /// Its parent session id, from the proven `startedBy` link.
+  parent?: string;
+  /// The latest bounded message text from the session summary.
+  lastMessage?: string;
+  /// acpmux's retry of its failed turn, while one waits (retryState.ts).
+  retry?: RetryState;
+  /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
+  retryDeciding?: true;
+  /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
+  error?: string;
 };
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
@@ -81,6 +94,13 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
+    ...(entry.effort ? { effort: entry.effort } : {}),
+    ...(entry.startedBy ? { parent: entry.startedBy } : {}),
+    ...(entry.lastMessage ? { lastMessage: entry.lastMessage } : {}),
+    // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
+    ...(entry.retry ? { retry: entry.retry } : {}),
+    ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
+    ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }
 

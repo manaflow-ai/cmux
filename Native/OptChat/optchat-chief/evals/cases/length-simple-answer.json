@@ -1,0 +1,39 @@
+{
+  "id": "length-simple-answer",
+  "group": "length",
+  "owner": "a680",
+  "about": "A factual question answerable from the view gets the answer, not a briefing.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "bump the nightly to use the new ghostty"
+    },
+    {
+      "kind": "talk",
+      "text": "a31 is on it."
+    },
+    {
+      "kind": "work",
+      "text": "[a31] Landed: ghostty submodule bumped to 7c1e9a0 on feat-cmux-next (a1b2c3d..d4e5f6a). Nightly 2026-10-27 build 4512 includes it."
+    }
+  ],
+  "turns": [
+    {
+      "text": "which ghostty commit is nightly on",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "7c1e9a0"
+        },
+        {
+          "type": "max_words",
+          "n": 20
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        }
+      ]
+    }
+  ]
+}

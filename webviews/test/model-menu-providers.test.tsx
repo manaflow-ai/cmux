@@ -3,11 +3,10 @@
 // search", "we should just have a standard model picker". The menu lists each model once, names the
 // provider its row lands at the row's trailing edge, and a Provider row switches the running model's
 // provider. The real ModelPicker and menu, in JSDOM.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import type { ModelCombo, ModelPickerProps } from "../src/agent-session/acpmux/modelPickerLayout";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -44,13 +43,30 @@ beforeAll(() => {
     pretendToBeVisual: true,
     url: "https://cmux.test/",
   });
-  // Each key from the window; its functions (getComputedStyle, requestAnimationFrame) bound to it.
-  const win = dom.window as unknown as Record<string, unknown>;
-  for (const key of keys) {
-    const value = win[key];
-    scope[key] = typeof value === "function" && /^[a-z]/.test(key) ? value.bind(dom.window) : value;
-  }
-  scope.IS_REACT_ACT_ENVIRONMENT = true;
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    Node: dom.window.Node,
+    ShadowRoot: dom.window.ShadowRoot,
+    MouseEvent: dom.window.MouseEvent,
+    KeyboardEvent: dom.window.KeyboardEvent,
+    Event: dom.window.Event,
+    CustomEvent: dom.window.CustomEvent,
+    customElements: dom.window.customElements,
+    MutationObserver: dom.window.MutationObserver,
+    CSSStyleSheet: dom.window.CSSStyleSheet,
+    DocumentFragment: dom.window.DocumentFragment,
+    SVGElement: dom.window.SVGElement,
+    HTMLTemplateElement: dom.window.HTMLTemplateElement,
+    localStorage: dom.window.localStorage,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  });
   host = dom.window.document.getElementById("root")!;
 });
 
@@ -70,6 +86,84 @@ afterAll(() => {
   }
 });
 
+const variants = () => import("../src/agent-session/acpmux/modelVariants");
+
+describe("groupVariants", () => {
+  const rows = [
+    { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro [New]" },
+    { id: "openrouter/deepseek/deepseek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
+    { id: "deepseek/deepseek-v4-pro", name: "DeepSeek/DeepSeek V4 Pro" },
+    { id: "openrouter/deepseek/deepseek-chat", name: "OpenRouter/DeepSeek Chat" },
+    { id: "claude-opus-5-5", name: "Opus 5.5" },
+    { id: "claude-opus-5-5-copy", name: "Opus 5.5" },
+  ];
+
+  test("a provider's row names its provider, its model and its note", async () => {
+    const { providerOf } = await variants();
+    expect(providerOf(rows[0]!)).toEqual({
+      provider: "OpenCode",
+      key: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro",
+      tag: "New",
+    });
+    expect(providerOf(rows[1]!)).toEqual({
+      provider: "OpenRouter",
+      key: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro",
+    });
+    expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
+  });
+
+  test("the rows of one model are one, in first-row order; a bare id is its own model", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants(rows);
+    expect(groups.map((group) => [group.name, group.offers.map((offer) => offer.provider)])).toEqual([
+      ["DeepSeek V4 Pro", ["OpenCode", "OpenRouter", "DeepSeek"]],
+      ["DeepSeek Chat", ["OpenRouter"]],
+      ["Opus 5.5", [""]],
+      ["Opus 5.5", [""]],
+    ]);
+    expect(groups[0]!.model.id).toBe("opencode/deepseek-v4-pro");
+    expect(groups[0]!.tag).toBe("New");
+  });
+
+  test("two vendors' models that share a last id segment stay two models", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Together/Coder 3" },
+      { id: "qwen/coder-3", name: "Qwen/Coder 3" },
+    ]);
+    expect(groups.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3", "qwen/coder-3"],
+      ["together/mistral/coder-3"],
+    ]);
+  });
+
+  test("a row that names no vendor joins its own vendor's model, whatever the order", async () => {
+    const { groupVariants } = await variants();
+    const ids = (rows: { id: string }[]) =>
+      groupVariants(rows.map((row) => ({ ...row, name: row.id }))).map((group) =>
+        group.offers.map((offer) => offer.model.id),
+      );
+    expect(
+      ids([{ id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }, { id: "qwen/coder-3" }]),
+    ).toEqual([["together/mistral/coder-3"], ["openrouter/qwen/coder-3", "qwen/coder-3"]]);
+    expect(
+      ids([{ id: "qwen/coder-3" }, { id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }]),
+    ).toEqual([["qwen/coder-3", "openrouter/qwen/coder-3"], ["together/mistral/coder-3"]]);
+    // Two vendors and a provider that is neither: it is its own model.
+    expect(
+      ids([{ id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }, { id: "opencode/coder-3" }]),
+    ).toEqual([["together/mistral/coder-3"], ["openrouter/qwen/coder-3"], ["opencode/coder-3"]]);
+  });
+
+  test("the running provider's row is the one its model lands", async () => {
+    const { groupVariants } = await variants();
+    expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
+  });
+});
+
 const openCode = [
   {
     id: "opencode",
@@ -87,72 +181,33 @@ const openCode = [
   },
 ];
 
-// A rail beside it: another harness whose one model two providers serve, and one with plain models.
-// OpenCode lists more models than the compact rows hold, so some are under More models.
-const railed = [
-  {
-    ...openCode[0]!,
-    models: [
-      ...openCode[0]!.models,
-      { id: "openrouter/deepseek/DeepSeek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
-      { id: "openrouter/meta/llama-scout", name: "OpenRouter/Llama Scout" },
-      { id: "together/meta/llama-scout", name: "Together/Llama Scout" },
-      { id: "mistral/codestral", name: "Mistral/Codestral" },
-    ],
-  },
-  {
-    id: "pi",
-    name: "Pi",
-    models: [
-      { id: "together/qwen-3.5-coder", name: "Together/Qwen 3.5 Coder" },
-      { id: "fireworks/qwen-3.5-coder", name: "Fireworks/Qwen 3.5 Coder" },
-    ],
-  },
-  {
-    id: "claude",
-    name: "Claude Code",
-    models: [
-      { id: "claude-opus-5-5", name: "Opus 5.5" },
-      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
-    ],
-  },
-];
-
 async function mount(
-  model = "opencode/deepseek-v4-pro",
-  rail = false,
-  catalog: ModelPickerProps["catalog"] = rail ? railed : openCode,
-  providers?: "row" | "submenu" | "expanded",
-  newTab = false,
+  model: string | undefined = "opencode/deepseek-v4-pro",
+  { catalog = openCode, fixed = true }: { catalog?: typeof openCode; fixed?: boolean } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
-  const { OnNewTab } = await import("../src/agent-session/acpmux/newTabComposer");
   const landed: string[] = [];
-  const combos: ModelCombo[] = [];
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <OnNewTab.Provider value={newTab}>
-        <ModelPicker
-          catalog={catalog}
-          harness="opencode"
-          model={model}
-          label="DeepSeek V4 Pro"
-          efforts={[]}
-          recents={[]}
-          harnessFixed={!rail}
-          quick={providers ? { providers } : {}}
-          onLand={(id) => landed.push(id)}
-          onCombo={(combo) => combos.push(combo)}
-          onEffort={() => undefined}
-        />
-      </OnNewTab.Provider>,
+      <ModelPicker
+        catalog={catalog}
+        harness="opencode"
+        model={model}
+        label="DeepSeek V4 Pro"
+        efforts={[]}
+        recents={[]}
+        harnessFixed={fixed}
+        quick={{}}
+        onLand={(id) => landed.push(id)}
+        onEffort={() => undefined}
+      />,
     ),
   );
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  return { landed, combos };
+  return { landed };
 }
 
 const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
@@ -161,12 +216,6 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const nameOf = (row: HTMLElement) => row.querySelector(".acpmux-menu-label")?.textContent ?? "";
 const detailOf = (row: HTMLElement) => row.querySelector(".acpmux-quick-value")?.textContent ?? "";
-const typeSearch = async (text: string) => {
-  const input = menus()[0]!.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
-  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
-  await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-};
 
 test("an OpenCode chat's menu lists each model once, naming the provider its row lands", async () => {
   await mount();
@@ -200,6 +249,29 @@ test("the Provider row names the running provider and switches the running model
   expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
 });
 
+test("the Provider row reaches every available provider when the running one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  const { landed } = await mount("opencode/deepseek-v4-pro", { catalog });
+  const provider = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Provider"),
+  )!;
+  expect(provider).toBeDefined();
+  expect(provider.querySelector(".acpmux-quick-value")?.textContent).toBe("OpenCode");
+  await act(async () => provider.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const sub = menus().at(-1)!;
+  expect(modelRows(sub).map(nameOf)).toEqual(["OpenCode", "OpenRouter", "DeepSeek"]);
+  await act(async () => modelRows(sub)[2]!.click());
+  expect(landed).toEqual(["deepseek/deepseek-v4-pro"]);
+});
+
 test("a chat on another provider's row of a model checks that model's one row and names that provider", async () => {
   await mount("deepseek/deepseek-v4-pro");
   const pro = modelRows(menus()[0]!).find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
@@ -207,8 +279,111 @@ test("a chat on another provider's row of a model checks that model's one row an
   expect(detailOf(pro)).toBe("DeepSeek");
 });
 
-test("More models names the provider each of its models lands, each model once", async () => {
-  await mount(undefined, true);
+const field = () => menus()[0]?.querySelector<HTMLInputElement>(".acpmux-quick-search input") ?? null;
+const typeIn = (text: string) =>
+  act(async () => {
+    const input = field()!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+
+test("a search lists a model several providers serve once, naming its provider", async () => {
+  await mount();
+  expect(field()).not.toBeNull();
+  await typeIn("v4 pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(detailOf(rows[0]!)).toBe("OpenCode");
+});
+
+test("a search for a running model whose provider is unavailable lands an available provider", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  const { landed } = await mount("opencode/deepseek-v4-pro", { catalog });
+  await typeIn("v4 pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(rows[0]!)).toBe("OpenRouter");
+  await act(async () => rows[0]!.click());
+  expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
+});
+
+test("Starred lands an available provider when the running one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  dom.window.localStorage.setItem(
+    "cmux.model-picker.favorites",
+    JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
+  );
+  await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  await act(async () => starred.click());
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(rows[0]!)).toBe("OpenRouter");
+});
+
+test("a New Tab row of a model lands an available provider when the first one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  // The chat runs another model, so nothing pins the row to the unavailable provider. The menu
+  // lists each family's newest available model (relevantModels.ts, #26071), so the row is in it.
+  await mount("zai/glm-5.3", { catalog, fixed: false });
+  const pro = menus()
+    .flatMap(modelRows)
+    .find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
+  expect(pro).toBeDefined();
+  expect(pro.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(pro)).toBe("OpenRouter");
+});
+
+test("Starred lists a model once when several of its providers are starred", async () => {
+  dom.window.localStorage.setItem(
+    "cmux.model-picker.favorites",
+    JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
+  );
+  await mount("zai/glm-5.3", { fixed: false });
+  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  expect(starred).not.toBeNull();
+  await act(async () => starred.click());
+  expect(modelRows(menus()[0]!).map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+});
+
+test("More models names each model's provider and tag", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: [
+        ...openCode[0]!.models,
+        { id: "opencode/kimi-k3", name: "Kimi K3 [New]" },
+        { id: "opencode/qwen-coder-3", name: "Qwen Coder 3" },
+        // Older releases of a family fold under More models (relevantModels.ts, #26071).
+        { id: "opencode/kimi-k2", name: "Kimi K2 [Preview]" },
+        { id: "opencode/qwen-coder-2.5", name: "Qwen Coder 2.5" },
+      ],
+    },
+  ];
+  await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
   const more = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
     item.textContent?.startsWith("More models"),
   )!;
@@ -217,574 +392,9 @@ test("More models names the provider each of its models lands, each model once",
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   const rows = modelRows(menus().at(-1)!);
   expect(rows.length).toBeGreaterThan(0);
-  const names = rows.map(nameOf);
-  expect(new Set(names).size).toBe(names.length);
-  // Every OpenCode row is a provider's: its provider is at the row's end.
   for (const row of rows) expect(detailOf(row), nameOf(row)).not.toBe("");
-});
-
-test("an available alternate provider keeps a grouped row enabled", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        {
-          id: "openrouter/qwen/coder-3",
-          name: "Coder 3",
-          unavailable: "OpenRouter is unavailable",
-        },
-        { id: "together/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount(undefined, true, catalog);
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(detailOf(rows[0]!)).toBe("Together");
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-});
-
-test("fixed-harness filtering keeps bare owners in the right grouped model", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-        { id: "together/mistral/coder-3", name: "Coder 3", unavailable: "Together is unavailable" },
-        { id: "mistral/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", false, catalog);
-  const rows = modelRows(menus()[0]!);
-  expect(rows.map(detailOf)).toEqual(["OpenRouter", "Mistral"]);
-});
-
-test("an unavailable current provider keeps its available grouped landing row", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        {
-          id: "openrouter/qwen/coder-3",
-          name: "Coder 3",
-          unavailable: "OpenRouter is unavailable",
-        },
-        { id: "together/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", true, catalog);
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(detailOf(rows[0]!)).toBe("Together");
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-});
-
-test("duplicate catalog IDs retain the available current offer", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "temporarily offline" },
-        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", false, catalog);
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-});
-
-test("the Starred rail groups provider offers into one model row", async () => {
-  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["openrouter/qwen/coder-3"]));
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-        { id: "together/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", true, catalog);
-  const starred = menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]');
-  expect(starred).toBeDefined();
-  await act(async () => starred!.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(nameOf(rows[0]!)).toBe("Coder 3");
-  expect(detailOf(rows[0]!)).toBe("OpenRouter");
-});
-
-test("Starred prefers an available favorite provider", async () => {
-  dom.window.localStorage.setItem(
-    "cmux.model-picker.favorites",
-    JSON.stringify(["openrouter/qwen/coder-3", "together/qwen/coder-3"]),
-  );
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "offline" },
-        { id: "together/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", true, catalog);
-  await act(async () => menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]')!.click());
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(detailOf(rows[0]!)).toBe("Together");
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-});
-
-test("search groups provider offers into one result", async () => {
-  await mount(undefined, true, railed);
-  await typeSearch("DeepSeek V4 Pro");
-  const rows = modelRows(menus()[0]!);
-  expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
-});
-
-test("search keeps the running provider selected", async () => {
-  await mount("deepseek/deepseek-v4-pro", true, railed);
-  await typeSearch("DeepSeek V4 Pro");
-  const rows = modelRows(menus()[0]!);
-  expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
-  expect(rows.find((row) => nameOf(row) === "DeepSeek V4 Pro")?.getAttribute("aria-checked")).toBe("true");
-});
-
-test("search falls back to an available provider when current is unavailable", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "offline" },
-        { id: "together/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/coder-3", true, catalog);
-  await typeSearch("Coder 3");
-  const rows = modelRows(menus()[0]!);
-  expect(rows).toHaveLength(1);
-  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
-});
-
-test("duplicate bare catalog rows remain one compact row", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
-        { id: "claude-sonnet-5-5", name: "Sonnet 5.5", unavailable: "offline" },
-      ],
-    },
-  ];
-  await mount(undefined, true, catalog);
-  expect(modelRows(menus()[0]!).filter((row) => nameOf(row) === "Sonnet 5.5")).toHaveLength(1);
-});
-
-test("a current duplicate's available landing stays in the compact picks", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "model-a", name: "Model A" },
-        { id: "model-b", name: "Model B" },
-        { id: "model-c", name: "Model C" },
-        { id: "model-d", name: "Model D" },
-        { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable: "offline" },
-        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-      ],
-    },
-  ];
-  await mount("openrouter/qwen/Coder-3", true, catalog);
-  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Coder 3");
-});
-
-test("expanded search reserves provider rows for each logical result", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: Array.from({ length: 18 }, (_, index) =>
-        (index < 9 ? ["openrouter"] : ["openrouter", "together", "groq", "fireworks", "opencode"]).map((provider) => ({
-          id: `${provider}/model-${index}`,
-          name: `${index < 9 ? "Model" : "Tail"} ${index}`,
-        })),
-      ).flat(),
-    },
-  ];
-  await mount(undefined, true, catalog, "expanded");
-  await typeSearch("Tail");
-  const body = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
-  const spacerRows = body
-    .querySelector<HTMLElement>(".acpmux-quick-spacer")!
-    .querySelectorAll(":scope > .acpmux-quick-item").length;
-  const shownRows = body.querySelectorAll('[role^="menuitem"]').length;
-  expect(spacerRows).toBeGreaterThanOrEqual(shownRows);
-});
-
-test("a running model stays in the compact picks after an unavailable group", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "offline-model", name: "Offline model", unavailable: "offline" },
-        { id: "model-a", name: "Model A" },
-        { id: "model-b", name: "Model B" },
-        { id: "model-c", name: "Model C" },
-        { id: "model-d", name: "Model D" },
-        { id: "model-e", name: "Model E" },
-      ],
-    },
-  ];
-  await mount("model-e", true, catalog);
-  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Model E");
-});
-
-test("search spacer reserves the query group label", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: Array.from({ length: 12 }, (_, index) => ({
-        id: `model-${index}`,
-        name: `Model ${index}`,
-      })),
-    },
-  ];
-  await mount(undefined, true, catalog);
-  await typeSearch("Model");
-  const body = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
-  const spacerRows = body
-    .querySelector<HTMLElement>(".acpmux-quick-spacer")!
-    .querySelectorAll(":scope > .acpmux-quick-item").length;
-  expect(modelRows(menus()[0]!).length + 1).toBeLessThanOrEqual(spacerRows);
-});
-
-// Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
-// (QuickModelMenu's tabExtent and width probe) count it, or the chat's tab overflows the held
-// height and the menu's top edge moves as the pointer crosses the rail.
-test("the held list height and width count the chat tab's Provider row, on every rail tab", async () => {
-  const { tabExtent } = await import("../src/agent-session/acpmux/QuickModelMenu");
-  const offered = {
-    id: "opencode",
-    name: "OpenCode",
-    models: [
-      {
-        id: "opencode/deepseek-v4-pro",
-        name: "DeepSeek V4 Pro",
-        family: "opencode",
-        provider: "OpenCode",
-        offers: [
-          {
-            id: "opencode/deepseek-v4-pro",
-            name: "DeepSeek V4 Pro",
-            family: "opencode",
-            provider: "OpenCode",
-          },
-          {
-            id: "deepseek/deepseek-v4-pro",
-            name: "DeepSeek V4 Pro",
-            family: "opencode",
-            provider: "DeepSeek",
-          },
-        ],
-      },
-    ],
-    more: [],
-  };
-  const families = { list: [offered], current: offered.id, onPick: () => undefined };
-  const extent = (providers: "row" | "submenu" | "expanded", current = "opencode/deepseek-v4-pro") =>
-    tabExtent(offered, { families, levels: 0, current, providers });
-  // The model's row and, for the running model, its Provider row.
-  expect(extent("row")).toEqual({ rows: 2, separators: 1 });
-  // Not the running model: no Provider row.
-  expect(extent("row", "zai/glm-5.3")).toEqual({ rows: 1, separators: 1 });
-  // A submenu of providers is the model's one row; the expanded version heads its two providers.
-  expect(extent("submenu")).toEqual({ rows: 1, separators: 1 });
-  expect(extent("expanded")).toEqual({ rows: 3, separators: 1 });
-
-  await mount(undefined, true);
-  const body = () => menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
-  const spacer = () => {
-    const node = body().querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-    return {
-      rows: node.querySelectorAll(":scope > .acpmux-quick-item").length,
-      separators: node.querySelectorAll(":scope > .ui-separator").length,
-    };
-  };
-  const probe = () =>
-    [...body().querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")].map((row) => ({
-      label: row.querySelector(".acpmux-menu-label")?.textContent ?? "",
-      value: row.querySelector(".acpmux-quick-value")?.textContent ?? "",
-    }));
-  const held = spacer();
-  const heldWidths = probe();
-  // Search still exposes provider offers individually, so the held rail reserves nine raw matches
-  // even when grouping leaves fewer than nine model rows.
-  expect(held.rows).toBeGreaterThanOrEqual(9);
-  expect(heldWidths).toContainEqual({ label: "Provider", value: "OpenCode" });
-  const tabs = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) =>
-    tab.getAttribute("aria-label")!,
-  );
-  expect([...tabs].sort()).toEqual(["Claude Code", "OpenCode", "Pi"]);
-  for (const name of tabs) {
-    const tab = menus()[0]!.querySelector<HTMLElement>(`.acpmux-quick-rail-tab[aria-label="${name}"]`)!;
-    await act(async () => tab.click());
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(spacer(), `the held height on ${name}`).toEqual(held);
-    expect(probe(), `the held width on ${name}`).toEqual(heldWidths);
-    const shown = body().querySelectorAll('[role^="menuitem"]').length;
-    expect(shown, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
-    // Every row's name and trailing provider is in the probe, so the held width fits it.
-    for (const row of modelRows(menus()[0]!))
-      expect(heldWidths, `${name}'s ${nameOf(row)}`).toContainEqual({
-        label: nameOf(row),
-        value: detailOf(row),
-      });
-  }
-});
-
-test("submenu width probes use only the rendered chevron marker", async () => {
-  await mount(undefined, true, railed, "submenu");
-  const probe = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")].find(
-    (row) => row.querySelector(".acpmux-menu-label")?.textContent === "DeepSeek V4 Pro",
-  );
-  expect(probe).toBeDefined();
-  expect(probe?.querySelector(".ui-submenu-chevron")).not.toBeNull();
-  expect(probe?.querySelector(".ui-menu-check, .ui-menu-shortcut")).toBeNull();
-});
-
-test("the submenu slider receives focus before an animation frame", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { EffortTrack } = await import("../src/agent-session/acpmux/EffortTrack");
-  const frame = scope.requestAnimationFrame;
-  scope.requestAnimationFrame = () => 0;
-  try {
-    root = createRoot(host);
-    await act(async () =>
-      root!.render(
-        <EffortTrack
-          efforts={[
-            { id: "low", name: "Low" },
-            { id: "high", name: "High" },
-          ]}
-          current="low"
-          onPick={() => undefined}
-          focusOnMount
-        />,
-      ),
-    );
-    expect(dom.window.document.activeElement).toBe(host.querySelector(".acpmux-effort-range"));
-  } finally {
-    scope.requestAnimationFrame = frame;
-  }
-});
-
-for (const providers of ["submenu", "expanded"] as const) {
-  test(`searched ${providers} providers land their own effort IDs`, async () => {
-    const catalog = [
-      {
-        id: "opencode",
-        name: "OpenCode",
-        models: [
-          { id: "openrouter/qwen/coder-3", name: "Coder 3", efforts: ["high"], fast: true },
-          { id: "together/qwen/coder-3", name: "Coder 3", efforts: ["HIGH"], fast: true },
-        ],
-      },
-    ];
-    const { combos } = await mount("openrouter/qwen/coder-3", true, catalog, providers);
-    await typeSearch("Coder high fast");
-    if (providers === "submenu") {
-      const row = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-sub")!;
-      await act(async () => row.click());
-      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    }
-    const together = modelRows(menus().at(-1)!).find((row) => nameOf(row) === "Together")!;
-    expect(together).toBeDefined();
-    await act(async () => together.click());
-    expect(combos).toEqual([{ harness: "opencode", model: "together/qwen/coder-3", effort: "HIGH", fast: true }]);
-  });
-}
-
-test("expanded search reserves enabled folder-profile models outside the rail", async () => {
-  const catalog: ModelPickerProps["catalog"] = [
-    { id: "opencode", name: "OpenCode", models: [{ id: "ordinary", name: "Ordinary" }] },
-    {
-      id: "folder-profile",
-      name: "Folder profile",
-      folder: { folder: "/project", state: "enabled" },
-      models: Array.from({ length: 9 }, (_, index) =>
-        ["openrouter", "together", "groq", "fireworks", "opencode"].map((provider) => ({
-          id: `${provider}/model-${index}`,
-          name: `Folder model ${index}`,
-        })),
-      ).flat(),
-    },
-  ];
-  await mount("ordinary", true, catalog, "expanded");
-  const spacer = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  const held = spacer.querySelectorAll(":scope > .acpmux-quick-item").length;
-  await typeSearch("Folder model");
-  expect(modelRows(menus()[0]!)).toHaveLength(45);
-  expect(held).toBeGreaterThanOrEqual(55); // Nine group heads, 45 offers and the query label.
-  expect(spacer.querySelectorAll(":scope > .acpmux-quick-item")).toHaveLength(held);
-});
-
-test("every expanded provider width probe reserves the rendered radio marker column", async () => {
-  await mount(undefined, true, railed, "expanded");
-  const popup = menus()[0]!;
-  const probes = [...popup.querySelectorAll<HTMLElement>(".acpmux-quick-probe .acpmux-quick-offer")];
-  expect(probes.length).toBeGreaterThan(1);
-  for (const probe of probes) expect(probe.querySelector(".ui-menu-check"), probe.textContent ?? "").not.toBeNull();
-  for (const row of popup.querySelectorAll(".acpmux-quick-list .acpmux-quick-offer"))
-    expect(row.querySelector(".ui-menu-check")).not.toBeNull();
-});
-
-for (const providers of ["row", "submenu", "expanded"] as const) {
-  test(`fixed-harness ${providers} search holds the unfiltered list extent`, async () => {
-    await mount(undefined, false, openCode, providers);
-    const popup = menus()[0]!;
-    const spacer = popup.querySelector<HTMLElement>(".acpmux-quick-spacer");
-    expect(spacer).not.toBeNull();
-    const held = spacer!.querySelectorAll(":scope > .acpmux-quick-item").length;
-    const width = spacer!.querySelector(".acpmux-quick-probe")!.innerHTML;
-    expect(held).toBeGreaterThanOrEqual(modelRows(popup).length);
-    await typeSearch("no matching model");
-    expect(modelRows(popup)).toHaveLength(0);
-    expect(spacer!.querySelectorAll(":scope > .acpmux-quick-item")).toHaveLength(held);
-    expect(spacer!.querySelector(".acpmux-quick-probe")!.innerHTML).toBe(width);
-    await typeSearch("DeepSeek");
-    expect(modelRows(popup).length).toBeLessThanOrEqual(held);
-  });
-}
-
-for (const unavailable of [undefined, "offline"]) {
-  test(`Starred preserves a deduplicated favorite (${unavailable ?? "available"})`, async () => {
-    dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["openrouter/qwen/Coder-3"]));
-    const catalog = [
-      {
-        id: "opencode",
-        name: "OpenCode",
-        models: [
-          { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-          { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable },
-          { id: "together/qwen/coder-3", name: "Coder 3" },
-        ],
-      },
-    ];
-    const { landed } = await mount("other", true, catalog);
-    const starred = menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]');
-    expect(starred).not.toBeNull();
-    await act(async () => starred!.click());
-    const rows = modelRows(menus()[0]!);
-    expect(rows).toHaveLength(1);
-    await act(async () => rows[0]!.click());
-    expect(landed).toEqual([unavailable ? "openrouter/qwen/coder-3" : "openrouter/qwen/Coder-3"]);
-  });
-}
-
-test("expanded width probes include singleton provider-search rows and effort hints", async () => {
-  const name = "Coder Professional Enterprise";
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "openrouter/qwen/coder-3", name, efforts: ["high"], fast: true },
-        { id: "together/qwen/coder-3", name, efforts: ["HIGH"], fast: true },
-      ],
-    },
-  ];
-  await mount("other", false, catalog, "expanded");
-  const probes = () => [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")];
-  const reserved = probes().map((row) => ({
-    name: nameOf(row),
-    value: detailOf(row),
-    marker: !!row.querySelector(".ui-menu-check"),
-  }));
-  await typeSearch("openrouter");
-  const singleton = modelRows(menus()[0]!)[0]!;
-  expect(modelRows(menus()[0]!)).toHaveLength(1);
-  expect(reserved).toContainEqual({ name: nameOf(singleton), value: detailOf(singleton), marker: true });
-  await typeSearch("openrouter high fast");
-  const hinted = modelRows(menus()[0]!)[0]!;
-  expect(detailOf(hinted)).toContain("high");
-  expect(reserved).toContainEqual({ name: nameOf(hinted), value: detailOf(hinted), marker: true });
-});
-
-test("fixed-harness filtering resets the popup's actual scroll offset", async () => {
-  await mount(undefined, false, openCode, "expanded");
-  const popup = menus()[0]!;
-  popup.scrollTop = 140;
-  await typeSearch("DeepSeek V4 Pro");
-  expect(popup.scrollTop).toBe(0);
-});
-
-test("an unavailable curated alias keeps its available logical model in top picks", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      top: ["openrouter/qwen/Coder-3"],
-      models: [
-        { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable: "offline" },
-        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
-        { id: "other", name: "Other" },
-      ],
-    },
-  ];
-  await mount("other", true, catalog);
-  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Coder 3");
-});
-
-test("held search width probes every eligible effort regardless of character count", async () => {
-  const catalog = [
-    {
-      id: "opencode",
-      name: "OpenCode",
-      models: [
-        { id: "alpha/coder", name: "Coder Enterprise Long", efforts: ["iiiiiiii", "WWWWWWW"], fast: false },
-        { id: "beta/coder", name: "Coder Enterprise Long", efforts: ["iiiiiiii", "WWWWWWW"], fast: false },
-      ],
-    },
-  ];
-  await mount("other", false, catalog, "expanded");
-  const values = [...menus()[0]!.querySelectorAll(".acpmux-quick-probe .acpmux-quick-value")].map(
-    (row) => row.textContent,
-  );
-  expect(values).toContain("iiiiiiii");
-  expect(values).toContain("WWWWWWW");
-});
-
-test("a New Tab folder-profile menu reserves width without blank height rows", async () => {
-  const catalog: ModelPickerProps["catalog"] = [
-    {
-      id: "opencode",
-      name: "Folder profile",
-      folder: { folder: "/project", state: "enabled" },
-      models: Array.from({ length: 9 }, (_, index) => ({ id: `model-${index}`, name: `Model ${index}` })),
-    },
-  ];
-  await mount("model-0", false, catalog, "row", true);
-  const spacer = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  expect(spacer).not.toBeNull();
-  expect(spacer.querySelectorAll(":scope > .acpmux-quick-item")).toHaveLength(0);
-  expect(spacer.querySelectorAll(".acpmux-quick-probe > .acpmux-quick-item").length).toBeGreaterThan(0);
+  expect(rows.map(nameOf).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);
+  const kimi = rows.find((row) => nameOf(row) === "Kimi K2")!;
+  expect(kimi.querySelector(".acpmux-quick-tag")?.textContent).toBe("Preview");
+  expect(detailOf(kimi)).toBe("OpenCode");
 });

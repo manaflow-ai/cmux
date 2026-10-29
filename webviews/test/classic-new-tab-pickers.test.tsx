@@ -81,7 +81,11 @@ afterAll(() => {
 });
 
 async function mount(
-  options: { noSummary?: boolean; plugin?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }> } = {},
+  options: {
+    noSummary?: boolean;
+    noOptions?: boolean;
+    plugin?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
@@ -93,6 +97,7 @@ async function mount(
     id: entry.id,
     name: entry.name,
     family: entry.families[0],
+    // A live model probe can report only id/name; the bundled catalog supplies its capabilities.
     models: entry.models.map((model) => ({ id: model.id, name: model.name })),
   }));
   const snapshot = noChat([], {
@@ -104,24 +109,28 @@ async function mount(
             sessionId: "",
             harness: "claude",
             model: "claude-opus-5-5",
-            configOptions: [
-              {
-                id: "effort",
-                name: "Effort",
-                category: "thought_level",
-                currentValue: "medium",
-                options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
-              },
-              {
-                id: "fast-mode",
-                name: "Fast mode",
-                currentValue: "off",
-                options: [
-                  { value: "off", name: "Off" },
-                  { value: "on", name: "On" },
-                ],
-              },
-            ],
+            ...(!options.noOptions
+              ? {
+                  configOptions: [
+                    {
+                      id: "effort",
+                      name: "Effort",
+                      category: "thought_level",
+                      currentValue: "medium",
+                      options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
+                    },
+                    {
+                      id: "fast-mode",
+                      name: "Fast mode",
+                      currentValue: "off",
+                      options: [
+                        { value: "off", name: "Off" },
+                        { value: "on", name: "On" },
+                      ],
+                    },
+                  ],
+                }
+              : {}),
           },
         }
       : {}),
@@ -228,6 +237,18 @@ test("a classic New Tab holds its effort and Fast mode picks on a deferred chat"
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.effort", params: { configId: "effort", value: "high" } },
+    { method: "chat.new", params: deferred },
+    { method: "chat.effort", params: { configId: "fast-mode", value: "on" } },
+  ]);
+});
+
+test("a fresh New Tab keeps catalog Fast mode in the model menu before a session reports options", async () => {
+  const { chatCalls } = await mount({ noOptions: true });
+  await open();
+  const fast = items().find((entry) => label(entry) === "Fast mode");
+  expect(fast, "Fast mode row from the catalog").toBeDefined();
+  await act(async () => fast!.click());
+  expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.effort", params: { configId: "fast-mode", value: "on" } },
   ]);

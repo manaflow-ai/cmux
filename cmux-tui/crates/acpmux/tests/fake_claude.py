@@ -82,11 +82,16 @@ session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 import json
 import os
 import sys
+import threading
+
+
+SEND_LOCK = threading.Lock()
 
 
 def send(obj):
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    with SEND_LOCK:
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
 
 
 # Like Claude Code, init reports the mode `--permission-mode` pinned.
@@ -490,6 +495,23 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
+            import time
+            time.sleep(int(os.environ["FAKE_CLAUDE_INIT_DELAY_MS"]) / 1000)
+        if request.get("subtype") == "set_permission_mode" and os.environ.get("FAKE_CLAUDE_MODE_DELAY_MS"):
+            import time
+            time.sleep(int(os.environ["FAKE_CLAUDE_MODE_DELAY_MS"]) / 1000)
+        # FAKE_CLAUDE_IDLE_CHILDREN=<file>: the harness starts a worker in its group, one that left
+        # it (setsid) and an MCP server (`sleep 3599`), and writes their pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_IDLE_CHILDREN"):
+            import subprocess
+            pids = {name: subprocess.Popen(["sleep", secs], start_new_session=escape, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for name, secs, escape in (("worker", "3601", False), ("escaped", "3602", True),
+                                               ("sidecar", "3599", False))}
+            with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
+                f.write(json.dumps(pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
@@ -507,7 +529,8 @@ while True:
             if os.environ.get("FAKE_CLAUDE_STOP_NOTIFY") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": task, "status": "stopped",
                       "output_file": "", "summary": ""})
-        if request.get("subtype") == "initialize":
+        # FAKE_CLAUDE_INIT_ON_TURN=1: system/init only when a turn starts, as Claude Code sends it.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") != "1":
             send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
@@ -595,10 +618,13 @@ while True:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
-        if SKILLS:
+        if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
+        if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         if STORE and LAYOUT:
             # Claude Code stamps each line with its UTC time to the millisecond.
             import datetime
@@ -759,6 +785,32 @@ while True:
             except OSError:
                 result["cwd"] = "denied"
             text = json.dumps(result)
+        # G2: exercise the actual child boundary, including its HTTP proxy.
+        if said.startswith("linux-sandbox-probe "):
+            import socket
+            import urllib.parse
+            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            result = {}
+            for key, path in [("outside", outside), ("git", ".git/hooks/x"),
+                              ("claude", "CLAUDE.md"), ("cwd", "ok")]:
+                try:
+                    with open(path, "w") as f:
+                        f.write("x")
+                    result[key] = "allowed"
+                except OSError:
+                    result[key] = "denied"
+            try:
+                socket.create_connection(("127.0.0.1", int(port)), timeout=2).close()
+                result["loopback"] = "allowed"
+            except OSError:
+                result["loopback"] = "denied"
+            proxy = urllib.parse.urlsplit(os.environ.get("HTTPS_PROXY", ""))
+            result["proxy"] = "missing"
+            if proxy.hostname and proxy.port:
+                with socket.create_connection((proxy.hostname, proxy.port), timeout=3) as conn:
+                    conn.sendall(b"CONNECT 127.0.0.1:22 HTTP/1.1\r\nHost: 127.0.0.1:22\r\n\r\n")
+                    result["proxy"] = conn.recv(1024).split(b"\r\n")[0].decode()
+            text = json.dumps(result)
         # "usage-probe": the token usage Claude Code streams and the context window its result
         # reports for each model the turn used (the chat's own and a smaller subagent model).
         usage = said.strip() in ("usage-probe", "switched-probe", "compact-probe")
@@ -800,11 +852,13 @@ while True:
         # reply carry its tool_use id as parent_tool_use_id, then the tool's result ends it.
         if said.strip() == "agent-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_ag1", "name": "Agent",
-                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore"}}]}})
+                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore", "model": "haiku", "effort": "high"}}]}})
             send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_use", "id": "toolu_ag2", "name": "Read", "input": {"file_path": "/a/tests.rs"}}]}})
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"id": "child-final", "content": [
+                  {"type": "text", "text": "Found one test file"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",
@@ -853,6 +907,16 @@ while True:
                   "input": {"description": "Late writer", "prompt": "Write late.txt", "run_in_background": True}}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_lateag",
                   "content": "Async agent launched"}]}})
+        # "bg-agent-gate: FIFO": a background subagent still running when the turn ends; it ends
+        # with its task_notification once the test writes FIFO, while the chat is idle
+        # (manaflow-ai/cmux#25230: the chat works until it does). "bg-agent-fail": a background
+        # subagent whose launch fails, so it never runs.
+        if said.strip().startswith("bg-agent-gate:") or said.strip() == "bg-agent-fail":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_bgag", "name": "Agent",
+                  "input": {"description": "Long review", "prompt": "Review it", "run_in_background": True}}]}})
+            failed = said.strip() == "bg-agent-fail"
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_bgag",
+                  "is_error": failed, "content": "Agent type not found" if failed else "Async agent launched"}]}})
         # "fg-probe": a foreground Bash is a local_bash task too (not backgrounded), and a
         # notification can name a call acpmux never saw run in the background.
         if said.strip() == "fg-probe":
@@ -984,6 +1048,16 @@ while True:
         send(result)
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             agent_failed(said.strip())
+        if said.strip().startswith("bg-agent-gate:"):
+            gate = said.strip()[len("bg-agent-gate:"):].strip()
+
+            def end_background_agent():
+                with open(gate) as g:
+                    g.read()
+                send({"type": "system", "subtype": "task_notification", "task_id": "bgag1",
+                      "tool_use_id": "toolu_bgag", "status": "completed", "output_file": "", "summary": "Reviewed"})
+
+            threading.Thread(target=end_background_agent, daemon=True).start()
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})

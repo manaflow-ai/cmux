@@ -90,6 +90,8 @@ pub(super) struct Order {
     /// How many times the prompts that left the queue for a turn that has not started went to
     /// its head (`lead`).
     leads: i64,
+    /// Restart continuations are restored ahead of every ordinary prompt, in log order.
+    restart_priority: u64,
 }
 
 impl Order {
@@ -127,6 +129,15 @@ impl Order {
         if let Some(id) = prompt_id.as_str() {
             self.place.remove(id);
         }
+    }
+
+    /// Places a daemon-restart continuation ahead of every ordinary prompt while preserving the
+    /// order of multiple continuation records in the same log.
+    pub(super) fn prioritize_restart(&mut self, prompt_id: &Value) {
+        let Some(id) = prompt_id.as_str() else { return };
+        let priority = self.restart_priority;
+        self.restart_priority = self.restart_priority.saturating_add(1);
+        self.place.insert(id.to_owned(), (i64::MIN, priority));
     }
 
     /// The sort key of the prompt `prompt_id`.

@@ -14,14 +14,18 @@ import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
+const ROW_ICON = rowIconSize(12);
+
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
-import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import { retrying } from "../subagents/retryState";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
+import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
 
@@ -73,6 +77,8 @@ type Line = {
   detail?: string;
   status: SubagentStatus;
   state: string;
+  /// acpmux retries it: its line shows the turning ring (retryState.ts).
+  working?: boolean;
   time?: string;
   /// Its whole task, for the hover card.
   task?: string;
@@ -117,6 +123,7 @@ const EndedAvatars = memo(
         item.key === next.key &&
         item.identity === next.identity &&
         item.status === next.status &&
+        item.working === next.working &&
         item.icon === next.icon &&
         item.agent?.state === next.agent?.state &&
         item.agent?.harness === next.agent?.harness
@@ -152,7 +159,8 @@ export function SubagentsSection({
       name: agent.name,
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
-      state: t(subagentStatusLabel(agent, waiting)),
+      state: subagentStateText(t, agent, waiting),
+      working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
@@ -166,7 +174,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    state: t(sessionStateLabel(child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
     depth: 0,
     at: child.createdAt ?? 0,
@@ -201,6 +209,7 @@ export function SubagentsSection({
         detail={item.detail}
         status={item.status}
         state={item.state}
+        working={item.working}
         time={item.time}
         icon={item.icon}
         depth={item.depth}
@@ -244,7 +253,7 @@ export function SubagentsSection({
           >
             <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
-            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
             <ul className="acpmux-summary-list acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">

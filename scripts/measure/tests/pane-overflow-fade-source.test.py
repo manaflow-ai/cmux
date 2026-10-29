@@ -121,6 +121,9 @@ def run_case(kind):
                       "tamper-index": "index changed",
                       "tamper-regression": "regression test blob changed"}[kind]
             assert result.returncode != 0 and reason in result.stderr, result.stderr
+            if kind in ("tamper-product", "tamper-unrelated"):
+                assert "NATIVE_FADE_TRACKED_MUTATION" in result.stderr, result.stderr
+                assert target in result.stderr, result.stderr
             print(f"PASS {kind}: tracked source guard rejected the mutation")
             return
         if kind == "wrong-test":

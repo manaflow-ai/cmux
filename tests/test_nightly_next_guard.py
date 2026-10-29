@@ -73,6 +73,16 @@ expect(1, "feed-url", "https://files.cmux.com/nightly/appcast.xml",
 expect(0, "appcast", appcast(f"{NEXT}cmux-nightly-next-macos-arm64-123.dmg",
                              f"{NEXT}cmux-nightly-next-macos-arm64-123-120.delta"))
 expect(1, "appcast", appcast(f"{MAIN}cmux-nightly-macos-arm64-123.dmg"))
+# The feed's own R2 base serves the downloads too (publish-nightly-next-r2.py), never main's.
+R2 = f"{base}/"
+expect(0, "appcast", appcast(f"{R2}cmux-nightly-next-macos-arm64-123.dmg",
+                             f"{NEXT}cmux-nightly-next-macos-arm64-120.dmg",
+                             f"{R2}cmux-nightly-next-macos-arm64-123-120.delta"))
+expect(1, "appcast", appcast(f"{R2}cmux-nightly-macos-arm64-123.dmg"))
+expect(1, "appcast", appcast(f"{R2}notes/cmux-nightly-next-macos-arm64-123.dmg"))
+expect(1, "appcast", appcast("https://files.cmux.com/nightly/cmux-nightly-next-macos-arm64-123.dmg"))
+expect(1, "appcast", appcast("https://files.cmux.com/nightly/cmux-nightly-next-macos-arm64-123.dmg"),
+       env={**ENV, "NIGHTLY_NEXT_FEED_BASE": "https://files.cmux.com/nightly"})
 expect(1, "appcast", appcast(f"{NEXT}cmux-nightly-next-macos-arm64-123.dmg",
                              f"{MAIN}cmux-nightly-macos-arm64-120.dmg"))
 expect(1, "appcast", appcast(f"{NEXT}cmux-nightly-macos-arm64-123.dmg"))

@@ -24,6 +24,7 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        .union(NotificationSoundSettingsSchema.agentSettableKeys) // notification sounds per event and level (sound only)
         .union(ChiefReactionSettings.keys) // a Chief configures its own reaction classifier (Lawrence 2026-10-21)
         // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
         .union(WorkspaceRowSetting.keys)
@@ -47,6 +48,8 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        // Whether a chat shows the live view of the app its agent uses: looks only.
+        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
@@ -54,6 +57,7 @@ extension SettingsSchema {
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine",
+        "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
@@ -64,6 +68,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
+        "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
@@ -86,17 +91,20 @@ extension SettingsSchema {
         "layout.focusFollowsMouse",
         "layout.scrollAreas",
         "layout.scrollModifier",
+        "layout.pagesHandleCommandScroll",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -173,7 +181,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
@@ -246,10 +254,12 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
+        "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
+        "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -280,6 +290,8 @@ extension SettingsSchema {
         "browser.agentMouse.maxMoveMs": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
+        // Whether sign-in pages open in a browser agents can drive is the person's call alone.
+        "browser.openSignInPagesInCmux": .userOnly,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
@@ -301,10 +313,16 @@ extension SettingsSchema {
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
         "home.server": .privacy,
+        // Whether the person's Chief runs on this Mac or in the cloud: where their messages go.
+        "home.chiefEngine": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // Voice Room records mic and screen text and posts it to the configured room.
+        "labs.voiceRoom": .privacy,
+        // The room address chooses the network endpoint that receives that capture.
+        "labs.voiceRoomURL": .network,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
@@ -350,12 +368,16 @@ extension SettingsSchema {
         // Who answers a sub-session's questions is the person's call too.
         "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
+        "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
+        // Which hosts an ssh:// link from another app connects to without asking: only the person
+        // trusts a host, so a page or an agent cannot add one and skip the confirmation.
+        "ssh.linkAllowedHosts": .network,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

@@ -366,7 +366,7 @@ pub(crate) async fn stream_prompt(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
-                if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;
@@ -502,7 +502,7 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
             return Err(client.closed("streaming the session"));
         }
         let p = params.unwrap_or(Value::Null);
-        if p.get("sessionId").and_then(Value::as_str) != Some(id) {
+        if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id) {
             continue;
         }
         match m.as_str() {
@@ -709,7 +709,7 @@ async fn collect_once(
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
-                if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;
@@ -838,7 +838,11 @@ const TURN_REPLY_RECORDS: usize = 200_000;
 /// between that turn's start and its result. It pages back from the newest record until that
 /// turn's start, and is `None` when the log (its newest `TURN_REPLY_RECORDS`) holds no start of
 /// it: a history that does not reach the turn is not an empty reply.
-async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<String>> {
+pub(crate) async fn turn_reply(
+    client: &Arc<Client>,
+    id: &str,
+    turn: &str,
+) -> Result<Option<String>> {
     let started = |events: &[Value]| {
         events.iter().any(|e| {
             e.get("kind").and_then(Value::as_str) == Some("turn_started")

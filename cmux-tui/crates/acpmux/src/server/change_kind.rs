@@ -33,7 +33,11 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         // The row's `retry` came or went (`hub/auto_resume.rs`).
         | "auto_resume_scheduled"
         | "auto_resume_skipped"
-        | "auto_resume_exhausted" => record_kind,
+        | "auto_resume_exhausted"
+        // A turn the row showed `retryDeciding` for gets no retry.
+        | "auto_resume_settled"
+        // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
+        | "subagents_working" => record_kind,
         k if k == "dequeued" || k.starts_with("queue") => "queue",
         "permission_auto" => "permission_resolved",
         "permission_reissued" => "permission_request",

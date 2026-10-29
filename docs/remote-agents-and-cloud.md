@@ -56,6 +56,20 @@ installation directory to that service's PATH as well; the shell export above
 affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
+Don't rely on `--listen` alone to carry over to later starts. If you use a port
+other than 47811 (for example because another daemon already holds it), also
+merge `"listen": "127.0.0.1:PORT"` into the `websocket` object of
+`~/.acpmux/config.json`, keeping its token and the file's other fields, so
+`acpmux daemon start` and later restarts use it, and give the same port in the
+peer URL below.
+
+The daemon creates its home and its files owner-only, whatever your umask. It
+refuses a home or log that something else left writable by other users, and its
+error names the `chmod` that fixes it. If a service supervisor or a shell
+redirect creates the log, create it owner-only (for example with `umask 077`).
+An older acpmux that refuses its own new home under a group-writable umask
+needs `chmod 700 ~/.acpmux` before it starts.
+
 Back on your Mac, use an SSH alias that reaches your own remote account:
 
 ```sh
@@ -84,11 +98,10 @@ wins over `ACPMUX_HOME`, so a shell opened inside another agent can report that
 agent's live daemon and make `daemon start` a no-op:
 
 ```sh
-env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/remote-ergo-walk/client acpmux daemon status
+env -u ACPMUX_SOCKET ACPMUX_HOME="$HOME/acpmux-test" acpmux daemon status
 ```
 
-Inspect the selected home and socket before shutting anything down. The walk
-harness removes inherited `ACPMUX_*` variables after each command.
+Inspect the selected home and socket before shutting anything down.
 
 An SSH URL can include a user, such as `ssh://me@host`. An explicit URL port
 selects the remote **acpmux listener** (default 47811), not the SSH server port;
@@ -100,14 +113,20 @@ acpmux reads the peer's authentication through SSH; you do not need to paste
 its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
 
-`host doctor` without `--harness` skips harness checks; a healthy peer does not
-prove that an agent can run. Its `--harness ID` option checks a named harness
-profile, not the PATH-discovered harness alone. Verify the remote harness with
-`acpmux daemon harnesses` on that host and a real session prompt.
+Run `host doctor` from your Mac against the SSH alias; on the host itself, use
+`acpmux daemon status` and `acpmux daemon harnesses`. `host doctor` without
+`--harness` skips harness checks; a healthy peer does not prove that an agent
+can run. Its `--harness ID` option is described below. Verify the remote
+harness with `acpmux daemon harnesses` on that host and a real session prompt.
 
-`host enroll` installs the invoking binary too. Use it only for a compatible
-remote OS and architecture. For a Linux host reached from a Mac, use the Linux
-installation and `host add` steps above instead.
+`host enroll` and `host setup` install the invoking binary. Use them only for a
+compatible remote OS and architecture. For a Linux host reached from a Mac, use
+the Linux installation and `host add` steps above instead. `host update`
+refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
+with a build named `acpmux-<target>` there (for example
+`acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
+it there. Same-target peers can use the plain
+`acpmux host update NAME`.
 
 ## Work with a remote session
 
@@ -117,6 +136,54 @@ For a fresh host, merge `"webRoots": ["/home/me/project"]` into the existing
 `~/.acpmux/config.json`, preserving its token and other fields, then restart your
 daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
+
+When a tool call asks for permission (a command, or a read the harness does not
+already treat as safe), it waits on the chat's pending-permission card in cmux
+NEXT on your Mac. Whether the host accepts an Allow from that card depends on
+how the chat reaches the host:
+
+- A session reached through your Mac's peer daemon (`acpmux new --host`,
+  `cmux agent open-tab --host`, or `--group` with `--host`) takes a one-time
+  Allow from the card once the host has enrolled this Mac: `acpmux host enroll
+  NAME` (or `acpmux host approvals enroll NAME`) adds the app's public key to
+  the host's `~/.acpmux/mac-approvers.json` over your ssh. The app signs each
+  Allow on the Mac with a key that never leaves it (the Secure Enclave in a
+  signed build; a signed build on a Mac without one cannot allow from the card)
+  and only the signed answer crosses the peer link. The host
+  counts it once, for that prompt, tool call and option, within two minutes,
+  and only as Allow once: never an always-allow, Allow for this chat, a plan
+  or a mode change. A tool batch's card offers only Allow once and Deny; a
+  single prompt's card may still offer an always-allow, which this Mac does
+  not sign, and the card says only a one-time Allow works. Until
+  the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
+  and its Enroll this Mac button runs the same command. `acpmux host approvals
+  unenroll NAME` from the Mac, or `acpmux host approvals rm ID` on the host,
+  stops this Mac's Allows there at once. A DEV build without a Team ID makes a
+  new key each launch, so enroll again after a relaunch.
+- For tool approvals, connect the host in cmux NEXT with **File › Connect to
+  Machine…** and start the chat there, on that machine. Before such a chat's
+  first prompt, the app restarts the host's agent daemon with an approval key
+  only the app holds when nothing on it would be lost. Otherwise the card's
+  notice offers "Restart with approvals", which does the same.
+
+Use the CLI bundled with the app (its default home), so the app and the CLI
+share one daemon and the app shows the remote chat; open it with
+`cmux agent open-tab` (below) or by passing `--group NAME` to
+`acpmux new --host`.
+`acpmux session allow` is refused for remote sessions; `acpmux pending` and
+`acpmux send` point to the app's card for an allow, and `session deny` and
+`session cancel` work from the CLI. A start mode that never asks (for example
+the codex-acp adapter's `read-only`) is refused from a bare CLI unless a person
+starts it in cmux NEXT on that host or approves a preset for it there; an agent
+session lends its own mode to a session it starts with the same harness. The
+Codex bridge's `ask` and `read-only` modes still ask or stay in the sandbox, so
+they start from the CLI (see "Read-only Codex reviews" below). A prompt that
+needs no tools completes from the CLI alone. On a Linux agent VM whose config
+sets `vmHost` (see the Claude paragraph below), sessions your peer daemon starts
+with no `--policy` run without asking.
+
+`--tag` and `--host` with `--group` need an acpmux built from feat-cmux-next on
+2026-10-26 or later; check that `acpmux new --help` lists them.
 
 ```sh
 acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
@@ -141,10 +208,6 @@ acpmux send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use to
 answers `unknown variant session/new` is a protocol mismatch; it is not repaired
 by logging in. Use the bridge through a real `acpmux new --host` session.
 
-If a prompt needs permission, this build requires approval from the cmux Mac
-app's pending-permission card. `acpmux session allow` is intentionally refused
-for this remote route; `session deny` and `session cancel` remain available.
-
 Creation labels are repeatable and are applied before the session is listed:
 `acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
 If a remote policy, mode or folder check refuses a start, the JSON error's
@@ -152,7 +215,18 @@ If a remote policy, mode or folder check refuses a start, the JSON error's
 the prompt and launcher options. A `--prompt-file` is piped through stdin so
 the file does not need to exist on the remote host.
 
-Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
+Replace `codex` with an installed harness, such as `claude`. A remote-started
+Claude session needs the host's sandbox, which acpmux has only on macOS so far:
+on a Linux host, `acpmux new --host` refuses `-m claude`. The exception is a
+dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
+sessions your peer daemon starts with no policy run approve-all. A Cloud VM
+cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
+a team VM, a personal machine and an SSH-added machine never are. Turn it off
+or back on per machine with `acpmux host vm-host [NAME] off|on` (no restart;
+`on` is refused on a machine cmux did not create), or set `"vmHost": true` or
+`false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
+Web clients and sessions started with an explicit `--policy` keep their
+approvals. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
@@ -205,6 +279,14 @@ Stop preserves the session log. Adding `--purge` deletes it; do not use purge
 to repair a connection. Closing an app tab closes a viewer. `session resume`
 resumes held queued prompts; it is not a machine-resume command.
 
+Durable one-shot wake subscriptions use the local socket methods `_acpmux/watch_add`,
+`_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`). Add takes `to`, nonempty
+local or `HOST/name` sessions, `until`, optional `match`, and `once: true`; it delivers batched
+messages with excerpts and inspection commands. State and undelivered messages survive restart;
+offline peers notify once, failed deliveries retry, and a one-shot watch is removed after delivery.
+Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely; peer replay uses eight workers. The CLI and MCP tools are follow-ups; `acpmux wait` remains the
+script interface.
+
 ### Read-only Codex reviews
 
 A Codex review that only reads can start without your approval. On the host
@@ -232,8 +314,8 @@ you would not hand to that person.
 
 Codex's own rules on the host still apply in every mode. A command that a rule
 in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
-with "always allow", runs outside the sandbox without asking, in `read-only`
-as in `ask`.
+with "always allow", runs without asking. In `ask` it runs outside the sandbox;
+in `read-only` it stays inside the read-only sandbox.
 
 ## Use cmux Cloud
 

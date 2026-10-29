@@ -21,9 +21,26 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
+    #[cfg(unix)]
+    #[command(hide = true)]
+    CodexAuthBroker {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        codex: PathBuf,
+    },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
     /// Give a session here a task, end one with its result in one call, list a chat's tasks.
@@ -130,10 +147,6 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
-    /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
-    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
-    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]
@@ -144,6 +157,10 @@ pub enum Command {
         #[arg(long)]
         clear: bool,
     },
+    /// Show or set default harness settings per model family or alias: `defaults`, `defaults claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
+    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
+    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     Defaults {
         family: Option<String>,
         /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
@@ -213,7 +230,7 @@ pub enum Command {
         supersede: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
-        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
@@ -244,6 +261,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -315,12 +341,16 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Print the URL with its bearer token (`--json` always has it in `url`;
+        /// the browser this command opens always gets it).
+        #[arg(long)]
+        show_token: bool,
         /// Replace the dashboard token now: the old link, `ws://` peers that
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Remote daemons: add, ls, rm.
+    /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, ticket and more.
     #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
@@ -349,7 +379,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
+    /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
@@ -375,6 +405,10 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
+    /// The agent's tools to message other sessions and read them (send, ls, last, info): an
+    /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    AcpmuxMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -422,6 +456,9 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -464,10 +501,17 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
-    Status,
+    Retention(RetentionArgs),
+    #[command(hide = true)]
+    Status {
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32> },
+    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    #[command(hide = true)]
+    DaemonRestart,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -478,7 +522,10 @@ pub enum Command {
         end_agents: bool,
     },
     #[command(hide = true)]
-    Config,
+    Config {
+        #[arg(long)]
+        show_token: bool,
+    },
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -584,6 +631,21 @@ pub enum HarnessCmd {
         /// installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
+        /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
+        /// mark (claude, goose, ...) or an .svg/.png file. Default: the mark of the agent its
+        /// command runs, else a monogram.
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Show or set the icon cmux shows for one of your harnesses: one emoji, an SF Symbol
+    /// name (hammer.fill), an agent mark (claude, goose, ...) or an .svg/.png file (copied
+    /// next to the profile). With no VALUE, prints the icon cmux shows now and why.
+    Icon {
+        id: String,
+        value: Option<String>,
+        /// Remove the icon line: cmux picks the icon again.
+        #[arg(long, conflicts_with = "value")]
+        clear: bool,
     },
     /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
@@ -706,6 +768,9 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
@@ -834,8 +899,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         dev: bool,
     },
-    /// Daemon status, hosts, and the web URL.
-    Status,
+    /// Daemon status, hosts, and the web URL (without its token).
+    Status {
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start {
         /// Read this launch's person key (64 hex characters, one line) from
@@ -844,12 +913,17 @@ pub enum DaemonCmd {
         /// or VM provisioning passes it; refused while a daemon runs.
         #[arg(long)]
         person_key_fd: Option<i32>,
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
     },
+    /// Restart the daemon, preserving hosted sessions so they resume on startup.
+    Restart,
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
     /// exited, and fails naming any host left.
-    #[command(alias = "kill-server")]
+    #[command(visible_alias = "stop", alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds, where a plain shutdown ended
         /// the agents; hosted agents keep running anyway.
@@ -859,12 +933,19 @@ pub enum DaemonCmd {
         #[arg(long)]
         end_agents: bool,
     },
-    /// Print the config path and contents.
-    Config,
+    /// Print the config path and contents (without its tokens).
+    Config {
+        /// Print the bearer tokens too (`--json` always has them).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
     Reload,
+    /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
+    /// 14): their raw harness lines and long tool output go, their messages stay.
+    Retention(RetentionArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -873,6 +954,22 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RetentionArgs {
+    /// Only report the chats and bytes a pass would compact; change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Keep every old log segment under this folder (`<folder>/<chat id>/<pass>/events/`).
+    #[arg(long)]
+    pub archive: Option<PathBuf>,
+    /// Chats closed for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// One chat only (name or id).
+    #[arg(long)]
+    pub only: Option<String>,
 }
 
 #[derive(Args)]
@@ -943,8 +1040,8 @@ pub struct NewArgs {
     /// reused when there; implies --reuse. Replaces --cwd.
     #[arg(long, value_name = "REPO[@BASE]")]
     pub worktree: Option<String>,
-    /// Read the first prompt from this file (after any prompt words), now; a
-    /// missing or empty file fails before anything starts.
+    /// Read the first prompt from this file (after any prompt words), now; `-`
+    /// reads stdin. A missing or empty file fails before anything starts.
     #[arg(long, value_name = "FILE")]
     pub prompt_file: Option<PathBuf>,
     /// Tell the new session that this session started it and how to report back.
@@ -965,6 +1062,10 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Create the session even when its host refuses new ones (disk under its
+    /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
+    #[arg(long)]
+    pub force_admit: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -977,7 +1078,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session } => Command::ResumeQueue { session },
-            SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
+            SessionCmd::Fork { session, name, cwd, force_admit } => {
+                Command::Fork { session, name, cwd, force_admit }
+            }
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
@@ -1021,14 +1124,18 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
             },
-            DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
+            DaemonCmd::Status { show_token } => Command::Status { show_token },
+            DaemonCmd::Start { person_key_fd, show_token } => {
+                Command::DaemonStart { person_key_fd, show_token }
+            }
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
-            DaemonCmd::Config => Command::Config,
+            DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
+            DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
@@ -1270,10 +1377,69 @@ mod help_contract_tests {
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
     }
 
+    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    #[test]
+    fn host_vm_host_takes_a_machine_and_on_or_off() {
+        for argv in [
+            &["acpmux", "host", "vm-host"][..],
+            &["acpmux", "host", "vm-host", "on"][..],
+            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
+    }
+
+    /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
+    /// taken as the listing (review of #25602).
+    #[test]
+    fn host_hold_needs_a_name_to_change_anything() {
+        for argv in [
+            &["acpmux", "host", "hold", "--release"][..],
+            &["acpmux", "host", "hold", "--reason", "x"][..],
+            &["acpmux", "host", "hold", "--until", "2026-10-28T23:59:59Z"][..],
+            &["acpmux", "host", "hold", "m", "--release", "--reason", "x"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} parsed");
+        }
+        for argv in [
+            &["acpmux", "host", "hold"][..],
+            &["acpmux", "host", "hold", "m", "--release"][..],
+            &["acpmux", "host", "hold", "m", "--reason", "x", "--until", "2026-10-28T23:59:59Z"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+    }
+
     #[test]
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and
+    /// no hint, but the command is `daemon shutdown`. Anyone who knows `session stop` will guess
+    /// "stop"."
+    #[test]
+    fn daemon_stop_is_daemon_shutdown_and_help_says_so() {
+        use super::{Command, flatten};
+        for (argv, want_end_agents) in [
+            (&["acpmux", "daemon", "stop"][..], false),
+            (&["acpmux", "daemon", "stop", "--end-agents"][..], true),
+            (&["acpmux", "--json", "daemon", "stop", "--keep-agents"][..], false),
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            match cli.command.map(flatten) {
+                Some(Command::Shutdown { end_agents, .. }) => {
+                    assert_eq!(end_agents, want_end_agents, "{argv:?}")
+                }
+                _ => panic!("{argv:?} is not daemon shutdown"),
+            }
+        }
+        // `daemon --help` lists it on shutdown's line: `[aliases: stop]`.
+        let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
+        let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
+        assert!(line.contains("stop]"), "daemon --help does not list the stop alias:\n{help}");
     }
 
     #[test]

@@ -79,12 +79,9 @@ const ownerOf = (id: string): string | undefined => {
 /// ("groq/m") joins the one owner its model has, or the owner its provider is ("mistral/m"); with
 /// several and neither, it is its own model. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
-/// provider beside it. `preferred` retains an available favorite when one provider repeats a route.
-export function groupVariants<T extends VariantModel>(
-  models: readonly T[],
-  current?: string,
-  preferred?: ReadonlySet<string>,
-): ModelGroup<T>[] {
+/// provider beside it. When one provider repeats a route, its offer is the available row, the running
+/// one first.
+export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
   const rows = models.map((model) => ({ model, ...providerOf(model), owner: ownerOf(model.id) }));
   // Every owner each model id is named under.
   const owners = new Map<string, Set<string>>();
@@ -122,10 +119,9 @@ export function groupVariants<T extends VariantModel>(
         const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
         const existingCurrent = existing.model.id === current;
         const incomingCurrent = model.id === current;
-        const rank = (id: string, current: boolean, unavailable: boolean) =>
-          !unavailable ? (current ? 5 : preferred?.has(id) ? 4 : 3) : current ? 2 : preferred?.has(id) ? 1 : 0;
-        const existingRank = rank(existing.model.id, existingCurrent, existingUnavailable);
-        const incomingRank = rank(model.id, incomingCurrent, incomingUnavailable);
+        const rank = (current: boolean, unavailable: boolean) => (unavailable ? 0 : 2) + (current ? 1 : 0);
+        const existingRank = rank(existingCurrent, existingUnavailable);
+        const incomingRank = rank(incomingCurrent, incomingUnavailable);
         if (incomingRank > existingRank) joined.offers[duplicateIndex] = offer;
       }
       if (model.id === current) joined.model = model;

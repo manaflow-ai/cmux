@@ -57,4 +57,43 @@ struct NoActivateKeyboardGuardTests {
         #expect(host.handedBackTo === second)
         #expect(guardian.giveBacks.last?.restoredTo == 22)
     }
+
+    /// An update relaunch's startup: a click or Cmd-Tab that activated the app is the user
+    /// choosing it (the startup ends), and a stopped guard gives nothing back.
+    @Test func anActivationWithIntentReportsTheUserChoseAndAStoppedGuardStepsAside() {
+        let host = Host()
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: NSRunningApplication.current, frontmostPID: 7)
+        var chose = 0
+        guardian.onUserChose = { chose += 1 }
+        host.commandHeld = true
+        guardian.appDidBecomeActive()
+        #expect(chose == 1)
+        #expect(host.handedBackTo == nil)
+
+        host.commandHeld = false
+        guardian.isEnabled = false
+        guardian.appDidBecomeActive()
+        guardian.windowDidBecomeKey()
+        #expect(host.handedBackTo == nil)
+        #expect(guardian.giveBacks.isEmpty)
+    }
+
+    /// LaunchServices activates an update relaunch at launch while the user may hold Command or a
+    /// mouse button in their own app: that is not intent, so the front goes back.
+    @Test func heldInputRightAfterAnUpdateRelaunchIsNotIntent() {
+        let host = Host()
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: NSRunningApplication.current, frontmostPID: 7)
+        var chose = 0
+        guardian.onUserChose = { chose += 1 }
+        guardian.ignoresHeldInputUntil = host.now + NoActivateKeyboardGuard.launchActivationGrace
+        host.commandHeld = true
+        guardian.start()
+        #expect(chose == 0)
+        #expect(guardian.giveBacks.count == 1)
+
+        guardian.appDidResignActive()
+        host.now = host.now + .seconds(3)
+        guardian.appDidBecomeActive()
+        #expect(chose == 1, "Cmd-Tab after the launch is the user's")
+    }
 }

@@ -71,3 +71,18 @@ public enum ConversationMarkdownLinks {
         return (output as String, links, moved)
     }
 }
+
+extension ConversationTextLink {
+    /// `links` (over a message's whole text) moved onto a bubble that shows
+    /// `bodyLength` UTF-16 units of it, starting `offset` units in (a link
+    /// card takes its URL out); links outside the bubble text are dropped.
+    /// Every bubble builder uses this, so one message always yields the same
+    /// links and the same text-cache key.
+    public static func bubbleLinks(_ links: [ConversationTextLink], offset: Int = 0, bodyLength: Int) -> [ConversationTextLink] {
+        links.compactMap { link in
+            let location = link.location - offset
+            guard location >= 0, location + link.length <= bodyLength else { return nil }
+            return ConversationTextLink(location: location, length: link.length, url: link.url)
+        }
+    }
+}

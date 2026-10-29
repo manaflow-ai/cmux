@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
@@ -54,9 +55,11 @@ public actor MobileHostSupervisor {
     /// Pairing requests and sign-outs from phones (``MobileHostEvent/pairRequest(_:)``,
     /// ``MobileHostEvent/unpaired(phoneDeviceID:)``), in order.
     public nonisolated let pairing: AsyncStream<MobileHostEvent>
-    private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
-    /// The last `devices` line: sent to each new hostd and on every change.
-    private var devicesLine: Data?
+    private let pairingQueue = MobileHostQueue<MobileHostEvent>(capacity: 32)
+    /// The newest `devices` line the app set (``setNewestDevices(_:)``): set at once on the caller's
+    /// thread, so every hostd start and restart hands over the newest list, never one that an
+    /// update still on its way to this actor would replace.
+    private nonisolated let newestDevicesLine = Mutex<Data?>(nil)
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
@@ -66,8 +69,6 @@ public actor MobileHostSupervisor {
     private var state = MobileHostState()
     private var run: Task<Void, Never>?
     private var process: MobileHostProcess?
-    /// The last token sent: hostd asking again means it expired or was refused, so the next is forced fresh.
-    private var lastToken: String?
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
@@ -96,7 +97,7 @@ public actor MobileHostSupervisor {
 
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: MobileHostState.self, bufferingPolicy: .bufferingNewest(1))
-        (pairing, pairingContinuation) = AsyncStream.makeStream(of: MobileHostEvent.self, bufferingPolicy: .bufferingNewest(32))
+        pairing = pairingQueue.stream
         self.clock = clock
         self.now = now
     }
@@ -142,12 +143,20 @@ public actor MobileHostSupervisor {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
     }
 
-    /// The phones this Mac approved: kept for each new hostd and sent to the
-    /// running one now (a pairing link waiting on the user passes at once).
-    public func setDevices(_ devices: MobileHostPairedDevices) {
+    /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
+    /// (a pairing link waiting on the user passes at once).
+    public nonisolated func setNewestDevices(_ devices: MobileHostPairedDevices) {
         let line = MobileHostLaunch.devicesLine(devices)
-        devicesLine = line
-        process?.send(line)
+        newestDevicesLine.withLock { $0 = line }
+        // task-owner: one hop to the running hostd; it sends the newest line, so hops that land out of order still end on it
+        Task { await self.sendNewestDevices() }
+    }
+
+    /// The `devices` line a hostd started now gets.
+    nonisolated func devicesForNextHostd() -> Data? { newestDevicesLine.withLock { $0 } }
+
+    private func sendNewestDevices() {
+        if let line = devicesForNextHostd() { process?.send(line) }
     }
 
     /// Each paired phone's own acpmux credential: kept for each new hostd and sent to the
@@ -220,42 +229,55 @@ public actor MobileHostSupervisor {
         return "cmux-mobile-host exited with status \(status ?? -1)"
     }
 
-    /// Waits for hostd to exit while pumping its events and feeding it tokens.
+    private enum Watched: Sendable { case exited(Int32), drained, handedOver }
+
+    /// Waits for hostd to exit and drains its final control lines before restarting.
     private func watch(_ child: MobileHostProcess, inputs: Inputs) async -> Int32? {
-        await withTaskGroup(of: Int32?.self) { group in
-            group.addTask { await child.waitForExit() }
+        let logger = logger
+        let tokens = MobileHostTokenSupply(fetch: inputs.accessToken, send: { token in
+            child.send(MobileHostLaunch.tokenLine(token))
+        }, failed: { error in
+            logger.error("no access token for cmux-mobile-host: \(String(describing: type(of: error)), privacy: .public)")
+        })
+        let result = await withTaskGroup(of: Watched.self) { group in
+            group.addTask { .exited(await child.waitForExit()) }
             group.addTask {
-                await self.pump(child, inputs: inputs)
-                return nil
+                await self.pump(child, inputs: inputs, tokens: tokens)
+                return .drained
             }
             group.addTask {
-                await self.handOver(child, inputs: inputs)
-                return nil
+                await self.handOver(child, inputs: inputs, tokens: tokens)
+                return .handedOver
             }
             var exit: Int32?
+            var drained = false
             while let next = await group.next() {
-                if let next {
-                    exit = next
-                    break
+                switch next {
+                case let .exited(status): exit = status
+                case .drained: drained = true
+                case .handedOver: break
                 }
+                if exit != nil, drained { break }
             }
             group.cancelAll()
             if exit == nil { child.stop() }
             return exit
         }
+        await tokens.stop()
+        return result
     }
 
     /// Reads hostd's status lines until its stdout ends, answering its requests.
-    private func pump(_ child: MobileHostProcess, inputs: Inputs) async {
+    private func pump(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
         for await line in child.lines {
             guard let event = MobileHostEvent(line: line) else { continue }
             switch event {
             case .needToken:
-                await sendToken(child, inputs: inputs)
+                await tokens.request()
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
             case .pairRequest, .unpaired:
-                pairingContinuation.yield(event)
+                await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):
                 startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
             case let .browserStop(tab):
@@ -279,27 +301,12 @@ public actor MobileHostSupervisor {
     }
 
     /// What hostd needs before its first connect: a token and the acpmux endpoint.
-    private func handOver(_ child: MobileHostProcess, inputs: Inputs) async {
-        lastToken = nil
+    private func handOver(_ child: MobileHostProcess, inputs: Inputs, tokens: MobileHostTokenSupply) async {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
-        if let devicesLine { child.send(devicesLine) }
+        if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
-        await sendToken(child, inputs: inputs)
+        await tokens.request()
         await sendAcpmux(child, inputs: inputs)
-    }
-
-    /// Sends the account's token. The account refreshes a token near expiry by
-    /// itself; when it returns the token hostd already has (refused, or
-    /// expiring within hostd's minute), the refresh is forced.
-    private func sendToken(_ child: MobileHostProcess, inputs: Inputs) async {
-        do {
-            var token = try await inputs.accessToken(false)
-            if token == lastToken { token = try await inputs.accessToken(true) }
-            lastToken = token
-            child.send(MobileHostLaunch.tokenLine(token))
-        } catch {
-            logger.error("no access token for cmux-mobile-host: \(String(describing: type(of: error)), privacy: .public)")
-        }
     }
 
     /// Starts a browser host for hostd without holding up its other requests.

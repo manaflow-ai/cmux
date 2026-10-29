@@ -66,6 +66,16 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                HighlightColorSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help",
+                                        "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color, default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
+            ),
+            SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",
@@ -143,6 +153,14 @@ nonisolated enum AppearanceSettingsSchema {
                 kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
                 default: .number(0),
                 keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
+                WallpaperTintSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help",
+                                        "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                kind: .toggle, default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
             SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,

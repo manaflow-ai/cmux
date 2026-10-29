@@ -32,10 +32,9 @@ function compare(a: number[], b: number[]): number {
 export function modelSections<T extends SectionModel>(
   models: readonly T[],
   harnessName: string,
-  deduplicate = true,
 ): { latest: T[]; older: T[] } {
   const seen = new Set<string>();
-  const unique = deduplicate ? models.filter((model) => !seen.has(model.id) && seen.add(model.id)) : [...models];
+  const unique = models.filter((model) => !seen.has(model.id) && seen.add(model.id));
   const entries = unique.map((model, order) => {
     const family = (model.family ?? classify(model, harnessName).family).toLowerCase();
     return { model, order, family, version: versionOf(model) };

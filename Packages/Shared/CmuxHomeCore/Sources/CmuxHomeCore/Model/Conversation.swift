@@ -92,14 +92,31 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         case group
     }
 
-    /// Classifies from the participants other than `me`.
+    /// Classifies from the participants other than `me`. A Chief's conversation its owner shared
+    /// with teammates stays the owner's Chief line; a teammate sees it as a group.
     public func kind(me: ParticipantID) -> Kind {
         if declaredKind == .group { return .group }
+        if declaredKind == .chief, isMyChiefLine(me: me) { return .chief }
         let others = participants.filter { $0.id != me }
         if others.count == 1, let other = others.first {
             return other.isChief ? .chief : .direct
         }
         return .group
+    }
+
+    /// A Chief's own conversation whose Chief is mine (the owner may share it with teammates).
+    public func isMyChiefLine(me: ParticipantID) -> Bool {
+        declaredKind == .chief && participants.contains { $0.isChief && $0.ownerUser == me }
+    }
+
+    /// Whether the transcript names each message's sender: in a group, and in my Chief's
+    /// conversation once I shared it with someone.
+    public func showsSenderNames(me: ParticipantID) -> Bool {
+        switch kind(me: me) {
+        case .group: true
+        case .chief: participants.contains { $0.kind == .human && $0.id != me }
+        case .direct: false
+        }
     }
 
     /// The title a list row shows: the explicit title, else the other
