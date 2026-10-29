@@ -149,7 +149,6 @@ mod tests {
             std::process::id(),
             crate::inventory::now_ms()
         ));
-        eprintln!("schedule test folder: {}", dir.display());
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
