@@ -1630,6 +1630,10 @@ path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cla_guard_git_reads.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
 lane = "linux-guard"
 
