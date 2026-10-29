@@ -1019,7 +1019,7 @@ not measured here. Rerun this table when the open rows change; INV-1 at any revi
 | INV-5 global queues, nil delegate queues, runModal, raw locks | 0 except audio-tap `lock-allow` lines | 41: OSAllocatedUnfairLock 20, DispatchQueue.global 6, delegateQueue nil 6, runModal 6, NSLock 3 | 7 lines, 4 of them audio-tap `lock-allow`; 3 over: PoolContextControl.swift:125 `DispatchQueue.global` (the RUN-10 pool case, `qos-allow:`) and SpeechAnalyzerAudioInput.swift:73 and :76 (AnalyzerBufferFeed, `lock-allow: converter input block`, not the audio-tap reason) | no |
 | RUN-11 Release | 0 detector symbols; check-release-compile.sh passes | not run | not run: needs a fleet Mac (`cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA`) | not measured |
 | RUN-13 debug.work STRESS | userBlocking queue-wait p99 <= 2 ms per lane; launch cold 300 / warm 150 ms | not run | not run: needs a fleet Mac and a STRESS session | not measured |
-| RUN-2 Chromium open number | 0 main-thread blocking in app_chromium | not measured | not measured: task 301's probe is not on the controller's measurement list at its branch | open |
+| RUN-2 Chromium open number | 0 main-thread blocking in app_chromium | not measured | not measured: the daemon, thread-filter and Chromium-bucket half of the probe (task 020) went in deletion wave 1, 2026-10-29, so the base probe has no app_chromium bucket | open |
 
 Open work from this table: INV-1 queues MQ-1 to MQ-5, MQ-16, MQ-17 and MQ-18; INV-2 the Security family
 (MQ-7, keychain and code-signature seams); INV-4 the six Sources escape comments (each moves off the
