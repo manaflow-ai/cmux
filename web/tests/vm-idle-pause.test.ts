@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -224,7 +224,9 @@ function fakeProc(files: Record<string, string>): string {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-idle-proc-"));
   for (const [rel, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-    writeFileSync(path.join(root, rel), text);
+    // A process's open file is a symlink like /proc/<pid>/fd/7 -> socket:[4242].
+    if (/\/fd\/\d+$/.test(rel)) symlinkSync(text, path.join(root, rel));
+    else writeFileSync(path.join(root, rel), text);
   }
   return root;
 }
@@ -235,9 +237,29 @@ const TTYS0 = (4 << 8) | 64;
 const stat = (pid: number, comm: string, pgrp: number, sid: number, tty: number, tpgid: number) =>
   `${pid} (${comm}) S 1 ${pgrp} ${sid} ${tty} ${tpgid} 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n`;
 const TCP_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
-const tcpRow = (local: string, remote: string, state: string) => `   0: ${local} ${remote} ${state} 00000000:00000000 00:00000000 00000000  1000        0 1 1\n`;
+const tcpRow = (local: string, remote: string, state: string, inode = 1) =>
+  `   0: ${local} ${remote} ${state} 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1\n`;
 // 10.192.0.5 little-endian, ports 1337 (0539), 3000 (0BB8), 22 (0016).
 const VPC = "0500C00A";
+const LO = "0100007F";
+/**
+ * 127.0.0.1:3000 (a dev server) listening; the daemon (pid 500) holds the
+ * client end of a stream to it, opened for the app's loopback-forward-v1 over
+ * its link on :1337.
+ */
+const FORWARDED_PORT_PROC = {
+  "500/stat": stat(500, "cmux-tui", 500, 500, 0, -1),
+  "500/fd/7": "socket:[4242]",
+  "600/stat": stat(600, "node", 600, 600, 0, -1),
+  "600/fd/9": "socket:[4243]",
+  "net/tcp": TCP_HEADER
+    + tcpRow(`${LO}:0BB8`, "00000000:0000", "0A")
+    + tcpRow(`00000000:0539`, "00000000:0000", "0A")
+    + tcpRow(`${VPC}:0539`, "0900C00A:D432", "01", 77)
+    + tcpRow(`${LO}:D500`, `${LO}:0BB8`, "01", 4242)
+    + tcpRow(`${LO}:0BB8`, `${LO}:D500`, "01", 4243),
+  "net/tcp6": TCP_HEADER,
+};
 
 async function runProbeScript(
   files: Record<string, string>,
@@ -349,6 +371,17 @@ describe("idle probe guest script", () => {
   test("the probe command passes the daemon user's uid for the session socket", () => {
     expect(vmIdleProbeCommand(["10.192.0.5"])).toContain(`CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")"`);
     expect(vmIdleProbeCommand(["10.192.0.5"])).toContain("CMUX_IDLE_DAEMON_PORT=1337");
+  });
+
+  test("the probe runs python isolated: as root, nothing on the machine's path or environment is imported", () => {
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain("python3 -I -");
+  });
+
+  test("a port the app forwards through the daemon link is in use while the daemon holds a stream to it", async () => {
+    expect((await runProbeScript(FORWARDED_PORT_PROC, "NONE")).inbound_connections).toBe(1);
+    // The same loopback stream held by another process (not the daemon) is the machine talking to itself.
+    const local = { ...FORWARDED_PORT_PROC, "500/fd/7": "socket:[1]", "600/fd/8": "socket:[4242]" };
+    expect((await runProbeScript(local, "NONE")).inbound_connections).toBe(0);
   });
 
   test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", async () => {
@@ -1205,6 +1238,17 @@ describe("legacy daemon fallback", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }
+
+  test("a legacy machine still counts a port forwarded through the daemon link", async () => {
+    await withDaemonSocket(JSON.stringify({ id: null, ok: false, error: LEGACY_DAEMON_ERROR }) + "\n", async (socketPath) => {
+      const out = await runProbeScript(FORWARDED_PORT_PROC, "NONE", { daemonSocket: socketPath });
+      expect(out.daemon).toEqual({ legacy: true });
+      expect(out.inbound_connections).toBe(1);
+      const probe = parseVmIdleProbe(JSON.stringify({ v: 1, ...out, cpu_busy_ms: CPU0 }));
+      expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous: null, now: T0 }))
+        .toMatchObject({ pause: false, reason: "active:inbound_connections;legacy_daemon" });
+    });
+  });
 
   const idleFiles = {
     "100/stat": stat(100, "bash", 100, 100, PTS0, 100),
