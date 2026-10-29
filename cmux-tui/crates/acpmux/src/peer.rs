@@ -1209,6 +1209,15 @@ impl Peer {
                 .iter()
                 .map(|(sid, cursor)| (sid.clone(), *cursor))
                 .collect();
+            // Forwarders can register an attachment during the handshake before
+            // request_on refuses their request. Gate those sessions too, without
+            // replacing high-water marks already observed on this connection.
+            {
+                let mut highwater = me.replay_highwater.lock_or_recover();
+                for (sid, cursor) in &attached {
+                    highwater.entry(sid.clone()).or_insert(*cursor);
+                }
+            }
             for (sid, cursor) in attached {
                 let mut after = cursor;
                 loop {

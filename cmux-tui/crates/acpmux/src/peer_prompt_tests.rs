@@ -127,6 +127,15 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
 
 #[tokio::test]
 async fn reconnect_replays_before_admitting_a_concurrent_attach() {
+    replay_during_handshake(false).await;
+}
+
+#[tokio::test]
+async fn an_attachment_registered_during_handshake_is_gated_during_replay() {
+    replay_during_handshake(true).await;
+}
+
+async fn replay_during_handshake(late_attach: bool) {
     use tokio_tungstenite::WebSocketStream;
     use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
     async fn request(ws: &mut WebSocketStream<tokio::io::DuplexStream>) -> Value {
@@ -151,8 +160,11 @@ async fn reconnect_replays_before_admitting_a_concurrent_attach() {
     let event = |seq| json!({"sessionId": "s", "seq": seq, "at": 1, "dir": "mux", "kind": "turn_end", "msg": {}});
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
-    peer.mark_attached("s");
-    peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": 10}));
+    let cursor = if late_attach { 0 } else { 10 };
+    if !late_attach {
+        peer.mark_attached("s");
+        peer.note_hidden_attach_page("s", &json!({"events": [], "pageThrough": cursor}));
+    }
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -164,17 +176,39 @@ async fn reconnect_replays_before_admitting_a_concurrent_attach() {
     reply(&mut server, &init, json!({})).await;
     let watch = request(&mut server).await;
     assert_eq!(watch["method"], method::MUX_WATCH);
-    // Traffic triggered by watch/recovery cannot advance the cursor past the gap.
-    server
-        .send(Frame::Text(
-            Message::notification(method::MUX_EVENT, event(12)).to_value().to_string().into(),
-        ))
-        .await
-        .unwrap();
+    if late_attach {
+        // A forwarder registers interest before discovering that the link is
+        // still handshaking. This was absent from serve's initial gate snapshot.
+        peer.mark_attached("s");
+    } else {
+        // Traffic triggered by watch/recovery cannot advance the cursor past the gap.
+        server
+            .send(Frame::Text(
+                Message::notification(method::MUX_EVENT, event(cursor + 2))
+                    .to_value()
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+    }
     reply(&mut server, &watch, json!({"sessions": [{"sessionId": "s"}]})).await;
     let replay = request(&mut server).await;
     assert_eq!(replay["method"], method::MUX_ATTACH);
-    assert_eq!(replay["params"]["afterSeq"], 10, "do not skip history or the replay gap");
+    assert_eq!(replay["params"]["afterSeq"], cursor, "do not skip history or the replay gap");
+    if late_attach {
+        // Live notification and page contain the same event. The wire order
+        // ensures the reader consumes the live frame before the replay answer.
+        server
+            .send(Frame::Text(
+                Message::notification(method::MUX_EVENT, event(cursor + 2))
+                    .to_value()
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+    }
     assert!(!peer.connected.load(Ordering::SeqCst), "replay has not reached subscribers yet");
     let concurrent = tokio::time::timeout(
         Duration::from_secs(2),
@@ -184,11 +218,16 @@ async fn reconnect_replays_before_admitting_a_concurrent_attach() {
     .expect("attach must be refused immediately during replay")
     .unwrap_err();
     assert_eq!(concurrent.data.unwrap()["reason"], "peer_unreachable");
-    reply(&mut server, &replay, json!({"events": [event(11), event(12)], "hasMore": true})).await;
+    reply(
+        &mut server,
+        &replay,
+        json!({"events": [event(cursor + 1), event(cursor + 2)], "hasMore": true}),
+    )
+    .await;
     let next = request(&mut server).await;
-    assert_eq!(next["params"]["afterSeq"], 12);
+    assert_eq!(next["params"]["afterSeq"], cursor + 2);
     assert!(!peer.connected.load(Ordering::SeqCst), "all bounded pages must finish");
-    reply(&mut server, &next, json!({"events": [event(13)], "hasMore": false})).await;
+    reply(&mut server, &next, json!({"events": [event(cursor + 3)], "hasMore": false})).await;
     let mut seqs = Vec::new();
     loop {
         let (_, _, notice) =
@@ -201,7 +240,11 @@ async fn reconnect_replays_before_admitting_a_concurrent_attach() {
             _ => {}
         }
     }
-    assert_eq!(seqs, vec![11, 12, 13], "subscribers receive each gap event once, before readiness");
+    assert_eq!(
+        seqs,
+        vec![cursor + 1, cursor + 2, cursor + 3],
+        "subscribers receive each gap event once, before readiness"
+    );
     assert!(peer.connected.load(Ordering::SeqCst));
     peer.stop();
     tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap().unwrap();
