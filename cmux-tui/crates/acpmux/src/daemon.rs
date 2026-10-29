@@ -13,7 +13,7 @@ pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
-use lock::{LockHeld, acquire_lock, wait_for_lock_release};
+use lock::{DaemonLock, LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -171,7 +171,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
-    let _lock_file = match acquire_lock(&lock) {
+    let _lock_file = match acquire_daemon_lock(&lock).await {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
@@ -877,6 +877,26 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
                 w.token_rotated = 0;
             }
             false
+        }
+    }
+}
+
+/// A systemd-owned daemon stays active while a previous daemon hands over this home.
+/// This keeps `RestartPreventExitStatus=75` as a guard for detached starts without
+/// making the supervised unit inactive during the ordinary handover window.
+async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
+    loop {
+        match acquire_lock(path) {
+            Ok(lock) => return Ok(lock),
+            Err(error)
+                if std::env::var_os("INVOCATION_ID").is_some()
+                    && error.downcast_ref::<LockHeld>().is_some() =>
+            {
+                if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
         }
     }
 }

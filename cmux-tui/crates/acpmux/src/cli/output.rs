@@ -338,6 +338,42 @@ pub(crate) async fn stream_prompt(
     suppress_reads: bool,
     prompt: &PromptId,
 ) -> Result<()> {
+    match stream_prompt_once(client, id, text, steer, quiet, json_out, opts, suppress_reads, prompt)
+        .await
+    {
+        Ok(()) => Ok(()),
+        Err(error) if daemon_closed_error(&error) => {
+            let replacement = reconnect_after_update().await?;
+            let mut retry = prompt.clone();
+            retry.resend = true;
+            stream_prompt_once(
+                replacement,
+                id,
+                text,
+                steer,
+                quiet,
+                json_out,
+                opts,
+                suppress_reads,
+                &retry,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn stream_prompt_once(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    steer: bool,
+    quiet: bool,
+    json_out: bool,
+    opts: CollectOpts,
+    suppress_reads: bool,
+    prompt: &PromptId,
+) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;

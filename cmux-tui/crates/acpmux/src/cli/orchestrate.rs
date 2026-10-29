@@ -96,6 +96,7 @@ fn transcript_text(t: &Transcript) -> String {
 
 /// `acpmux wait`: server-side state wait, or a client-side text match.
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    let mut client = client;
     // Resolve names first so a typo is exit 4, not a silent no-op.
     let mut ids: Vec<(String, String)> = Vec::new();
     for key in &opts.sessions {
@@ -121,8 +122,8 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
     let v = match client.request(method::MUX_WAIT, params.clone()).await {
         Ok(value) => value,
         Err(error) if crate::cli::output::daemon_closed_error(&error) => {
-            let replacement = crate::cli::output::reconnect_after_update().await?;
-            replacement.request(method::MUX_WAIT, params).await?
+            client = crate::cli::output::reconnect_after_update().await?;
+            client.request(method::MUX_WAIT, params).await?
         }
         Err(error) => return Err(error),
     };
