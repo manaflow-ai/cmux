@@ -127,19 +127,6 @@ const openPicker: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
 };
 
-const cappedHeight: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Model" });
-  await ctx.waitFor(() => {
-    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-    if (!menu || menu.style.visibility !== "visible") return false;
-    const height = menu.getBoundingClientRect().height;
-    const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
-      (node) => node.scrollHeight > node.clientHeight + 100,
-    );
-    return height > 300 && height <= Number.parseFloat(menu.style.maxHeight) + 1 && scrolls;
-  });
-};
-
 /// A machine with many harnesses keeps the picker visible and the entire harness rail available.
 /// The gallery stage is intentionally tall; its capped-height assumption belonged to the old
 /// short-stage fixture and made this play fail identically on base and head.
