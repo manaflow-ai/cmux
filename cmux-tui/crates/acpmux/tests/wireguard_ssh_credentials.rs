@@ -116,3 +116,66 @@ os.write(1, open(os.path.join(home, "config.json"), "rb").read() + b"\0" + open(
     assert_eq!(peer["state"], "connected", "{reply}");
     assert_eq!(peer["servedAs"], "peer", "{reply}");
 }
+
+#[tokio::test]
+async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::{Message, protocol::frame::coding::CloseCode};
+
+    let local = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let local_key = acpmux::cli::mesh_node_key::load_or_create_at(local.path()).unwrap();
+    let remote_key = acpmux::cli::mesh_node_key::load_or_create_at(remote.path()).unwrap();
+    let local_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let remote_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let local_endpoint = local_udp.local_addr().unwrap();
+    let remote_endpoint = remote_udp.local_addr().unwrap();
+    drop(remote_udp);
+    let remote_daemon = start(
+        remote.path(),
+        json!({
+            "transport":{"wireguard":true,"wireguardStatic":{"listen":remote_endpoint,"address":"10.80.0.2:4100"}},
+            "peers":{"local":{"url":"ws://127.0.0.1:1","wireguard":{
+                "publicKey":local_key.public_key_b64(),"endpoint":local_endpoint.to_string(),"address":"10.80.0.1:4100"}}}
+        }),
+        None,
+    );
+    let config: Value =
+        serde_json::from_slice(&std::fs::read(remote.path().join("config.json")).unwrap()).unwrap();
+    let token = config["websocket"]["token"].as_str().unwrap();
+    let local_config = serde_json::from_value(json!({
+        "transport":{"wireguard":true,"wireguardStatic":{"listen":local_endpoint,"address":"10.80.0.1:4100"}},
+        "peers":{"remote":{"url":"ws://127.0.0.1:1","wireguard":{
+            "publicKey":remote_key.public_key_b64(),"endpoint":remote_endpoint.to_string(),"address":"10.80.0.2:4100"}}}
+    })).unwrap();
+    drop(local_udp);
+    let transport = acpmux::wireguard::Transport::start(
+        &local_config,
+        local.path(),
+        "127.0.0.1:1".parse().unwrap(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let stream = transport.connect("10.80.0.2:4100".parse().unwrap()).await.unwrap();
+    let (mut websocket, _) =
+        tokio_tungstenite::client_async(format!("ws://localhost:4100/?token={token}"), stream)
+            .await
+            .unwrap();
+    // Signal only the child this fixture owns. This follows the daemon update path.
+    assert_eq!(unsafe { libc::kill(remote_daemon.0.id() as libc::pid_t, libc::SIGTERM) }, 0);
+    let close = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(message) = websocket.next().await {
+            if let Message::Close(frame) = message.expect("WG must carry the restart close") {
+                return frame;
+            }
+        }
+        panic!("WireGuard closed before the daemon's restart notice");
+    })
+    .await
+    .expect("WireGuard must drain the restart notice")
+    .unwrap();
+    assert_eq!(close.code, CloseCode::Restart);
+    let _ = websocket.close(None).await;
+    transport.shutdown().await;
+}
