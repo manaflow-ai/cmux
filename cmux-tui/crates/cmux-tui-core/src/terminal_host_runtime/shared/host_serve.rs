@@ -477,12 +477,16 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         input_flow,
         ended: AtomicBool::new(false),
     });
+    // The client's frames run on its control sequence, which this loop
+    // owns: it starts before client-input and is joined before this loop
+    // returns, so no thread of the client outlives it.
+    let control = ClientControl::start(frames.clone())?;
+    let lane = control.lane.clone();
     let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
-        // Ends this client however its frames end, a panic included: a
-        // frame thread that died with the client still registered left its
-        // peer waiting for a reply forever.
-        let mut end = ClientEnd { frames: frames.clone(), detached: false, armed: true };
-        let control = ClientControl::new(frames.clone());
+        // However client-input ends (the client's end of stream, a frame
+        // it refuses, a panic), the control sequence runs what it holds
+        // and then ends the client.
+        let _finish = FinishInput(lane.clone());
         let hang_watch = HostLoop::ClientInput.register();
         while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
             // One hang-watch scope per frame, after its read.
@@ -490,26 +494,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             if frames.ended.load(Ordering::Acquire) || !frames.frame_is_valid(&frame) {
                 break;
             }
-            // A frame whose handler waits for the parser (a geometry,
+            // This thread is echo path and disallows blocking (p02-threads
+            // 210); a frame's handler may wait for the parser (a geometry,
             // default color, cell-metric, Kitty-limit or clear-history
-            // commit) runs on the client's control thread, which may
-            // block; this thread is echo path and disallows blocking
-            // (p02-threads 210). Every frame read after one waits behind
-            // it there, so the client's frames keep their order. Any other
-            // frame with nothing queued runs here at once.
-            match control.submit(frame) {
-                FrameStep::Next => {}
-                FrameStep::Close => break,
-                FrameStep::Detached => {
-                    end.detached = true;
-                    break;
-                }
-            }
-        }
-        // Frames queued on the control thread still run, in order; then
-        // that thread ends the client.
-        if control.finish() {
-            end.armed = false;
+            // commit). So it only routes: every frame goes to the control
+            // sequence, in the order read, and runs there.
+            lane.submit(frame);
         }
     };
     let client_input = HostLoop::ClientInput.thread_name();
@@ -536,6 +526,9 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         }
     });
     host.remove_client(client);
+    // The client's control sequence ends with the client (its end of
+    // stream, a refused frame or a close); this loop waits for it.
+    control.join();
     Ok(())
 }
 
@@ -550,9 +543,9 @@ enum FrameStep {
     Detached,
 }
 
-/// One accepted client's frame handling, shared by its client-input thread
-/// and its control thread ([`ClientControl`]); its frames run one at a
-/// time, in the order they were read.
+/// One accepted client's frame handling: its frames run on its control
+/// sequence ([`ClientControl`]), one at a time, in the order client-input
+/// read them.
 struct ClientFrames {
     host: Arc<HostShared>,
     sender: HostTap,
@@ -861,20 +854,18 @@ impl ClientFrames {
     }
 }
 
-/// Ends one client ([`ClientFrames::ended`]) once, however its frame
-/// threads end: its writer is woken (unless a fenced detach lets it drain)
-/// and its socket shut down, so its peer sees the end, and the host forgets
-/// it. Runs while unwinding too: the host's locks recover from poison.
+/// Ends one client ([`ClientFrames::ended`]) once, however its control
+/// sequence ends: its writer is woken (unless a fenced detach lets it
+/// drain) and its socket shut down, so its peer sees the end, and the host
+/// forgets it. Runs while unwinding too: the host's locks recover from poison.
 struct ClientEnd {
     frames: Arc<ClientFrames>,
     detached: bool,
-    /// Cleared when another frame thread owns the end.
-    armed: bool,
 }
 
 impl Drop for ClientEnd {
     fn drop(&mut self) {
-        if !self.armed || self.frames.ended.swap(true, Ordering::AcqRel) {
+        if self.frames.ended.swap(true, Ordering::AcqRel) {
             return;
         }
         // Wake a writer that is waiting on an otherwise-empty live-frame
@@ -887,17 +878,20 @@ impl Drop for ClientEnd {
     }
 }
 
-/// The client's control thread (`terminal-host-client-control`, started at
-/// the client's first frame that waits for the parser): it runs the frames
-/// client-input hands it, in order, and may block. While it has frames,
-/// every later frame queues behind them, so a key typed after a resize is
-/// written after the resize applied, as when one thread ran them all.
-/// Chromium routes an IO thread's message to the sequence that owns its
-/// work the same way (content/browser/browser_thread_impl.cc).
+/// The thread name of a client's control sequence.
+const CONTROL_THREAD: &str = "terminal-host-client-control";
+
+/// A client's control sequence (`terminal-host-client-control`): it runs
+/// every frame client-input reads, in order, and may block (a frame that
+/// waits for the parser). One path for every frame: a key typed after a
+/// resize is written after the resize applied. Chromium routes an IO
+/// thread's message to the sequence that owns its work the same way
+/// (content/browser/browser_thread_impl.cc). The client's serve loop owns
+/// it: it starts before client-input, and its owner joins it before it
+/// returns (on drop too, an early return included).
 struct ClientControl {
-    frames: Arc<ClientFrames>,
     lane: Arc<ControlLane>,
-    started: std::cell::Cell<bool>,
+    thread: Option<crate::supervised::SupervisedThread<()>>,
 }
 
 #[derive(Default)]
@@ -909,66 +903,85 @@ struct ControlLane {
 #[derive(Default)]
 struct ControlState {
     queue: std::collections::VecDeque<Frame>,
-    /// The control thread is running a frame.
-    busy: bool,
     /// Client-input read its last frame.
     finished: bool,
 }
 
-impl ClientControl {
-    fn new(frames: Arc<ClientFrames>) -> Self {
-        Self { frames, lane: Arc::default(), started: std::cell::Cell::new(false) }
+impl ControlLane {
+    /// Queues `frame` after the frames read before it.
+    fn submit(&self, frame: Frame) {
+        self.state.lock().recover_poison().queue.push_back(frame);
+        self.changed.notify_one();
     }
 
-    /// Runs `frame` now, or queues it for the control thread.
-    fn submit(&self, frame: Frame) -> FrameStep {
-        let mut state = self.lane.state.lock().recover_poison();
-        let queued = state.busy || !state.queue.is_empty();
-        if !queued && !ClientFrames::waits_for_parser(&frame) {
-            drop(state);
-            return self.frames.handle(frame);
-        }
-        state.queue.push_back(frame);
-        drop(state);
-        self.lane.changed.notify_one();
-        if self.started.get() {
-            return FrameStep::Next;
-        }
-        let frames = self.frames.clone();
-        let lane = self.lane.clone();
-        // The thread ends with the client; nothing joins it.
-        let spawned = crate::supervised::spawn_at(
-            "terminal-host-client-control",
-            cmux_threads::ThreadQos::UserInitiated,
+    /// Client-input read its last frame: the sequence runs what it holds,
+    /// then ends the client.
+    fn finish(&self) {
+        self.state.lock().recover_poison().finished = true;
+        self.changed.notify_one();
+    }
+}
+
+/// Finishes the control sequence however client-input ends, a panic
+/// included: a sequence left waiting would keep its client forever.
+struct FinishInput(Arc<ControlLane>);
+
+impl Drop for FinishInput {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
+
+impl ClientControl {
+    fn start(frames: Arc<ClientFrames>) -> std::io::Result<Self> {
+        let lane = Arc::new(ControlLane::default());
+        let thread_lane = lane.clone();
+        // Every key press of the client crosses it: the echo path's class.
+        let thread = crate::supervised::spawn_at(
+            CONTROL_THREAD,
+            crate::echo_thread::ECHO_PATH_QOS,
             crate::supervised::Fatal,
             crate::supervised::ShutdownBehavior::Continue,
-            move || run_control(&frames, &lane),
-        );
-        match spawned {
-            Ok(_) => {
-                self.started.set(true);
-                FrameStep::Next
-            }
-            Err(_) => FrameStep::Close,
-        }
+            move || run_control(&frames, &thread_lane),
+        )?;
+        Ok(Self { lane, thread: Some(thread) })
     }
 
-    /// Client-input read its last frame. `true` when the control thread
-    /// runs what is queued and then ends the client.
-    fn finish(self) -> bool {
-        self.lane.state.lock().recover_poison().finished = true;
-        self.lane.changed.notify_one();
-        self.started.get()
+    /// Waits for the sequence to end, once client-input finished it or a
+    /// frame ended the client.
+    fn join(mut self) {
+        self.end();
+    }
+
+    fn end(&mut self) {
+        let Some(thread) = self.thread.take() else { return };
+        if thread.is_current() {
+            return;
+        }
+        let _ = thread.join();
+    }
+}
+
+impl Drop for ClientControl {
+    /// An owner that returns early (client-input never started) or unwinds
+    /// finishes the sequence itself, then joins it.
+    fn drop(&mut self) {
+        if self.thread.is_some() {
+            self.lane.finish();
+        }
+        self.end();
     }
 }
 
 fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
-    let mut end = ClientEnd { frames: frames.clone(), detached: false, armed: true };
+    // Ends this client however its frames end, a panic included: a frame
+    // thread that died with the client still registered left its peer
+    // waiting for a reply forever.
+    let mut end = ClientEnd { frames: frames.clone(), detached: false };
     loop {
         let mut state = lane.state.lock().recover_poison();
         let frame = loop {
             if let Some(frame) = state.queue.pop_front() {
-                state.busy = true;
                 break Some(frame);
             }
             if state.finished || frames.ended.load(Ordering::Acquire) {
@@ -982,9 +995,13 @@ fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
         if frames.ended.load(Ordering::Acquire) {
             return;
         }
-        let step = frames.handle(frame);
-        lane.state.lock().recover_poison().busy = false;
-        match step {
+        // R3 (Debug): a client's frames never run on a thread that
+        // disallows blocking (client-input), at any load.
+        debug_assert!(
+            !cmux_threads::is_blocking_disallowed(),
+            "a terminal-host client frame ran on a thread that disallows blocking"
+        );
+        match frames.handle(frame) {
             FrameStep::Next => {}
             FrameStep::Close => return,
             FrameStep::Detached => {

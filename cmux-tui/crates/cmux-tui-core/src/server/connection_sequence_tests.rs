@@ -130,15 +130,19 @@ fn when_settled_runs_each_hook_once_and_at_once_when_settled() {
     mux.close_surface(surface.id).unwrap();
 }
 
-/// The person's requests run on the pool's input workers, automation's on
-/// its control workers: an agent's burst of requests
-/// never queues ahead of a key. A fresh mux has no worker of either.
+/// A connection's requests run on its request sequence, not on the
+/// sequenced pool's control or input workers (which disallow blocking): a
+/// fresh mux starts none of them for a ping. The person's pump runs at
+/// `UserBlocking`, so an agent's burst of requests never queues ahead of a
+/// key; any other connection's at its request's cause.
 #[test]
-fn the_persons_requests_run_on_the_input_workers() {
+fn a_connections_requests_run_on_its_request_sequence_at_its_class_priority() {
     use super::super::sequenced_pool::SequencePriority;
     use super::connection_qos::{ConnectionClass, ConnectionClassCell};
+    use crate::event_cause::EventCause;
+    use cmux_threads::work::Priority;
 
-    for (class, input_workers) in [(ConnectionClass::Automation, 0), (ConnectionClass::Person, 1)] {
+    for class in [ConnectionClass::Automation, ConnectionClass::Person] {
         let mux =
             crate::Mux::new_for_test("connection-person-input", crate::SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
@@ -150,13 +154,17 @@ fn the_persons_requests_run_on_the_input_workers() {
             ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()).classed(cell),
         );
         let pool = &mux.sequenced_pool;
-        assert_eq!(pool.worker_count(SequencePriority::Input), 0);
         let mut ping = Some(Request { id: Some(json!(1)), cmd: Command::Ping });
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut ping, 0, writer), Some(true));
         let reply = pop_within(&outbound, Duration::from_secs(5)).expect("the ping answers");
         assert_eq!(reply["ok"], true, "{reply}");
-        assert_eq!(pool.worker_count(SequencePriority::Input), input_workers, "{class:?}");
-        assert_eq!(pool.worker_count(SequencePriority::Control), 1 - input_workers, "{class:?}");
+        assert_eq!(pool.worker_count(SequencePriority::Input), 0, "{class:?}");
+        assert_eq!(pool.worker_count(SequencePriority::Control), 0, "{class:?}");
         scheduler.finish_and_wait();
+    }
+    use super::pump_priority;
+    for cause in [EventCause::Frontend, EventCause::Automation, EventCause::Program] {
+        assert_eq!(pump_priority(ConnectionClass::Person, cause), Priority::UserBlocking);
+        assert_eq!(pump_priority(ConnectionClass::Automation, cause), cause.work_priority());
     }
 }

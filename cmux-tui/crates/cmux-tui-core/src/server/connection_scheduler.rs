@@ -1,30 +1,31 @@
 //! The per-connection surface scheduler: pending surface requests, the
 //! connection's cancellation token, clear-history barriers, the stream
-//! barrier, and the connection's control sequence on the daemon-wide
-//! sequenced pool (sequenced_pool.rs) that runs queued surface
-//! operations in order.
+//! barrier, and the connection's one pump that runs queued requests in
+//! order.
 //!
-//! The control sequence holds every request of the connection in arrival
-//! order: its `Command`s and, since p05-ipc-086, its v2 operations, feature
-//! routes and remote-relay lines ([`SequencedItem`]). The reader only reads,
-//! cuts and sequences, as Chrome's IO thread only reads a Mojo message and
-//! posts it to its receiver's sequence
+//! The scheduler holds every request of the connection in arrival order:
+//! its `Command`s and, since p05-ipc-086, its v2 operations, feature
+//! routes and remote-relay lines ([`SequencedItem`]). The reader only
+//! reads, cuts and sequences, as Chrome's IO thread only reads a Mojo
+//! message and posts it to its receiver's sequence
 //! (mojo/public/cpp/bindings/lib/multiplex_router.cc, `Accept` posting to
 //! the endpoint's task runner).
 //!
-//! A connection holds no thread of its own: its control sequence takes one
-//! request per task on the pool's control workers, as Chrome dispatches each
-//! IPC message as a task on its bound sequence (docs/threading_and_tasks.md).
-//! A control worker disallows blocking, so an ordinary request runs on the
+//! A connection holds no thread of its own. Its one pump is a task on the
 //! connection's request sequence (`Mux::post_connection_request`, a
-//! System-lane `work` item inside `will_block`), and the control sequence
-//! takes nothing else until it ends.
-//! A request that blocks tells the pool at the blocking site itself (a
-//! request-path note, or `request_path::will_block` around a PTY or host
-//! input write and the wait of `wait-for`), so it starts a temporary worker
-//! instead of holding one of the fixed ones. The streams a connection opens
-//! are sequences of their own (stream_lanes.rs); a control command on a surface with an open stream
-//! waits for the items that stream held when the command arrived.
+//! System-lane `work` item inside `will_block`, at the person's
+//! `UserBlocking` or the request's cause priority): the pump takes one
+//! runnable request and runs it there, where it may read and commit
+//! SQLite, read files and wait on a terminal host, as Chrome's IO thread
+//! routes a message and a task runner that may block runs it
+//! (content/browser/browser_thread_impl.cc, base/task/task_traits.h). One
+//! pump exists at a time ([`ConnectionSurfaceState::pump_scheduled`]), so
+//! the requests keep their order and run one at a time with no latch. A
+//! pump that never runs (shutdown) answers every queued request and ends
+//! the connection; a panicking one ends the connection.
+//! The streams a connection opens are sequences of the daemon-wide
+//! sequenced pool (stream_lanes.rs); a control command on a surface with an
+//! open stream waits for the items that stream held when the command arrived.
 //!
 //! Requests of one surface run in arrival order. A person's input
 //! (`Command::is_input`) runs before other surfaces' queued requests, as
@@ -32,13 +33,13 @@
 //! (content/browser/scheduler/browser_task_queues.h); input never passes
 //! earlier input that can run, nor a request that names no surface.
 //! A long read (`Command::is_long_read`) runs on a work item of the mux's Cpu
-//! lane (`Mux::work`), not on the control sequence and not on a thread of its
-//! own, so a later Send for another surface answers while it runs.
+//! lane (`Mux::work`), not on the pump and not on a thread of its own, so a
+//! later Send for another surface answers while it runs.
 //!
 //! Request threads (the WebSocket connection thread) start through
 //! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
-//! task 211); the pool's control workers run the same way. A request task
-//! then rests at its connection's class (connection_qos.rs, task 224). A
+//! task 211). A pump task runs at its connection's class (connection_qos.rs,
+//! task 224). A
 //! clear-history request runs as a `Mux::work` item at its cause's
 //! priority, blocking disallowed (task 230).
 //!
@@ -64,7 +65,7 @@ use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
-use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
+use super::sequenced_pool::{Fenced, SequencePriority};
 use super::stream_lanes::{StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok};
 use super::terminal_create;
 use crate::Mux;
@@ -235,6 +236,15 @@ impl SequencedItem {
         self.request().and_then(|pending| pending.stream_barrier)
     }
 
+    /// The cause its line arrived with: the pump that runs it posts at its
+    /// priority.
+    fn cause(&self) -> EventCause {
+        match self {
+            Self::Request(pending) => pending.cause,
+            Self::Line(line) => line.cause(),
+        }
+    }
+
     fn retained_bytes(&self) -> usize {
         match self {
             Self::Request(pending) => pending.retained_bytes,
@@ -256,8 +266,6 @@ pub(super) enum NotSequenced {
     /// The sequence or the daemon's byte budget is full; the request was
     /// not executed.
     Full(&'static str),
-    /// The control sequence's pool refused it (shutdown began).
-    Post(PostError),
 }
 
 impl NotSequenced {
@@ -266,9 +274,6 @@ impl NotSequenced {
         match self {
             Self::Closed => None,
             Self::Full(reason) => Some((*reason).to_owned()),
-            Self::Post(error) => {
-                Some(format!("could not queue on the connection's control sequence: {error}"))
-            }
         }
     }
 }
@@ -290,15 +295,11 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) active_read_surfaces: HashSet<SurfaceId>,
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     pub(super) active_creations: usize,
-    /// The connection's control sequence on the mux's pool.
-    pub(super) control: Option<Sequence>,
-    /// Its requests' sequence on the pool's input workers while the
-    /// connection is the person's: an agent's burst of
-    /// requests never queues ahead of a key. One pump exists at a time, so
-    /// moving between the two keeps the requests in order.
-    pub(super) input: Option<Sequence>,
     pub(super) context: Option<ControlContext>,
-    /// A pump task (one request) is posted or running on `control`.
+    /// A pump task (one request) is posted or running on the connection's
+    /// request sequence ([`ConnectionSurfaceScheduler::requests`]). It is
+    /// the only thing that orders the connection's requests: one pump at a
+    /// time runs one request at a time.
     pub(super) pump_scheduled: bool,
     /// The connection's open streams.
     pub(super) streams: StreamLanes,
@@ -309,10 +310,6 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) closed: bool,
     /// Run once the scheduler is settled ([`ConnectionSurfaceScheduler::when_settled`]).
     pub(super) settled_hooks: Vec<SettledHook>,
-    /// A request the control sequence took runs on the connection's request
-    /// sequence: the control sequence takes nothing else until it ends, so
-    /// the requests keep their order and one-at-a-time.
-    pub(super) request_in_flight: bool,
     /// A line runs on the request sequence (tests wait for it to answer).
     #[cfg(test)]
     pub(super) line_running: bool,
@@ -399,9 +396,11 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; its
     /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
-    /// Where the connection's requests run, one at a time and in order
-    /// (`Mux::post_connection_request`): the reader's thread and the pool's
-    /// control workers disallow blocking, and a request may block.
+    /// Where the connection's pump runs, and with it every request it takes
+    /// (`Mux::post_connection_request`, a System-lane work item inside
+    /// `will_block`): the connection's reader disallows blocking, and a
+    /// request may read and commit SQLite, read files and wait on a
+    /// terminal host. The reader only routes to it.
     pub(super) requests: Arc<crate::mux::mux_work::Sequence>,
 }
 
@@ -544,12 +543,8 @@ impl ConnectionSurfaceScheduler {
                 return Err(NotSequenced::Full(reason));
             }
         };
-        if state.control.is_none() {
-            state.control = Some(mux.sequenced_pool.sequence(SequencePriority::Control));
-            state.input = Some(mux.sequenced_pool.sequence(SequencePriority::Input));
-        }
-        // The control sequence keeps the connection's writer: each request
-        // answers on its own (`frame_call`).
+        // The pump keeps the connection's writer: each request answers on
+        // its own (`frame_call`).
         if state.context.is_none() {
             state.context = Some(ControlContext {
                 mux: mux.clone(),
@@ -564,14 +559,14 @@ impl ConnectionSurfaceScheduler {
         }
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
         state.requests.push_back(item);
-        let scheduled = self.schedule_locked(&mut state);
+        let pump = self.schedule_locked(&mut state);
         self.changed.notify_all();
         drop(state);
         mux.ipc_stats().sequence_depth(arrival_depth);
-
-        if let Err(error) = scheduled {
-            self.close();
-            return Err(NotSequenced::Post(error));
+        // A refused pump (shutdown began) answers every queued request,
+        // this one included, and closes the connection ([`PumpTicket`]).
+        if let Some(pump) = pump {
+            pump.post();
         }
         Ok(())
     }
@@ -618,44 +613,79 @@ impl ConnectionSurfaceScheduler {
         self.reschedule_locked(state);
     }
 
-    /// Posts a pump for the next runnable request unless one is posted or
-    /// running.
-    fn schedule_locked(
-        self: &Arc<Self>,
-        state: &mut ConnectionSurfaceState,
-    ) -> Result<(), PostError> {
-        if state.pump_scheduled || Self::next_runnable_index(state).is_none() {
-            return Ok(());
+    /// Marks a pump scheduled for the next runnable request unless one is
+    /// posted or running; the caller posts it ([`PumpPost::post`]) once it
+    /// released the state lock, since a refused post ends the connection
+    /// under that lock.
+    fn schedule_locked(self: &Arc<Self>, state: &mut ConnectionSurfaceState) -> Option<PumpPost> {
+        if state.pump_scheduled {
+            return None;
         }
-        let person = self.class.get() == connection_qos::ConnectionClass::Person;
-        let sequence = if person { state.input.as_ref() } else { state.control.as_ref() };
-        let Some(sequence) = sequence else { return Ok(()) };
-        let scheduler = self.clone();
-        sequence.post(move || scheduler.pump())?;
+        let index = Self::next_runnable_index(state)?;
+        let mux = state.context.as_ref()?.mux.clone();
+        let cause = state.requests.get(index).map_or(EventCause::Program, SequencedItem::cause);
+        let priority = pump_priority(self.class.get(), cause);
         state.pump_scheduled = true;
-        Ok(())
+        Some(PumpPost { ticket: PumpTicket { scheduler: self.clone(), ran: false }, mux, priority })
     }
 
     /// [`Self::schedule_locked`] after a change that may let a request run
     /// (a pump ended, a clear or a stream barrier released), then settles a
-    /// drained scheduler. A pool that shut down ends the connection.
+    /// drained scheduler.
     fn reschedule_locked(
         self: &Arc<Self>,
         mut state: std::sync::MutexGuard<'_, ConnectionSurfaceState>,
     ) {
-        if self.schedule_locked(&mut state).is_err() {
-            state.closed = true;
-            state.requests.clear();
-            state.queued_bytes = 0;
-        }
+        let pump = self.schedule_locked(&mut state);
         let drained = self.settle_locked(&mut state);
         let hooks = state.take_settled_hooks();
         self.changed.notify_all();
         drop(state);
-        // The control sequence and its context drop outside the lock.
+        // The context drops outside the lock.
         drop(drained);
+        if let Some(pump) = pump {
+            pump.post();
+        }
         for hook in hooks {
             hook();
+        }
+    }
+
+    /// A pump that never ran (shutdown refused it or dropped it queued):
+    /// every queued request is answered that it did not run, and the
+    /// connection ends, so no client waits for a reply that cannot come.
+    fn refuse_queued(self: &Arc<Self>) {
+        self.cancelled.cancel();
+        let (queued, writer) = {
+            let mut state = self.state.lock().recover_poison();
+            state.closed = true;
+            state.queued_bytes = 0;
+            let writer = state.context.as_ref().map(|context| context.writer.clone());
+            (std::mem::take(&mut state.requests), writer)
+        };
+        let Some(writer) = writer else { return };
+        for item in queued {
+            if let SequencedItem::Request(pending) = item {
+                let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
+                drop(pending);
+                let _ = send_request_error(
+                    &reply,
+                    id,
+                    "the daemon is shutting down; request was not executed",
+                );
+            }
+        }
+        // A line has no reply that can name it: its connection closes.
+        writer.close_after_control();
+    }
+
+    /// A pump's request panicked: its connection ends, so its client is
+    /// never left waiting.
+    fn close_connection(self: &Arc<Self>) {
+        let writer = self.state.lock().recover_poison().context.as_ref().map(|c| c.writer.clone());
+        self.close();
+        if let Some(writer) = writer {
+            writer.close();
         }
     }
 
@@ -678,31 +708,31 @@ impl ConnectionSurfaceScheduler {
     /// runs no pump. The connection permit is released here, under the
     /// state lock and before `drained` is set, so no waiter sees a drained
     /// connection that still counts against the connection limit. The
-    /// control sequence and its context leave with the returned value, for
-    /// the caller to drop outside the lock.
+    /// context leaves with the returned value, for the caller to drop
+    /// outside the lock.
     fn settle_locked(&self, state: &mut ConnectionSurfaceState) -> Option<Drained> {
-        if state.drained
-            || !state.closed
-            || !state.requests.is_empty()
-            || state.pump_scheduled
-            || state.request_in_flight
-        {
+        if state.drained || !state.closed || !state.requests.is_empty() || state.pump_scheduled {
             return None;
         }
         // Lock order: `state`, then the permit's (a leaf).
         drop(self.connection_permit.lock().recover_poison().take());
         state.drained = true;
-        Some(Drained {
-            _control: state.control.take(),
-            _input: state.input.take(),
-            _context: state.context.take(),
-        })
+        Some(Drained { _context: state.context.take() })
     }
 
-    /// One task of the control sequence: runs the next runnable item.
-    fn pump(self: Arc<Self>) {
-        let _pump = PumpGuard(self.clone());
+    /// One task of the connection's request sequence: runs the next
+    /// runnable item, here. A handler may block (SQLite, files, a terminal
+    /// host), and this thread may: the reader only routed the item.
+    fn pump(self: &Arc<Self>) {
         let Some((item, mux, client, writer)) = self.take_runnable() else { return };
+        // R3 (Debug): a connection's requests never run on a thread that
+        // disallows blocking (a reader, the person's IO loop, a control
+        // worker), on any path and at any load.
+        debug_assert!(
+            !cmux_threads::is_blocking_disallowed(),
+            "a connection's request ran on '{}', which disallows blocking",
+            std::thread::current().name().unwrap_or("<unnamed>"),
+        );
         if !writer.is_open() {
             drop(item);
             self.close();
@@ -714,20 +744,33 @@ impl ConnectionSurfaceScheduler {
         let _class = mux.request_qos().enter_class(self.class.get().qos(ConnectionThread::Request));
         let running = match item {
             SequencedItem::Request(pending) => {
-                run_dispatched_request(&self, &mux, client, pending, &writer)
+                run_dispatched_request(self, &mux, client, pending, &writer)
             }
-            // A line runs on the request sequence like an ordinary request.
-            line @ SequencedItem::Line(_) => self.run_on_requests(&mux, client, line, &writer),
+            SequencedItem::Line(line) => {
+                let connection = line.connection_writer();
+                let keep_open = super::connection_frame::run_sequenced_line(self, &mux, line);
+                if !keep_open {
+                    // The handler closes its connection: the replies queued
+                    // so far go out, then the socket shuts and the reader ends.
+                    connection.close_after_control();
+                }
+                keep_open
+            }
         };
         if !running {
             self.close();
         }
     }
 
-    /// The pump ended (or unwound): the next runnable request gets its own.
+    /// The pump ended (or unwound, or never ran): the next runnable request
+    /// gets its own.
     pub(super) fn finish_pump(self: &Arc<Self>) {
         let mut state = self.state.lock().recover_poison();
         state.pump_scheduled = false;
+        #[cfg(test)]
+        {
+            state.line_running = false;
+        }
         self.reschedule_locked(state);
     }
 
@@ -773,12 +816,7 @@ impl ConnectionSurfaceScheduler {
     /// - With no worker running, the first request runs unless input passes
     ///   it; while one runs, only a request that may overtake its barrier
     ///   runs, and a non-input one passes no request that could run.
-    /// - Nothing runs while the request it took last is still on the
-    ///   connection's request sequence (`request_in_flight`).
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
-        if state.request_in_flight {
-            return None;
-        }
         let idle = state.active_clear_surfaces.is_empty() && state.active_read_surfaces.is_empty();
         if idle && state.requests.len() <= 1 {
             return state.requests.front()?.stream_barrier().is_none().then_some(0);
@@ -965,18 +1003,66 @@ impl ConnectionSurfaceScheduler {
 
 /// What a drained scheduler lets go: dropped outside its lock.
 struct Drained {
-    _control: Option<Sequence>,
-    _input: Option<Sequence>,
     _context: Option<ControlContext>,
 }
 
-/// Ends a pump, unwinding included, so a panicking request never leaves
-/// the connection without one.
-struct PumpGuard(Arc<ConnectionSurfaceScheduler>);
+/// The work priority of a connection's pump: the person's requests are
+/// `UserBlocking`, so an agent's burst never queues ahead of a key; any
+/// other connection's run at the cause of the request the pump runs next.
+pub(super) fn pump_priority(class: connection_qos::ConnectionClass, cause: EventCause) -> Priority {
+    if class == connection_qos::ConnectionClass::Person {
+        return Priority::UserBlocking;
+    }
+    cause.work_priority()
+}
 
-impl Drop for PumpGuard {
+/// A pump [`ConnectionSurfaceScheduler::schedule_locked`] marked
+/// scheduled, to post once the state lock is released.
+#[must_use]
+struct PumpPost {
+    ticket: PumpTicket,
+    mux: Arc<Mux>,
+    priority: Priority,
+}
+
+impl PumpPost {
+    /// Posts the pump on the connection's request sequence. A refused post
+    /// drops its ticket, which answers the queued requests and ends the
+    /// connection.
+    fn post(self) {
+        let PumpPost { ticket, mux, priority } = self;
+        let sequence = ticket.scheduler.requests.clone();
+        let _ = mux.post_connection_request(&sequence, priority, move || ticket.run());
+    }
+}
+
+/// The one pump of a connection, from its post to its end. However it ends
+/// (run, unwound, or dropped unrun when shutdown refused or dropped it),
+/// the scheduler learns, so the connection never keeps a pump that cannot
+/// come: an unrun one answers the queued requests and ends the connection,
+/// a panicking one ends the connection. Only locks that recover from
+/// poison are taken here, so it is safe while unwinding.
+struct PumpTicket {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    ran: bool,
+}
+
+impl PumpTicket {
+    fn run(mut self) {
+        self.ran = true;
+        let scheduler = self.scheduler.clone();
+        scheduler.pump();
+    }
+}
+
+impl Drop for PumpTicket {
     fn drop(&mut self) {
-        self.0.finish_pump();
+        if !self.ran {
+            self.scheduler.refuse_queued();
+        } else if std::thread::panicking() {
+            self.scheduler.close_connection();
+        }
+        self.scheduler.finish_pump();
     }
 }
 
@@ -1105,11 +1191,10 @@ pub(super) fn run_pending_request(
     handle_request_with_cancellation(mux, client, request, arrival, writer, Some(cancellation))
 }
 
-/// Runs one request the control sequence took: a clear-history or a long
-/// read on its own work item, a create on the terminal work pool, anything
-/// else on the connection's request sequence (a control worker disallows
-/// blocking, and a request may read and commit SQLite). False when the
-/// connection must close.
+/// Runs one request the pump took: a clear-history or a long read on its
+/// own work item, a create on the terminal work pool, anything else here,
+/// on the connection's request sequence. False when the connection must
+/// close.
 fn run_dispatched_request(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
     mux: &Arc<Mux>,
@@ -1130,7 +1215,7 @@ fn run_dispatched_request(
     if pending.request.cmd.creates_terminal() {
         return scheduler.submit_creation(mux, client, pending, writer);
     }
-    scheduler.run_on_requests(mux, client, SequencedItem::Request(pending), writer)
+    run_pending_request(scheduler, mux, client, pending, writer)
 }
 
 fn run_clear_history(
@@ -1193,119 +1278,6 @@ impl ConnectionSurfaceScheduler {
         while !self.requests.is_idle() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
         }
-    }
-
-    /// Runs `item` on the connection's request sequence, not on the
-    /// control worker: a request's handler (a `Command`'s, or a line's: a
-    /// v2 operation, a feature route, a remote-relay line) may read and
-    /// commit SQLite, read files and wait on a terminal host, which a
-    /// control worker (blocking disallowed) may not. The control sequence
-    /// takes nothing else until the item ends
-    /// ([`ConnectionSurfaceState::request_in_flight`]), so lines and
-    /// `Command`s answer in arrival order. The item runs at its connection's
-    /// class, as a pump does (task 224). An item whose handler panics, or a
-    /// line whose handler closes its connection, ends its connection.
-    /// `false` when the item could not be queued (shutdown began): a request
-    /// is answered and the connection closes.
-    fn run_on_requests(
-        self: &Arc<Self>,
-        mux: &Arc<Mux>,
-        client: u64,
-        item: SequencedItem,
-        writer: &MessageWriter,
-    ) -> bool {
-        self.state.lock().recover_poison().request_in_flight = true;
-        let priority = match &item {
-            SequencedItem::Request(pending) => pending.cause.work_priority(),
-            SequencedItem::Line(line) => line.cause().work_priority(),
-        };
-        let mut queued =
-            QueuedRequest { scheduler: self.clone(), writer: writer.clone(), item: Some(item) };
-        let item_mux = mux.clone();
-        mux.post_connection_request(&self.requests, priority, move || {
-            let Some(item) = queued.item.take() else { return };
-            // The connection closed while the item waited for its turn:
-            // like the requests close() clears from the queue, it is dropped
-            // unanswered (nothing more is sent on a closing connection).
-            if queued.scheduler.cancelled.is_cancelled() {
-                return;
-            }
-            let class = queued.scheduler.class.get().qos(ConnectionThread::Request);
-            let _class = item_mux.request_qos().enter_class(class);
-            match item {
-                SequencedItem::Request(pending) => {
-                    if !run_pending_request(
-                        &queued.scheduler,
-                        &item_mux,
-                        client,
-                        pending,
-                        &queued.writer,
-                    ) {
-                        queued.scheduler.close();
-                    }
-                }
-                SequencedItem::Line(line) => {
-                    let connection = line.connection_writer();
-                    if !super::connection_frame::run_sequenced_line(
-                        &queued.scheduler,
-                        &item_mux,
-                        line,
-                    ) {
-                        // The handler closes its connection, as its `false`
-                        // did on the reader: the replies queued so far go
-                        // out, then the socket shuts and the reader ends.
-                        connection.close_after_control();
-                        queued.scheduler.close();
-                    }
-                }
-            }
-        })
-        .is_ok()
-    }
-}
-
-/// An item on the connection's request sequence. However it ends (run,
-/// panicked, or dropped unrun when shutdown refused it) the control sequence
-/// may take the next one; a request dropped unrun is answered, a line
-/// dropped unrun ends its connection (no reply can name it), and a panic
-/// ends its connection so its client is never left waiting. Only locks that
-/// recover from poison are taken here, so it is safe while unwinding.
-struct QueuedRequest {
-    scheduler: Arc<ConnectionSurfaceScheduler>,
-    writer: MessageWriter,
-    item: Option<SequencedItem>,
-}
-
-impl Drop for QueuedRequest {
-    fn drop(&mut self) {
-        match self.item.take() {
-            Some(SequencedItem::Request(pending)) => {
-                let reply = pending.reply_writer(&self.writer);
-                let _ = send_request_error(
-                    &reply,
-                    pending.request.id,
-                    "the daemon is shutting down; request was not executed",
-                );
-                self.scheduler.close();
-            }
-            Some(SequencedItem::Line(line)) => {
-                drop(line);
-                self.scheduler.close();
-                self.writer.close();
-            }
-            None => {}
-        }
-        if std::thread::panicking() {
-            self.scheduler.close();
-            self.writer.close();
-        }
-        let mut state = self.scheduler.state.lock().recover_poison();
-        state.request_in_flight = false;
-        #[cfg(test)]
-        {
-            state.line_running = false;
-        }
-        self.scheduler.reschedule_locked(state);
     }
 }
 

@@ -83,12 +83,10 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests are taken by its control sequence on the
-/// sequenced pool's `mux-seq-control` workers, UserInitiated request threads
-/// that disallow blocking, and run on the connection's request sequence (a
-/// System-lane work item), so the registry read `list-workspaces` makes
-/// (server.rs `list_workspaces_reply`) is no blocking site on a request
-/// thread.
+/// A connection's queued requests are taken and run by its pump on the
+/// connection's request sequence (a System-lane work item that may block),
+/// so the registry read `list-workspaces` makes (server.rs
+/// `list_workspaces_reply`) is no blocking site on a request thread.
 #[test]
 fn the_control_sequence_hands_its_requests_to_the_work_lane() {
     let mux =
@@ -101,8 +99,6 @@ fn the_control_sequence_hands_its_requests_to_the_work_lane() {
     let before = site_count("src/server.rs", BlockingKind::Sqlite);
     let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
     assert_eq!(scheduler.dispatch(mux, client, &mut list, 0, writer), Some(true));
-    // The pool's workers stay up with the mux.
-    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
     scheduler.finish_and_wait();
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");

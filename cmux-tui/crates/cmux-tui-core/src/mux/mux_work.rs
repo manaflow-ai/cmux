@@ -90,19 +90,18 @@ impl Mux {
         self.post_sequenced(sequence, priority, lane, Shutdown::SkipOnShutdown, Box::new(body))
     }
 
-    /// Queues one request of a connection on that connection's `sequence`
-    /// (`server::connection_scheduler`): its requests run one at a time, in
-    /// the order the connection's threads hand them over, on the System
-    /// lane at `priority`, each inside [`cmux_threads::work::will_block`]
-    /// as [`Mux::post_request_wait`]'s items are (a request may wait on a
-    /// terminal host or a child process). A connection's reader and its
-    /// dispatcher disallow blocking (p02-threads 210, 211), so a request's
-    /// SQLite, file and process work runs here, as Chrome's IO thread only
-    /// routes a message and a task runner that may block runs it
-    /// (content/browser/browser_thread_impl.cc, base/task/task_traits.h).
-    /// Shutdown never waits for a request (one of them is the shutdown
-    /// request). A refused or dropped drain drops the queued bodies, which
-    /// answer their requests as they drop.
+    /// Queues a connection's pump on that connection's `sequence`
+    /// (`server::connection_scheduler`): it takes the connection's next
+    /// request and runs it on the System lane at `priority`, inside
+    /// [`cmux_threads::work::will_block`] as [`Mux::post_request_wait`]'s
+    /// items are (a request may wait on a terminal host or a child
+    /// process). A connection's reader disallows blocking (p02-threads 210,
+    /// 211), so a request's SQLite, file and process work runs here, as
+    /// Chrome's IO thread only routes a message and a task runner that may
+    /// block runs it (content/browser/browser_thread_impl.cc,
+    /// base/task/task_traits.h). Shutdown never waits for a request (one of
+    /// them is the shutdown request). A refused or dropped drain drops the
+    /// queued body, whose drop answers the requests it would have run.
     pub(crate) fn post_connection_request(
         &self,
         sequence: &Arc<Sequence>,
