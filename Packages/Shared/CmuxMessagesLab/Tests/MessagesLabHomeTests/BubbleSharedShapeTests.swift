@@ -80,7 +80,9 @@ import Testing
         expectSameShape(changed(plain, lit, threshold: 4), shared, name + " highlight")
     }
 
-    @Test(arguments: [(true, false), (false, false), (true, true), (false, true)])
+    /// The Chief's quoted root is filled with its quote outline (`ThreadPreview.outline`); my root is that outline
+    /// stroked (HomeReplyQuoteParityTests), so only the filled side is compared here.
+    @Test(arguments: [(false, false), (false, true)])
     func quotedRootIsTheSharedShape(outgoing: Bool, long: Bool) {
         let text = long ? "Reply-to-conversation UI is very bad. It does not match my message at all. The threads don't look very good and it's not rounded properly at all."
             : "Reply-to-conversation UI is very bad."
@@ -100,7 +102,7 @@ import Testing
         // Only the quote itself: the stub and "N Replies" lie under it.
         let rows = Int(box.minY * 2)..<Int(box.maxY * 2), w = Int(Self.canvas.width * 2)
         let covered = changed(blank, drawn, threshold: 4).filter { rows.contains($0 / w) }
-        let shared = sharedCoverage(BubblePath.balloon(frame: box, row: pv.shapeRow))
+        let shared = sharedCoverage(pv.outline(in: box))
         expectSameShape(covered, shared, "quote, outgoing \(outgoing), long \(long)")
     }
 }
