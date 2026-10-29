@@ -38,6 +38,8 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
             let words = field("msgId").and_then(|id| rendered_body(text, &id)).unwrap_or(text);
             Some((name, words.to_owned()))
         }
+        // `[NAME] lane report: ...` (`lane_reports.rs`).
+        Some(super::lane_reports::KIND) => name_prefixed(text),
         Some(super::digest::DIGEST_KIND) => {
             let messages = provenance?.get("messages")?.as_array()?;
             let mut senders: Vec<&str> = Vec::new();

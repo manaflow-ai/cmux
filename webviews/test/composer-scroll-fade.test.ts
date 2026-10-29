@@ -420,7 +420,9 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const box = (await page.locator(ROW).boundingBox())!;
         const chip = (await page.locator(CHIP).first().boundingBox())!;
         const y = chip.y + chip.height / 2;
-        const sides = [box.x + 1, box.x + box.width - 1];
+        // Two pixels in from each end: the row runs to the composer box's edge, so its outermost
+        // pixel is the box's one-device-pixel rim, which brightens on focus (#23745), not the fade.
+        const sides = [box.x + 2, box.x + box.width - 2];
         // Nothing lies over the faded sides: a point in each hits the row's own chips.
         const hits = await page.evaluate(
           ({ row, sides, y }) => {

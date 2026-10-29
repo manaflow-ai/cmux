@@ -51,6 +51,11 @@ public struct LinkMachine: Sendable {
         case retryDue(generation: Int)
         /// The app came to the foreground (or the network came back).
         case foreground
+        /// The scene actually entered the background; links may go stale
+        /// while iOS suspends the process. Inactive scenes do not count.
+        case background
+        /// The scene became active. Replace any link kept across suspension.
+        case resume
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
         /// (again): its host may have restarted under a live link, whose
@@ -77,6 +82,7 @@ public struct LinkMachine: Sendable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over TLS.
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
+    public private(set) var isBackgrounded = false
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
@@ -92,6 +98,16 @@ public struct LinkMachine: Sendable {
 
     public mutating func handle(_ event: Event) -> [Effect] {
         switch event {
+        case .background:
+            isBackgrounded = true
+            return []
+        case .resume:
+            let wasBackgrounded = isBackgrounded
+            isBackgrounded = false
+            if wasBackgrounded, isActive {
+                return dial(attempt: 1, closing: true)
+            }
+            return handle(.foreground)
         case .target(let next):
             let sameMac = next?.macID == target?.macID
             target = next

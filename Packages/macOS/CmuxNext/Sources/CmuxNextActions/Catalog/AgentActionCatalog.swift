@@ -30,12 +30,51 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
+            // How many sub-sessions the chat runs at once (acpmux `_acpmux/subsession/limits`); a dialog,
+            // so no CLI verb: `acpmux session limits` sets it from a shell.
+            {
+                var subagentLimit = ActionDescriptor(
+                    id: "agentChat.subagentLimit",
+                    title: String(localized: "action.agentChat.subagentLimit", defaultValue: "Chat Subagent Limit…", bundle: .module),
+                    keywords: ["subagent", "sub-session", "limit", "parallel", "concurrency", "running", "agent", "chat"],
+                    category: .agents, symbol: "slider.horizontal.3", surfaces: [.palette, .contextMenu], targets: [.tab],
+                    // The chat's tab and its sidebar row (the chat's own menu is at its 12-row cap).
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [
+                        ActionSurfaceCatalog.p(.tab, .identity, 206, folder: .options, label: ObjectMenuLabels.subagentLimit),
+                    ])
+                )
+                // The dialog sends the change on a person connection (`_acpmux/subsession/limits` is
+                // user-only): a socket caller must not open it and have it submitted for it.
+                subagentLimit.isPersonOnly = true
+                return subagentLimit
+            }(),
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.bubble.right",
-                surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
+                surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                // These optional values are one schema for Cmd-I extensions, the palette chooser,
+                // CLI and MCP. With none present the handler keeps Cmd-I's inherited seed.
+                arguments: [
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "model", title: String(localized: "argument.agent.model", defaultValue: "Model", bundle: .module), kind: .string, isRequired: false),
+                    CatalogArgument.agentHostMachine.optional,
+                ],
+                // A workspace target opens in its last focused pane; a pane or workspace that no
+                // window shows gets the tab without being shown (AgentChatPlacement, #23016).
+                targets: [.pane, .workspace], cliName: "agent new-chat", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "palette.newAgentChatOn",
+                title: String(localized: "action.palette.newAgentChatOn", defaultValue: "New Agent Chat on…", bundle: .module),
+                keywords: ["agent", "chat", "new", "host", "machine", "peer", "cloud", "remote"],
+                category: .agents, symbol: "bubble.left.and.bubble.right", surfaces: [.palette],
+                // Destination selection is the palette action's only step; it resolves the
+                // destination's focused pane rather than capturing the local palette context.
+                arguments: [CatalogArgument.agentHostMachine], targets: [],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
@@ -152,8 +191,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("m", modifiers: [.control, .command]),
                 category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
-                // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
-                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue In….
+                // A chooser for a person. Scripts set the model with `cmux agent set-model --target
+                // pane:|tab:|agent-chat:` (agentPane.setModel), so the CLI/MCP surface is exempt like Continue In….
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -265,9 +304,22 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 cliName: "agent launch-codex-teams"
             ),
             ActionDescriptor(
+                id: "palette.forkAgentConversation",
+                title: String(localized: "action.palette.forkAgentConversation", defaultValue: "Fork Conversation", bundle: .module),
+                keywords: ["agent", "fork", "branch"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                category: .agents, symbol: "arrow.triangle.branch", surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationTo",
+                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork to…", bundle: .module),
+                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                surfaces: [.contextMenu]
+            ),
+            ActionDescriptor(
                 id: "palette.forkAgentConversationRight",
                 title: String(localized: "action.palette.forkAgentConversationRight", defaultValue: "Fork Conversation to the Right", bundle: .module),
-                keywords: ["agent", "fork", "branch", "split"], defaultShortcut: Shortcut("y", modifiers: [.option, .command]),
+                keywords: ["agent", "fork", "branch", "split"],
                 category: .agents, symbol: "rectangle.righthalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-right"
@@ -321,6 +373,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "agent computer-use-setup"
             ),
             ActionDescriptor(
+                id: "palette.computerUse.restart",
+                title: String(localized: "action.palette.computerUse.restart", defaultValue: "Restart Computer Use Helper", bundle: .module),
+                keywords: ["agent", "automation", "restart"], category: .agents, symbol: "arrow.clockwise",
+                surfaces: [.palette], cliName: "agent restart-computer-use-helper"
+            ),
+            ActionDescriptor(
                 id: "palette.computerUse.accessibility",
                 title: String(localized: "action.palette.computerUse.accessibility", defaultValue: "Grant Accessibility Access", bundle: .module),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "accessibility",
@@ -356,9 +414,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
-                // It starts the workspace's terminal: action.run waits the
-                // terminal start deadline, not 2 s, so the caller's run ends
-                // once the workspace exists (it renames it later by key).
+                // It makes a workspace and its chat tab (no terminal): action.run
+                // waits the terminal start deadline, not 2 s, so the caller's run
+                // ends once the workspace exists (it renames it later by key).
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),

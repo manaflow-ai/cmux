@@ -74,6 +74,8 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
         // --keep-newer left a later or own build alone.
         #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .current)
+        // Held off updates (`acpmux host hold`): never reached.
+        #expect(outcome(#"{"outcome":"held","ok":true,"reason":"held","error":"h is held"}"#) == .held)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
         // A target names a file in the binary directory: anything but a plain triple fails.
         #expect(outcome(#"{"outcome":"needsBinary","target":"../../etc/passwd"}"#) == .failed)
@@ -359,6 +361,42 @@ import Testing
         let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def", "--keep-newer"]
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: false) == base + ["--if-idle"])
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: true) == base)
+    }
+
+    /// A machine held off updates (`acpmux host hold`, such as one reserved for someone else): the
+    /// CLI answers `held` without reaching it. Nothing is recorded, no failure shows, and the
+    /// queue does not ask again in this run, also when the peer is offered again (the sweep, a
+    /// reconnect). The queue's log names the hold with the daemon's reason and `until`, not
+    /// `handledElsewhere` (nightly 1.0.0-nightly.4048947256901 logged
+    /// `hbnv-held to 52b77ef2f while busy: handledElsewhere`).
+    @Test func aHeldPeerShowsNoFailureAndIsNotRecorded() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        let why = "mini-a is held (reserved for a teammate) until 2026-10-28T23:59:59Z, so host update leaves it alone (`acpmux host hold mini-a --release` ends it)"
+        try fixture.reply("mini-a", nil, #"{"updated":[{"peer":"mini-a","host":"mini-a","outcome":"held","ok":true,"build":null,"reason":"held","error":"\#(why)"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["mini-a"])
+        let events = Mutex<[DaemonUpdateEvent]>([])
+        let state = fixture.root.appendingPathComponent("state")
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event) } }, directory: state, clock: PolicyTestClock()
+        ))
+        await policy.run()
+        for target in await source.targets() { await policy.offer(target) }
+        await policy.drained()
+
+        #expect(fixture.calls.count == 1)
+        #expect(events.withLock { $0.map(\.state) } == [.updating, .cleared])
+        #expect(!events.withLock { $0.contains { $0.notify } })
+        let local = try #require(DaemonBuildCommit(Self.local))
+        let ledger = DaemonUpdateLedger.read(state, build: local.hash)
+        #expect(ledger.targets.isEmpty)
+
+        let targets = await source.targets()
+        let target = try #require(targets.first)
+        let outcome = await target.update(to: local, whileBusy: true)
+        #expect(outcome == .held(reason: why))
+        #expect(DaemonUpdatePolicy.logLine("mini-a", to: local.hash, whileBusy: true, outcome) == "mini-a to abc123def while busy: held (\(why))")
     }
 
     /// Review of #25388: another update holds the host's lock (`failed`, reason `updateRunning`).

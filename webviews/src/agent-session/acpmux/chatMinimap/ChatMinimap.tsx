@@ -14,6 +14,8 @@ import { chatColumnOf, useChatWidth } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
+import { experimentArm } from "../../../experiments/experiment";
+import { chatMinimapPlaceholder } from "./placeholder.experiment";
 import {
   firstChangedRow,
   MINIMAP_BOTTOM,
@@ -57,6 +59,10 @@ type Props = {
   change?: RowsChange;
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: ConversationLayout };
+
+/// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
+/// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
+export const placeholderLook = () => experimentArm(chatMinimapPlaceholder, { stored: {} });
 
 /// Draws nothing, and reads no row, unless the setting is on; the rows are tracked only then.
 export function ChatMinimap(props: Props) {
@@ -133,6 +139,7 @@ const Minimap = memo(function Minimap({
   }, [scroller, ownId]);
   const [dragging, setDragging] = useState(false);
   /// The placeholder over the streaming reply: its place on the map, set once per stream.
+  const [look] = useState(placeholderLook);
   const [hold, setHold] = useState<{ top: number; height: number } | undefined>(undefined);
   const live = useRef({ viewportHeight, track, streaming });
   live.current = { viewportHeight, track, streaming };
@@ -439,6 +446,7 @@ const Minimap = memo(function Minimap({
         {hold && (
           <div
             className="acpmux-chat-minimap__placeholder"
+            data-look={look}
             style={{ top: hold.top, height: hold.height }}
             aria-hidden
           />

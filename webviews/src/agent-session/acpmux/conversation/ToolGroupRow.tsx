@@ -15,6 +15,7 @@ import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
@@ -117,12 +118,14 @@ export function ToolGroupRow({
             <WriteLabel tool={tools[0]!} write={write} t={t} />
           ) : (
             <>
-              {toolGroupLabel(
-                t,
-                kind,
-                items,
-                files.map((file) => file.path),
-              )}
+              <ToolLabel
+                text={toolGroupLabel(
+                  t,
+                  kind,
+                  items,
+                  files.map((file) => file.path),
+                )}
+              />
               {counted.length > 0 && (
                 <span className="cv-tool__counts">
                   <span className="cv-edit-diff__add">+{additions}</span>

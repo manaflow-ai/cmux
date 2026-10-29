@@ -9,6 +9,9 @@ import Testing
 /// Home's right column too, the tab an agent starts driving outside Home is mirrored there on
 /// its first write, and `browser.page.right` reads the mirrored tab the column shows
 /// (plans/cmux-next/shared-browser-tabs.md).
+///
+/// These check what is mirrored, not a deadline: the mirror host is main-actor, so the routers
+/// use `.loadTolerant` (a main actor held by another test in the run must not answer `timeout`).
 @Suite(.timeLimit(.minutes(1))) struct BrowserTabMirrorTests {
     struct NoEngine: BrowserPageEngine {
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue { [:] }
@@ -52,7 +55,7 @@ import Testing
     }
 
     func install(_ snapshot: ControlSnapshot = Self.snapshot(), mirrors: RecordingMirrors? = RecordingMirrors()) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor(), configuration: .loadTolerant)
         BrowserPageService(engine: NoEngine(), leases: BrowserTabLeases(), mirrors: mirrors).install(on: router)
         router.snapshots.publish { $0 = snapshot }
         return router
@@ -162,7 +165,7 @@ extension BrowserTabMirrorTests {
     @Test func aMirrorThePersonClosedStaysClosedAfterTheAgentsPause() async throws {
         let mirrors = RecordingMirrors()
         let clock = BrowserPageLeaseTests.Clock()
-        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor(), configuration: .loadTolerant)
         BrowserPageService(engine: NoEngine(), leases: BrowserTabLeases(now: { clock.now }), mirrors: mirrors).install(on: router)
         router.snapshots.publish { $0 = Self.snapshot() }
         _ = try await call(router, "browser.page.eval", ["tab": "tab_agent", "agent": "Muse", "script": "1"]).get()

@@ -70,7 +70,13 @@ public final class PushReplies {
     @ObservationIgnored private var coldAttach = true
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
     /// Settings → Require Face ID: Reply and Deny open the app (review L2).
-    @ObservationIgnored private(set) var requireFaceID = PushActions(defaults: PushReplies.preferences).requireFaceID
+    /// Read from the app's own defaults: launch never waits on the App Group
+    /// (its container lookup blocked the main thread past the launch watchdog
+    /// in a build signed without it, TestFlight 1.2.0 (20261026194905)).
+    @ObservationIgnored private var faceIDSync = PushFaceIDSync(local: PushActions(defaults: .standard).requireFaceID)
+    var requireFaceID: Bool { faceIDSync.local }
+    /// The last write of the choice for the content extension (serial, off main).
+    @ObservationIgnored private var sharedPreferenceWrite: Task<Void, Never>?
     /// Retries of "Couldn't reach" in the app's own storage (review H1).
     @ObservationIgnored let retries = PushRetryStore.app
 
@@ -85,9 +91,6 @@ public final class PushReplies {
         }
     }
 
-    /// Where the Require Face ID choice is shared with the content extension.
-    static var preferences: UserDefaults? { PushActions.sharedDefaults(.current()) ?? .standard }
-
     /// Registers every category (at launch, before any notification can arrive).
     public func registerCategories(center: UNUserNotificationCenter = .current()) {
         center.setNotificationCategories(PushActions(requireFaceID: requireFaceID).categories)
@@ -95,9 +98,19 @@ public final class PushReplies {
 
     /// Settings → Require Face ID changed (AppLock): the buttons follow it.
     func setRequireFaceID(_ on: Bool) {
-        PushActions.setRequireFaceID(on, defaults: Self.preferences)
-        guard on != requireFaceID else { return }
-        requireFaceID = on
+        // AppLock calls this on appear and on every change: an unchanged value writes nothing.
+        let writes = faceIDSync.set(on)
+        if writes.local { PushActions.setRequireFaceID(on, defaults: .standard) }
+        if writes.shared {
+            // The content extension reads it from the push keychain group (and the
+            // App Group, when the build has one), written off the main thread in order.
+            let previous = sharedPreferenceWrite
+            sharedPreferenceWrite = Task.detached(priority: .utility) {
+                await previous?.value
+                PushSharedPreference.live(group: await PushAppGroup.resolved()).setRequireFaceID(on)
+            }
+        }
+        guard writes.local else { return }
         // Only an app has a notification center (a test host has none, and asking it throws).
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         registerCategories()
@@ -129,6 +142,8 @@ public final class PushReplies {
         /// False: the push may open the app but no button acts (an unsealed push
         /// from a Mac that seals, or a stale one; PR B security review H1).
         public var actionable: Bool
+        /// Photos and files the long look's "+" staged for Reply (outbox file names).
+        public var attachments: [String] = []
 
         public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
@@ -178,10 +193,16 @@ public final class PushReplies {
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
         let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
-        guard let reply = PushReply(payload: payload, button: button, text: response.text) else {
+        guard let reply = PushReply(payload: payload, button: button, text: response.text, attachments: response.attachments) else {
             return opensApp ? .open(payload) : .nothing
         }
         return opensApp ? .foreground(reply, open: payload) : .background(reply)
+    }
+
+    /// What the long look staged for the notification `requestID`'s Reply (off the main thread).
+    static func stagedAttachments(for requestID: String) async -> [String] {
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
+        return await Task.detached(priority: .userInitiated) { outbox.takeStaged(for: requestID) }.value
     }
 
     /// One notification response (the app delegate). Returns once a
@@ -197,27 +218,37 @@ public final class PushReplies {
             if let payload { NotificationRouter.shared.open(payload) } else { NotificationRouter.shared.open(reply: reply) }
             enqueueForeground(reply)
         case .background(let reply):
+            if case .text(_, let names) = reply.action {
+                log.info("push reply: \(reply.kind.rawValue, privacy: .public) text reply with \(names.count, privacy: .public) attachment(s)")
+            }
             await deliverInBackground(reply)
         }
     }
 
     /// The content extension's outbox and anything waiting: on launch and on
     /// every return to the foreground.
+    /// The App Group and its files are read off the main thread.
     public func drainOutbox() {
-        if let outbox = PushOutbox(group: .current()) {
-            for reply in outbox.takeAll() {
-                NotificationRouter.shared.open(reply: reply)
-                // Text into a terminal never comes from the outbox: anything in
-                // it may have been written while the phone was locked (PR B
-                // security review H2). Only the unlock-gated Reply button sends it.
-                if Self.fromOutboxRefused(reply) {
-                    log.error("push reply: a terminal reply in the outbox was dropped")
-                    continue
-                }
-                waiting.append(reply)
-            }
-        }
         drain()
+        Task { await takeOutbox() }
+    }
+
+    private func takeOutbox() async {
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return }
+        // `take` claims each file by renaming it, so two drains never both take one reply.
+        let replies = await Task.detached(priority: .userInitiated) { outbox.takeAll() }.value
+        for reply in replies {
+            NotificationRouter.shared.open(reply: reply)
+            // Text into a terminal never comes from the outbox: anything in
+            // it may have been written while the phone was locked (PR B
+            // security review H2). Only the unlock-gated Reply button sends it.
+            if Self.fromOutboxRefused(reply) {
+                log.error("push reply: a terminal reply in the outbox was dropped")
+                continue
+            }
+            waiting.append(reply)
+        }
+        if !replies.isEmpty { drain() }
     }
 
     /// Outbox replies the app never sends: text into a terminal.
@@ -294,7 +325,9 @@ public final class PushReplies {
             try await live.deliver(reply, budget: budget)
             if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
             // Its photos leave the App Group once sent (review L4).
-            if case .text(_, let names) = reply.action, !names.isEmpty { PushOutbox(group: .current())?.removeAttachments(names) }
+            if case .text(_, let names) = reply.action, !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)) {
+                await Task.detached(priority: .utility) { outbox.removeAttachments(names) }.value
+            }
         } catch let failure as LiveCoordinator.PushReplyFailure {
             switch failure.reason {
             case .unreachable:
