@@ -952,6 +952,8 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
+            cancel_forced_result_turn: StdMutex::new(None),
+            compacting: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),

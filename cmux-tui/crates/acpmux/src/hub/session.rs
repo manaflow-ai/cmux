@@ -137,6 +137,13 @@ pub struct Session {
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The forced `turn_result` already written for a turn, if any. This is
+    /// separate from `cancel_forced_turn`: several prompt waiters can observe
+    /// the same forced answer, but only one may append the result.
+    pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// Claude Code reported that its active turn is compacting. This is kept
+    /// on the session as hosted agents have their translator in the host.
+    pub(super) compacting: AtomicBool,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,

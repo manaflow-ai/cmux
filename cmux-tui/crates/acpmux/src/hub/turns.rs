@@ -424,6 +424,10 @@ impl Hub {
             session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         }
         self.reset_stream(session);
+        // A forced Stop retires the logical turn even if Claude's compaction
+        // finishes later. Do not let the stale compaction flag cancel the
+        // next, explicit prompt immediately.
+        session.compacting.store(false, Ordering::SeqCst);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());

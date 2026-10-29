@@ -166,6 +166,10 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
         p["update"]["sessionUpdate"] == "compaction" && p["update"]["state"] == "running"
     })
     .await;
+    let queued =
+        c.send(method::SESSION_PROMPT, prompt(&id, "must-not-start", Some("p-next"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-next" && p["queued"] == true)
+        .await;
     let stopped = std::time::Instant::now();
     for _ in 0..2 {
         c.tx.send(
@@ -174,12 +178,25 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
         .await
         .unwrap();
     }
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
-    )
-    .await
-    .expect("Stop waited for Claude's compaction to finish");
+    let (queued_result, seen) = tokio::time::timeout(Duration::from_secs(2), c.response(queued))
+        .await
+        .expect("the queued prompt was not withdrawn");
+    let queued_result = queued_result.expect("queued prompt response failed");
+    assert_eq!(queued_result["stopReason"], "cancelled", "{queued_result}");
+    assert_eq!(queued_result["_meta"]["acpmux"]["withdrawn"], true, "{queued_result}");
+    let result = seen
+        .iter()
+        .find(|(method, params)| *method == method::MUX_EVENT && params["kind"] == "turn_result")
+        .map(|(_, params)| params.clone());
+    let result = match result {
+        Some(result) => result,
+        None => tokio::time::timeout(
+            Duration::from_secs(2),
+            c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+        )
+        .await
+        .expect("forced turn_result was not published"),
+    };
     assert!(stopped.elapsed() < Duration::from_secs(2));
     assert_eq!(result["msg"]["status"], "cancelled", "{result}");
     assert_eq!(result["msg"]["cancelForced"], true, "{result}");

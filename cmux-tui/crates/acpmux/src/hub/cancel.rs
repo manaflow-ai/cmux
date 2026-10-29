@@ -61,11 +61,29 @@ impl Hub {
             .await
             .clone()
             .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
+        let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
+            || child.translator.as_ref().is_some_and(|t| t.is_compacting());
         let sid = session
             .meta()
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
+        // End the logical turn before waiting on a hosted writer. A compacting
+        // Claude process can ignore the interrupt, and the first Stop must
+        // still settle the UI immediately.
+        if compacting && let Some(turn) = turn.as_ref() {
+            let queued: Vec<String> = session
+                .queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|q| q.prompt_id.clone())
+                .collect();
+            for prompt_id in queued {
+                self.remove_queued_because(session, &prompt_id, Some("cancel_forced"));
+            }
+            Self::force_cancel(session, turn);
+        }
         let sent = child
             .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
             .await
@@ -79,7 +97,7 @@ impl Hub {
             // interrupt is not guaranteed to end that internal operation. End
             // the acpmux turn now; a later Claude result is stale and cannot
             // reopen it. Other harnesses retain the normal grace period.
-            if child.translator.as_ref().is_some_and(|t| t.is_compacting()) {
+            if compacting {
                 Self::force_cancel(session, &turn);
             } else {
                 let session = session.clone();
