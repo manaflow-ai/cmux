@@ -15,10 +15,13 @@ struct NewBrowserTabFocusTests {
     @Test func newBrowserTabPutsTheKeysOnItsAddressBarInTheKeysTurn() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
-            let pane = try #require(content.focusedPane)
-            try await PinnedPageTests.until({ content.focus.state.resolved.kind == "terminal" },
-                                            report: { "the first terminal never had the keys: \(content.focus.state.resolved)" })
-            let before = Set(pane.stripModel.orderedTabs.map(\.id.rawValue))
+            let pane = try #require(content.focusedPane ?? content.panes.values.first)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            // Set-up: the person works in a terminal (a fresh app's first pane may hold another kind). Ctrl-` makes one.
+            #expect(services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)))
+            try await Self.until({ content.focus.state.resolved.kind == "terminal" && content.focus.state.expectation == nil },
+                                 "set-up: no terminal has the keys", content)
+            let before = Set((content.focusedPane?.stripModel.orderedTabs ?? []).map(\.id.rawValue))
 
             // Cmd-Shift-L, as the key router runs it: a person's openBrowser (WebKit: no Chromium in tests).
             #expect(services.registry.perform("openBrowser.webkit", invocation: ActionInvocation(origin: .user)))
@@ -33,9 +36,21 @@ struct NewBrowserTabFocusTests {
                     "in the key's turn the keys go to \(state.resolved) and nothing waits for the new tab's address bar (expectation \(String(describing: state.expectation)))")
 
             // And it stays there once the daemon's tab replaced the stand-in.
-            try await PinnedPageTests.until({
+            try await Self.until({
                 if case .addressBar = content.focus.state.resolved { content.focus.state.expectation == nil } else { false }
-            }, report: { "the address bar never had the keys: \(content.focus.state.resolved)" })
+            }, "the address bar never had the keys", content)
         }
+    }
+
+    /// Polls `condition` for up to 60 s; on a time-out records `what` with the focus state, so a set-up failure is
+    /// never read as the red.
+    private static func until(_ condition: () -> Bool, _ what: String, _ content: WorkspaceContentController,
+                              sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        let state = content.focus.state
+        let tabs = state.topology.panes.map { "\($0.id): \($0.tabs.map(\.kind.rawValue)) selected \($0.selected ?? "-")" }
+        try #require(condition(), "\(what): resolved \(state.resolved), expectation \(String(describing: state.expectation)), panes \(tabs)",
+                     sourceLocation: sourceLocation)
     }
 }
