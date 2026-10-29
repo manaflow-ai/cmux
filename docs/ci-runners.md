@@ -1001,9 +1001,9 @@ evicted with nothing decided.
   failover, when and which run), then points the variables at their
   failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` and
   `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404` (another Blacksmith
-  size; never GitHub-hosted Ubuntu, and never a size whose probe just
-  stalled: when every size `LINUX_RUNNER` could move to stalled, it is left
-  alone), `MACOS_RUNNER_15`,
+  size; never GitHub-hosted Ubuntu, and only a size whose probe started in
+  that run, so with every size stalled the Linux variables are left alone),
+  `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
@@ -1027,10 +1027,18 @@ evicted with nothing decided.
   did not observe a started probe, or another probe is still queued, including
   a switch failure before it could publish its outcome, since a queued probe
   would otherwise hold the concurrency group.
-- **Any probe starts.** If the record exists, each variable it changed is put
+- **Every probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. The probes ask for the same sizes whatever the record
   says.
+- **Some start and some do not.** Nothing changes: one stalled size never
+  flips the fleet, and a record is not cleared while a size jobs fall back
+  to (`fast-checks.yml` takes 32 vCPU without the record) is still stalled.
+
+Every deciding run that holds the switch token writes `CI_CLOUD_LABEL_HEALTH`:
+`{"checked", "run", "minutes", "labels": {label: "started" | "stalled"}}`. The
+switch never reads it back; it is per-label health for routing that picks a
+size per label (the `RUNNER_POOLS` reconciler).
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
