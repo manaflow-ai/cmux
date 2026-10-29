@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and pull request titles), not shipped UI.
 // Compact PR links in the message row, with one-link and tighter alternatives.
+import { pullRequestComparisons } from "./PullRequestDockComparisons";
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -28,7 +29,8 @@ export default agentPaneEntry({
   height: 420,
   covers: ["agent-session/acpmux/summary/PullRequestDock.tsx"],
   variants: {
-    "compact-count": {
+    ...pullRequestComparisons.variants,
+    "inline-pills": {
       note: "Selected: up to two underlined PR links beside the action row, plus instant overflow.",
       snapshot,
     },
@@ -57,7 +59,9 @@ export default agentPaneEntry({
       note: "Footerless final code keeps PR links visible.",
       snapshot: chat([
         activity(four, 5),
-        assistant("```ts\nconst response = await uploadWithRetry(payload);\n```", 2, { streaming: true }),
+        assistant("```ts\nconst response = await uploadWithRetry(payload);\n```", 2, {
+          streaming: true,
+        }),
       ]),
     },
     "table-tail": {
@@ -65,6 +69,18 @@ export default agentPaneEntry({
       snapshot: chat([
         activity(four, 5),
         assistant("| Result | State |\n| --- | --- |\n| Build | Passed |", 2, { streaming: true }),
+      ]),
+    },
+    "empty-quote": {
+      note: "An empty nested blockquote keeps the fallback until a PR control actually mounts.",
+      snapshot: chat([activity(four, 3), assistant("> >", 1, { streaming: true })]),
+    },
+    "reply-actions": {
+      note: "A finished reply followed by a tool keeps PRs beside its existing action buttons.",
+      snapshot: chat([
+        activity(four, 4),
+        assistant("The pull requests are ready.", 2),
+        activity([tool("Read README", "read", "completed")], 1),
       ]),
     },
     "whitespace-reply": {
@@ -100,7 +116,7 @@ export default agentPaneEntry({
         }),
       ]),
     },
-    one: {
+    "one-pill": {
       note: "One PR is a single link with no disclosure or remove button.",
       snapshot: chat([
         activity([create("Add retry", 128)], 3),

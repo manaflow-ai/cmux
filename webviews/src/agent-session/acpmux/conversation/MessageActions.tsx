@@ -336,6 +336,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
+      <PullRequestDock />
     </div>
   );
 }

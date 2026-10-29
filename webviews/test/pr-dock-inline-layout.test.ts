@@ -169,7 +169,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
       try {
         const { port } = vite.httpServer!.address() as { port: number };
         await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "compact-count", width })}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant: "inline-pills", width })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const dock = page.locator(".acpmux-pr-dock");
@@ -207,6 +207,61 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         expect(await more.getAttribute("aria-expanded")).toBe("false");
         await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-dock__more"));
         expect(await geometry()).toEqual(before);
+      } finally {
+        await page.close();
+      }
+    });
+  for (const variant of ["empty-quote", "reply-actions"])
+    test(`${variant} keeps one PR host in the existing row or fallback`, async () => {
+      const page = await browser.newPage({ viewport: { width: 320, height: 660 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 320 })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.locator(".acpmux-pr-dock").waitFor();
+        expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+        expect(await page.locator(".cv-md .acpmux-pr-dock").count()).toBe(0);
+        const host = variant === "empty-quote" ? ".acpmux-pr-fallback" : ".cv-reply-actions";
+        expect(await page.locator(`${host} .acpmux-pr-dock`).count()).toBe(1);
+        await page.screenshot({ path: `${captures}/${variant}-320.png` });
+      } finally {
+        await page.close();
+      }
+    });
+  for (const variant of [
+    "inline-above-show-more",
+    "inline-beside-show-more",
+    "inline-below-show-more",
+    "compact-count",
+    "none-session-info",
+    "collapsed-line",
+    "full-bars",
+    "just-merged",
+    "several",
+    "long-title",
+  ])
+    test(`preserved comparison ${variant} uses its original PR treatment`, async () => {
+      const page = await browser.newPage({ viewport: { width: 760, height: 660 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width: 760 })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        expect(await page.locator(".acpmux-pr-dock").count()).toBe(0);
+        if (variant === "none-session-info") {
+          expect(await page.locator(".acpmux-pr-comparison").count()).toBe(0);
+        } else {
+          await page.locator(".acpmux-pr-comparison").waitFor();
+          expect(await page.locator(".acpmux-pr-comparison").count()).toBe(1);
+          const mode =
+            variant.startsWith("inline-") || variant === "compact-count"
+              ? "compact"
+              : variant === "collapsed-line"
+                ? "collapsed"
+                : "full";
+          expect(await page.locator(".acpmux-pr-comparison").getAttribute("data-mode")).toBe(mode);
+          if (variant !== "compact-count")
+            expect(await page.locator(".acpmux-pr-comparison__bar:visible").count()).toBeGreaterThan(0);
+        }
       } finally {
         await page.close();
       }

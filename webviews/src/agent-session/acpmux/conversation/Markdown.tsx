@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
@@ -1007,8 +1007,6 @@ export type MarkdownProps = InlineOptions & {
   children: string;
   className?: string;
   trailing?: ReactNode;
-  /** Whether the parsed, displayed prefix has a block hosting the trailing control. */
-  onTrailingRendered?: (rendered: boolean) => void;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
@@ -1038,15 +1036,10 @@ export function Markdown({
   thumbnails,
   messageAt,
   trailing,
-  onTrailingRendered,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
-  const trailingRendered = Boolean(trailing) && blocks.length > 0;
-  useLayoutEffect(() => {
-    onTrailingRendered?.(trailingRendered);
-  }, [onTrailingRendered, trailingRendered]);
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));

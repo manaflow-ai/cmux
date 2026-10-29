@@ -12,6 +12,13 @@ import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
+import { PullRequestHostVisibility } from "./pullRequestPlacement";
+
+/// Existing comparison treatments are opt-in gallery document attributes only.
+export function legacyPullRequestDockMode() {
+  const mode = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  return mode === "compact" || mode === "none" || mode === "collapsed" || mode === "full";
+}
 
 export const RowPullRequests = createContext<readonly SummaryPullRequest[] | undefined>(undefined);
 
@@ -24,10 +31,15 @@ export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository
   // for live snapshots and advances only when a tool finding changes.
   const key = transcriptPullRequestKey(rows, false);
   if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
-    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: false }) };
+    parsed.current = {
+      key,
+      repository,
+      prs: transcriptPullRequests(rows, { folder: repository, replies: false }),
+    };
   }
   const all = parsed.current.prs;
-  return useMemo(() => visibleChanges(all, headerStatus(live)).reverse(), [all, live]);
+  const legacy = legacyPullRequestDockMode();
+  return useMemo(() => (legacy ? [] : visibleChanges(all, headerStatus(live)).reverse()), [all, live, legacy]);
 }
 
 export function PullRequestDock() {
@@ -38,6 +50,11 @@ export function PullRequestDock() {
 
 function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
   const t = useT();
+  const reportHost = useContext(PullRequestHostVisibility);
+  useLayoutEffect(() => {
+    reportHost?.(true);
+    return () => reportHost?.(false);
+  }, [reportHost]);
   const { pullRequest: live } = useHeaderState();
   const [open, setOpen] = useState(false);
   const [count, setCount] = useState(Math.min(2, prs.length));

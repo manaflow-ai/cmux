@@ -160,7 +160,13 @@ test("PR fallback remains until the revealed prefix renders a safe block", async
   const root = createRoot(dom.window.document.getElementById("root")!);
   const url = "https://github.com/acme/uploader/pull/41";
   const opened = activity(
-    [tool("gh pr create", "execute", "completed", { command: "gh pr create", output: url, exitCode: 0 })],
+    [
+      tool("gh pr create", "execute", "completed", {
+        command: "gh pr create",
+        output: url,
+        exitCode: 0,
+      }),
+    ],
     1,
   );
   const reply = assistant("", 2, { streaming: true });
@@ -222,7 +228,12 @@ test("child streaming PR input retains producer revisions through visual transfo
   const parent = fold.takeRows();
   for (let index = 0; index < 100; index++) {
     feed({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "History" } });
-    feed({ sessionUpdate: "tool_call", toolCallId: `tool-${index}`, title: "Read", status: "completed" });
+    feed({
+      sessionUpdate: "tool_call",
+      toolCallId: `tool-${index}`,
+      title: "Read",
+      status: "completed",
+    });
   }
   let revision: string | symbol | undefined;
   for (let token = 0; token < 20; token++) {
@@ -264,4 +275,43 @@ test("child streaming PR input retains producer revisions through visual transfo
   );
   expect(transcriptPullRequestKey(source, false)).not.toBe(revision);
   expect(transcriptPullRequests(source).map((pr) => pr.number)).toContain(41);
+});
+
+test("empty nested Markdown keeps fallback and finished replies use their action row", async () => {
+  const { assistant, activity, tool } = await import("../src/gallery/fixtures/acpmux");
+  const opened = activity(
+    [
+      tool("gh pr create", "execute", "completed", {
+        command: "gh pr create",
+        output: "https://github.com/acme/uploader/pull/41",
+        exitCode: 0,
+      }),
+    ],
+    3,
+  );
+  for (const text of [">", "> >", "Ready for review."]) {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const empty = text.startsWith(">");
+    const reply = assistant(text, 2, { streaming: empty });
+    const rows = empty ? [opened, reply] : [opened, reply, activity([tool("Read", "read", "completed")], 1)];
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={rows}
+            pullRequestRows={rows}
+            sessionId={`host-${text}`}
+            expanded={new Set()}
+            onToggleActivity={() => {}}
+          />,
+        ),
+      );
+      const links = dom.window.document.querySelectorAll(".acpmux-pr-dock__bar");
+      expect(links).toHaveLength(1);
+      expect(links[0]?.closest(empty ? ".acpmux-pr-fallback" : ".cv-reply-actions")).not.toBeNull();
+      expect(dom.window.document.querySelector(".cv-md .acpmux-pr-dock")).toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  }
 });

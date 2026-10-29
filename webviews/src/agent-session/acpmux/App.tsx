@@ -373,7 +373,13 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { PullRequestDock, RowPullRequests, useTranscriptPullRequests } from "./summary/PullRequestDock";
+import { LegacyPullRequestDock } from "./summary/PullRequestDockLegacy";
+import {
+  PullRequestDock,
+  RowPullRequests,
+  useTranscriptPullRequests,
+  legacyPullRequestDockMode,
+} from "./summary/PullRequestDock";
 import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
 import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
@@ -1058,7 +1064,7 @@ const MessageRow = memo(
     if (!replyActions) return reply;
     return (
       <>
-        {reply}
+        <RowPullRequests.Provider value={undefined}>{reply}</RowPullRequests.Provider>
         <ReplyActions row={row} />
       </>
     );
@@ -9349,6 +9355,15 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
+        {legacyPullRequestDockMode() && (
+          <LegacyPullRequestDock
+            key={snapshot.sessionId}
+            rows={snapshot.rows}
+            repository={githubRepository ?? undefined}
+            sessionId={snapshot.sessionId}
+            onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
+          />
+        )}
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
