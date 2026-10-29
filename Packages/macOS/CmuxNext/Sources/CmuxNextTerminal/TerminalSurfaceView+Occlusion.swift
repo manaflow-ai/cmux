@@ -66,10 +66,11 @@ extension TerminalSurfaceView {
     /// edge (a stale `hidden` pause, a family flip only some readers heard) shows here.
     package var drawTruthMismatch: String? {
         guard surface != nil else { return nil }
-        // visibility-walk-allow: the DEBUG check compares the node with AppKit's ground truth once per settle, never per frame
-        let appKitHidden = window != nil && isHiddenOrHasHiddenAncestor
-        if window != nil, (visibilityNode.own == .hidden) != appKitHidden {
-            return "node own \(visibilityNode.own), AppKit hidden \(appKitHidden)"
+        // AppKit hides it but its node does not: it would draw hidden. The other direction (on screen, not shown) is
+        // G2's report with the node chain (``restingGridMismatch(onScreen:ownerSettled:)``), not repeated here.
+        // visibility-walk-allow: the DEBUG check compares the node with AppKit's ground truth once per check, never per frame
+        if window != nil, visibilityNode.own != .hidden, isHiddenOrHasHiddenAncestor {
+            return "AppKit hides it, its node own \(visibilityNode.own)"
         }
         // Whether it draws, not the reason: a reason may change with no edge (a parked container under a hidden tab).
         let now = drawInputs.pause

@@ -56,6 +56,12 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
     /// builds and before the first unpause.
     public var showTiming: TerminalShowTiming?
+    /// The surface counts as shown (its window node: in a window, not parked, its tab's node not hidden):
+    /// only a shown surface sizes itself to its bounds (``TerminalSurfaceView/updateSurfaceSize()``).
+    public var shown: Bool = false
+    /// The surface's visibility nodes from its window node up to the root, "name own/effective" each
+    /// (`debug.surfaces`: which node keeps a terminal on screen from counting as shown).
+    public var nodeChain: [String] = []
 
     /// True when the surface can show terminal content right now: it draws, or a held frame covers it while it
     /// waits for its content (``SurfacePause/awaitingContent``: the pane shows the terminal's last frame).
@@ -139,7 +145,9 @@ extension TerminalSession {
             },
             lastFrameHolds: lastFrameHolds,
             holdingFrame: frameHold.isHolding,
-            showTiming: surface.showTiming
+            showTiming: surface.showTiming,
+            shown: surface.isShown,
+            nodeChain: surface.nodeChain
         )
     }
 }

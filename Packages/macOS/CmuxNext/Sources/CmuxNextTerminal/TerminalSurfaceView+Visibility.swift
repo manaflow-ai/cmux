@@ -61,3 +61,17 @@ extension TerminalSurfaceView {
         reconciledShown = shown
     }
 }
+
+extension TerminalSurfaceView {
+    /// The window node and every node above it, "name own/effective" (``TerminalSurfaceDiagnostics/nodeChain``).
+    /// A chain that ends before a window's node (a detached tab node) shows why a terminal is never shown.
+    var nodeChain: [String] {
+        var chain: [String] = []
+        var node: VisibilityNode? = windowNode
+        while let current = node, chain.count < 16 {
+            chain.append("\(current.name) \(current.own)/\(current.effective)")
+            node = current.parent
+        }
+        return chain
+    }
+}

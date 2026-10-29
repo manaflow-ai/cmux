@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
+import GhosttyNextKit
 import Testing
 
 /// Recipe R-hide in the terminal (PL-ghostty): a surface is shown by its node, under its
@@ -94,7 +95,8 @@ struct TerminalSurfaceVisibilityTests {
         #expect(surface.windowNode.deferredCount == 0, "a hidden terminal queued work")
         tab.set(.visible)
         #expect(reports.grids.count == before + 1, "a new owner and two resizes sent \(reports.grids.count - before) grids on show")
-        #expect(reports.grids.last == surface.fittedGrid)
+        #expect(reports.grids.last == Self.fit(surface), "the grid sent on show is not the one its bounds fit")
+        #expect(surface.restingGridMismatch(onScreen: true, ownerSettled: false) == nil)
         #expect(surface.windowNode.deferredCount == 0 && surface.visibilityNode.deferredCount == 0)
 
         tab.set(.hidden)
@@ -103,13 +105,22 @@ struct TerminalSurfaceVisibilityTests {
         surface.reportToNewOwner()
         tab.set(.visible)
         #expect(reports.grids.count == before + 1)
-        #expect(reports.grids.last == surface.fittedGrid)
+        #expect(reports.grids.last == Self.fit(surface), "the grid sent on show is not the one its bounds fit")
 
         // Shown again at the size it had when it hid: the owner has that grid, nothing is sent.
         tab.set(.hidden)
         before = reports.grids.count
         tab.set(.visible)
         #expect(reports.grids.count == before, "a show with no change sent a grid")
+    }
+
+    /// The grid Ghostty fits the surface's bounds to, read from Ghostty itself (not the view's own record).
+    private static func fit(_ surface: TerminalSurfaceView) -> TerminalGridSize? {
+        guard let ghostty = surface.surface else { return nil }
+        let pixels = surface.convertToBacking(surface.bounds.size)
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard ghostty_surface_fit_grid(ghostty, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows) else { return nil }
+        return TerminalGridSize(columns: Int(columns), rows: Int(rows))
     }
 }
 
