@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextOnboarding
 import Foundation
@@ -50,7 +51,12 @@ struct DeepLinkNavigator {
             // (DurableWorkspaceLink; a Chief reply links the workspaces it names, cmux#25572).
             let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
             guard let workspace else {
-                DurableWorkspaceLink.open(id, intent: intent, services: services)
+                let resolver = DurableWorkspaceLink(daemons: services.machines.daemons, reveal: { [services] key in
+                    guard let window = services.windows.reveal(workspaceID: key)?.window else { return false }
+                    services.showJumpWindow(window, intent)
+                    return true
+                }, refuse: { [services] in services.registry.refuse(RefusalStrings.linkTargetGone) })
+                services.registry.track(Task { await resolver.open(id) })
                 return
             }
             try reveal(workspace: workspace.id, intent)
