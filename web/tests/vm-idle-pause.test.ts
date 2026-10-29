@@ -468,10 +468,11 @@ function bumped(row: CloudVmRow, metadata: Record<string, unknown> = row.provide
 }
 
 /** What the live markProviderObservedStatus leaves in providerMetadata (repository.ts observedStatusMetadata). */
-function observedStatusMetadata(metadata: Record<string, unknown>, input: ObservedStatusInput): Record<string, unknown> {
-  const base = withoutObservation(metadata);
-  if (input.status !== "paused") return omit(base, "cmuxPauseReason");
-  return input.pauseReason ? { ...base, cmuxPauseReason: input.pauseReason } : base;
+function observedStatusMetadata(metadata: Record<string, unknown>, input: ObservedStatusInput, nextEpoch: number): Record<string, unknown> {
+  const base = omit(withoutObservation(metadata), "cmuxIdlePauseClaim");
+  if (input.status !== "paused") return omit(omit(base, "cmuxPauseReason"), "cmuxPauseIntentEpoch");
+  // A pause that says why is someone's decision, stamped with the fence it set; the status reconciler's write says nothing.
+  return input.pauseReason ? { ...base, cmuxPauseReason: input.pauseReason, cmuxPauseIntentEpoch: nextEpoch } : base;
 }
 
 /**
@@ -484,13 +485,28 @@ function observedStatusMetadata(metadata: Record<string, unknown>, input: Observ
  * `duringProbe` and `duringPause` run other writers while the probe or the
  * provider pause is under way.
  */
+/** What a hook can do to the world mid-run. */
+type FakeContext = {
+  readonly userPause: (id: string) => void;
+  readonly reconcilerSees: (id: string, status: "paused" | "running") => void;
+  readonly providerState: Map<string, "running" | "paused">;
+};
+
 function cronFakes(
   rows: CloudVmRow[],
-  probeOut: (vmId: string) => { exitCode: number; stdout: string } | "fails",
+  probeOut: (vmId: string, call: number) => { exitCode: number; stdout: string } | "fails",
   fakeOptions: {
     readonly reread?: (row: CloudVmRow) => CloudVmRow | null;
-    readonly duringProbe?: (repo: VmRepositoryShape) => void;
-    readonly duringPause?: (repo: VmRepositoryShape) => void;
+    readonly duringProbe?: (repo: VmRepositoryShape, ctx: FakeContext) => void;
+    readonly duringPause?: (repo: VmRepositoryShape, ctx: FakeContext) => void;
+    /** Runs inside the compensating resume's fence claim, before it checks the fence. */
+    readonly beforeResumeClaim?: (repo: VmRepositoryShape, ctx: FakeContext) => void;
+    /** Runs inside each provider status read, before it answers. */
+    readonly duringStatus?: (repo: VmRepositoryShape, ctx: FakeContext) => void;
+    /** "accepted": the provider pauses, then the call errors (a lost answer); "refused": it errors without pausing. */
+    readonly pauseFails?: "accepted" | "refused";
+    /** How many provider status reads fail before they answer. */
+    readonly statusFailures?: number;
   } = {},
 ) {
   const recorded = {
@@ -505,6 +521,9 @@ function cronFakes(
     resumed: [] as string[],
   };
   const providerState = new Map<string, "running" | "paused">();
+  const probeCalls = new Map<string, number>();
+  let statusFailures = fakeOptions.statusFailures ?? 0;
+  const ctx = { providerState } as { -readonly [K in keyof FakeContext]: FakeContext[K] };
   const fenced = (row: CloudVmRow, epoch: number | undefined) => epoch === undefined || epochOf(row) === epoch;
   const update = (id: string, change: (row: CloudVmRow) => CloudVmRow) => {
     const index = rows.findIndex((r) => r.id === id);
@@ -523,7 +542,7 @@ function cronFakes(
         return {
           ...row,
           providerMetadata: bumped(row, {
-            ...withoutObservation(row.providerMetadata ?? {}),
+            ...omit(withoutObservation(row.providerMetadata ?? {}), "cmuxIdlePauseClaim"),
             ...(input.observation ? { cmuxIdleObservation: input.observation } : {}),
             cmuxIdleProbedAt: input.probedAt,
           }),
@@ -535,6 +554,16 @@ function cronFakes(
       let claimed: number | null = null;
       update(input.id, (row) => {
         if (row.status !== "running" || row.providerVmId !== input.providerVmId || epochOf(row) !== input.epoch) return row;
+        claimed = input.epoch + 1;
+        return { ...row, providerMetadata: bumped(row, { ...(row.providerMetadata ?? {}), cmuxIdlePauseClaim: input.epoch + 1 }) };
+      });
+      return claimed;
+    }),
+    claimIdleResume: (input: { id: string; providerVmId: string; epoch: number }) => Effect.sync(() => {
+      fakeOptions.beforeResumeClaim?.(repo, ctx);
+      let claimed: number | null = null;
+      update(input.id, (row) => {
+        if (row.status === "destroyed" || row.providerVmId !== input.providerVmId || epochOf(row) !== input.epoch) return row;
         claimed = input.epoch + 1;
         return { ...row, providerMetadata: bumped(row) };
       });
@@ -550,7 +579,7 @@ function cronFakes(
         ...row,
         status: "running",
         updatedAt: new Date(row.updatedAt.getTime() + 1),
-        providerMetadata: bumped(row, withoutObservation(row.providerMetadata ?? {})),
+        providerMetadata: bumped(row, observedStatusMetadata(row.providerMetadata ?? {}, { id: row.id, providerVmId: row.providerVmId ?? "", status: "running" }, 0)),
       });
       return rows.find((r) => r.id === input.id) ?? null;
     }),
@@ -561,13 +590,13 @@ function cronFakes(
     markProviderObservedStatus: (input: ObservedStatusInput & { expectIdleEpoch?: number }) => Effect.sync(() => {
       const row = rows.find((r) => r.id === input.id);
       if (!row || row.providerVmId !== input.providerVmId || row.status === "destroyed") return false;
-      if (input.expectIdleEpoch !== undefined && (row.status !== "running" || epochOf(row) !== input.expectIdleEpoch)) return false;
+      if (input.expectIdleEpoch !== undefined && epochOf(row) !== input.expectIdleEpoch) return false;
       recorded.statuses.push({ id: input.id, status: input.status, ...(input.pauseReason ? { pauseReason: input.pauseReason } : {}) });
       update(input.id, (current) => ({
         ...current,
         status: input.status,
         updatedAt: new Date(current.updatedAt.getTime() + 1),
-        providerMetadata: bumped(current, observedStatusMetadata(current.providerMetadata ?? {}, input)),
+        providerMetadata: bumped(current, observedStatusMetadata(current.providerMetadata ?? {}, input, epochOf(current) + 1)),
       }));
       return true;
     }),
@@ -583,16 +612,29 @@ function cronFakes(
   const provider = {
     exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean }) => {
       recorded.execs.push({ vmId, asRoot: options?.asRoot, command });
-      fakeOptions.duringProbe?.(repo);
-      const out = probeOut(vmId);
+      const call = probeCalls.get(vmId) ?? 0;
+      probeCalls.set(vmId, call + 1);
+      if (call === 0) fakeOptions.duringProbe?.(repo, ctx);
+      const out = probeOut(vmId, call);
       return out === "fails" ? Effect.fail(new Error("exec failed")) : Effect.succeed({ ...out, stderr: "" });
     },
-    pause: (_provider: string, vmId: string) => Effect.sync(() => {
+    pause: (_provider: string, vmId: string) => Effect.suspend(() => {
+      const paused = recorded.paused.length;
       recorded.paused.push(vmId);
-      providerState.set(vmId, "paused");
-      fakeOptions.duringPause?.(repo);
+      // Only the cron's first provider pause fails or runs the hook; a later re-pause is plain.
+      if (paused > 0) return Effect.sync(() => providerState.set(vmId, "paused"));
+      if (fakeOptions.pauseFails !== "refused") providerState.set(vmId, "paused");
+      fakeOptions.duringPause?.(repo, ctx);
+      return fakeOptions.pauseFails ? Effect.fail(new Error("pause: connection reset")) : Effect.void;
     }),
-    getStatus: (_provider: string, vmId: string) => Effect.sync(() => providerState.get(vmId) ?? "running"),
+    getStatus: (_provider: string, vmId: string) => Effect.suspend(() => {
+      fakeOptions.duringStatus?.(repo, ctx);
+      if (statusFailures > 0) {
+        statusFailures -= 1;
+        return Effect.fail(new Error("status: timed out"));
+      }
+      return Effect.succeed(providerState.get(vmId) ?? "running");
+    }),
     resume: (_provider: string, vmId: string) => Effect.sync(() => {
       recorded.resumed.push(vmId);
       providerState.set(vmId, "running");
@@ -605,6 +647,19 @@ function cronFakes(
     Layer.succeed(VmProviderGateway, provider),
     Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
   );
+  /** A person's Pause Machine landing now: the provider pauses, then the row records it with reason user. */
+  const userPause = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row?.providerVmId) return;
+    providerState.set(row.providerVmId, "paused");
+    Effect.runSync(repo.markProviderObservedStatus({ id, providerVmId: row.providerVmId, status: "paused", pauseReason: "user" }));
+  };
+  /** The status reconciler recording the provider's state: no reason, no intent. */
+  const reconcilerSees = (id: string, status: "paused" | "running") => {
+    const row = rows.find((r) => r.id === id);
+    if (!row?.providerVmId) return;
+    Effect.runSync(repo.markProviderObservedStatus({ id, providerVmId: row.providerVmId, status }));
+  };
   /** A resume as reservePausedResume writes it: running again, observation dropped, fence and updatedAt moved. */
   const resume = (id: string, at: number) => update(id, (row) => ({
     ...row,
@@ -612,7 +667,9 @@ function cronFakes(
     updatedAt: new Date(at),
     providerMetadata: bumped(row, withoutObservation(row.providerMetadata ?? {})),
   }));
-  return { recorded, layer, resume, repo };
+  ctx.userPause = userPause;
+  ctx.reconcilerSees = reconcilerSees;
+  return { recorded, layer, resume, repo, providerState, userPause, reconcilerSees };
 }
 
 function byId<T extends { readonly id: string }>(items: readonly T[]): T[] {
@@ -638,7 +695,8 @@ describe("idle pause cron", () => {
     const { recorded, layer } = cronFakes([idle], () => ({ exitCode: 0, stdout: probeLine() }));
     const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
     expect(summary).toMatchObject({ checked: 1, paused: 1, errors: 0 });
-    expect(recorded.execs).toHaveLength(1);
+    // The probe, then the re-probe inside the claim just before the provider pause.
+    expect(recorded.execs).toHaveLength(2);
     expect(recorded.execs[0]).toMatchObject({ vmId: VM, asRoot: true });
     expect(recorded.execs[0].command).toContain("10.192.0.5");
     expect(recorded.paused).toEqual([VM]);
@@ -1054,6 +1112,154 @@ describe("writes that land while the provider pauses", () => {
   });
 });
 
+describe("the pause's other races", () => {
+  const overdue = () => machineRow({
+    billingPlanId: null,
+    providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
+  });
+  type Options = NonNullable<Parameters<typeof cronFakes>[2]>;
+  const setup = (options: Options, probeOut: Parameters<typeof cronFakes>[1] = () => ({ exitCode: 0, stdout: probeLine() })) => {
+    const rows = [overdue()];
+    const fakes = cronFakes(rows, probeOut, options);
+    const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
+    return { rows, runAt, ...fakes };
+  };
+
+  test("activity lands, then the status reconciler records the provider's pause: still resumed", async () => {
+    // The reconciler's paused write carries no intent, so it is not a person's pause.
+    const { rows, runAt, recorded, providerState } = setup({
+      duringPause: (repo, ctx) => {
+        Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 }));
+        ctx.reconcilerSees("row-1", "paused");
+      },
+    });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
+    expect(recorded.resumed).toEqual([VM]);
+    expect(providerState.get(VM)).toBe("running");
+    expect(rows[0].status).toBe("running");
+  });
+
+  test("a person's pause recorded before the claim is not theirs to keep after Off moved past it", async () => {
+    // Only a person's pause newer than the cron's claim wins; this one is older (a stale reason on a row the cron claimed).
+    const { rows, runAt, recorded } = setup({
+      duringPause: (repo, ctx) => {
+        Effect.runSync(repo.setIdlePauseMinutes!({ id: "row-1", minutes: 0 }));
+        ctx.reconcilerSees("row-1", "paused");
+      },
+    });
+    rows[0] = { ...rows[0], providerMetadata: { ...rows[0].providerMetadata, cmuxPauseReason: "user", cmuxPauseIntentEpoch: 0 } };
+    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
+    expect(recorded.resumed).toEqual([VM]);
+    expect(rows[0].status).toBe("running");
+  });
+
+  test("the provider accepts the pause but its answer is lost, and Off landed: read back, resumed", async () => {
+    const { rows, runAt, recorded, providerState } = setup({
+      pauseFails: "accepted",
+      duringPause: (repo) => Effect.runSync(repo.setIdlePauseMinutes!({ id: "row-1", minutes: 0 })),
+    });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
+    expect(recorded.resumed).toEqual([VM]);
+    expect(providerState.get(VM)).toBe("running");
+    expect(rows[0].status).toBe("running");
+  });
+
+  test("the provider accepts the pause but its answer is lost, nothing landed: the pause is recorded", async () => {
+    const { rows, runAt, recorded } = setup({ pauseFails: "accepted" });
+    expect(await runAt(T0)).toMatchObject({ paused: 1, errors: 0 });
+    expect(rows[0]).toMatchObject({ status: "paused" });
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("idle");
+    expect(recorded.events).toEqual([{ source: "idle", automated: true }]);
+  });
+
+  test("a lost answer the cron cannot read back leaves its claim; the next run reconciles it", async () => {
+    // The pause went through, then the read-back failed too.
+    const { rows, runAt, recorded, providerState } = setup({ pauseFails: "accepted", statusFailures: 1 });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, errors: 1 });
+    expect(providerState.get(VM)).toBe("paused");
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBe(epochOf(rows[0]));
+    // Next run: nothing moved the fence since the claim, so the provider's pause is recorded as the idle pause.
+    expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 1, errors: 0 });
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("idle");
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    expect(recorded.resumed).toEqual([]);
+  });
+
+  test("a left claim whose fence moved since (an exec): the next run resumes the machine", async () => {
+    const { rows, runAt, recorded, repo } = setup({ pauseFails: "accepted", statusFailures: 1 });
+    expect(await runAt(T0)).toMatchObject({ errors: 1 });
+    Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 + MIN }));
+    expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, aborted: 1 });
+    expect(recorded.resumed).toEqual([VM]);
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+  });
+
+  test("a refused pause leaves the machine running; the next run finds it running and clears the claim", async () => {
+    const { rows, runAt, recorded, providerState } = setup({ pauseFails: "refused" });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, errors: 1 });
+    expect(providerState.get(VM) ?? "running").toBe("running");
+    expect(rows[0].status).toBe("running");
+    await runAt(T0 + 5 * MIN);
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    expect(recorded.resumed).toEqual([]);
+  });
+
+  test("guest activity between the probe and the pause: the re-probe sees it and nothing pauses", async () => {
+    const busy = probeLine({ busy_terminals: 1 });
+    const { rows, runAt, recorded } = setup({}, (_vmId, call) => ({ exitCode: 0, stdout: call === 0 ? probeLine() : busy }));
+    expect(await runAt(T0)).toMatchObject({ paused: 0, active: 1, errors: 0 });
+    expect(recorded.execs).toHaveLength(2);
+    expect(recorded.paused).toEqual([]);
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+  });
+
+  test("a re-probe that fails is unknown and nothing pauses", async () => {
+    const { runAt, recorded } = setup({}, (_vmId, call) => (call === 0 ? { exitCode: 0, stdout: probeLine() } : "fails"));
+    expect(await runAt(T0)).toMatchObject({ paused: 0, unknown: 1, errors: 0 });
+    expect(recorded.paused).toEqual([]);
+  });
+
+  test("a person's pause after the compensation read, before its claim: theirs wins, no resume", async () => {
+    let paused = false;
+    const { rows, runAt, recorded, providerState } = setup({
+      duringPause: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
+      beforeResumeClaim: (_repo, ctx) => {
+        if (paused) return;
+        paused = true;
+        ctx.userPause("row-1");
+      },
+    });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
+    expect(recorded.resumed).toEqual([]);
+    expect(providerState.get(VM)).toBe("paused");
+    expect(rows[0]).toMatchObject({ status: "paused" });
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+  });
+
+  test("a person's pause after the compensation claim, before the provider resume: re-paused, theirs wins", async () => {
+    let compensating = false;
+    let paused = false;
+    const { rows, runAt, providerState } = setup({
+      duringPause: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
+      beforeResumeClaim: () => { compensating = true; },
+      duringStatus: (_repo, ctx) => {
+        if (!compensating || paused) return;
+        paused = true;
+        ctx.userPause("row-1");
+      },
+    });
+    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
+    expect(providerState.get(VM)).toBe("paused");
+    expect(rows[0]).toMatchObject({ status: "paused" });
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+  });
+});
+
 const dbEnabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = dbEnabled ? test : test.skip;
 
@@ -1062,6 +1268,7 @@ describe("idle pause SQL", () => {
   const rowId = randomUUID();
   const otherId = randomUUID();
   const fenceId = randomUUID();
+  const intentId = randomUUID();
   const providerVmId = `fs-idle-${rowId}`;
   const fenceVmId = `fs-idle-${fenceId}`;
   let sql: Sql;
@@ -1072,7 +1279,8 @@ describe("idle pause SQL", () => {
     await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
       values (${rowId}, ${owner}, ${owner}, 'freestyle', ${providerVmId}, 'sh-test', 'running', '{"networkIpv4":"10.192.0.5"}'::jsonb),
              (${otherId}, ${owner}, ${owner}, 'freestyle', ${`fs-idle-${otherId}`}, 'sh-test', 'running', '{"cmuxIdleProbedAt":"junk"}'::jsonb),
-             (${fenceId}, ${owner}, ${owner}, 'freestyle', ${fenceVmId}, 'sh-test', 'running', '{"networkIpv4":"10.192.0.9"}'::jsonb)`;
+             (${fenceId}, ${owner}, ${owner}, 'freestyle', ${fenceVmId}, 'sh-test', 'running', '{"networkIpv4":"10.192.0.9"}'::jsonb),
+             (${intentId}, ${owner}, ${owner}, 'freestyle', ${`fs-idle-${intentId}`}, 'sh-test', 'running', '{}'::jsonb)`;
   });
 
   afterAll(async () => {
@@ -1182,8 +1390,8 @@ describe("idle pause SQL", () => {
     expect(await epoch()).toMatchObject({ epoch: 4, status: "running" });
     expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: 4 }))).toBe(true);
     expect(await epoch()).toMatchObject({ epoch: 5, status: "paused" });
-    // A fenced pause never records over a row that is no longer running.
-    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: 5 }))).toBe(false);
+    // A stale fence never records, whatever the row's status.
+    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "running", expectIdleEpoch: 4 }))).toBe(false);
 
     const resumed = await run(repo.reservePausedResume({ id: fenceId, userId: owner, billingTeamId: owner, providerVmId: fenceVmId, maxActiveVms: null }));
     expect(resumed?.status).toBe("running");
@@ -1192,6 +1400,39 @@ describe("idle pause SQL", () => {
     expect(await observe(at(T0 - 90 * MIN), 5)).toBe(false);
     expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "running" }))).toBe(true);
     expect(await epoch()).toMatchObject({ epoch: 7, observation: undefined });
+  });
+
+  dbTest("the pause claim is left in the row until a write settles it; a person's pause is stamped with its fence", async () => {
+    const vmId = `fs-idle-${intentId}`;
+    const meta = async () => {
+      const [row] = await sql<{ metadata: Record<string, unknown>; status: string }[]>`
+        select provider_metadata as metadata, status from cloud_vms where id = ${intentId}`;
+      return { ...row.metadata, status: row.status };
+    };
+    expect(await run(repo.claimIdlePause!({ id: intentId, providerVmId: vmId, epoch: 0 }))).toBe(1);
+    expect(await meta()).toMatchObject({ cmuxIdleEpoch: 1, cmuxIdlePauseClaim: 1 });
+    // The next run's observation write settles a claim it found the machine running under.
+    expect(await run(repo.recordIdleObservation!({ id: intentId, providerVmId: vmId, observation: null, probedAt: T0, epoch: 1 }))).toBe(true);
+    expect((await meta()).cmuxIdlePauseClaim).toBeUndefined();
+
+    expect(await run(repo.claimIdlePause!({ id: intentId, providerVmId: vmId, epoch: 2 }))).toBe(3);
+    // A person's pause: reason user, stamped with the fence its write set; the claim is settled.
+    expect(await run(repo.markProviderObservedStatus({ id: intentId, providerVmId: vmId, status: "paused", pauseReason: "user" }))).toBe(true);
+    let row = await meta();
+    expect(row).toMatchObject({ status: "paused", cmuxIdleEpoch: 4, cmuxPauseReason: "user", cmuxPauseIntentEpoch: 4 });
+    expect(row.cmuxIdlePauseClaim).toBeUndefined();
+    // The status reconciler's paused write keeps the person's stamp and adds none of its own.
+    expect(await run(repo.markProviderObservedStatus({ id: intentId, providerVmId: vmId, status: "paused" }))).toBe(true);
+    expect(await meta()).toMatchObject({ cmuxIdleEpoch: 5, cmuxPauseReason: "user", cmuxPauseIntentEpoch: 4 });
+
+    // The compensating resume claims any live status at its fence, and records running only at the claimed one.
+    expect(await run(repo.claimIdleResume!({ id: intentId, providerVmId: vmId, epoch: 4 }))).toBeNull();
+    expect(await run(repo.claimIdleResume!({ id: intentId, providerVmId: vmId, epoch: 5 }))).toBe(6);
+    expect(await run(repo.markProviderObservedStatus({ id: intentId, providerVmId: vmId, status: "running", expectIdleEpoch: 6 }))).toBe(true);
+    row = await meta();
+    expect(row).toMatchObject({ status: "running", cmuxIdleEpoch: 7 });
+    expect(row.cmuxPauseReason).toBeUndefined();
+    expect(row.cmuxPauseIntentEpoch).toBeUndefined();
   });
 });
 
@@ -1202,7 +1443,51 @@ describe("idle pause SQL", () => {
 // only those, put the probe in legacy mode: it decides from terminals, ssh,
 // inbound connections, CPU and API calls, and says so in its reason. Anything
 // else the daemon or acpmux answers stays unknown and never pauses.
+describe("a shell running a command", () => {
+  // pts/0's foreground group is only a shell. At its prompt that is idle; a
+  // shell that is itself the command (`bash -c ...`, `sh script.sh`) is not.
+  const shellOnly = (comm: string, cmdline: string[]) => ({
+    "100/stat": stat(100, comm, 100, 100, PTS0, 100),
+    "100/cmdline": cmdline.join("\0") + "\0",
+    "net/tcp": TCP_HEADER,
+  });
+
+  test("bash -c, sh -lc and a shell running a script are busy terminals", async () => {
+    for (const cmdline of [["bash", "-c", "read -t 3600"], ["sh", "-lc", "sleep 600"], ["bash", "deploy.sh"], ["/bin/bash", "-e", "./run.sh", "x"]]) {
+      const comm = path.basename(cmdline[0]);
+      expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 1 });
+    }
+  });
+
+  test("a login or interactive shell at its prompt stays idle", async () => {
+    for (const [comm, cmdline] of [["bash", ["-bash"]], ["bash", ["bash"]], ["zsh", ["zsh", "-l"]], ["bash", ["bash", "-i"]], ["bash", ["bash", "--login"]]] as const) {
+      expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, [...cmdline]), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 0 });
+    }
+  });
+});
+
 describe("unreadable activity sources", () => {
+  test("a process whose stat or cmdline cannot be read makes terminals and ssh unknown; a vanished one is skipped", async () => {
+    const base = {
+      "100/stat": stat(100, "zsh", 100, 100, PTS0, 100),
+      "100/cmdline": "-zsh\0",
+      "net/tcp": TCP_HEADER,
+    };
+    // pid 300 exited between the listing and the read: no stat, no cmdline.
+    const vanished = await runProbeScript({ ...base, "300/environ": "" }, "NONE");
+    expect({ busy: vanished.busy_terminals, ssh: vanished.ssh_sessions }).toEqual({ busy: 0, ssh: 0 });
+    // A stat that cannot be read (here a directory), or that does not parse.
+    for (const broken of [{ "300/stat/x": "" }, { "300/stat": "garbage" }]) {
+      const out = await runProbeScript({ ...base, ...broken }, "NONE");
+      expect({ broken, busy: out.busy_terminals, ssh: out.ssh_sessions }).toEqual({ broken, busy: null, ssh: null });
+    }
+    // A cmdline that cannot be read hides a possible ssh session.
+    const noCmdline = await runProbeScript({ ...base, "400/stat": stat(400, "sshd", 400, 400, 0, -1), "400/cmdline/x": "" }, "NONE");
+    expect(noCmdline.ssh_sessions).toBeNull();
+    // Unknown, so it never pauses.
+    expect(parseVmIdleProbe(JSON.stringify({ v: 1, ...noCmdline, cpu_busy_ms: CPU0 }))).toBeNull();
+  });
+
   test("a network table the probe cannot read is unknown, not zero connections", async () => {
     // No /proc/net/tcp at all.
     expect((await runProbeScript({ "net/tcp6": TCP_HEADER }, "NONE")).inbound_connections).toBeNull();
@@ -1223,7 +1508,8 @@ describe("unreadable activity sources", () => {
 });
 
 describe("legacy daemon fallback", () => {
-  const LEGACY_DAEMON_ERROR = "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `list-workspaces`, `attach`";
+  // serde_json's Display ends the message with the position (server.rs: format!("bad request: {error}")).
+  const LEGACY_DAEMON_ERROR = "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `list-workspaces`, `attach` at line 1 column 31";
 
   async function withDaemonSocket(answer: string, run: (socketPath: string) => Promise<void>) {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-idle-sock-"));
@@ -1294,13 +1580,25 @@ describe("legacy daemon fallback", () => {
       "relay: bad request: unknown variant `subscribe-activity`, expected one of `hello`",
       // Same words, not serde's shape.
       "bad request: unknown variant subscribe-activity",
+      // The refusal with trailing diagnostics, or with a further line after it.
+      `${LEGACY_DAEMON_ERROR}; daemon restarting`,
+      "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `attach` (retry with --verbose)",
+      `${LEGACY_DAEMON_ERROR}\npanicked at server.rs:6316`,
+      // Not a whole serde variant list.
+      "bad request: unknown variant `subscribe-activity`, expected one of `hello`, ",
     ]) {
       await withDaemonSocket(JSON.stringify({ id: null, ok: false, error }) + "\n", async (socketPath) => {
         expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toBeNull();
       });
     }
-    // The exact refusal, with or without serde's list, is legacy.
-    for (const error of [LEGACY_DAEMON_ERROR, "bad request: unknown variant `subscribe-activity`, expected `hello`"]) {
+    // The exact refusal is legacy: serde's one, two or many expected variants, with or without its position.
+    for (const error of [
+      LEGACY_DAEMON_ERROR,
+      "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `list-workspaces`, `attach`",
+      "bad request: unknown variant `subscribe-activity`, expected `hello`",
+      "bad request: unknown variant `subscribe-activity`, expected `hello` or `attach` at line 1 column 31",
+      `${LEGACY_DAEMON_ERROR}\n`,
+    ]) {
       await withDaemonSocket(JSON.stringify({ id: null, ok: false, error }) + "\n", async (socketPath) => {
         expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toEqual({ legacy: true });
       });
