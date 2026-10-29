@@ -196,6 +196,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
         untyped(method::MUX_MESH_CONTROL, Request),
+        // Red probe for the acpmux-protocol-ir CI job: a registry entry without the IR. Never merge.
+        untyped("_acpmux/ir_red_probe", Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
