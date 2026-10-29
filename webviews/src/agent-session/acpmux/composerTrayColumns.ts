@@ -2,9 +2,7 @@
 // rather than guessing the look's padding or duplicating its responsive breakpoints.
 export function followComposerTrayColumns(box: HTMLElement): (() => void) | undefined {
   const dock = box.closest<HTMLElement>(".acpmux-dock");
-  const actions = box.querySelector<HTMLElement>(".acpmux-composer-actions");
-  const plus = box.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button");
-  if (!dock || !actions || !plus) return undefined;
+  if (!dock) return undefined;
   const properties = new Set<string>();
   // The inspector shifts every direct dock child with `translate`, while the
   // dock's parent stays in the pane's original coordinate space.  Rects are
@@ -36,7 +34,7 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
             const [a, b, c, d, e] = values;
             if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
           } else if (matrix?.[1] && values.length === 16) {
-            const [a, b, c, d, e, f, g, h, i, j, k, l, tx, ty, tz, p] = values;
+            const [a, b, c, d, e, f, g, h, i, j, k, l, tx, , , p] = values;
             if (
               a === 1 &&
               b === 0 &&
@@ -60,7 +58,26 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
     if (!shift) return visual;
     return new DOMRect(visual.left - shift, visual.top, visual.width, visual.height);
   };
+  const resizeTargets = new Set<HTMLElement>();
   const apply = () => {
+    const actions = box.querySelector<HTMLElement>(".acpmux-composer-actions");
+    const plus = box.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button");
+    const targets = new Set(
+      [box, dock, dock.parentElement, actions, plus].filter((node): node is HTMLElement => !!node),
+    );
+    for (const node of resizeTargets) {
+      if (!targets.has(node)) {
+        resize.unobserve(node);
+        resizeTargets.delete(node);
+      }
+    }
+    for (const node of targets) {
+      if (!resizeTargets.has(node)) {
+        resize.observe(node);
+        resizeTargets.add(node);
+      }
+    }
+    if (!actions || !plus) return;
     // In inspector/review mode the dock uses display:contents; its parent owns the inline edges.
     const container = getComputedStyle(dock).display === "contents" ? dock.parentElement : dock;
     if (!container) return;
@@ -89,10 +106,21 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
     }
   };
   const resize = new ResizeObserver(apply);
-  for (const node of [box, dock, actions, plus]) resize.observe(node);
-  if (dock.parentElement) resize.observe(dock.parentElement);
-  // Draft/working state can replace the last action without resizing the action cluster.
-  const mutation = new MutationObserver(() => {
+  const dockStyle = () =>
+    [...dock.style]
+      .filter((name) => !properties.has(name))
+      .map((name) => `${name}:${dock.style.getPropertyValue(name)}:${dock.style.getPropertyPriority(name)}`)
+      .join(";");
+  let externalDockStyle = dockStyle();
+  // Ignore only our published measurements; external dock styles still trigger reconciliation.
+  const mutation = new MutationObserver((records) => {
+    const nextStyle = dockStyle();
+    if (
+      records.every((record) => record.target === dock && record.attributeName === "style") &&
+      nextStyle === externalDockStyle
+    )
+      return;
+    externalDockStyle = nextStyle;
     observeLayoutAncestors();
     apply();
   });
@@ -104,12 +132,10 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
       attributes: true,
       attributeFilter: ["class", "style", "hidden"],
     });
-    // The inspector can move or replace any ancestor without changing the action cluster's size.
-    // Omit the dock's own style because `apply` writes the measured properties there.
-    mutation.observe(dock, { attributes: true, attributeFilter: ["class", "hidden"] });
-    for (let current: HTMLElement | null = box.parentElement; current; current = current.parentElement) {
-      if (current === dock) break;
-      else mutation.observe(current, { attributes: true, childList: true, attributeFilter: ["class", "style", "hidden"] });
+    // Observe intermediate composer wrappers, the dock and its layout parent without
+    // replacing the box's subtree subscription. Refresh this chain after reparenting.
+    for (let current = box.parentElement; current; current = current.parentElement) {
+      mutation.observe(current, { attributes: true, childList: true, attributeFilter: ["class", "style", "hidden"] });
       if (current === dock.parentElement) break;
     }
   };

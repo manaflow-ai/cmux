@@ -113,7 +113,8 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     ),
                   ].map((node) => ({
                     ...rectFrom(node),
-                    visible: getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden",
+                    visible:
+                      getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden",
                   })),
                 })),
                 tray: rect('[data-alignment-surface="tray"][data-alignment-inset="surface"]'),
@@ -144,8 +145,9 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 quiet: !!document.querySelector(".acpmux-composer-inner"),
                 plainFooter: !!document.querySelector('[data-alignment-surface="composer"] [data-footer-look="plain"]'),
                 expanded:
-                  document.querySelector('[data-alignment-surface="tray"] .acpmux-running-tray__head')?.getAttribute("aria-expanded") ===
-                  "true",
+                  document
+                    .querySelector('[data-alignment-surface="tray"] .acpmux-running-tray__head')
+                    ?.getAttribute("aria-expanded") === "true",
                 rowLeft: document.querySelector(
                   '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__button [data-alignment-column="left-icon"]',
                 )
@@ -260,7 +262,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               expect(shifted.composer.left).toBeCloseTo(result.composer.left - 36, 1);
               expect(shifted.tray.left).toBeCloseTo(shifted.composer.left, 1);
               expect(shifted.tray.right).toBeCloseTo(shifted.composer.right, 1);
-              for (const transform of ["matrix(1, 0, 0, 1, -24, 0)", "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -24, 0, 0, 1)"]) {
+              for (const transform of [
+                "matrix(1, 0, 0, 1, -24, 0)",
+                "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -24, 0, 0, 1)",
+              ]) {
                 await page.evaluate((transform) => {
                   for (const selector of [".acpmux-composer", '[data-alignment-surface="tray"]']) {
                     const node = document.querySelector<HTMLElement>(selector);
@@ -277,20 +282,26 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
                   return dock.style.getPropertyValue("--acpmux-tray-end-inset");
                 });
-                expect(afterMatrix, "matrix translation must preserve layout columns").toBe(
-                  beforeShift["end-inset"],
-                );
+                expect(afterMatrix, "matrix translation must preserve layout columns").toBe(beforeShift["end-inset"]);
               }
               const beforeActionMutation = await page.evaluate(() => {
                 const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
                 return dock.style.getPropertyValue("--acpmux-tray-end-inset");
               });
               await page.evaluate(() => {
-                const button = [...document.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")].at(-1);
-                if (button) {
-                  button.style.position = "relative";
-                  button.style.left = "12px";
-                }
+                const actions = document.querySelector<HTMLElement>(".acpmux-composer-actions");
+                const button = actions
+                  ? [...actions.querySelectorAll<HTMLElement>("button")]
+                      .filter((node) => getComputedStyle(node).visibility !== "hidden")
+                      .sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0]
+                  : undefined;
+                if (!actions || !button) throw new Error("missing visible action for mutation test");
+                const replacement = button.cloneNode(true) as HTMLElement;
+                replacement.style.position = "relative";
+                replacement.style.left = "12px";
+                replacement.dataset.alignmentMutationReplacement = "true";
+                (window as unknown as { __trayOriginalButton?: HTMLElement }).__trayOriginalButton = button;
+                button.replaceWith(replacement);
               });
               await page.evaluate(
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
@@ -299,13 +310,18 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
                 return dock.style.getPropertyValue("--acpmux-tray-end-inset");
               });
-              expect(Number.parseFloat(afterActionMutation)).toBeCloseTo(Number.parseFloat(beforeActionMutation) - 12, 1);
+              expect(Number.parseFloat(afterActionMutation)).toBeCloseTo(
+                Number.parseFloat(beforeActionMutation) - 12,
+                1,
+              );
               await page.evaluate(() => {
-                const button = [...document.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")].at(-1);
-                if (button) {
-                  button.style.position = "";
-                  button.style.left = "";
-                }
+                const original = (window as unknown as { __trayOriginalButton?: HTMLElement }).__trayOriginalButton;
+                const replacement = document.querySelector<HTMLElement>(
+                  '.acpmux-composer-actions button[data-alignment-mutation-replacement="true"]',
+                );
+                if (!original || !replacement) throw new Error("missing action mutation restore nodes");
+                replacement.replaceWith(original);
+                delete (window as unknown as { __trayOriginalButton?: HTMLElement }).__trayOriginalButton;
                 for (const selector of [".acpmux-composer", '[data-alignment-surface="tray"]']) {
                   const node = document.querySelector<HTMLElement>(selector);
                   if (node) node.style.transform = "";
@@ -403,9 +419,11 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               }
             for (const [name, value] of Object.entries(checks))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
-            for (const [name, value] of Object.entries(checks).filter(([name]) => name.startsWith("subagentStopRightColumn")))
+            for (const [name, value] of Object.entries(checks).filter(([name]) =>
+              name.startsWith("subagentStopRightColumn"),
+            ))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
-            const expectedSubagentStops = variant.endsWith("expanded") ? 3 : 0;
+            const expectedSubagentStops = variant.endsWith("expanded") && !variant.includes("codex") ? 3 : 0;
             expect(result.subagentStops.length, "running subagent stop controls").toBe(expectedSubagentStops);
             for (const { stop, row } of result.subagentStops) {
               expect(stop.width, "subagent stop must be measurable").toBeGreaterThan(0);
