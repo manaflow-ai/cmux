@@ -29,7 +29,7 @@ cat > "$TMP/bin/git" <<STUB
 echo "\$*" >> "$TMP/git-calls"
 case " \$* " in
   *" submodule update --init --depth 1 ghostty-next "*) exit 0 ;;
-  *" diff --no-color --no-ext-diff --stat -- cmux-tui/spec/api-compat.surface.json "*) [[ -n "\${API_COMPAT_SAME:-}" ]] || echo " cmux-tui/spec/api-compat.surface.json | 4 ++-- (stub)" ;;
+  *" diff --no-color --no-ext-diff --stat -- cmux-tui/spec/api-compat."*) [[ -n "\${API_COMPAT_SAME:-}" ]] || echo " cmux-tui/spec/api-compat.wire.json | 4 ++-- (stub)" ;;
   *) echo "unexpected git invocation: \$*" >&2; exit 1 ;;
 esac
 STUB
@@ -72,16 +72,27 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "api-compat mode refused"
 ! grep -q -E ' fmt | clippy | nextest | --write' "$TMP/calls" || fail "api-compat ran more than the check: $(cat "$TMP/calls")"
 ! grep -q submodule "$TMP/git-calls" 2>/dev/null || fail "api-compat checked out ghostty-next: $(cat "$TMP/git-calls")"
 rm -f "$TMP/calls" "$TMP/git-calls"
-# api-compat-write: the --write form, which rewrites spec/api-compat.surface.json (the step's
-# artifact), then says what changed. It never commits or pushes; an unchanged snapshot is green.
+# api-compat-write: the --write form, which rewrites the snapshot and the wire ledger, then packs
+# both (those present) into .build/artifacts/api-compat-spec.tar (the step's artifact) and says what
+# changed. It never commits or pushes; unchanged files are green.
+mkdir -p "$TMP/work/cmux-tui/spec"
+echo '{"surface":1}' >"$TMP/work/cmux-tui/spec/api-compat.surface.json"
+echo '{"wire":1}' >"$TMP/work/cmux-tui/spec/api-compat.wire.json"
 ARGS=(api-compat-write)
 out=$(run CMUX_CI_STEP_KEY=k) || fail "api-compat-write mode refused: $out"
 grep -q '/.build/cmux-tui-rust-target run --locked -p cmux-api-compat --bin api-compat-check -- --write$' "$TMP/calls" || fail "api-compat-write: $(cat "$TMP/calls")"
-grep -q 'api-compat.surface.json changed: .*(stub)' <<<"$out" || fail "api-compat-write did not report the change: $out"
+grep -q 'api-compat-write: changed: .*(stub)' <<<"$out" || fail "api-compat-write did not report the change: $out"
+[[ "$(tar -tf "$TMP/work/.build/artifacts/api-compat-spec.tar" | sort | tr '\n' ' ')" == "cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json " ]] || fail "the artifact does not hold both files: $(tar -tf "$TMP/work/.build/artifacts/api-compat-spec.tar")"
+mkdir -p "$TMP/x" && tar -xf "$TMP/work/.build/artifacts/api-compat-spec.tar" -C "$TMP/x" && grep -q wire "$TMP/x/cmux-tui/spec/api-compat.wire.json" || fail "the artifact does not extract at a checkout root"
+# A crate without the wire ledger (feat-cmux-next today): the snapshot alone.
+rm -f "$TMP/work/cmux-tui/spec/api-compat.wire.json"
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "api-compat-write without a wire ledger is red"
+[[ "$(tar -tf "$TMP/work/.build/artifacts/api-compat-spec.tar")" == "cmux-tui/spec/api-compat.surface.json" ]] || fail "the artifact without a wire ledger: $(tar -tf "$TMP/work/.build/artifacts/api-compat-spec.tar")"
 ! grep -q -E 'submodule|commit|push|add ' "$TMP/git-calls" || fail "api-compat-write ran git beyond the diff: $(cat "$TMP/git-calls")"
 rm -f "$TMP/calls" "$TMP/git-calls"
 out=$(run CMUX_CI_STEP_KEY=k API_COMPAT_SAME=1) || fail "api-compat-write with a current snapshot is red: $out"
 grep -q 'api-compat.surface.json unchanged' <<<"$out" || fail "api-compat-write did not report a current snapshot: $out"
+rm -rf "$TMP/work/cmux-tui/spec" "$TMP/work/.build/artifacts" "$TMP/x"
 rm -f "$TMP/calls"
 ARGS=(api-compat 'cmux_link::')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "api-compat accepted a filter"
