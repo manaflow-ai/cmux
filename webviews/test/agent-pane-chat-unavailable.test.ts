@@ -266,60 +266,123 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
           const node = document.querySelector<HTMLElement>(selector);
           if (!node) throw new Error(`missing ${selector}`);
           const box = node.getBoundingClientRect();
-          return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height };
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          };
         };
         return {
           viewport: { width: window.innerWidth, height: window.innerHeight },
-          header: rect(".acpmux-header"),
+          root: rect('[data-unavailable="connecting"]'),
           stage: rect(".acpmux-stage"),
           spinner: rect(".acpmux-unavailable-spinner"),
+          title: rect(".acpmux-unavailable-title"),
           composer: rect(".acpmux-composer-box"),
           main: rect(".acpmux-main"),
           copy: rect(".acpmux-unavailable-copy"),
-          otherUnavailable: Array.from(document.querySelectorAll<HTMLElement>('[data-unavailable="connecting"] .acpmux-unavailable-copy > *')).map((node) => {
-            const box = node.getBoundingClientRect();
-            return { top: box.top, bottom: box.bottom };
-          }),
         };
       });
     const assertCentered = (layout: Awaited<ReturnType<typeof measure>>) => {
-      const contentTop = layout.header.bottom;
-      const contentBottom = layout.stage.bottom;
-      const targetY = (contentTop + contentBottom) / 2;
+      const targetY = (layout.root.top + layout.root.bottom) / 2;
       const spinnerY = (layout.spinner.top + layout.spinner.bottom) / 2;
-      const contentCenterX = (layout.stage.left + layout.stage.right) / 2;
+      const targetX = (layout.root.left + layout.root.right) / 2;
       const spinnerX = (layout.spinner.left + layout.spinner.right) / 2;
       expect(Math.abs(spinnerY - targetY)).toBeLessThanOrEqual(2);
-      expect(Math.abs(spinnerX - contentCenterX)).toBeLessThanOrEqual(2);
-      for (const child of layout.otherUnavailable) expect(child.top).toBeGreaterThanOrEqual(layout.spinner.bottom - 1);
-      expect(layout.copy.bottom).toBeLessThanOrEqual(layout.stage.bottom);
+      expect(Math.abs(spinnerX - targetX)).toBeLessThanOrEqual(2);
+      expect(layout.title.bottom).toBeLessThanOrEqual(layout.spinner.top);
+      expect(layout.copy.top).toBeGreaterThanOrEqual(layout.spinner.bottom);
+      for (const box of [layout.title, layout.spinner, layout.copy]) {
+        expect(box.top).toBeGreaterThanOrEqual(layout.root.top);
+        expect(box.bottom).toBeLessThanOrEqual(layout.root.bottom);
+        expect(box.left).toBeGreaterThanOrEqual(layout.root.left);
+        expect(box.right).toBeLessThanOrEqual(layout.root.right);
+      }
+      expect(layout.root.bottom).toBeLessThanOrEqual(layout.stage.bottom);
       expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
       expect(layout.composer.height).toBeGreaterThan(0);
       expect(layout.composer.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
     };
-
+    const settled = () =>
+      page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const assertActionsReachable = async () => {
+      const actions = shown.locator(".acpmux-unavailable-action");
+      expect(await actions.count()).toBe(2);
+      for (const action of await actions.all()) {
+        await action.scrollIntoViewIfNeeded();
+        await action.click({ trial: true });
+        const bounds = await action.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const copy = node.closest(".acpmux-unavailable-copy")!.getBoundingClientRect();
+          const center = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            copyTop: copy.top,
+            copyBottom: copy.bottom,
+            hit: center === node || node.contains(center),
+          };
+        });
+        expect(bounds.top).toBeGreaterThanOrEqual(bounds.copyTop - 1);
+        expect(bounds.bottom).toBeLessThanOrEqual(bounds.copyBottom + 1);
+        expect(bounds.hit).toBe(true);
+      }
+      await shown.locator(".acpmux-unavailable-copy").evaluate((node) => (node.scrollTop = 0));
+    };
+    const capture = async (name: string) => {
+      if (captureDir) await page.screenshot({ path: path.join(captureDir, `${name}.png`) });
+    };
     const sizes = [
-      { width: 900, height: 760, name: "loading-center-900x760" },
-      { width: 900, height: 620, name: "loading-center-900x620" },
-      { width: 760, height: 760, name: "loading-center-760x760" },
-      { width: 400, height: 360, name: "loading-center-400x360" },
+      { width: 900, height: 760 },
+      { width: 900, height: 620 },
+      { width: 760, height: 760 },
+      { width: 400, height: 360 },
+      { width: 400, height: 275 },
     ];
-    for (const size of sizes) {
-      await page.setViewportSize({ width: size.width, height: size.height });
-      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const layout = await measure();
-      if (captureDir) await page.screenshot({ path: path.join(captureDir, `${size.name}.png`) });
-      console.info("loading-center", JSON.stringify(layout));
-      assertCentered(layout);
+    for (const isDark of [true, false]) {
+      const theme = isDark ? "dark" : "light";
+      await page.evaluate((dark) => {
+        (window as any).cmuxAcpmuxBridge.applyTheme({
+          isDark: dark,
+          pageBackground: dark ? "#111111" : "#ffffff",
+          surfaceBackground: dark ? "#1b1b1b" : "#f8f8f8",
+          inputBackground: dark ? "#202020" : "#f4f4f4",
+          text: dark ? "#eeeeee" : "#171717",
+          mutedText: dark ? "#999999" : "#666666",
+          border: dark ? "#555555" : "#cccccc",
+        });
+      }, isDark);
+      for (const size of sizes) {
+        await page.setViewportSize(size);
+        await settled();
+        const layout = await measure();
+        console.info("loading-center", theme, JSON.stringify(layout));
+        await capture(`loading-center-${theme}-${size.width}x${size.height}`);
+        assertCentered(layout);
+        if (size.height === 275) expect(layout.root.height).toBeLessThanOrEqual(113);
+        await assertActionsReachable();
+        if (size.height === 275) {
+          await shown.getByRole("button", { name: "Close Tab" }).scrollIntoViewIfNeeded();
+          await capture(`loading-center-${theme}-minimum-actions`);
+          await shown.locator(".acpmux-unavailable-copy").evaluate((node) => (node.scrollTop = 0));
+        }
+      }
+      await page.setViewportSize({ width: 400, height: 360 });
+      await settled();
+      const initialComposer = await measure();
+      await field.fill("A loading-state draft that wraps across several lines.\n".repeat(8));
+      await settled();
+      const expandedComposer = await measure();
+      expect(expandedComposer.composer.height).toBeGreaterThan(initialComposer.composer.height);
+      console.info("loading-center-expanded", theme, JSON.stringify(expandedComposer));
+      assertCentered(expandedComposer);
+      await assertActionsReachable();
+      await capture(`loading-center-${theme}-expanded`);
+      await field.fill("");
     }
-    const initialComposer = await measure();
-    await field.fill("A loading-state draft that wraps across several lines.\n".repeat(8));
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const expandedComposer = await measure();
-    expect(expandedComposer.composer.height).toBeGreaterThan(initialComposer.composer.height);
-    console.info("loading-center-expanded", JSON.stringify(expandedComposer));
-    assertCentered(expandedComposer);
-    if (captureDir) await page.screenshot({ path: path.join(captureDir, "loading-center-expanded.png") });
     await page.close();
   });
 
