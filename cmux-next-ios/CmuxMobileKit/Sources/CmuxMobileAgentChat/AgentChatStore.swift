@@ -158,6 +158,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The chat opened on its newest history only: older records stay on the Mac, so the
+    /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
+    public private(set) var hasEarlierHistory = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
 
@@ -468,14 +471,19 @@ public final class AgentChatStore {
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
-        case .permissionDecision(let permissionId, let optionId):
+        case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
-                    let answered = optionId != nil && optionId == question.source.answerOption
-                    question.state = answered ? .answered(AgentQuestionAnswer(selections: [:])) : .cancelled
+                    // An ACP question's choices are the permission options themselves: any one
+                    // chosen is its answer, but its reject option (Decline) is a decline.
+                    // Other harnesses answer through `answerOption`.
+                    let answered = optionId != nil && (question.source.harness == .acp
+                        ? optionId != question.source.rejectOption
+                        : optionId == question.source.answerOption)
+                    question.state = answered ? .answered(question.recordedAnswer(answers, optionId: optionId)) : .cancelled
                     return .question(question)
                 }
                 guard case .permission(var record) = item, record.request.id == permissionId else { return nil }
@@ -502,6 +510,8 @@ public final class AgentChatStore {
             offeredModes = modes
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .earlierHistory(let earlier):
+            hasEarlierHistory = earlier
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)

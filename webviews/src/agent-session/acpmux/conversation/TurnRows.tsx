@@ -391,7 +391,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               />
             )}
             {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-              <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
             )}
             <PinButton rowId={row.id} />
             {text && <ReadAloudButton id={row.id} text={text} />}
