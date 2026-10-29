@@ -23,6 +23,7 @@ async fn fake_hub(
         url: format!("http://{}", listener.local_addr().unwrap()),
         token_command: vec!["must-not-run".into()],
         team_messaging: true,
+        credential: None,
     })
     .unwrap();
     *hub.token.lock().await = Some((Arc::new(Zeroizing::new("test-fixture".into())), 0));

@@ -112,6 +112,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
+        team_messaging: false,
     });
     config.save()
 }
