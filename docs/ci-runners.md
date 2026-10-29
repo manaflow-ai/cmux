@@ -1083,9 +1083,10 @@ label; the tick and feed watch are plain bash, Python and gh (the tick hashes
 with `shasum` where `sha256sum` is missing) but had not run on macOS when this
 was added, so read the first run after setting it. `promote-nightly-next`
 stays on its literal Blacksmith Linux label, and the overflow watch on its
-literal macOS label: they hold App credentials, which only a literal ephemeral
-label may carry (`tests/test_ci_cloud_overflow_switch.py` refuses a secret in
-any job `CI_CONTROL_RUNNER` moves). This moves only
+literal macOS label: they hold App credentials, so `CI_CONTROL_RUNNER`, which
+may name a reused machine, must not move them
+(`tests/test_ci_cloud_overflow_switch.py` refuses a secret in any job it
+moves). This moves only
 control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
 (or the break-glass `LINUX_RUNNER` change below).
 
