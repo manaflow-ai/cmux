@@ -367,14 +367,17 @@ fn can_scope(
     .map(|name| (name.to_owned(), env.get(name).cloned().or_else(|| std::env::var(name).ok())))
     .collect();
     let key = (runner.to_path_buf(), properties.to_vec(), slice_key);
-    if let Some((known, at)) = answers.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
-        && at.elapsed() < ANSWER_TTL
-    {
-        return *known;
-    }
+    let cached = answers
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .filter(|(_, at)| at.elapsed() < ANSWER_TTL)
+        .map(|(known, _)| *known);
     let probe = || {
-        let ok = probe(runner, properties, env);
+        let ok = cached.unwrap_or_else(|| probe(runner, properties, env));
         if ok {
+            // The capability is cached; the shared slice's current settings
+            // are not. Another profile may have changed them since our probe.
             limit_sessions_slice(runner, env);
         }
         ok
@@ -382,7 +385,9 @@ fn can_scope(
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
     let ok = if multi_thread { tokio::task::block_in_place(probe) } else { probe() };
-    answers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (ok, Instant::now()));
+    if cached.is_none() {
+        answers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (ok, Instant::now()));
+    }
     ok
 }
 
@@ -888,5 +893,33 @@ mod tests {
         assert_eq!(tasks_max(&from(&[])), Some(SESSION_TASKS_MAX));
         assert_eq!(tasks_max(&from(&[("ACPMUX_SESSION_TASKS_MAX", "8192")])), Some(8192));
         assert_eq!(tasks_max(&from(&[("ACPMUX_SESSION_TASKS_MAX", "0")])), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cached_scope_capability_still_reconciles_shared_slice_limits() {
+        let _serial = SLICE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let root = tempfile::tempdir().unwrap();
+        let runner = root.path().join("systemd-run");
+        let log = root.path().join("slice.log");
+        crate::test_exec::write_executable(&runner, "#!/bin/sh\nexit 0\n");
+        crate::test_exec::write_executable(
+            &root.path().join("systemctl"),
+            "#!/bin/sh\necho \"$*\" >> \"$FAKE_SCOPE_LOG\"\n",
+        );
+        let mut env = BTreeMap::from([
+            ("FAKE_SCOPE_LOG".to_owned(), log.to_string_lossy().into_owned()),
+            ("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned()),
+        ]);
+        assert!(can_scope(&runner, &[], &env));
+        env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "0".to_owned());
+        assert!(can_scope(&runner, &[], &env));
+        env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned());
+        assert!(can_scope(&runner, &[], &env));
+        let calls = std::fs::read_to_string(log).unwrap();
+        let sets: Vec<_> = calls.lines().filter(|line| line.contains("set-property")).collect();
+        assert_eq!(sets.len(), 3, "a cache hit must still reconcile: {calls}");
+        assert!(sets[1].ends_with("MemorySwapMax=infinity"));
+        assert!(sets[2].ends_with("MemorySwapMax=1048576"));
     }
 }
