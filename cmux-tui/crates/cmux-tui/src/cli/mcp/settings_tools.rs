@@ -5,7 +5,10 @@
 
 use std::collections::BTreeMap;
 
-use cmux_config::{Domains, Refusal, Schema, schema::Row};
+use cmux_config::{
+    Domains, Refusal, Schema,
+    schema::{DomainKind, Kind, Row, Validation},
+};
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
@@ -188,10 +191,10 @@ impl SettingTool {
             return Ok(success(result, true));
         }
         let projected = if let Some(row) = row {
-            if result["key"] != row.key {
-                return Err(v2_tools::invalid("settings owner returned a different key"));
+            if result["key"] != row.key || result["row"]["key"] != row.key {
+                return Err(v2_tools::invalid("settings owner returned no matching schema row"));
             }
-            project(row, &result)
+            project(row, &result["row"])
         } else {
             let values = result
                 .as_array()
@@ -229,11 +232,46 @@ fn project(row: &Row, value: &Value) -> Value {
     let current = &value["value"];
     let redacted = !current.is_null()
         && cmux_config::schema::accepts(row, current, &Domains::default()).is_err();
-    projected["value"] = if redacted { Value::Null } else { current.clone() };
+    projected["value"] = if redacted { Value::Null } else { project_value(row, current) };
     projected["value_redacted"] = json!(redacted);
     projected["customized"] = json!(value["customized"].as_bool().unwrap_or(false));
     projected["managed"] = json!(value["managed"].is_object());
     projected
+}
+
+/// These validators deliberately tolerate ignored object members for file
+/// compatibility. MCP exports only the members the setting actually reads.
+fn project_value(row: &Row, value: &Value) -> Value {
+    let fields = |value: &Value, names: &[&str]| -> Value {
+        match value.as_object() {
+            Some(object) => Value::Object(
+                object
+                    .iter()
+                    .filter(|(key, _)| names.contains(&key.as_str()))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+            None => value.clone(),
+        }
+    };
+    if row.validation == Validation::Domain(DomainKind::CustomDensities) {
+        return match value.as_array() {
+            Some(values) => json!(
+                values
+                    .iter()
+                    .map(|value| fields(
+                        value,
+                        &["id", "name", "level", "spacing", "fontSize", "tokens"]
+                    ))
+                    .collect::<Vec<_>>()
+            ),
+            None => value.clone(),
+        };
+    }
+    if matches!(row.kind, Kind::TimeRange) {
+        return fields(value, &["start", "end"]);
+    }
+    value.clone()
 }
 
 fn text<'a>(arguments: &'a Map<String, Value>, name: &str) -> Result<Option<&'a str>, Value> {

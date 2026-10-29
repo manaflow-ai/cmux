@@ -36,7 +36,8 @@ fn settings_get_returns_effective_value_without_raw_file_value() {
     let mut server = Server::new(
         Fake {
             resource_result: Some(json!({"key": "appearance.theme", "value": "dark",
-                "file_value": {"token": "raw-secret"}, "row": {"secret": "raw-secret"}})),
+                "file_value": {"token": "raw-secret"}, "row": {"key": "appearance.theme",
+                "value": "dark", "customized": true, "secret": "raw-secret"}})),
             ..Fake::default()
         },
         None,
@@ -44,6 +45,7 @@ fn settings_get_returns_effective_value_without_raw_file_value() {
     let result = call(&mut server, "settings_get", json!({"key": "appearance.theme"}));
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["value"], "dark");
+    assert_eq!(result["structuredContent"]["customized"], true);
     assert!(!result.to_string().contains("raw-secret"));
 }
 
@@ -139,9 +141,8 @@ fn settings_list_is_sorted_and_pages_after_filtering_raw_rows() {
 fn settings_get_redacts_invalid_effective_values() {
     let mut server = Server::new(
         Fake {
-            resource_result: Some(
-                json!({"key": "terminal.fontSize", "value": {"token": "secret"}}),
-            ),
+            resource_result: Some(json!({"key": "terminal.fontSize", "value": {"token": "secret"},
+                "row": {"key": "terminal.fontSize", "value": {"token": "secret"}}})),
             ..Fake::default()
         },
         None,
@@ -150,4 +151,25 @@ fn settings_get_redacts_invalid_effective_values() {
     assert_eq!(result["structuredContent"]["value"], Value::Null);
     assert_eq!(result["structuredContent"]["value_redacted"], true);
     assert!(!result.to_string().contains("secret"));
+}
+
+#[test]
+fn settings_reads_omit_ignored_members_of_valid_values() {
+    let mut server = Server::new(
+        Fake {
+            resource_result: Some(json!([
+                {"key": "notifications.quietHours", "value": {"start": "22:00", "end": "08:00", "token": "secret"}},
+                {"key": "appearance.customDensities", "value": [{"id": "comfortable", "name": "Comfortable", "token": "secret"}]}
+            ])),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "settings_list", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(!result.to_string().contains("secret"));
+    assert_eq!(
+        result["structuredContent"]["items"][1]["value"],
+        json!({"start": "22:00", "end": "08:00"})
+    );
 }

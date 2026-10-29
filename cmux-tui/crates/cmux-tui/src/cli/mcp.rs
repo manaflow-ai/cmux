@@ -625,7 +625,8 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
-        tools.extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools
+            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
