@@ -11,31 +11,42 @@ public struct ConversationRunsRequest: DaemonRequest {
     public static let requiredCapability: String? = DaemonCapability.conversationRuns.rawValue
     public var conversation: String
     public var turns: [String]?
+    public var answers: [String]?
     public var beforeStartedAt: UInt64?
     public var limit = 200
 
     private enum CodingKeys: String, CodingKey {
-        case conversation, turns, limit
+        case conversation, turns, answers, limit
         case beforeStartedAt = "before_started_at"
     }
 
-    public init(conversation: String, turns: [String]? = nil, beforeStartedAt: UInt64? = nil) {
+    public init(conversation: String, turns: [String]? = nil, answers: [String]? = nil, beforeStartedAt: UInt64? = nil) {
         self.conversation = conversation
         self.turns = turns
+        self.answers = answers
         self.beforeStartedAt = beforeStartedAt
     }
 }
 
 extension ConversationClient {
     /// Summary pages stop at the visible transcript's oldest message. Reply-key lookups
-    /// additionally find runs that began before their already-loaded replies.
-    public func runs(_ conversation: String, oldestStartedAt: Double, turns: [String]) async throws -> [ConversationRunSummary] {
+    /// additionally find runs that began before their already-loaded replies. Answer
+    /// lookups recover silent reports without a posted reply, including running-agent
+    /// follow-ups whose original run began before the visible question.
+    public func runs(_ conversation: String, oldestStartedAt: Double, turns: [String], answers: [String] = []) async throws -> [ConversationRunSummary] {
         guard await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return [] }
         var result: [ConversationRunSummary] = []
         for offset in stride(from: 0, to: turns.count, by: 200) {
             try Task.checkCancellation()
             let keys = Array(turns.dropFirst(offset).prefix(200))
             result += try await connection.request(ConversationRunsRequest(conversation: conversation, turns: keys)).runs
+        }
+        if await connection.identity?.supports(DaemonCapability.conversationRunAnswers.rawValue) == true {
+            for offset in stride(from: 0, to: answers.count, by: 200) {
+                try Task.checkCancellation()
+                let ids = Array(answers.dropFirst(offset).prefix(200))
+                result += try await connection.request(ConversationRunsRequest(conversation: conversation, answers: ids)).runs
+            }
         }
         var before: UInt64?
         // wakeup-allow: every iteration awaits an owner request; EOF, a nonadvancing cursor, or cancellation ends pagination.

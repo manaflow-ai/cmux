@@ -8,7 +8,8 @@ nonisolated extension DaemonHomeSource {
               await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return [] }
         guard let oldest = window.oldestMessageAt else { return [] }
         let all = (try? await ConversationClient(connection).runs(conversation.rawValue,
-            oldestStartedAt: oldest.timeIntervalSince1970 * 1000, turns: window.turns.map(\.rawValue))) ?? []
+            oldestStartedAt: oldest.timeIntervalSince1970 * 1000, turns: window.turns.map(\.rawValue),
+            answers: window.messageIDs.map(\.rawValue).sorted())) ?? []
         let selected = all.filter { window.contains(turn: $0.turn, answers: $0.answers ?? []) }
         let runs = Dictionary(selected.map { ("\($0.author)\u{0}\($0.id)", $0) }, uniquingKeysWith: { held, next in
             (next.rev ?? next.lastStepSeq ?? 0) > (held.rev ?? held.lastStepSeq ?? 0) ? next : held

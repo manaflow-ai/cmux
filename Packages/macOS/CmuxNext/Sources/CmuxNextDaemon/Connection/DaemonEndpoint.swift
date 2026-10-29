@@ -261,6 +261,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case chiefLive = "chief-live-v1"
     case cloudChiefLive = "cloud-chief-live-v1"
     case conversationRuns = "conversation-runs-v1"
+    case conversationRunAnswers = "conversation-run-answers-v1"
     case cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `cloud-conversation-typing` command and event: typing in Cloud DMs and groups.
     case cloudConversationTyping = "cloud-conversation-typing-v1"
@@ -512,7 +513,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
-             .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
+             .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionTrustVMKind,

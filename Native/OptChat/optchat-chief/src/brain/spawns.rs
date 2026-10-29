@@ -1589,10 +1589,95 @@ impl Brain {
         }
     }
 
+    /// Old spawn records predate the explicit route. Recover it from durable
+    /// provenance, never from whichever conversation Chief currently has open.
+    fn report_conversation(&self, record: &SpawnRecord, sub: &SubRecord) -> Option<String> {
+        let reassigned = !sub.answers.is_empty() && sub.answers != record.answers;
+        if !reassigned && let Some(conversation) = &record.conversation {
+            return Some(conversation.clone());
+        }
+        let answers = if sub.answers.is_empty() {
+            &record.answers
+        } else {
+            &sub.answers
+        };
+        if let Some((conversation, _)) = self
+            .state
+            .side
+            .iter()
+            .find(|(_, floor)| answers.iter().any(|id| floor.ids.contains(id)))
+        {
+            return Some(conversation.clone());
+        }
+        // A legacy tell only persisted its answer ids, not its turn. The
+        // original spawn's turn cannot establish where that new work belongs.
+        // If its answer ids have no retained route, withhold the projection
+        // rather than publish a private follow-up into the original channel.
+        if reassigned {
+            return None;
+        }
+        // The reply key retains the first logged input's id even after the
+        // bounded side-floor message ids have aged out or the host restarted.
+        let first = record
+            .turn
+            .as_deref()?
+            .strip_prefix("turn:optchat:")?
+            .split(':')
+            .next()?
+            .parse::<u64>()
+            .ok()?;
+        let key = self.chat.logged_key(first)?;
+        let (conversation, _) = key.rsplit_once('#')?;
+        Some(conversation.to_owned())
+    }
+
+    /// Resolve old assignments once, before their reports can be consumed. A
+    /// migrated record has an origin, so clearing report_run after delivery can
+    /// never make a later standalone run inherit the old assignment again.
+    fn recover_legacy_report_routes(&mut self, spawn: &str) {
+        let Some(record) = self
+            .state
+            .spawns
+            .get(spawn)
+            .filter(|r| r.conversation.is_none())
+        else {
+            return;
+        };
+        let Some(origin) = self.report_conversation(record, &SubRecord::default()) else {
+            return;
+        };
+        let turn = record.turn.clone().unwrap_or_else(|| spawn.to_owned());
+        let routes: Vec<_> = record
+            .subs
+            .iter()
+            .filter(|sub| {
+                sub.status != SubStatus::Reported && !sub.stopped && sub.report_run.is_none()
+            })
+            .filter_map(|sub| {
+                self.report_conversation(record, sub)
+                    .map(|route| (sub.id.clone(), route))
+            })
+            .collect();
+        let Some(record) = self.state.spawns.get_mut(spawn) else {
+            return;
+        };
+        record.conversation = Some(origin);
+        for (id, conversation) in routes {
+            if let Some(sub) = record.subs.iter_mut().find(|sub| sub.id == id) {
+                sub.report_run = Some((conversation, turn.clone()));
+                if sub.answers.is_empty() {
+                    sub.answers = record.answers.clone();
+                }
+            }
+        }
+        self.save();
+    }
+
     /// Display reports on arrival without changing the Chief turn's status. A separate completed
     /// report record stays anchored to the assignment's question even if its original run was pruned.
     /// The owner upserts stable step ids, so a redelivery updates the same row.
     fn show_reports(&mut self, spawn: &str) {
+        self.recover_legacy_report_routes(spawn);
         let replayed = self.flush_pending_reports();
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
@@ -1602,23 +1687,13 @@ impl Brain {
             .iter()
             .filter(|sub| sub.status == SubStatus::Done && !sub.stopped)
             .filter_map(|sub| {
-                let (conversation, turn) = match &sub.report_run {
-                    Some((conversation, turn)) => (conversation.clone(), Some(turn.clone())),
-                    None => (
-                        record
-                            .conversation
-                            .clone()
-                            .or_else(|| self.state.conversation.clone())?,
-                        record.turn.clone(),
-                    ),
-                };
-                let answers = if sub.answers.is_empty() {
-                    &record.answers
-                } else {
-                    &sub.answers
-                };
+                // Only an outstanding assignment may project a report. The migration
+                // above establishes legacy provenance; consumed assignments stay cleared.
+                let (conversation, turn) = sub.report_run.as_ref()?;
+                let conversation = conversation.clone();
+                let answers = &sub.answers;
                 let mut run = json!({
-                    "id": crate::run::report_run_id(turn.as_deref().unwrap_or(spawn)),
+                    "id": crate::run::report_run_id(turn),
                     "status": "done",
                     "started_at": record.started_ms.max(sub.run_ms),
                     "answers": answers.iter().take(16).collect::<Vec<_>>(),
