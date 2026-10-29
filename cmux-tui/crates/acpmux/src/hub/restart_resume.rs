@@ -842,6 +842,7 @@ mod tests {
             }
         });
         assert!(tools.is_empty());
+        eprintln!("restart-tool-fold: scans={scans} decoded_updates={visits}");
         assert_eq!((scans, visits), (1, records.len()));
     }
 
