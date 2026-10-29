@@ -277,16 +277,16 @@ import Testing
 
     // MARK: A machine's browser
 
-    /// The not-ready page of a machine's tab is never discarded (a wake would start the machine's
-    /// browser for a tab nobody showed or retried); a woken streamed page's last frame stays over
-    /// it while the machine's browser starts, and the streamed page takes it over.
+    /// A woken streamed page's last frame stays over the machine's not-ready page while the machine's browser
+    /// starts, and the streamed page takes it over; a page that says why the browser is not there shows that.
     @Test func aMachinesNotReadyPageHandsTheLastFrameToItsStream() throws {
         let page = Self.machinePage()
-        #expect(!(page is any BrowserHibernationSource), "a machine's not-ready page can be discarded")
+        #expect(page.drawsInFirstFrame, "a not-ready page waits for a picture to cover its message")
         let picture = try #require(Self.picture())
         #expect(!page.showStandIn(picture, decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock()),
                 "a page that says why the browser is not there showed an old frame")
         page.phase = .starting("m1")
+        #expect(!page.drawsInFirstFrame, "a starting page's wake shows no last frame")
         #expect(page.showStandIn(picture, decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock()))
 
         let stream = try RemoteStream()
