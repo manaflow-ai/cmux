@@ -2160,10 +2160,114 @@ pre.cv-math-source {
   padding-left: 0;
   border-left: 0;
 }
-/* "+K more" lines up with the calls' text, past their glyphs. */
-.cv-tool-group.is-flat .cv-tool-group__more {
-  display: flex;
-  padding-left: 22.5px;
+/* An opened run of commands, reads or searches (ToolGroupRow.tsx), as Claude Code desktop lists a
+   run's steps: one rounded group in the cards' ring, the thought that led into the run first in
+   full, then a row per step, hairlines between them, each step's disclosure right after its words
+   (the row's columns: words, disclosure, room, its mark). The rows keep their own glyph-less
+   words, failure words, spinner and background marks. Leo, 2026-10-29: "we want to have that
+   capabilitiy of rendering like claude code desktop has stuff organized." The look is a root
+   choice, `data-tool-steps-look` (the gallery's arms): "card" (default), "tree" (the earlier tree
+   guide, with hairlines) or "zebra" (no ring, alternate rows filled). */
+.cv-steps {
+  --cv-step-inset: 12px;
+  margin: 2px 0 6px;
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cv-step {
+  padding: 4px var(--cv-step-inset);
+}
+.cv-step + .cv-step {
+  border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
+}
+.cv-step > .cv-tool {
+  grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
+  gap: 6px;
+}
+.cv-step > .cv-tool > .cv-tool__icon {
+  display: none;
+}
+.cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  grid-column: 1;
+}
+.cv-step > .cv-tool > .cv-tool__chevron {
+  grid-column: 2;
+  justify-self: start;
+  justify-content: flex-start;
+}
+.cv-step > .cv-tool > .cv-command__meta {
+  grid-column: 4;
+}
+/* A failed call's cause starts under its words: the step has no glyph column. */
+.cv-step > .cv-tool-error {
+  padding-left: 0;
+}
+/* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
+   top of the row's end. */
+.cv-step-thought {
+  color: var(--cv-text-muted);
+}
+.cv-step-thought.is-open {
+  float: right;
+  width: var(--cv-disclosure-slot);
+  min-height: 20px;
+  margin-left: 8px;
+  grid-template-columns: var(--cv-disclosure-slot);
+}
+.cv-step-thought.is-open > .cv-tool__chevron {
+  grid-column: 1;
+}
+.cv-step-thought__body {
+  display: block;
+  padding-block: 1px;
+  line-height: 20px;
+}
+.cv-step.is-thought::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+/* "tree": the tree guide the steps hung off before, its glyphs back, hairlines between rows. */
+:root[data-tool-steps-look="tree"] .cv-steps {
+  --cv-step-inset: 0px;
+  margin-left: 7.5px;
+  padding-left: 14.5px;
+  border: 0;
+  border-left: 1px solid var(--cv-rule);
+  border-radius: 0;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-tool__icon {
+  display: inline-flex;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool {
+  grid-template-columns: var(--cv-glyph-slot) minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  grid-column: 2;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-tool__chevron {
+  grid-column: 3;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
+  grid-column: 5;
+}
+:root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
+  grid-template-columns: var(--cv-disclosure-slot);
+}
+/* "zebra": no ring and no hairlines; every other step on the cards' fill, inset and rounded. */
+:root[data-tool-steps-look="zebra"] .cv-steps {
+  border: 0;
+  border-radius: 0;
+}
+:root[data-tool-steps-look="zebra"] .cv-step {
+  border-radius: 8px;
+}
+:root[data-tool-steps-look="zebra"] .cv-step + .cv-step {
+  border-top: 0;
+}
+:root[data-tool-steps-look="zebra"] .cv-step:nth-child(odd) {
+  background: var(--cv-card-fill);
 }
 .cv-tool__counts {
   display: inline-flex;
