@@ -55,12 +55,29 @@ pub(super) fn notice_text(cap_ms: u64) -> String {
     )
 }
 
+/// The refusal of a steer-only prompt that cannot steer now; `capped`: because the running turn is
+/// past its cap.
+pub(super) fn steer_unavailable(capped: bool) -> RpcError {
+    let why = if capped {
+        "steer.unavailable: the running turn is past its turn cap; other agents' messages wait for its next turn"
+    } else {
+        "steer.unavailable: the session has no running turn that its agent can steer"
+    };
+    RpcError::invalid_params(why)
+        .with_data(json!({"reason": "steer.unavailable", "turnCap": capped}))
+}
+
 impl Hub {
     /// Whether another agent's message (`agent`, from `digest::agent_sender`) that arrives now
     /// waits for the next turn instead of steering in: the running turn is past its cap. Any
     /// agent message past the cap asks for the notice, steer or not. The person's never waits.
-    pub(super) fn turn_cap_holds(self: &Arc<Self>, session: &Arc<Session>, agent: bool) -> bool {
-        if !agent {
+    #[inline(never)]
+    pub(super) fn turn_cap_holds(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        opts: &PromptOptions,
+    ) -> bool {
+        if super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_none() {
             return false;
         }
         let Some((turn_id, cap)) = capped_turn(session, now_ms()) else { return false };
