@@ -56,9 +56,12 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
     /// builds and before the first unpause.
     public var showTiming: TerminalShowTiming?
-    /// The surface counts as shown (its window node: in a window, not parked, its tab's node not hidden):
-    /// only a shown surface sizes itself to its bounds (``TerminalSurfaceView/updateSurfaceSize()``).
+    /// The surface counts as shown (its window node: in a window, not parked, its tab's node not hidden).
     public var shown: Bool = false
+    /// The surface sizes itself to its bounds: the shown state its window node last told it
+    /// (``TerminalSurfaceView/sizesToBounds``); size work follows this, and it equals ``shown`` once every
+    /// visibility delivery has ended.
+    public var sizesToBounds: Bool = false
     /// The surface's visibility nodes from its window node up to the root, "name own/effective" each
     /// (`debug.surfaces`: which node keeps a terminal on screen from counting as shown).
     public var nodeChain: [String] = []
@@ -148,6 +151,7 @@ extension TerminalSession {
             holdingFrame: frameHold.isHolding,
             showTiming: surface.showTiming,
             shown: surface.isShown,
+            sizesToBounds: surface.sizesToBounds,
             nodeChain: surface.nodeChain
         )
     }

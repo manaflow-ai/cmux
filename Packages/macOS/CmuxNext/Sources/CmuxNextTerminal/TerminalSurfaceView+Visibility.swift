@@ -59,8 +59,10 @@ extension TerminalSurfaceView {
         updateOcclusion()
         updateFocus()
         // The edge to shown only: a flip between visible and occluded keeps the layout ready (it sized all along).
-        if shown, !reconciledShown { reconcileShown() }
-        reconciledShown = shown
+        // `sizesToBounds` is set before the reconcile, which sizes through it.
+        let wasSizing = sizesToBounds
+        sizesToBounds = shown
+        if shown, !wasSizing { reconcileShown() }
     }
 }
 

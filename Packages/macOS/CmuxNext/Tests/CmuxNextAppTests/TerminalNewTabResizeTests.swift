@@ -45,7 +45,7 @@ struct TerminalNewTabResizeTests {
             // The terminal the pane shows counts as shown (the journey's state on v2.2.7-opt: on screen and drawing,
             // but never sized again, so its window node stayed hidden): its node chain says which node hides it.
             let surface = try #require(pane.currentTabKey.flatMap { services.cache.existingTerminal($0)?.session.surfaceView })
-            #expect(surface.isShown, "the new tab's terminal is on screen but not shown: \(surface.nodeChain)")
+            #expect(surface.isShown && surface.sizesToBounds, "the new tab's terminal is on screen but does not size itself: \(surface.nodeChain)")
 
             // The window gets smaller, as a person's drag or a window_place leaves it.
             let tall = window.frame
@@ -90,8 +90,8 @@ struct TerminalNewTabResizeTests {
         return Array(content.panes.values)
     }
 
-    /// Each pane's shown terminal and where its surface stands in the visibility tree (the size work
-    /// of a surface that is not shown waits on its window node).
+    /// Each pane's shown terminal and where its surface stands in the visibility tree (a surface that is not
+    /// shown does no size work; its edge to shown sizes it from its bounds, `reconcileShown`).
     private static func describe(_ services: AppServices, _ controller: WindowController) -> String {
         let panes = controller.workspaceContent.map { Array($0.panes.values) } ?? []
         let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height)) key=\($0.isKeyWindow)\n" } ?? ""
@@ -102,7 +102,7 @@ struct TerminalNewTabResizeTests {
             let node = surface.visibilityNode, parent = node.parent
             return "\(pane.paneKey) tab \(key) tabs=\(pane.orderedIDs.map(\.rawValue)) view=\(Int(surface.bounds.width))x\(Int(surface.bounds.height))"
                 + " grid=\(status?.grid.map { "\($0.columns)x\($0.rows)" } ?? "-") fit=\(status?.fitGrid.map { "\($0.columns)x\($0.rows)" } ?? "-")"
-                + " shown=\(surface.isShown) window-node own=\(surface.windowNode.own) effective=\(surface.windowNode.effective) deferred=\(surface.windowNode.deferredCount)"
+                + " shown=\(surface.isShown) window-node own=\(surface.windowNode.own) effective=\(surface.windowNode.effective) sizes-to-bounds=\(surface.sizesToBounds)"
                 + " surface-node own=\(node.own) effective=\(node.effective)"
                 + " tab-node \(parent?.name ?? "nil") own=\(parent.map { "\($0.own)" } ?? "-") effective=\(parent.map { "\($0.effective)" } ?? "-")"
                 + " under \(parent?.parent?.name ?? "nil")"

@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 import Foundation
 import os
@@ -138,10 +139,15 @@ final class InputInvariantMonitor {
             return (controller.content?.panes.values.map { $0 } ?? []).flatMap { pane -> [InputViolation] in
                 guard let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key) else { return [] }
                 var found = entry.session.drawingViolations
-                if sizes, !pane.isSuspended {
-                    let onScreen = entry.session.view.window === window && !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
-                    let settled = services.resizes.isIdle && !entry.io.awaitsEcho
-                    if let problem = entry.session.surfaceView.restingGridMismatch(onScreen: onScreen, ownerSettled: settled) {
+                // A pane whose presentation trails its selection (a launch hold, the one-surface-per-frame queue) is W9's;
+                // a view moving to another window is that window's.
+                if sizes, !pane.isSuspended, pane.stripModel.selectedID?.rawValue == key, entry.session.view.window === window {
+                    let onScreen = !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
+                    // The owner's grid, from the IO's attach machine, only where the owner applies this view's grid and
+                    // none of it waits to be sent or echoed: the same machine answers both, so no frame lies between them.
+                    let owns = services.resizes.isIdle && !entry.io.awaitsEcho && entry.io.appliesViewGrid(reporting: false)
+                    let owner = owns ? entry.io.announcedGrid.map { TerminalGridSize(columns: $0.cols, rows: $0.rows) } : nil
+                    if let problem = entry.session.surfaceView.restingGridMismatch(onScreen: onScreen, ownerGrid: owner) {
                         found.append((InputInvariant.terminalGridFits.rawValue, problem))
                     }
                 }
