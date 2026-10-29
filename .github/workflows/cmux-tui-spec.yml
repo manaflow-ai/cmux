@@ -127,7 +127,8 @@ jobs:
 
       # Pull requests compare with the base their merge commit was made on (its first
       # parent), pushes with the commit before them; with no usable base (a dispatch
-      # or a new branch) the tests run.
+      # or a new branch) the tests run. --no-renames lists both sides of a move, so moving
+      # the IR out of the crate still counts.
       - name: Does the change touch acpmux or its build inputs
         id: scope
         env:
@@ -140,7 +141,7 @@ jobs:
           run=true
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
             && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
-            && changed=$(git diff --name-only "$BASE_SHA" HEAD); then
+            && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
             if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/)' <<<"$changed"; then
               run=false
               echo "No acpmux or cmux-tui build input changed since ${BASE_SHA:0:12}; nothing to check." >> "$GITHUB_STEP_SUMMARY"
