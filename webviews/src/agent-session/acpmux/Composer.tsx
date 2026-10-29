@@ -49,7 +49,6 @@ import {
   matchCommands,
   slashQuery,
   type SlashCommand,
-  type SlashMatch,
 } from "./slashCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
