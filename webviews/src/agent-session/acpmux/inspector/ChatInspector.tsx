@@ -93,6 +93,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
+import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -299,6 +300,7 @@ export function useChatInspector({
   subagent,
   covered = false,
   onUncover,
+  onBeforeOpen,
   beside,
   wide = false,
   onReconnectMcp,
@@ -310,6 +312,8 @@ export function useChatInspector({
   /// Closes that view: opening the Inspector (its toggle, the palette, a running line's count)
   /// brings the chat back first.
   onUncover?: () => void;
+  /// Clears a competing full-height view before any Inspector entry point opens it.
+  onBeforeOpen?: () => void;
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
@@ -362,6 +366,9 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
+  /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
+  /// the chat (App.tsx, the computer use live preview).
+  shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
   // The native command palette shares the header's visibility and uncover behavior.
@@ -400,11 +407,12 @@ export function useChatInspector({
   useEffect(() => {
     if (!on) return;
     return registerPicker(label, () => {
+      onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
       setInspectorOpen(true);
     });
-  }, [on, label]);
+  }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -433,12 +441,14 @@ export function useChatInspector({
   const toggle = () => {
     if (shown) setInspectorOpen(false);
     else {
+      onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
+    onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
     setInspectorSection(section, true);
@@ -453,6 +463,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    shown,
     toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
@@ -628,6 +639,8 @@ function InspectorPresence({
       shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
+  // A card under the panel (the computer use live preview) reads where it goes from the shell.
+  useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);

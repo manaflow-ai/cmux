@@ -9,9 +9,9 @@
 .acpmux-main[data-summary=inline]{min-width:0}
 /* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
    tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */
-.acpmux-shell{--acpmux-summary-column-width:300px}
+.acpmux-shell{--acpmux-summary-column-width:300px;--acpmux-summary-push:0px}
 .acpmux-shell[data-tab-row]>.acpmux-summary-card[data-placement=inline]{margin-top:var(--acpmux-tab-row-height);max-height:calc(100% - var(--acpmux-tab-row-height))}
-.acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]) .acpmux-header[data-tab-row]{width:calc(100% + var(--acpmux-summary-column-width))}
+.acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]){--acpmux-summary-push:var(--acpmux-summary-column-width)}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
