@@ -27,11 +27,10 @@ extension TerminalSurfaceView {
         windowNode.set(window != nil && !isParkedOrHasParkedAncestor ? .visible : .hidden)
     }
 
-    /// Shown in a window: observe it and apply its current scale, screen, occlusion and key state, and the cursor
-    /// layer's shown state (each a no-op when unchanged). The size it owes runs next, from ``windowNode``'s deferred work.
+    /// Shown in a window: observe it and apply its current scale, screen, occlusion and key state (each a no-op
+    /// when unchanged). The size it owes runs next, from ``windowNode``'s deferred work.
     func syncWindowState() {
         let shown = isShown
-        cursorLayer?.setShown(shown) // the cursor's blink runs only while the terminal shows
         observeWindow(shown)
         // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
         if shown { updateContentScale() } else { linkPointer.exited() }
