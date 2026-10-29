@@ -71,7 +71,8 @@ fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
-    assert!(wait_for_screen(&harness.socket, surface, PROMPT).contains(PROMPT));
+    let screen = wait_for_screen(&harness.socket, surface, PROMPT);
+    assert!(screen.contains(PROMPT), "no {:?} on the screen: {screen:?}", PROMPT);
     wait_for_idle(&harness);
     Some((harness, surface))
 }
@@ -176,7 +177,8 @@ fn shell_idle_a_nested_shell_prompt_in_a_foreground_child_is_not_idle() {
     // terminal and prints its own prompt mark. `%s` keeps the marker out of
     // the echoed command line.
     type_text(&harness, surface, "sh -c 'printf \"\\033]133;A\\007%s> \" nested; sleep 600'\r");
-    assert!(wait_for_screen(&harness.socket, surface, "nested>").contains("nested>"));
+    let screen = wait_for_screen(&harness.socket, surface, "nested>");
+    assert!(screen.contains("nested>"), "no {:?} on the screen: {screen:?}", "nested>");
     // The job (the nested sh) leads the foreground, not the shell: asserted on
     // the daemon's own check, so a check that always says own fails here.
     let leader = wait_for_foreign_foreground(&harness, "a nested prompt");
@@ -226,7 +228,8 @@ fn shell_idle_a_program_execed_in_the_shells_place_is_not_idle() {
         surface,
         &format!("exec {other} -c 'printf \"\\033]133;A\\007%s> \" execd; read line'\r"),
     );
-    assert!(wait_for_screen(&harness.socket, surface, "execd>").contains("execd>"));
+    let screen = wait_for_screen(&harness.socket, surface, "execd>");
+    assert!(screen.contains("execd>"), "no {:?} on the screen: {screen:?}", "execd>");
     // The same process leads the foreground, but runs another program.
     let leader = wait_for_foreign_foreground(&harness, "an exec'd shell");
     assert_eq!(leader, Some(shell_pid(&harness, surface)), "the exec'd image keeps the pid");
@@ -260,7 +263,8 @@ fn shell_idle_job_control_off_a_nested_prompt_is_not_idle() {
         return;
     };
     type_text(&harness, surface, "sh -c 'printf \"\\033]133;A\\007%s> \" nested; sleep 600'\r");
-    assert!(wait_for_screen(&harness.socket, surface, "nested>").contains("nested>"));
+    let screen = wait_for_screen(&harness.socket, surface, "nested>");
+    assert!(screen.contains("nested>"), "no {:?} on the screen: {screen:?}", "nested>");
     wait_for_foreign_foreground(&harness, "a nested prompt, job control off");
     assert_not_idle(&harness, Duration::from_millis(500), "a nested prompt, job control off");
 }
@@ -281,7 +285,8 @@ fn shell_idle_a_renderer_grant_ends_idle_for_good() {
     // unseen.
     // `ag''ain` keeps the marker out of the echoed command line.
     type_text(&harness, surface, "echo ag''ain\r");
-    assert!(wait_for_screen(&harness.socket, surface, "again").contains("again"));
+    let screen = wait_for_screen(&harness.socket, surface, "again");
+    assert!(screen.contains("again"), "no {:?} on the screen: {screen:?}", "again");
     assert_not_idle(&harness, Duration::from_millis(500), "a renderer grant, a later prompt");
 }
 
@@ -310,7 +315,8 @@ fn shell_idle_a_stopped_job_is_not_idle() {
     // Ctrl-Z stops it; bash draws the next prompt.
     std::thread::sleep(Duration::from_millis(300)); // test harness: let bash hand the terminal to `sleep`
     type_text(&harness, surface, "\u{1a}");
-    assert!(wait_for_screen(&harness.socket, surface, "Stopped").contains("Stopped"));
+    let screen = wait_for_screen(&harness.socket, surface, "Stopped");
+    assert!(screen.contains("Stopped"), "no {:?} on the screen: {screen:?}", "Stopped");
     wait_for_foreign_foreground(&harness, "a stopped job");
     assert_not_idle(&harness, Duration::from_millis(500), "a stopped job");
 }
