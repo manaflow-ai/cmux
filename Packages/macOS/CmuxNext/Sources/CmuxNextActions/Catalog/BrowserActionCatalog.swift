@@ -36,7 +36,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browser.openInChromium",
                 title: String(localized: "action.browser.openInChromium", defaultValue: "Open in Chromium", bundle: .module),
                 keywords: ["browser", "engine", "chrome", "chromium", "cef", "switch"],
-                category: .browser, symbol: "circle.circle", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "arrow.up.right.square", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.tab], cliName: "browser open-in-chromium"
             ),
             ActionDescriptor(
@@ -448,7 +448,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browserFit",
                 title: String(localized: "action.browserFit", defaultValue: "Fit as Desktop…", bundle: .module),
                 keywords: ["browser", "fit", "desktop", "aspect", "ratio", "16:9", "16:10", "4:3", "21:9", "1280", "1440", "1920", "width", "scale", "viewport"],
-                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "rectangle.dashed", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 arguments: [CatalogArgument.fitChoice], targets: [.pane], cliName: "browser fit"
             ),
             // Fit as Desktop (1280) (cx-2ftlq): the same toggle with a fixed 1280 CSS px layout
@@ -457,7 +457,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "browserFitDesktop1280",
                 title: String(localized: "action.browserFitDesktop1280", defaultValue: "Fit as Desktop (1280)", bundle: .module),
                 keywords: ["browser", "fit", "1280", "desktop", "scale", "zoom out", "viewport", "emulation", "split", "narrow"],
-                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                category: .browser, symbol: "desktopcomputer", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()

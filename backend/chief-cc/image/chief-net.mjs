@@ -1,4 +1,4 @@
-// chief-net: shows or changes what this Cloud Chief machine's agent user may reach on the network (run.mjs
+// chief-net: shows or changes what this Cloud Chief machine's agent user may reach on the network (chief-turn-runner
 // serves it on 127.0.0.1:4018 during a turn; the Worker keeps a change for the Chief's next turns).
 //
 //   chief-net [show]

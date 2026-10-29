@@ -219,7 +219,7 @@ final class AppProviderCredentials: ProviderCredentialsSource {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host")
 
     func providerCredentials() async -> ProviderCredentials? {
-        guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
+        guard let daemon, daemon.supports(DaemonCapability.browserHostProvider.rawValue),
               let connection = daemon.connection else { return nil }
         let reply: BrowserHostProviderRequest.Response
         do {

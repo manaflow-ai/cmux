@@ -84,7 +84,7 @@ struct QuitSessionsTests {
     @Test func endEverythingWithHomeEndsTheRestAndKeepsHome() async throws {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
-        guard h.identity.supports(DaemonCapabilities.shared.workspaceKind) else { return await h.stop() }
+        guard h.identity.supports(DaemonCapability.workspaceKind.rawValue) else { return await h.stop() }
         let hosts: Set<Int32>
         do {
             _ = try await HomeWorkspaceClient(h.connection).ensureHome()
@@ -128,8 +128,8 @@ struct QuitSessionsTests {
     @Test func endKeepLayoutRestartsEachTabInTheSameSplit() async throws {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
-        guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              h.identity.supports(DaemonCapabilities.shared.tabRestartKeptLayout) else { return await h.stop() }
+        guard h.identity.supports(DaemonCapability.endTerminalsKeepLayout.rawValue),
+              h.identity.supports(DaemonCapability.tabRestartKeptLayout.rawValue) else { return await h.stop() }
         let other = h.root.appendingPathComponent("other")
         let hosts: Set<Int32>
         let before: DaemonTree
@@ -183,8 +183,10 @@ struct QuitSessionsTests {
             let generation = await next.identity?.generation
             let second = try #require(after.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                 .first { $0.tabResourceID == keptIDs.last })
-            let output = try await Self.run(#"echo "kept:$PWD""#, in: second, endpoint: endpoint,
-                                            generation: generation, until: "/other")
+            // Wait on a marker the shell computes after the echo: the prompt's OSC 7 cwd report
+            // also contains "/other", and the typed command line itself contains "kept:".
+            let output = try await Self.run(#"echo "kept:$PWD"; echo kept-done-$((40+2))"#, in: second, endpoint: endpoint,
+                                            generation: generation, until: "kept-done-42")
             #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
             let again = try await next.relaunchKeptTabs()
             #expect(again.relaunched == 0 && again.failures.isEmpty, "a second relaunch restarted a running tab: \(again.failures)")

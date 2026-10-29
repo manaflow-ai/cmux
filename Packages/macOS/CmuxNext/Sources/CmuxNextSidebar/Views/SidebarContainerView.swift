@@ -37,7 +37,7 @@ public final class SidebarContainerView: NSView {
     let handle: SidebarResizeHandle
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
-    let railPeek = SidebarRailPeekDriver()
+    let railCards = SidebarRailHoverCards()
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for

@@ -3,7 +3,7 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { formatDuration } from "./turns";
 import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 
@@ -118,11 +118,18 @@ export function ThoughtRow({
   const clipped = liveViewport && tall;
   const open = choice ?? !folds;
   // Only the reader's toggle plays the fold; the automatic fold, and Find opening it, snap.
-  const fold = useFold(open, () => toggled.current);
   const choose = (next: boolean) => {
     setChoice(next);
     if (id) choices.set(id, next);
   };
+  const fold = useAnchoredCollapse({
+    open,
+    onOpenChange: (next) => {
+      toggled.current = true;
+      choose(next);
+    },
+    animates: () => toggled.current,
+  });
   // Find in Chat opens a folded thought that holds its match.
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -167,10 +174,6 @@ export function ThoughtRow({
     );
   const header = thoughtLayout.header();
   const label = done(header === "duration" ? thoughtDuration(item) : undefined);
-  const toggle = () => {
-    toggled.current = true;
-    choose(!open);
-  };
   return (
     <>
       <button
@@ -178,7 +181,8 @@ export function ThoughtRow({
         className="cv-tool is-toggle cv-thought"
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
-        onClick={toggle}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-thought__label" data-find-skip>
           {label}
@@ -195,7 +199,7 @@ export function ThoughtRow({
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div id={bodyId} className="cv-thought__text cv-thought__body selectable" dir="auto">
             <ThoughtText text={text} />
           </div>

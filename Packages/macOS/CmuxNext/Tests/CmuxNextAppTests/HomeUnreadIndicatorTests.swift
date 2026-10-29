@@ -7,7 +7,7 @@ import Testing
 
 /// Home's unread shows outside Home too (Lawrence 2026-10-21: "we need to show unread indicator
 /// in home too"): the conversations the Home list dots (unread messages or Mark as Unread, never a
-/// muted one) are the one source; the sidebar's Home item counts them, whether Home is the
+/// muted one) are the one source; the sidebar's Home item dots while any is, whether Home is the
 /// built-in or the first-party app item.
 @MainActor
 struct HomeUnreadIndicatorTests {
@@ -42,13 +42,14 @@ struct HomeUnreadIndicatorTests {
     }
 
     @Test(arguments: [LayoutItemRef.builtIn(.home), .app("cmux/home")])
-    func theSidebarsHomeItemCountsHomesUnread(_ ref: LayoutItemRef) {
+    func theSidebarsHomeItemDotsHomesUnread(_ ref: LayoutItemRef) {
         let item = LayoutItem(id: LayoutItemID("itm_home"), ref: ref)
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [item])])
         let unread = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, homeUnread: 3)[item.id]
-        #expect(unread?.badge == 3)
+        // A dot, not a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot instead").
+        #expect(unread?.unreadDot == true && unread?.badge == nil)
         let read = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, homeUnread: 0)[item.id]
-        #expect(read?.badge == nil)
+        #expect(read?.badge == nil && read?.unreadDot == false)
         // Home's unread is Home's alone: the Notifications count does not take it.
         let bell = LayoutItem(id: LayoutItemID("itm_bell"), ref: .builtIn(.notifications))
         let both = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [item, bell])])

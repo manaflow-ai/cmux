@@ -203,6 +203,11 @@
   margin-bottom: 12px;
 }
 
+/* Look's characters keep clear of the Bubble Style row's hairline. */
+.group.chief-pet.ui-glass > :not(.rows):has(+ .rows) {
+  margin-bottom: 16px;
+}
+
 /* A Chief row lays out across (picture, name and role, backend, Locked): `.row` above stacks a
    row's lines and loads after styles.css's .chiefs-row, so the row drew every part centred down
    the card. */
@@ -379,6 +384,7 @@
   margin-top: 14px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .theme-tokens-row,
@@ -482,6 +488,7 @@
   gap: 4px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-slider input {
@@ -522,6 +529,7 @@
   gap: 8px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-contrast[data-contrast-low] {
@@ -570,6 +578,63 @@
 .theme-files-row .field {
   flex: 1 1 180px;
   min-width: 0;
+}
+
+/* Colors the Ghostty config sets itself, which no theme changes: what, where, and the way out.
+   A card like the theme rows (the app theme's own border); the icon, on the message's first line,
+   and the message in the warning color, as the settings file's row notices (.notice). */
+.theme-overrides {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  font-size: var(--text-sm);
+}
+
+.theme-overrides > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+/* Text and buttons share a row; when the text would get too narrow, the buttons move under it,
+   aligned with its start. */
+.theme-overrides-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.theme-overrides-text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--warning);
+}
+
+/* The where is secondary: muted, so only the message reads as the warning. */
+.theme-overrides-source {
+  color: var(--muted-text);
+  overflow-wrap: break-word;
+}
+
+.theme-overrides-error {
+  color: var(--danger);
+}
+
+.theme-overrides-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
@@ -682,6 +747,7 @@
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .theme-count {
@@ -833,6 +899,7 @@
   margin: 0;
   color: var(--muted-text);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .chief-pet-preview {
@@ -923,6 +990,7 @@
   color: var(--text);
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-art {
@@ -940,12 +1008,14 @@
 .chief-pet-choice strong {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-help {
   color: var(--muted-text);
   font-size: var(--text-caption);
   line-height: 1.35;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue

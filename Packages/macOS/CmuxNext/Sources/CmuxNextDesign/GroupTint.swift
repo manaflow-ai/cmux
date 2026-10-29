@@ -1,16 +1,27 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
-/// A workspace group's color (cx-25az): one of the group palette tokens, or
-/// a custom color a person picked. The wire form is the token's raw value
-/// or `#RRGGBB`, the two shapes the daemon stores for a group color.
+/// A workspace group's color (cx-25az): one of the group palette tokens, a
+/// custom color a person picked, or no color at all. The wire form is the
+/// token's raw value, `#RRGGBB`, or `none`, the shapes the daemon stores for
+/// a group color.
 public nonisolated enum GroupTint: Hashable, Sendable {
     case palette(GroupColor)
     case custom(ThemeRGB)
+    /// No color (Lawrence 2026-10-22: "need to be able to remove all workspace colors"): the
+    /// header draws in the sidebar's own colors, with no dot, band, wash or members' line.
+    case none
 
-    /// A token or `#RRGGBB`; nil for anything else.
+    /// The wire form of ``none``. A group with no stored color is not this: it draws a picked
+    /// palette color (`GroupColor.unset(id:)`).
+    public static let noneWire = "none"
+
+    /// A token, `#RRGGBB` or `none`; nil for anything else.
     public init?(wire: String) {
-        if let token = GroupColor(rawValue: wire) {
+        if wire == Self.noneWire {
+            self = .none
+        } else if let token = GroupColor(rawValue: wire) {
             self = .palette(token)
         } else if wire.hasPrefix("#"), let rgb = ThemeRGB(cssHex: wire) {
             self = .custom(rgb.withAlpha(1))
@@ -29,10 +40,14 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         switch self {
         case let .palette(token): token.rawValue
         case let .custom(rgb): rgb.withAlpha(1).description
+        case .none: Self.noneWire
         }
     }
 
-    /// The palette token, grey (none) for a custom color.
+    /// Whether this is no color.
+    public var isNone: Bool { self == .none }
+
+    /// The palette token, grey for a custom color or no color.
     public var token: GroupColor {
         if case let .palette(token) = self { token } else { .grey }
     }
@@ -43,6 +58,7 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         switch self {
         case let .palette(token): token.headerFill
         case let .custom(rgb): Self.readable(rgb).nsColor
+        case .none: .clear
         }
     }
 
@@ -53,9 +69,12 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// green header).
     @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        // No color: the bar is the sidebar itself, its ink the sidebar's text.
+        if isNone { return (tokens.sidebarBackground.withAlpha(1), tokens.textPrimary) }
         let color = switch self {
         case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
+        case .none: tokens.sidebarBackground.withAlpha(1)
         }
         return tokens.chip(color, inks: .onColor)
     }
@@ -68,6 +87,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return switch self {
         case let .palette(token): (themed ? token.themeRGB(tokens) : nil) ?? token.swatchRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
+        // No color: a line and dot nobody sees.
+        case .none: tokens.sidebarBackground.withAlpha(0)
         }
     }
 
@@ -83,9 +104,14 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(wash)
     }
 
+    /// A sidebar group's members' line under the solid band: the band's exact rest color
+    /// (`headerChip(themed:).fill`, Leo 2026-10-19), so bar and line read as one group. No color: unseen (`lineRGB`).
+    @MainActor public func lineFill(themed: Bool) -> NSColor { isNone ? lineColor(themed: themed) : headerChip(themed: themed).fill.nsColor }
+
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
     @MainActor public func headerWash(themed: Bool) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        if isNone { return tokens.sidebarBackground.withAlpha(1) }
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: themed), tokens.isDark ? 0.14 : 0.10)
     }
 
@@ -97,6 +123,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         case let .custom(rgb):
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             return tokens.sidebarBackground.withAlpha(1).mixed(toward: Self.readable(rgb), tokens.isDark ? 0.34 : 0.26).nsColor
+        case .none:
+            return .clear
         }
     }
 

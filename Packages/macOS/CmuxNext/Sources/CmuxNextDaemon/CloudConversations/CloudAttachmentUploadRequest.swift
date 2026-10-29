@@ -8,7 +8,7 @@ import Foundation
 public struct CloudAttachmentUploadRequest: DaemonRequest, AttachmentUploadStep {
     public typealias Response = ConversationAttachmentUploadRequest.Response
     public static let command = "cloud-attachment-upload"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudAttachments
+    public static let requiredCapability: String? = DaemonCapability.cloudAttachments.rawValue
     /// The step, encoded as is.
     public var step: ConversationAttachmentUploadRequest
 

@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same
@@ -50,6 +51,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         public let background: String
         public let foreground: String
         public let palette: [String: String]
+        /// The app's one highlight (`ThemeTokens.textSelection`: the terminal's selection color,
+        /// `appearance.highlightColor` over it): code pages (diffs, Markdown code, the editor)
+        /// select in it, as text fields and the rest of the page do.
+        public let selectionBackground: String
         /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
         /// neither cmux.json nor the Ghostty config names one.
         public let fontFamily: String?
@@ -59,12 +64,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
+            selectionBackground = WebTheme.hex(tokens.textSelection)
             self.fontFamily = fontFamily
         }
 
         var json: [String: Any] {
             ["type": type, "background": background, "foreground": foreground, "palette": palette,
-             "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
         }
     }
 
@@ -89,6 +95,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
+        let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
@@ -101,9 +108,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
             "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
-            // The tooltip's frosted tint (`TooltipSurface`, the native tooltip's): the popup
-            // surface at the least alpha that keeps the text 4.5:1 over any backdrop.
-            "--cmux-tooltip-tint": Self.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint),
+            // The tooltip's frosted tint and its ink (`TooltipSurface`, the native tooltip's): the
+            // popup surface at the least alpha that keeps the ink 4.5:1 over any backdrop, never
+            // solid; the ink is the text unless a low-contrast theme needs it pushed.
+            "--cmux-tooltip-tint": Self.css(tooltip.tint),
+            "--cmux-tooltip-ink": Self.css(tooltip.ink),
             // Floating cards' material (`CardMaterial`, the native `makeOverlayPanel` cards and the
             // find pill): the popup surface, mostly opaque, at the least alpha that keeps primary
             // and secondary text 4.5:1 over any backdrop, and its rim.
@@ -116,9 +125,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
-            // `cursor-color`); without a selection color, the accent tint pages always used.
-            "--cmux-text-selection": tokens.terminalSelection.map(Self.css)
-                ?? "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+            // with `appearance.highlightColor` over it, and `cursor-color`). Without a readable
+            // selection color, the same derived one as native text fields and the omnibar
+            // (`Palette.textSelection`): one highlight app-wide (user 2026-10-28).
+            "--cmux-text-selection": Self.css(tokens.textSelection),
             "--cmux-caret": Self.css(tokens.caret),
             // The accent and the glyphs on it (`ThemeTokens.accent`: the text color, or the
             // theme's own hue with appearance.accent).
@@ -128,7 +138,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-lit-glyph": Self.css(tokens.litGlyph),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
-        ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+        ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -358,5 +368,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+    }
+
+    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
+                        alpha: (color.alpha * 1000).rounded() / 1000)
     }
 }

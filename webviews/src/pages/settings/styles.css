@@ -35,7 +35,7 @@
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
   --motion-hover: var(--cmux-motion-quick, 80ms);
   --motion-focus: var(--cmux-motion-quick, 80ms);
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font: 13px/1.4 var(--font-ui);
 }
 
 /* The native bootstrap's html rule (!important) wins; this matches it for the dev server. */
@@ -123,6 +123,10 @@ mark {
   overscroll-behavior: contain;
   --content-fade-top: 18px;
   --content-fade-bottom: 28px;
+  /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
+     the fade, not half-faded under it. */
+  scroll-padding-top: calc(var(--content-fade-top) + 6px);
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
   mask-image:
     linear-gradient(
       to bottom,
@@ -171,7 +175,7 @@ mark {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -243,6 +247,51 @@ mark {
   color: var(--muted-text);
 }
 
+.harness-update-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.harness-update-cards:empty {
+  display: none;
+}
+
+.harness-update-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.harness-update-card-copy {
+  min-width: 0;
+}
+
+.harness-update-card-copy strong {
+  display: block;
+  font-weight: 600;
+}
+
+.harness-update-card-copy p {
+  margin: 3px 0 0;
+}
+
+.harness-update-card-copy code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.harness-update-card > .button {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .rows {
   border-top: 1px solid var(--border);
 }
@@ -264,6 +313,11 @@ mark {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* A device row's Full access switch, under the device's own line (Settings > Devices). */
+.row-main.device-full-access {
+  padding-top: 8px;
 }
 
 .row-label {
@@ -474,6 +528,7 @@ mark {
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .field.number[data-inherited] {
@@ -685,6 +740,7 @@ mark {
 .font-option-tag {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .font-option-check {
@@ -940,17 +996,6 @@ mark {
   opacity: 0.4;
 }
 
-/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
-@keyframes accounts-busy {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.accounts-status[data-busy] .accounts-dot {
-  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
-}
-
 .accounts-body {
   display: flex;
   flex-direction: column;
@@ -965,6 +1010,205 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
+.devices-header {
+  justify-content: flex-start;
+}
+
+.devices-header > .devices-status {
+  margin-right: auto;
+}
+
+.devices-status[data-tone="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.devices-status[data-tone="attention"] .accounts-dot {
+  border-color: var(--warning);
+}
+
+.devices-status[data-tone="danger"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.devices-status[data-tone="neutral"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.devices-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.devices-access,
+.devices-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-relays-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.devices-form {
+  margin-top: 6px;
+}
+
+.devices-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.devices-field > .field,
+.devices-field > .select {
+  max-width: 360px;
+}
+
+.devices-urls {
+  resize: vertical;
+}
+
+.devices-priority {
+  width: 80px;
+}
+
+.devices-history-scroll {
+  overflow-x: auto;
+}
+
+.devices-history {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.devices-history th,
+.devices-history td {
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.devices-history th {
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.devices-history tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.devices-nowrap {
+  white-space: nowrap;
+}
+
+/* History fits its card at any page width: fixed columns, names and details wrap between words
+   (a single word longer than its column still breaks rather than spill), headers wrap too. */
+.devices-history-fixed {
+  table-layout: fixed;
+}
+
+.devices-history-fixed th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.devices-col-time {
+  width: 13%;
+}
+
+.devices-col-event {
+  width: 16%;
+}
+
+.devices-col-device {
+  width: 15%;
+}
+
+.devices-col-scope {
+  width: 11%;
+}
+
+.devices-col-detail {
+  width: 18%;
+}
+
+.devices-col-duration {
+  width: 12%;
+}
+
+.devices-wrap {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
+.devices-device .row-main {
+  flex-wrap: wrap;
+}
+
+.devices-device .row-label {
+  min-width: min(100%, 16em);
+}
+
+.devices-device .row-label > .row-help {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.devices-device .row-control {
+  max-width: 100%;
+}
+
+.devices-copy {
+  padding: 0 6px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* The event pill never clips its word: a longer event wraps inside it. */
+.devices-pill {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-text);
+}
+
+.devices-pill[data-tone="success"] {
+  color: var(--success, var(--text));
+}
+
+.devices-pill[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.devices-pill[data-tone="danger"] {
+  color: var(--danger);
 }
 
 /* All Workspaces | This Workspace (cx-t2x.5). */
@@ -1018,6 +1262,7 @@ mark {
   color: var(--text);
   font-size: var(--text-caption);
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {
@@ -1067,6 +1312,7 @@ mark {
   color: var(--muted-text);
   font-size: var(--text-title);
   border-style: dashed;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 /* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
@@ -1154,6 +1400,7 @@ mark {
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Folder lists (picker.pinned, files.roots). */
@@ -1235,6 +1482,7 @@ mark {
 .appearance-bar-question {
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
@@ -1306,6 +1554,7 @@ mark {
   margin: 0 0 10px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-tiles {
@@ -1430,6 +1679,7 @@ mark {
 .density-notice {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-import {

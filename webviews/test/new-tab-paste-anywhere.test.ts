@@ -57,7 +57,12 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
   /// The two New Tab designs: the one-input screen (the default) and the classic page (`layout` "a").
   const designs = [
     { design: "screen", field: ".nt-field", chips: ".nt-box .acpmux-attachment-image", context: {} },
-    { design: "classic", field: ".acpmux-newtab-field", chips: "", context: { layout: "a" } },
+    {
+      design: "classic",
+      field: ".acpmux-newtab-field",
+      chips: ".acpmux-newtab-box .acpmux-attachment-image",
+      context: { layout: "a" },
+    },
   ] as const;
   type Design = (typeof designs)[number];
 
@@ -157,15 +162,14 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
           await page.close();
         });
 
-        if (design.chips)
-          test("an image pasted outside the field is a chip in the New Tab box", async () => {
-            const page = await newTab(name, design);
-            expect(await paste(page, { image: true })).toBe(true);
-            await page.locator(design.chips).first().waitFor();
-            expect(await page.locator(design.chips).count()).toBe(1);
-            expect(await fieldText(page, design)).toBe("");
-            await page.close();
-          });
+        test("an image pasted outside the field is a chip in the New Tab box", async () => {
+          const page = await newTab(name, design);
+          expect(await paste(page, { image: true })).toBe(true);
+          await page.locator(design.chips).first().waitFor();
+          expect(await page.locator(design.chips).count()).toBe(1);
+          expect(await fieldText(page, design)).toBe("");
+          await page.close();
+        });
 
         test("a paste into another text field stays in that field", async () => {
           const page = await newTab(name, design);

@@ -18,7 +18,7 @@ final class PhoneChiefFeedback: PhoneFeedbackSink {
 
     func send(_ clip: PhoneFeedbackClip) async throws {
         guard let connection = home?.chief.connection,
-              home?.chief.supports(DaemonCapabilities.shared.localConversations) == true else {
+              home?.chief.supports(DaemonCapability.localConversations.rawValue) == true else {
             throw PhoneFeedbackError.chiefNotRunning
         }
         let client = ConversationClient(connection)

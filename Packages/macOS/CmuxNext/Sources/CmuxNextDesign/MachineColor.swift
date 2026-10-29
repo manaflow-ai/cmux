@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// A machine's identity color: the color the person picked for it
 /// (`appearance.machineColors`, MachineColorOverrides), else one of the theme's
@@ -23,12 +24,12 @@ public nonisolated struct MachineColor: Sendable {
 
     /// The color in the active theme scope, with the person's picks (`ThemeStore.machineColors`).
     @MainActor public var color: NSColor {
-        rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens, overrides: ThemeStore.shared.machineColors).nsColor
+        rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens, overrides: (ThemeContext.activeScope ?? ThemeScope.app).store.machineColors).nsColor
     }
 
     /// The person's pick for this machine in the active theme scope; nil without one. For marks
     /// that stay quiet unless the person colored the machine (a tab's machine badge).
     @MainActor public var pickedColor: NSColor? {
-        ThemeStore.shared.machineColors.rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor
+        (ThemeContext.activeScope ?? ThemeScope.app).store.machineColors.rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor
     }
 }

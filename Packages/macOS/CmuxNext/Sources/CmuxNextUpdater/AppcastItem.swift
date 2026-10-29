@@ -21,12 +21,15 @@ nonisolated public struct AppcastItem: Sendable, Equatable {
     public var date: Date?
     /// `sparkle:channel`; nil is Sparkle's default channel, which every updater accepts.
     public var sparkleChannel: String?
+    /// Whether the item lists `sparkle:deltas` (nightly-next adds them minutes after the full archive).
+    public var listsDeltas: Bool
 
     public init(version: String, displayVersion: String? = nil, title: String? = nil,
                 minimumSystemVersion: SystemVersion? = nil, maximumSystemVersion: SystemVersion? = nil,
                 releaseNotesURL: URL? = nil, downloadURL: URL? = nil, itemDescription: String? = nil, date: Date? = nil,
-                sparkleChannel: String? = nil) {
+                sparkleChannel: String? = nil, listsDeltas: Bool = false) {
         self.itemDescription = itemDescription
+        self.listsDeltas = listsDeltas
         self.sparkleChannel = sparkleChannel
         self.date = date
         self.version = version

@@ -36,6 +36,8 @@ enum AgentPaneTheme {
             // The page's own edges (composer, menus, code and tool cards) are
             // mixed from the text color, so it also gets the mode itself.
             "borders": Borders.current.mode.rawValue,
+            // Transcript response focus outlines follow the same optional focus-ring setting.
+            "focusRingEnabled": DesignSettings.shared.focusRing.enabled,
             // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
             "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
             // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
@@ -47,6 +49,8 @@ enum AgentPaneTheme {
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
             // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
             "subagentTray": AgentPaneTunables.subagentTray.value,
+            // Debug Settings agentPane.debug.scrollerFade (AgentPaneTunables+ScrollerFade.swift).
+            "scrollerFade": AgentPaneTunables.scrollerFade.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

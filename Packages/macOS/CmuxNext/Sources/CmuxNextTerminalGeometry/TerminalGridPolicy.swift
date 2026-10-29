@@ -64,9 +64,41 @@ public nonisolated struct TerminalGridPolicy: Sendable {
     public private(set) var held = false
     private var heldForce = false
 
+    /// The grid the view's layout spring will land at, reported at its start (``finalSized(_:)``);
+    /// nil at rest.
+    public private(set) var final: TerminalGridSize?
+
+    /// The view's layout spring (a split, a close) will land at a size that fits `grid`. Returns the
+    /// grid to report now, at the start (nil when the owner already has it): the program in the
+    /// terminal redraws at its final size while the pane moves (Lawrence 2026-10-23), and the
+    /// landing at that grid reports nothing more (``releaseHeld()``).
+    public mutating func finalSized(_ grid: TerminalGridSize) -> TerminalGridSize? {
+        guard ownsGeometry else { return nil }
+        final = grid
+        guard heldForce || grid != reported else { return nil }
+        heldForce = false
+        reported = grid
+        return grid
+    }
+
+    /// Whether the surface may draw its reflow preview (the view's grid, before the owner announces
+    /// it): not while a final grid was reported that the view does not fit yet. The owner's grid is
+    /// then the final one, drawn cropped or padded in the moving view, never reflowed back to the
+    /// view's size of the frame.
+    public var previewsViewGrid: Bool {
+        guard let final else { return true }
+        return final == desired
+    }
+
+    /// The view's layout spring landed (or stopped): its final grid no longer stands in for the view's.
+    public mutating func motionLanded() {
+        final = nil
+    }
+
     /// The layout spring landed: the grid held while it moved, to report once (nil when none
-    /// waits or the view is back at the reported grid).
+    /// waits or the view is back at the reported grid, the final grid sent at the start).
     public mutating func releaseHeld() -> TerminalGridSize? {
+        final = nil
         guard held, let desired else { return nil }
         return viewSized(desired)
     }

@@ -21,6 +21,7 @@ uniffi::setup_scaffolding!();
 fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
+        init_logging();
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("cmux-mobile-link-ffi")
@@ -28,6 +29,21 @@ fn runtime() -> &'static Runtime {
             .build()
             .expect("tokio runtime")
     })
+}
+
+/// The library's own log, for rigs and measurement: off unless the app runs
+/// with `CMUX_MOBILE_LOG` (a `tracing` filter such as
+/// `info,cmux_mobile_link::dial=debug`; a simulator gets it as
+/// `SIMCTL_CHILD_CMUX_MOBILE_LOG`), to stderr (`simctl launch --stderr`).
+/// Without it nothing the link logs (its route, roams, TURN allocations)
+/// reaches anyone on the phone side.
+fn init_logging() {
+    let Ok(filter) = tracing_subscriber::EnvFilter::try_from_env("CMUX_MOBILE_LOG") else { return };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 /// Run `future` on the library runtime and await it from any executor.
@@ -239,6 +255,59 @@ impl Drop for LinkHandle {
 }
 
 impl LinkHandle {
+    /// A remote surface's video stream: `browser` or `surface`.
+    async fn open_remote_surface(
+        &self,
+        service: &'static str,
+        args_json: String,
+        observer: Arc<dyn BrowserObserver>,
+    ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
+        let args: serde_json::Value = serde_json::from_str(&args_json)
+            .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?;
+        if !args.is_object() {
+            return Err(CmuxMobileError::InvalidArgument {
+                message: "args_json must be a JSON object".into(),
+            });
+        }
+        let mut args = args;
+        let link = self.link.clone();
+        let media = self.media.clone();
+        on_runtime(async move {
+            // With a media lane the page's video rides it (`video: "track"`:
+            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
+            // ignores the field and streams on the channel, which the viewer
+            // reads either way.
+            let lane = match link.media() {
+                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => {
+                    Some(lane)
+                }
+                _ => None,
+            };
+            // This tab's frames carry `video_tag` (media/tag.rs): the lane
+            // switches tabs without telling the phone when, and a refused
+            // `open` never switches it, so each viewer keeps its own frames
+            // beside the others instead of taking them from the tab before.
+            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
+            if lane.is_some() {
+                args["video"] = serde_json::Value::from("track");
+                args["video_tag"] = serde_json::Value::from(tag);
+            }
+            let channel = link.open(service, args).await?;
+            let track = match lane {
+                Some(lane) => {
+                    let frames = lane.subscribe_shared().await;
+                    Some(browser::Track { lane, frames, tag })
+                }
+                None => None,
+            };
+            let (sender, receiver) = channel.split();
+            // A shown browser tab wants the WebRTC media session (if this
+            // link has one); it lets go when hidden or closed.
+            Ok(browser::start(Arc::new(sender), receiver, observer, track, media))
+        })
+        .await
+    }
+
     async fn open(
         &self,
         service: String,
@@ -306,50 +375,18 @@ impl LinkHandle {
         args_json: String,
         observer: Arc<dyn BrowserObserver>,
     ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
-        let args: serde_json::Value = serde_json::from_str(&args_json)
-            .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?;
-        if !args.is_object() {
-            return Err(CmuxMobileError::InvalidArgument {
-                message: "args_json must be a JSON object".into(),
-            });
-        }
-        let mut args = args;
-        let link = self.link.clone();
-        let media = self.media.clone();
-        on_runtime(async move {
-            // With a media lane the page's video rides it (`video: "track"`:
-            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
-            // ignores the field and streams on the channel, which the viewer
-            // reads either way.
-            let lane = match link.media() {
-                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => {
-                    Some(lane)
-                }
-                _ => None,
-            };
-            // This tab's frames carry `video_tag` (media/tag.rs): the lane
-            // switches tabs without telling the phone when, and a refused
-            // `open` never switches it, so each viewer keeps its own frames
-            // beside the others instead of taking them from the tab before.
-            let tag = u32::from_le_bytes(uuid::Uuid::new_v4().as_bytes()[..4].try_into().unwrap_or_default());
-            if lane.is_some() {
-                args["video"] = serde_json::Value::from("track");
-                args["video_tag"] = serde_json::Value::from(tag);
-            }
-            let channel = link.open("browser", args).await?;
-            let track = match lane {
-                Some(lane) => {
-                    let frames = lane.subscribe_shared().await;
-                    Some(browser::Track { lane, frames, tag })
-                }
-                None => None,
-            };
-            let (sender, receiver) = channel.split();
-            // A shown browser tab wants the WebRTC media session (if this
-            // link has one); it lets go when hidden or closed.
-            Ok(browser::start(Arc::new(sender), receiver, observer, track, media))
-        })
-        .await
+        self.open_remote_surface("browser", args_json, observer).await
+    }
+
+    /// Open a streamed Mac simulator surface (a phone tab: `surface` service,
+    /// args JSON `{"tab"}`). The stream is a browser tab's (the same viewer,
+    /// media lane and lane ownership); only the Mac's source differs.
+    pub async fn open_surface(
+        &self,
+        args_json: String,
+        observer: Arc<dyn BrowserObserver>,
+    ) -> Result<Arc<BrowserStream>, CmuxMobileError> {
+        self.open_remote_surface("surface", args_json, observer).await
     }
 
     /// The shown workspace has browser tabs: open the WebRTC media session
@@ -380,6 +417,19 @@ impl LinkHandle {
         let link = self.link.clone();
         let rtt = on_runtime(async move { link.ping().await }).await?;
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
+    }
+
+    /// Whether the link is alive within `timeout_ms`: the round trip in
+    /// milliseconds on the pong, `None` when other frames from the Mac came
+    /// first (a slow relay's queue; the link is alive), an error only when
+    /// nothing came back at all or the link closed. The app's heartbeat,
+    /// foreground and presence checks use it, so a busy link is never
+    /// closed for a late pong (link-reliability-20261023.md).
+    pub async fn probe(&self, timeout_ms: u32) -> Result<Option<u32>, CmuxMobileError> {
+        let link = self.link.clone();
+        let timeout = Duration::from_millis(u64::from(timeout_ms));
+        let rtt = on_runtime(async move { link.probe(timeout).await }).await?;
+        Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
     }
 
     pub fn transport(&self) -> Transport {
@@ -765,7 +815,7 @@ fn media_manager(
         ice,
         options: DialOptions {
             include_loopback: request.include_loopback,
-            relay_only: request.relay_only,
+            relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
             block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
             ..DialOptions::default()
         },
@@ -1043,7 +1093,9 @@ async fn dial(
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,
-        relay_only: request.relay_only,
+        // The rig's relay-only and UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
+        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),

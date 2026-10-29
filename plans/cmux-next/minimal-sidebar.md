@@ -35,44 +35,49 @@ unnecessary. C is a narrow sidebar, not a rail. D drops "where am I".
 
 ## Behavior
 
+Lawrence 2026-10-21, on the first version (the whole sidebar opened on hover): "im talking about
+the floating card... floating card relative to the workspace row". So:
+
 - `sidebar.style`: `standard` (default, unchanged) or `rail`. Settings > Appearance > Sidebar Style,
   cmux.json, agent-settable.
 - At rest: a 6 pt rail on the sidebar's side (left or right, `sidebar.side`). One tick per
   workspace in sidebar order; a collapsed group is one tick with its most urgent state; a gap
-  between groups. Selected tick spans the rail in the primary text color; unread ticks take the
-  unread color; working ticks are brighter than idle. The rail never scrolls: past what fits,
-  every pitch shrinks in proportion down to a 1 pt tick. Nothing animates at rest (0 frames).
-- Open: rest the pointer on the rail for 150 ms (a pass to the window edge does not open it), or
-  click it, or a rename/reveal. The full sidebar opens at the user's width over the content on
-  the sidebar's width motion (`Motion.sidebar`: Reduce Motion and the animation switches make it
-  one frame). The open sidebar has the window's surface fill so it reads over the content.
-- Close: 350 ms after the pointer leaves, unless the person is busy there (a mouse button down,
-  i.e. a drag; a menu tracking; a field being edited), which waits another 350 ms.
-- Clicking a tick selects that workspace.
-- Cmd-1…9 hint chips (held modifier) sit beside the ticks while the rail is closed.
-- The sidebar toggle hides everything, rail included; shown again, the rail is back.
-- Home, groups, drag reorder, the hover card and the footer search button are the full sidebar's,
-  unchanged, one hover away.
+  between groups. Selected tick spans the rail; unread ticks take the unread color; working ticks
+  are brighter than idle. Past what fits, every pitch shrinks in proportion. Nothing animates.
+- Each tick stands for a row: the rail's width, one pitch tall; a group's rows touch.
+- Pointing at a mark shows one small floating card for that workspace: its name, a dot for
+  unread or working, and its Cmd-digit. The card's top is on the row's top; it sits exactly one
+  device pixel past the rail; moving to the next mark retargets the same card, with no hide in between (the
+  gaps between groups bridge). The card is the app's one hover card (`HoverCardCoordinator`),
+  anchored by the sidebar list's one rule (a486): the mark's row as a band across the sidebar
+  column (`HoverCardEscapeGeometry.rowBand` over `sidebarColumnOnScreen`), placement `.besideRow`.
+  It stays on the visible screen; it is not separately kept inside the window.
+- A click on a mark selects that workspace.
+- Toggle Sidebar (its shortcut, the titlebar button, the palette) opens the full sidebar over the
+  content, and closes it back to the rail. Hover never opens it. A rename opens it too.
+- Cmd-1…9 hint chips (held modifier) sit beside the ticks while the rail shows.
 
 ## Code
 
 - `SidebarLayoutStyle` and `SidebarSectionsPreferences.style` (CmuxNextDesign);
   `SidebarSectionsSetting.styleDescriptor` and parse (CmuxNextSettings).
-- `SidebarRailLayout` (pure geometry) and `SidebarRailPeek` (pure open/close reducer) in
-  `CmuxNextSidebar/Logic`.
+- `SidebarRailLayout` (pure geometry: ticks and their rows) in `CmuxNextSidebar/Logic`.
 - `SidebarModel.style`, `isRailOpen`, `displayWidth` (6 pt while the rail is closed),
   `contentInset` (what the content keeps beside the sidebar: the rail's 6 pt in rail style).
-- `SidebarRailView` draws the ticks; `SidebarRailPeekDriver` runs the reducer with two one-shot
-  `DemandTimer`s and a hit-transparent tracking view; `SidebarContainerView+Rail` wires them.
+- `SidebarRailView` draws the ticks and feeds the pointer to `SidebarRailHoverCards` (a
+  `HoverCardSource`, with `SidebarRailCardView` as its card); `SidebarContainerView+Rail` wires them.
+- `SidebarRailView.cardAnchor` uses `HoverCardEscapeGeometry.rowBand` (no geometry of its own).
+- `debug.pointer_hover {rail: "top"|"middle"|"bottom"|index}` and the capture tours
+  `scripts/cmux-next/media/tours/rail-card-{top,middle,bottom}.json`.
 - `WindowRootView+SidebarRail` swaps the content and title pins from the sidebar's edge to the
   window edge plus `contentInset` in rail style (constraints found by identifier).
 - `WindowShortcutHints` takes the rail's tick frames while the rail shows.
 
-Tests: `SidebarRailTests` (CmuxNextAppTests), `SidebarStyleSettingTests` (CmuxNextSettingsTests).
+Tests: `SidebarRailTests`, `SidebarRailHoverCardTests` (CmuxNextAppTests), `SidebarStyleSettingTests`
+(CmuxNextSettingsTests).
 
 ## Not done / open
 
-- Dwell and grace are constants, not Debug Settings tunables yet.
 - No shadow on the open sidebar; its edge is the resize handle's resting line (none with
   `appearance.borders = none`).
 - A Chromium page under the open sidebar is clipped by the existing sidebar occluder; not

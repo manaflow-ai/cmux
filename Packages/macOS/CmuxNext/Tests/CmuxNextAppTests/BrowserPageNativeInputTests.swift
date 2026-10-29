@@ -91,7 +91,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         }
 
         func read(_ expression: String) async throws -> NativeInputJSON {
-            let value = try await page.evaluate("JSON.parse(JSON.stringify(\(expression)))", world: .page)
+            let value = try await page.evaluate("JSON.parse(JSON.stringify(\(expression)))", world: .page, gesture: .agent)
             return NativeInputJSON(foundation: value.foundationValue) ?? .null
         }
 

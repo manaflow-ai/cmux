@@ -79,22 +79,38 @@ function editorURL(host: DevHostParams, path: string): string {
   return url.toString();
 }
 
+/** Normalizes an absolute POSIX path without touching the filesystem. */
+function normalizedAbsolutePath(value: string): string | undefined {
+  if (!value.startsWith("/")) return undefined;
+  const parts: string[] = [];
+  for (const part of value.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length === 0) return undefined;
+      parts.pop();
+    } else parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+
+/** Browser dev may open only files in the checkout named by the daemon link. */
+function pathInCheckout(host: DevHostParams, value: string): boolean {
+  const root = host.cwd && normalizedAbsolutePath(host.cwd);
+  const file = normalizedAbsolutePath(value);
+  return Boolean(root && file && (file === root || file.startsWith(`${root}/`)));
+}
+
 function openFile(host: DevHostParams, params: Record<string, unknown> | undefined): DevHostReply {
   const path = typeof params?.path === "string" ? params.path : "";
-  if (!path) return unsupported("file.open");
+  if (!path || !pathInCheckout(host, path)) return unsupported("file.open");
   const url = editorURL(host, path);
-  if (typeof window.open === "function") window.open(url, "_blank", "noopener");
+  if (typeof window !== "undefined" && typeof window.open === "function") window.open(url, "_blank", "noopener");
   else console.info("cmux dev file.open", path);
   return { ok: true, value: { path, url } };
 }
 
-function safeReadResult(host: DevHostParams, params: Record<string, unknown> | undefined): unknown {
-  const root = typeof params?.path === "string" ? params.path : (host.cwd ?? ".");
-  return { root, search_root: root, results: [], truncated: false };
-}
-
-/// A read the dev server answers for real, from the slot's folder. A server without that route
-/// (the pane-only vite.config.acpmux-pane.mjs) gets the empty stub instead.
+/// A read the dev server answers for real, from the slot's folder. Without a recorded slot folder
+/// the host refuses it instead of reading outside the selected checkout.
 async function servedRead(host: DevHostParams, method: string, request: Request): Promise<DevHostReply> {
   const params = { ...request.params, cwd: request.params?.cwd ?? host.cwd };
   let response: Response;
@@ -105,35 +121,11 @@ async function servedRead(host: DevHostParams, method: string, request: Request)
       body: JSON.stringify({ method, params }),
     });
   } catch {
-    return stubReply(host, method, request);
+    return unsupported(`${method} (start the checkout dev host)`);
   }
-  if (response.status === 404) return stubReply(host, method, request);
+  if (response.status === 404) return unsupported(`${method} (start the checkout dev host)`);
   if (!response.ok) return unsupported(method);
   return (await response.json()) as DevHostReply;
-}
-
-function stubReply(host: DevHostParams, method: string, request: Request): DevHostReply {
-  switch (method) {
-    case "file.search":
-      return { ok: true, value: safeReadResult(host, request.params) };
-    case "git.status":
-      return {
-        ok: true,
-        value: { root: host.cwd ?? ".", detached: false, branch: "dev", ahead: 0, behind: 0 },
-      };
-    default:
-      return {
-        ok: true,
-        value: {
-          root: host.cwd ?? ".",
-          files: [],
-          additions: 0,
-          deletions: 0,
-          total_files: 0,
-          files_omitted: 0,
-        },
-      };
-  }
 }
 
 function gestureReply(): DevHostReply {
@@ -192,7 +184,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "newTab.setTemplate":
     case "newTab.editWidgets":
     case "nowPlaying.command":
-    case "importCards.act":
     case "newTab.touched":
     case "newTab.warm":
     case "shortcut.edit":

@@ -84,14 +84,17 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     const [sendNow, ...others] = sendNowButtons();
     expect(sendNow).toBeDefined();
     expect(others).toEqual([]);
-    // Send now sits on the bubble's own row, at its left (Claude's queued prompts; Leo, 2026-10-21):
-    // inside the bubble, out of the layout, never a row under it, and nothing trails the bubble but
-    // the action row every prompt has.
+    // Send now leads the prompt's action row under the bubble (Leo, 2026-10-24): no clock, no
+    // underline and nothing in the bubble's left gutter.
     const pending = sendNow!.closest(".cv-user__pending")!;
-    expect(pending.classList.contains("cv-user__pending--beside")).toBe(true);
-    const bubble = pending.parentElement!;
+    expect(pending.classList.contains("cv-user__pending--beside")).toBe(false);
+    expect(pending.querySelector("svg")).toBeNull();
+    const actions = pending.parentElement!;
+    expect(actions.classList.contains("cv-user__actions")).toBe(true);
+    const bubble = actions.previousElementSibling!;
     expect(bubble.classList.contains("cv-user__bubble")).toBe(true);
     expect(bubble.textContent).toContain("Also keep the old flag working");
+    expect(actions.firstElementChild).toBe(pending);
     const message = bubble.closest(".cv-user")!;
     expect([...message.children].map((child) => child.className)).toEqual([
       "ui-glass cv-user__bubble selectable",
@@ -105,13 +108,16 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(asked.map((request) => request.params)).toEqual([{ sessionId: CHAT, promptId: "p-steer", op: "send_now" }]);
     expect(daemon.requests.some((request) => request.method === "session/cancel")).toBe(false);
 
-    // The agent read it: no Send now any more.
+    // This daemon does not accept Send now, so the control stays until the agent reads it.
+    expect(sendNowButtons()).toHaveLength(1);
+    // A later prompt marks this steer read. Its queue controls disappear without a closing timer.
     await act(async () => {
       daemon.push(record([["mux", "user_message", { promptId: "p-next", text: "Then open a PR" }]], 3));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await render();
-    expect(sendNowButtons()).toEqual([]);
+    expect(sendNowButtons()).toHaveLength(0);
+    expect(message.querySelector(".cv-user__pending")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

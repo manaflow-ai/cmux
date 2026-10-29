@@ -20,7 +20,15 @@ use super::super::sys::HostStream;
 use super::super::*;
 use super::codec::encode_hex;
 
-pub(crate) const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
+/// How long an explicit Terminate (closing a terminal tab) gives the
+/// terminal's programs to exit after SIGHUP before it sends SIGTERM. Long
+/// enough for an editor to write its swap file or an agent to flush its
+/// transcript, short enough that a closed tab's processes do not linger.
+const HOST_HANGUP_GRACE_MS: u64 = 2_000;
+pub(crate) const HOST_HANGUP_GRACE: Duration = Duration::from_millis(HOST_HANGUP_GRACE_MS);
+/// How long programs that outlived SIGHUP get after SIGTERM before SIGKILL.
+const HOST_SIGTERM_GRACE_MS: u64 = 1_000;
+pub(crate) const HOST_SIGTERM_GRACE: Duration = Duration::from_millis(HOST_SIGTERM_GRACE_MS);
 // Match the remote PTY bridge's bounded outstanding-write precedent.
 // This protects the local control-response waiter table from an unbounded
 // burst of durable API input without serializing every receipt.
@@ -29,10 +37,26 @@ pub(crate) const MAX_PENDING_INPUT_ACKS: usize = 256;
 // existing frame-payload ceiling preserves admission for one maximum-sized
 // legal Input while preventing 256 such frames from accumulating.
 pub(crate) const MAX_PENDING_INPUT_ACK_BYTES: usize = MAX_FRAME_PAYLOAD;
-pub(crate) const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
-pub(crate) const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
-pub(crate) const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
-pub(crate) const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+const HOST_KILL_WAIT_MS: u64 = 2_000;
+pub(crate) const HOST_KILL_WAIT: Duration = Duration::from_millis(HOST_KILL_WAIT_MS);
+const HOST_PTY_DRAIN_GRACE_MS: u64 = 250;
+pub(crate) const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(HOST_PTY_DRAIN_GRACE_MS);
+const HOST_FORCED_DRAIN_WINDOW_MS: u64 = 100;
+pub(crate) const HOST_FORCED_DRAIN_WINDOW: Duration =
+    Duration::from_millis(HOST_FORCED_DRAIN_WINDOW_MS);
+/// The longest a host's Terminate sequence can take (`terminate_and_wait`):
+/// the SIGHUP and SIGTERM graces, the session and child waits after SIGKILL,
+/// and the PTY drain windows.
+const HOST_TERMINATE_BOUND_MS: u64 = HOST_HANGUP_GRACE_MS
+    + HOST_SIGTERM_GRACE_MS
+    + 2 * HOST_KILL_WAIT_MS
+    + HOST_PTY_DRAIN_GRACE_MS
+    + 2 * HOST_FORCED_DRAIN_WINDOW_MS;
+/// How long an owner waits for a host it asked to end: the host's whole
+/// Terminate sequence plus slack for its exit receipt.
+pub(crate) const HOST_TERMINATE_WAIT: Duration =
+    Duration::from_millis(HOST_TERMINATE_BOUND_MS + 2_000);
+pub(crate) const HOST_LAUNCH_ROLLBACK_WAIT: Duration = HOST_TERMINATE_WAIT;
 pub(crate) const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a host serves no client before it ends its terminal, in the
 /// builds that have an orphan grace at all (cx-hostorphan, cx-t2sqm D1).
@@ -76,6 +100,19 @@ pub(crate) fn host_orphan_env() -> Option<(&'static str, String)> {
         return None;
     }
     Some((HOST_ORPHAN_GRACE_ENV, DEV_HOST_ORPHAN_GRACE.as_secs().to_string()))
+}
+
+/// The orphan grace the terminal processes this daemon starts get: an
+/// explicit [`HOST_ORPHAN_GRACE_ENV`] in its environment, else
+/// [`DEV_HOST_ORPHAN_GRACE`] in builds with one, else none. The holder gets
+/// it too (`cmux_holder::ORPHAN_GRACE_ENV`), so holder terminals end after
+/// the same grace as hosted ones.
+#[cfg(unix)]
+pub(crate) fn spawned_orphan_grace() -> Option<Duration> {
+    if std::env::var_os(HOST_ORPHAN_GRACE_ENV).is_some() {
+        return read_host_orphan_grace();
+    }
+    DEV_ORPHAN_GRACE.load(Ordering::Acquire).then_some(DEV_HOST_ORPHAN_GRACE)
 }
 
 /// A `SIGTERM` ends a host only after this long with no client stream, so a

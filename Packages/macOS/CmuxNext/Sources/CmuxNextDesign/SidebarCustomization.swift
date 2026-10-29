@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// What a user customization draws in the sidebar (the sidebar hosts it; the app platform
 /// renders it) (cx-swovq.1, cx-swovq.2; Lawrence 2026-10-14:
@@ -84,7 +85,8 @@ public nonisolated struct SidebarRowDecoration: Hashable, Sendable {
 public nonisolated struct SidebarCardFacts: Hashable, Sendable {
     public struct Fact: Hashable, Sendable {
         /// `needsInput`, `notification`, `unread`, `agent`, `task`, `lastReply`, `presence`, `command`, `folder`, `branch`,
-        /// `pullRequest`, `machine`, `status` (a reported status entry) or `more`.
+        /// `pullRequest`, `machine`, `status` (a reported status entry), `more` or `needsYou`. `branch` reads with its
+        /// repository when known ("cmux · main"), and then no `folder` shows; a home folder shows none.
         public var kind: String
         public var text: String
         /// A running fact's start (Unix ms): the card adds a live elapsed time.

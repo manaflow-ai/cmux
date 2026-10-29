@@ -2,7 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+public import Foundation
 import WebKit
+
+public extension Notification.Name {
+    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
+    static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
+}
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
@@ -160,6 +166,11 @@ extension AgentPaneView {
     /// report from a message's More button (`popUp`) opens that message's menu under the button now.
     func receiveContextMenuReport(_ body: Any?) {
         if let anchor = AgentPaneContextMenu.popUpAnchor(report: body) {
+            if let seq = (body as? [String: Any])?["forkDestinations"] as? Int {
+                // task-owner: one destination menu per Option-click; ends when the menu closes
+                Task { @MainActor [weak self] in self?.popUpForkMenu(through: seq, anchor: anchor) }
+                return
+            }
             let target = AgentPaneMessageTarget(report: body)
             // task-owner: one menu per More press, after the page's message returns; it ends when the menu closes
             Task { @MainActor [weak self] in self?.popUpMessageMenu(target: target, anchor: anchor) }
@@ -192,6 +203,25 @@ extension AgentPaneView {
         menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
     }
 
+    func popUpForkMenu(through seq: Int? = nil, anchor: CGRect? = nil) {
+        let view: NSView = page?.focusView ?? webView
+        guard view.window != nil else { return }
+        let menu = AgentForkMenu.menu { [weak self] destination in
+            var params = ["placement": destination.rawValue]
+            if let seq { params["throughSeq"] = String(seq) }
+            self?.runMessageAction(seq == nil ? "chat.forkTo" : "chat.fork", params)
+        }
+        menu.themeRows(in: themeScope.fullStrength)
+        guard let anchor else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            return
+        }
+        let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
+            ?? webView.pageZoom * webView.magnification
+        let bottom = anchor.maxY * zoom + 2
+        menu.popUp(positioning: nil, at: NSPoint(x: anchor.minX * zoom, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
+    }
+
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
@@ -206,7 +236,10 @@ extension AgentPaneView {
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
-            pasteTarget: webView))
+            pasteTarget: webView,
+            inspectElement: AgentPaneTunables.pointerInspector.value ? {
+                NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
+            } : nil))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
@@ -226,6 +259,10 @@ extension AgentPaneView {
     /// the user's gesture, as a native permission shortcut is.
     private func fork(through seq: Int) {
         AgentPanePersonInput.record(model.transport.gestures)
-        evaluateScript("window.cmuxAcpmuxActions?.['chat.fork']?.({ throughSeq: \(seq) });")
+        if NSEvent.modifierFlags.contains(.option) {
+            popUpForkMenu(through: seq)
+        } else {
+            runMessageAction("chat.fork", ["throughSeq": String(seq)])
+        }
     }
 }

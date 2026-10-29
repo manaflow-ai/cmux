@@ -18,5 +18,13 @@ public nonisolated struct BrowserPageTunables {
         help: "While a page loads, the page area keeps the pane's theme background instead of the engine's white, so a dark theme does not flash white before the page paints. A loaded page with no background of its own is still white.",
         default: true, code: "BrowserPageTunables.loadingBackground")
 
-    public static var all: [TunableDescriptor] { [loadingBackground.descriptor] }
+    /// The webview UI pointer picker (plans/cmux-next/ui-pointer.md). Off by
+    /// default while the first webview slice is being dogfooded; when on,
+    /// Toggle Browser Design Mode becomes the picker shortcut and toolbar action.
+    public static let uiPointer = Tunable<Bool>.toggle(
+        "browserPage.uiPointer", section, "UI pointer picker",
+        help: "Enables the webview picker that highlights an element on hover and attaches its DOM, styles, component metadata and crop to the agent composer.",
+        default: false, code: "BrowserPageTunables.uiPointer")
+
+    public static var all: [TunableDescriptor] { [loadingBackground.descriptor, uiPointer.descriptor] }
 }

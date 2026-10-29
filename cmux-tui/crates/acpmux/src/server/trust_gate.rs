@@ -88,7 +88,9 @@ pub(super) async fn check(
         | method::MUX_BTW
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
-        | method::MUX_SET_TOOLS => session_key(params).ok().map(str::to_owned),
+        | method::MUX_SET_TOOLS
+        // A reconnect starts the server's configured command again, in the chat's folder.
+        | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
             .get("handoffId")
             .and_then(Value::as_str)
@@ -114,6 +116,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
 }
@@ -207,6 +210,10 @@ async fn check_prewarm(
     web: bool,
 ) -> Result<(), RpcError> {
     let Some(cwd) = params.get("cwd").and_then(Value::as_str) else { return Ok(()) };
+    // A release starts nothing: it only takes a hint back.
+    if params.get("release").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
     let family = params.get("harness").and_then(Value::as_str).unwrap_or_default();
     let family = resolve_family(hub, family).await;
     folder_answered(paths.clone(), cwd.to_owned(), family, web).await
@@ -241,7 +248,9 @@ pub(super) fn gated(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::LocalApp | Origin::Web => true,
         Origin::Peer => matches!(via, Some("web" | "app")),
-        Origin::Local => false,
+        // Native inline /btw uses the app marker on the local status socket so the
+        // daemon applies the same folder-trust gate as a LocalApp WebSocket.
+        Origin::Local => via == Some("app"),
     }
 }
 
@@ -309,4 +318,17 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
         crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
         crate::trust::Failure::Record(message) => RpcError::internal(message),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_inline_btw_app_marker_is_trust_gated() {
+        let params = serde_json::json!({"_meta": {"acpmux": {"via": "app"}}});
+        assert!(gated(Origin::Local, &params));
+        assert!(!gated(Origin::Local, &serde_json::json!({})));
+        assert!(gated(Origin::LocalApp, &serde_json::json!({})));
+    }
 }

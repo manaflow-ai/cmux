@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.filepages`: the file pages for live checks (diff-host S6, S7, R96). `{}` reports every
 /// file page tab (its file and whether it has a page), the recovery drafts on disk and the toasts
 /// of every window. `{restore: <draft id>}` runs the launch notice's Open for that draft (the
@@ -19,10 +19,10 @@ enum DebugFilePages {
     private static var lastOpenLink: String?
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
-        let drafts = await RecoveryDraftStore.shared.drafts()
+        let drafts = await services.recoveryDrafts.drafts()
         var result: [String: JSONValue] = [:]
         if let id = params["restore"]?.stringValue {
-            guard let draft = drafts.first(where: { $0.id == id }), let handler = RecoveryDraftStore.shared.restoreHandler else {
+            guard let draft = drafts.first(where: { $0.id == id }), let handler = services.recoveryDrafts.restoreHandler else {
                 return ["restored": false]
             }
             handler(draft)

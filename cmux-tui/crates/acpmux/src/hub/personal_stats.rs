@@ -27,16 +27,9 @@ impl Hub {
     /// now. A `status idle` record with `detail: restart` says so in the log
     /// and session.json, and the stats end that wait at the record before
     /// it, not at whatever status comes next.
-    pub(super) fn mark_lost_waits(
-        &self,
-        waiting: &[String],
-        hosted: &std::collections::HashSet<String>,
-    ) {
-        for id in waiting.iter().filter(|id| !hosted.contains(*id)) {
-            let Some(session) = self.sessions.lock().unwrap().get(id).cloned() else { continue };
-            let status = SessionStatus::Idle.to_string();
-            self.append(&session, "mux", "status", json!({"status": status, "detail": "restart"}));
-            self.save_meta(&session);
-        }
+    pub(super) fn mark_lost_wait(&self, session: &Session) {
+        let status = SessionStatus::Idle.to_string();
+        self.append(session, "mux", "status", json!({"status": status, "detail": "restart"}));
+        self.save_meta(session);
     }
 }

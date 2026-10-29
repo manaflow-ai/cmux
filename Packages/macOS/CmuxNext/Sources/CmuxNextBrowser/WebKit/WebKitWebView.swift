@@ -83,7 +83,7 @@ final class WebKitWebView: WKWebView {
             owner.emit(.contextMenu(BrowserContextMenuRequest(
                 items: [], target: hit, location: .zero,
                 insertLeading: { [weak menu] rows in if let menu { WebKitContextHit.insert(rows, into: menu) } },
-                completion: { _ in }
+                completion: nil
             )))
         }
         for item in menu.items {

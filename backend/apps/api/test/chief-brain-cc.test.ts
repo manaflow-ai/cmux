@@ -1,12 +1,10 @@
-import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
-import { importJWK, SignJWT, type JWK } from "jose"
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { fireAlarm } from "./setup/alarm.ts"
+import { describe, expect, it } from "vitest"
 import { memberUpsert } from "../src/domains/team-members.ts"
 import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
 import { createHash } from "node:crypto"
 import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.ts"
+import { CC_NOTICES, CC_PARTIAL, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
+import { enabledChief, history, http, inDO, op, replies, send, sessionToken, testEnv, useCcSettings, worker } from "./chief-brain-cc-harness.ts"
 
 /**
  * The Claude Code route of a Cloud Chief (chief-brain-cc/): for an owner on the paid-model list, each turn
@@ -14,67 +12,10 @@ import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.t
  * API) and streams back to POST /v1/chief-cc/<agent>/<conversation>/notes with a per-turn token; the reply
  * is posted as the Chief, the VM is deleted by its exact id, the team needs no Cloud credits, and the next
  * turn's input carries the earlier reply (the Chief's memory). Freestyle and the Tailscale API are faked at
- * their HTTP boundary; the fake VM plays the turn machine (backend/chief-cc/image/run.mjs) by posting notes
+ * their HTTP boundary; the fake VM plays the turn machine (chief-turn-runner, Native/OptChat/chief-turn) by posting notes
  * to the Worker. One file on purpose: it replaces globalThis.fetch and the route's settings.
  */
-type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
-const testEnv = env as unknown as TestEnv
-const worker = (exports as unknown as { default: Fetcher }).default
-const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
-const sessionToken = async (sub: string) =>
-  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
-    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
-    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
-    .setAudience(testEnv.STACK_PROJECT_ID)
-    .setSubject(sub)
-    .setIssuedAt()
-    .setExpirationTime("10m")
-    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
-const http = async (method: string, path: string, token: string, body?: unknown) => {
-  const res = await worker.fetch(`https://api.test${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-  return { status: res.status, text: await res.clone().text(), json: (await res.json().catch(() => null)) as any }
-}
-const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
-const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
-
-const SETTINGS = { CHIEF_CC_ENABLED: "1", CHIEF_CC_SNAPSHOT: "sh-test-chief-cc", CHIEF_CC_FREESTYLE_API_KEY: "test-freestyle-key-not-real", CHIEF_CC_FREESTYLE_API_URL: "https://freestyle.test", CHIEF_CC_TS_OAUTH: JSON.stringify({ client_id: "test-client", client_secret: "test-client-secret-not-real" }) }
-const saved: Record<string, string | undefined> = {}
-beforeAll(() => {
-  for (const k of [...Object.keys(SETTINGS), "CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA", "CHIEF_CC_OWNERS"]) saved[k] = testEnv[k]
-  Object.assign(testEnv, SETTINGS)
-})
-afterAll(() => {
-  for (const [k, v] of Object.entries(saved)) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
-})
-afterEach(() => vi.restoreAllMocks())
-
-/** `cc`: on the Claude Code route's owner list (and the paid-model list); `paid`: on the paid-model list only. */
-const enabledChief = async (sub: string, lists: "cc" | "paid" | false) => {
-  const listed = lists !== false
-  const token = await sessionToken(sub)
-  const ensured = (await op(token, "user.ensure", {})).value
-  const user = ensured.id as string
-  if (listed) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${user}`
-  if (lists === "cc") testEnv.CHIEF_CC_OWNERS = `${testEnv.CHIEF_CC_OWNERS ?? ""},${user}`
-  const chief = (await op(token, "chief.create", { display_name: "Route Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
-  const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
-  let on = { status: 0, json: {} as any, text: "" }
-  for (let i = 0; i < 20 && on.status !== 200; i++) {
-    await fireAlarm(userDO)
-    on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, listed ? { enabled: true, model: "claude-opus-5-5" } : { enabled: true })
-  }
-  expect(on.status, on.text).toBe(200)
-  return { token, user, team: ensured.personal_team as string, chief }
-}
-const replies = async (token: string, conversation: string, chief: string, n: number) => {
-  for (let i = 0; i < 300; i++) {
-    const mine = (await history(token, conversation)).filter((m) => m.author === chief)
-    if (mine.length >= n) return mine
-    await new Promise((r) => setTimeout(r, 50))
-  }
-  throw new Error(`no ${n} chief replies`)
-}
-const send = (token: string, conversation: string, key: string, text: string) => op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
+useCcSettings()
 
 describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
   it("keeps a teammate-authored turn out of the bypass-permissions VM route", async () => {
@@ -144,6 +85,16 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Neither the tailnet key nor the turn token reaches a reply or a run.
     const all = JSON.stringify([await history(token, chief.main_conversation), runs, run])
     for (const secret of [...cloud.keys, ...cloud.started.map((s) => s.input.token)]) expect(all).not.toContain(secret)
+  })
+
+  it("starts the tailnet key request with the VM create, not after it (the setup calls that do not depend on each other overlap)", async () => {
+    const cloud = fakeCloud(() => "ok", undefined, undefined, { create: 250, key: 250 })
+    const { token, chief } = await enabledChief("chief-cc-setup-overlap", "cc")
+    expect((await send(token, chief.main_conversation, "o1", "hello")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const at = (n: string) => cloud.events.find((e) => e.name === n)!.at
+    // Serial setup would start the key request only after the create ended (250 ms later).
+    expect(at("key:start")).toBeLessThan(at("create:end"))
   })
 
   it("opens the public Internet (IPv4 and IPv6, DNS) to the agent by default: applied after the VM joins, before the turn starts", async () => {
@@ -749,6 +700,35 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(cloud.snapshots.get(snap)!.deleted).toBe(true)
   })
 
+  it("finishes a turn whose brain object was evicted while the machine worked: the machine's posts revive it", async () => {
+    // Production, Oct 22: a long turn outlived its conversation brain object; the machine's notes and result
+    // reached a fresh object with no running turn (401), and the turn later failed as "timeout" although the
+    // reply was ready, so the person saw "I could not reach the model".
+    const brainOf = (s: Started) => {
+      const [, agent, conversation] = /\/v1\/chief-cc\/([^/]+)\/([^/]+)\/notes$/.exec(s.input.notes_url)!
+      return testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/${conversation}`))
+    }
+    // The fake's own machine never posts (it runs on the brain object's timers, which the eviction ends); this
+    // test plays the machine itself, from outside the object, as the real VM is.
+    const cloud = fakeCloud(() => "unused", () => new Promise<void>(() => undefined))
+    const { token, chief } = await enabledChief("chief-cc-evicted", "cc")
+    expect((await send(token, chief.main_conversation, "e1", "a long task")).ok).toBe(true)
+    for (let i = 0; i < 300 && cloud.started.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+    const s = cloud.started[0]!
+    await inDO(brainOf(s), async (_i, state) => {
+      try {
+        state.abort("test: evicted while the turn machine works")
+      } catch {}
+    }).catch(() => undefined)
+    await machine(s, "Back after a restart.")
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Back after a restart.")
+    expect(cloud.made).toHaveLength(1)
+    expect(cloud.started).toHaveLength(1)
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
+    expect(runs.map((r) => r.status)).toEqual(["done"])
+  })
+
   it("refuses notes without the running turn's token, and after the turn ended", async () => {
     const cloud = fakeCloud(() => "noted")
     const { token, chief } = await enabledChief("chief-cc-notes", "cc")
@@ -770,5 +750,79 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
     expect(reply.parts[0].text).not.toBe("never")
     expect(cloud.made).toHaveLength(0)
+  })
+
+  // Turns never fail silently (Lawrence, Oct 24: "super reliable"): a turn that ends early posts what it streamed, a
+  // turn whose machine or model failed before anything ran is run again on a fresh machine, and a failed turn says
+  // what happened in plain words, never "could not reach the model".
+  const stream = (s: Started, events: Array<object>) => notes(s, { run: s.run, events })
+  const progress = "Found it: the steering race is in brain-turn.ts. I pushed the fix and the deploy is running."
+  const toolThenText = async (s: Started) => {
+    await stream(s, [{ gen: 0, type: "tool", id: "toolu_a", name: "Bash", input: { command: "git push" } }, { gen: 0, type: "tool_done", id: "toolu_a", error: false }, { gen: 0, type: "done" }])
+    await stream(s, [{ gen: 1, type: "text_start" }, { gen: 1, type: "text_delta", delta: progress }, { gen: 1, type: "text_done", text: progress }, { gen: 1, type: "done" }])
+  }
+  it.each([
+    // The runner on the snapshot today: the time limit SIGKILLs Claude Code, the result is "failed" with no reply.
+    ["the current runner", { status: "failed", reply: "", error: "claude exited on signal 9: ", total_ms: 20 * 60_000 }],
+    // The runner that keeps the streamed text itself.
+    ["a runner that keeps the text", { status: "partial", reason: "timeout", reply: progress, error: "the time limit stopped Claude Code", total_ms: 20 * 60_000 }]
+  ])("posts what a long tool-heavy turn streamed when the time limit stops it (%s), not the failed notice", async (_, result) => {
+    const cloud = fakeCloud(() => async (s) => {
+      await toolThenText(s)
+      await notes(s, { run: s.run, result: { ...result, model: s.input.model, last_gen: 1 } })
+    })
+    const { token, chief } = await enabledChief(`chief-cc-long-${result.status}`, "cc")
+    expect((await send(token, chief.main_conversation, "l1", "fix the steering race and deploy")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe(`${CC_PARTIAL.timeout}\n\n${progress}`)
+    expect(reply.parts[0].text).not.toBe(TURN_FAILED_NOTICE)
+    // Its tools ran: never run a second time.
+    expect(cloud.started).toHaveLength(1)
+    // The turn is given the time it has, in its prompt and as the machine's limit (Freestyle's run cap is above it).
+    expect(cloud.started[0]!.input.max_ms).toBe(20 * 60_000)
+    expect(cloud.started[0]!.input.system).toContain("You have 20 minutes for this turn")
+    expect(cloud.made[0]!.body.maxRunSeconds).toBeGreaterThan(20 * 60 + 60)
+    expect(cloud.made[0]!.body.ttlSeconds).toBeGreaterThan(cloud.made[0]!.body.maxRunSeconds)
+  })
+
+  it("runs a turn again on a fresh machine when its machine did not start, and says so only after three tries", async () => {
+    const cloud = fakeCloud(() => "Started on the second machine.", undefined, (n) => n === 1)
+    const { token, chief } = await enabledChief("chief-cc-boot-retry", "cc")
+    expect((await send(token, chief.main_conversation, "b1", "hello")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Started on the second machine.")
+    expect(cloud.made).toHaveLength(2)
+    expect(cloud.deleted).toContain("vm-test1")
+    expect(cloud.started.map((s) => s.vm)).toEqual(["vm-test2"])
+
+    const dead = fakeCloud(() => "never", undefined, () => true)
+    const other = await enabledChief("chief-cc-boot-dead", "cc")
+    expect((await send(other.token, other.chief.main_conversation, "b2", "hello")).ok).toBe(true)
+    const [notice] = await replies(other.token, other.chief.main_conversation, other.chief.id, 1)
+    expect(notice.parts[0].text).toBe(CC_NOTICES.machine)
+    expect(dead.made).toHaveLength(3)
+    expect(dead.started).toHaveLength(0)
+    expect(dead.deleted.sort()).toEqual(dead.made.map((m) => m.id).sort())
+  })
+
+  it("runs a turn again once when the model failed before any tool ran, and never after a tool ran", async () => {
+    const overloaded = { status: "failed", reply: "", error: "API Error: 529 overloaded" }
+    const cloud = fakeCloud((_, n) => (n === 1 ? async (s) => void (await notes(s, { run: s.run, result: overloaded })) : "Second try worked."))
+    const { token, chief } = await enabledChief("chief-cc-model-retry", "cc")
+    expect((await send(token, chief.main_conversation, "m1", "hello")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Second try worked.")
+    expect(cloud.started.map((s) => s.vm)).toEqual(["vm-test1", "vm-test2"])
+
+    const ran = fakeCloud(() => async (s) => {
+      await stream(s, [{ gen: 0, type: "tool", id: "toolu_b", name: "Bash", input: { command: "rm -rf build" } }, { gen: 0, type: "tool_done", id: "toolu_b", error: false }])
+      await notes(s, { run: s.run, result: overloaded })
+    })
+    const other = await enabledChief("chief-cc-model-after-tool", "cc")
+    expect((await send(other.token, other.chief.main_conversation, "m2", "clean the build")).ok).toBe(true)
+    const [notice] = await replies(other.token, other.chief.main_conversation, other.chief.id, 1)
+    expect(notice.parts[0].text).toBe(CC_NOTICES.model)
+    expect(notice.parts[0].text).not.toMatch(/try again|could not reach/i)
+    expect(ran.started).toHaveLength(1)
   })
 })

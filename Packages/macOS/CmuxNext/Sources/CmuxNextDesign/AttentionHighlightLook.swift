@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// How strong the pane attention ring (the notification highlight) draws
 /// (Debug Settings `notifications.attention.look`, cx-epgo). Lawrence on the
@@ -53,24 +54,13 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The ring color when neither the source nor `notifications.attention.color` sets one.
-    @MainActor public var defaultColor: NSColor { Palette.notificationBlue }
+    /// The ring color when neither the source nor `notifications.attention.color` sets one: the
+    /// theme accent (Leo, 2026-10-21), never a fixed blue. The sidebar's unread dot keeps the
+    /// notification blue.
+    @MainActor public var defaultColor: NSColor { Palette.accentFill }
 
     public static let tunable = Tunable<AttentionHighlightLook>.choice(
         "notifications.attention.look", .status, "Notification highlight",
         help: "Strength of the pane attention ring after a notification: subtle (default), strong (the old full ring), flash only (cx-epgo).",
         default: .subtle, code: "AttentionHighlightLook.tunable")
-}
-
-/// Debug Settings `notifications.attention.agentTurnRing`: whether an agent chat's pane rings
-/// when its turn ends while the person watches it (#22678). Off by default (Leo, 2026-10-21:
-/// "the model response does a double blue ring pulse", agreed not to be the default): a turn
-/// that ends in a shown chat is read at once, as before. On, the ring is a hairline in the pane
-/// border color (`AttentionMark.hairline`), never the notification blue.
-public nonisolated struct AgentTurnRing {
-    public nonisolated init() {}
-    public static let tunable = Tunable<Bool>.toggle(
-        "notifications.attention.agentTurnRing", .status, "Ring a chat when its turn ends",
-        help: "Ring an agent chat's pane with a hairline when a turn ends there, until you click or type in it. Off by default: a turn you watched end is read at once.",
-        default: false, code: "AgentTurnRing.tunable")
 }

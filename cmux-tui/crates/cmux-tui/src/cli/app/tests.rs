@@ -41,6 +41,102 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+/// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
+/// a folder of the caller's working directory, so the app gets it absolute:
+/// the app runs elsewhere, and a space's default directory must be absolute.
+/// `~/…` is left for the app to expand, an empty `--cwd=` still clears, and a
+/// bare `--cwd` (true) stays a bool for the app to refuse.
+#[test]
+fn an_action_cwd_is_made_absolute_except_home_and_empty() {
+    let sent = |words: &[&str]| {
+        let (method, params) =
+            call(run_action("space set-defaults", &args(words), ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        params["args"]["cwd"].clone()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent(&["--cwd", "."]), json!(cwd.to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "sub"]), json!(cwd.join("sub").to_string_lossy()));
+    assert_eq!(sent(&["--cwd=./sub/x"]), json!(cwd.join("sub/x").to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "~/x"]), json!("~/x"));
+    assert_eq!(sent(&["--cwd", "/srv/app"]), json!("/srv/app"));
+    assert_eq!(sent(&["--cwd="]), json!(""));
+    assert_eq!(sent(&["--cwd"]), json!(true));
+}
+
+/// A remote, cloud or agent action's `--cwd` is a folder on the machine it runs
+/// on, so it is sent as typed, never resolved against the caller's directory.
+#[test]
+fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
+    let sent = |action: &str, name: ActionName| {
+        let (_, params) = call(run_action(action, &args(&["--cwd", "."]), name).unwrap());
+        params["args"]["cwd"].clone()
+    };
+    for action in
+        ["open-remote", "remote open-terminal-here", "cloud start-session", "agent new-chat"]
+    {
+        assert_eq!(sent(action, ActionName::Cli), json!("."), "{action}");
+    }
+    for action in [
+        "remote.openRemote",
+        "cloudStartSession",
+        "palette.newAgentChat",
+        "agent.openSessionWorkspace",
+    ] {
+        assert_eq!(sent(action, ActionName::Any), json!("."), "{action}");
+    }
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
+}
+
+/// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
+/// caller's working directory, so the app gets it absolute; `--persistent`
+/// alone is a true flag and `--size` keeps its value.
+#[test]
+fn new_machine_bootstrap_script_is_made_absolute() {
+    let (method, params) = call(
+        run_action(
+            "cloud new-machine",
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(params["args"]["bootstrapScript"], json!(cwd.join("boot.sh").to_string_lossy()));
+    assert_eq!(params["args"]["persistent"], json!(true));
+    assert_eq!(params["args"]["size"], json!("medium"));
+    assert_eq!(params["args"]["bootstrap"], json!("lane"));
+}
+
+/// `cmux cloud apply-machine-config --machine-config FILE` names a file of the
+/// caller's working directory too.
+#[test]
+fn machine_config_is_made_absolute() {
+    let (_, params) = call(
+        run_action(
+            "cloud apply-machine-config",
+            &args(&["--target", "machine:vm-1", "--machine-config", ".cmux/machine.toml"]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        params["args"]["machineConfig"],
+        json!(cwd.join(".cmux/machine.toml").to_string_lossy())
+    );
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
@@ -253,6 +349,28 @@ fn action_run_maps_flags_to_target_and_arguments() {
             "args": { "title": "Build", "keep_case": "true" },
         })
     );
+}
+
+#[test]
+fn both_agent_tab_command_forms_forward_the_peer_host() {
+    for words in [
+        vec!["agent", "open-tab", "session-id", "--target", "pane_0123", "--host", "cmux16"],
+        vec![
+            "action",
+            "run",
+            "agent.openSessionTab",
+            "--target",
+            "pane_0123",
+            "--session",
+            "session-id",
+            "--host",
+            "cmux16",
+        ],
+    ] {
+        let (_, params) = call(parse(&args(&words)).unwrap().unwrap());
+        assert_eq!(params["target"], "pane_0123");
+        assert_eq!(params["args"], json!({"session": "session-id", "host": "cmux16"}));
+    }
 }
 
 #[test]
@@ -1282,4 +1400,73 @@ fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
     assert!(safe_to_resend("action.run", &json!({ "idempotency_key": "mutation_1" })));
     assert!(!safe_to_resend("action.run", &json!({})));
     assert!(!safe_to_resend("errors.clear", &json!({})));
+}
+
+#[test]
+fn open_link_sends_browser_open_link_with_the_callers_and_terminal() {
+    let environment =
+        std::collections::HashMap::from([("CMUX_TUI_TERMINAL_ID".to_owned(), "term_1".to_owned())]);
+    let mut stdin = "https://signin.aws.amazon.com/oauth?state=x\n".as_bytes();
+    let AppCommand::Open { requests, stop_on_failure } = parse_open_with(
+        &args(&["--link", "--caller", "python3,aws", "--caller=zsh", "-"]),
+        false,
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(stop_on_failure);
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.method, "browser.open_link");
+    assert_eq!(request.params["url"], "https://signin.aws.amazon.com/oauth?state=x");
+    assert_eq!(request.params["callers"], json!(["python3", "aws", "zsh"]));
+    assert_eq!(request.params["terminal_id"], "term_1");
+    assert_eq!(request.params["focus"], false, "a program's browser keeps the terminal's keyboard");
+    assert!(request.params.get("target").is_none());
+
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["--link", "--target", "chrome@Work", "https://a.example/"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert_eq!(requests[0].params["target"], "chrome@Work");
+}
+
+#[test]
+fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
+    let environment = std::collections::HashMap::new();
+    let error = parse_open_with(
+        &args(&["--link", "https://a.example/", "/tmp/notes?token=SECRET"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("argument 2"), "{error}");
+    assert!(!error.contains("SECRET"), "{error}");
+    assert!(
+        parse_open_with(
+            &args(&["--link", "--workspace", "ws_1", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    for stray in [
+        vec!["--caller", "aws", "https://a.example/"],
+        vec!["--target", "system", "https://a.example/"],
+    ] {
+        assert!(
+            parse_open_with(&args(&stray), false, &environment, &mut std::io::empty()).is_err(),
+            "{stray:?} needs --link"
+        );
+    }
 }

@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -48,6 +48,12 @@ struct DemoDriver {
             shell.tab = .home
             shell.homePath.append(ChiefRoute())
         case "ws-terminal": await workspaceTerminal()
+        case "ws-terminal-idle":
+            // The zsh tab of a workspace, as the app shows it (TabsKit chrome), and nothing scripted after.
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "ws-terminal-card": await workspaceTerminalCard()
         case "tour-a": await tourHomeAndWorkspaces()
         case "tour-b": await tourFeedChatDiff()
@@ -210,7 +216,11 @@ struct DemoDriver {
         await pause(0.8)
         if let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) {
             let macs = shell.store.teams[index].macs
-            shell.store.teams[index].macs = macs.map { MacDevice(id: $0.id, name: $0.name, isOnline: false) }
+            shell.store.teams[index].macs = macs.map { mac in
+                var offline = mac
+                offline.isOnline = false
+                return offline
+            }
             await pause(2.0)
             shell.store.teams[index].macs = []
             await pause(2.0)

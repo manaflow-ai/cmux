@@ -29,9 +29,19 @@ extension WorkspaceRowView {
         return actions.isEmpty ? nil : actions
     }
 
-    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
-        var parts = [ws.title]
-        if let s = content.now.map(Strings.rowNow) ?? content.detail { parts.append(s) }
+    func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+                               title: title)
+    }
+
+    /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the
+    /// row's tab count and presence dots show (nil and empty when hidden). `title` is the name the
+    /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
+    static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
+                                  presence: [SidebarPresence], title: String? = nil) -> String {
+        var parts = [title ?? ws.title]
+        let detail = content.now.map(Strings.rowNow) ?? content.detail
+        if let detail { parts.append(detail) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
@@ -47,8 +57,14 @@ extension WorkspaceRowView {
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
-        if let machine = content.machine { parts.append(machine.name) }
-        if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
+        // A one-list row on another computer leads its second line with the computer's name
+        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
+        // name with " · " in it still counts.
+        if let machine = content.machine,
+           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
+            parts.append(machine.name)
+        }
+        parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }
 }

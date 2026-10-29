@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
 // The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
-// reports each model call's usage as it lands, and acpmux marks those records as one call's
-// (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's tokens are the
-// sum of the marked calls since its `turn_started`. Every other usage record is the context a
+// time, then this turn's generated output ("Working for 5m 54s · 2.1M out"). Claude Code reports
+// each model call's prompt and output usage as it lands, and acpmux marks those records as one
+// call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's line
+// adds only output tokens since its `turn_started`. Every other usage record is the context a
 // harness holds: Claude Code's result repeats its last call's (for the context ring), and other
 // harnesses, whatever their family, report only that. None of those adds up. A chat attached after
 // its turn started has not seen every call; it shows the time alone, even once older pages load.
@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
 import {
   WorkingCountsContext,
   WorkingFor,
@@ -22,12 +23,45 @@ import {
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
-const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
-/// One model call's usage, as acpmux marks it on Claude Code's streamed message_delta.
-const call = (used: number, size = 200_000): Step => [
+const update = (update: Record<string, unknown>) => ({
+  method: "session/update",
+  params: { update },
+});
+/// One model call's usage, as acpmux marks it on Claude Code's streamed message_delta. `used` is
+/// the prompt/context side; `output` is the only part the working line adds.
+const call = (used: number, size = 200_000, output = used): Step => [
   "in",
   "usage_update",
-  update({ sessionUpdate: "usage_update", used, size, _meta: { acpmux: { call: true } } }),
+  update({
+    sessionUpdate: "usage_update",
+    used,
+    size,
+    inputTokens: used,
+    outputTokens: output,
+    _meta: { acpmux: { call: true } },
+  }),
+];
+/// One model call's usage with all four counts acpmux sends (claude_stdio/inbound.rs): `used` is
+/// what it read, and the counts split that from what it wrote.
+const splitCall = (split: { input: number; cacheRead: number; cacheWrite: number; output: number }): Step => [
+  "in",
+  "usage_update",
+  update({
+    sessionUpdate: "usage_update",
+    used: split.input + split.cacheRead + split.cacheWrite,
+    size: 200_000,
+    inputTokens: split.input,
+    cachedReadTokens: split.cacheRead,
+    cachedWriteTokens: split.cacheWrite,
+    outputTokens: split.output,
+    _meta: { acpmux: { call: true } },
+  }),
+];
+/// A marked call from an older acpmux: `used` alone, which is context, not output.
+const legacyCall = (used: number): Step => [
+  "in",
+  "usage_update",
+  update({ sessionUpdate: "usage_update", used, size: 200_000, _meta: { acpmux: { call: true } } }),
 ];
 /// The context a harness holds: Claude Code's result repeating its last call, or another harness.
 const held = (used: number, size = 200_000): Step => [
@@ -64,17 +98,32 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
-  const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness, family, status: "running" };
+  const session = {
+    sessionId: CHAT,
+    cwd: "/Users/dev/app",
+    title: "x",
+    harness,
+    family,
+    status: "running",
+  };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string, params: any) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach": {
         const events = history.filter((event) => event.seq >= attachFrom && passes(params?.kinds, event));
-        return { session, lastSeq: lastSeq(), events, hasMore: history.some((event) => event.seq < attachFrom) };
+        return {
+          session,
+          lastSeq: lastSeq(),
+          events,
+          hasMore: history.some((event) => event.seq < attachFrom),
+        };
       }
       case "_acpmux/events": {
         // The reconnect's gap read: every kind after the held events.
@@ -109,7 +158,9 @@ function fakeDaemon(
             } catch (error) {
               reply = { error: { code: -32000, message: (error as Error).message } };
             }
-            socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
+            socket.onmessage?.({
+              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }),
+            });
           });
       },
       close() {},
@@ -120,7 +171,9 @@ function fakeDaemon(
   const push = (events: Recorded[]) => {
     for (const event of events) {
       history.push(event);
-      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+      socket.onmessage?.({
+        data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }),
+      });
     }
   };
   /// A notification from the daemon (`_acpmux/lagged`).
@@ -141,7 +194,13 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
   let snapshots = 0;
   const client = await AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://127.0.0.1:1/",
+      token: "t",
+      sessionId: CHAT,
+    },
     (next: any) => {
       snapshot = next;
       snapshots += 1;
@@ -163,7 +222,7 @@ async function until(ready: () => boolean, what: string) {
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
 
-test("a Claude turn's tokens are the sum of its model calls since it started, live", async () => {
+test("a Claude turn's output tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
     record([
       prompt("fix the build"),
@@ -189,6 +248,78 @@ test("a Claude turn's tokens are the sum of its model calls since it started, li
     daemon.push(record([prompt("again"), started, call(50_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the next turn's call");
     expect(snapshot().turnTokens).toBe(50_000);
+  } finally {
+    client.close();
+  }
+});
+
+test("a five-step turn counts generated output, not repeated context", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("summarize the five steps"),
+      started,
+      call(100_000, 400_000, 1_000),
+      call(100_000, 400_000, 1_000),
+      call(100_000, 400_000, 1_000),
+      call(100_000, 400_000, 1_000),
+      call(100_000, 400_000, 1_000),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    // The old reducer added each 100K context snapshot (505K including output). The line is
+    // output-only: five requests × 1K generated tokens = about 5K out.
+    expect(snapshot().turnTokens).toBe(5_000);
+    expect(snapshot().summary?.usage).toEqual({ used: 100_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+test("a turn's output stays its count, and what its calls read is split apart, while every call carries the split", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      splitCall({ input: 1_200, cacheRead: 30_000, cacheWrite: 4_000, output: 300 }),
+      splitCall({ input: 800, cacheRead: 35_000, cacheWrite: 0, output: 9_100 }),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    // The count is output alone; what the calls read never folds into it.
+    expect(snapshot().turnTokens).toBe(9_400);
+    expect(snapshot().turnTokenSplit).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    // A marked call from an older acpmux (`used` alone): it adds no output, and the split goes
+    // away rather than leave the call's reads out.
+    daemon.push(record([legacyCall(5_000)], 5));
+    await until(() => snapshot().turnTokenSplit === undefined, "the unsplit call");
+    expect(snapshot().turnTokens).toBe(9_400);
+    // The turn's result names its tokens; its summary row carries them for Worked for.
+    daemon.push(
+      record(
+        [
+          [
+            "mux",
+            "turn_result",
+            {
+              status: "completed",
+              outputTokens: 9_400,
+              inputTokens: 2_000,
+              cacheReadTokens: 65_000,
+              cacheWriteTokens: 4_000,
+            },
+          ],
+        ],
+        6,
+      ),
+    );
+    // The fake daemon never reports the session idle, so the turn's end is its summary row.
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    const row = summary();
+    expect(row?.tokens).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    expect(snapshot().turnTokenSplit).toBeUndefined();
   } finally {
     client.close();
   }
@@ -384,6 +515,58 @@ for (const [harness, family] of [
     }
   });
 
+// The composer tooltip stays compact for harnesses without a category breakdown. The usage record
+// still carries the setup value for the context summary, but it is intentionally not guessed into
+// the small Codex-style hover surface.
+const compactCard = (usage: { used: number; size: number; setup?: number }) =>
+  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-line");
+
+test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
+  const withSetup: Step = [
+    "in",
+    "usage_update",
+    update({
+      sessionUpdate: "usage_update",
+      used: 111_000,
+      size: 475_000,
+      _meta: { acpmux: { setup: 20_000 } },
+    }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, withSetup]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 111_000, size: 475_000, setup: 20_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    // A later record with no setup keeps the same compact tooltip.
+    daemon.push(record([held(120_000, 475_000)], 4));
+    await until(() => snapshot().summary.usage.used === 120_000, "the next usage");
+    expect(snapshot().summary.usage).toEqual({ used: 120_000, size: 475_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "usage_update",
+            update({
+              sessionUpdate: "usage_update",
+              used: 10_000,
+              size: 475_000,
+              _meta: { acpmux: { setup: 30_000 } },
+            }),
+          ],
+        ],
+        5,
+      ),
+    );
+    await until(() => snapshot().summary.usage.used === 10_000, "the odd usage");
+    expect(snapshot().summary.usage.setup).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
@@ -404,21 +587,22 @@ const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("the line reads the time, then the turn's tokens, after the working dots", () => {
-  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M tokens");
-  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K tokens");
+test("the line reads the time, then the turn's output, after the working dots", () => {
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M out");
+  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K out");
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe(
-    "Working for 5m 54s · 2.1M tokens · 2 subagents",
-  );
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
 });
 
 test("tokens are compact in the pane's language", () => {
-  expect(workingTokens(translatorFor("en"), "en", 2_140_000)).toBe("2.1M tokens");
-  expect(workingTokens(translatorFor("en"), "en", 1)).toBe("1 token");
-  const german = new Intl.NumberFormat("de", { notation: "compact", maximumFractionDigits: 1 }).format(2_140_000);
+  expect(workingTokens(translatorFor("en"), "en", 2_140_000)).toBe("2.1M out");
+  expect(workingTokens(translatorFor("en"), "en", 1)).toBe("1 out");
+  const german = new Intl.NumberFormat("de", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(2_140_000);
   expect(workingTokens(translatorFor("de"), "de", 2_140_000)).toContain(german);
 });

@@ -5,7 +5,7 @@
 // the transcript.
 import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
-import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
@@ -87,10 +87,13 @@ export function useNow(live: boolean): number {
   return now - offset;
 }
 
-/// A subagent's avatar: the harness's mark in the agent's tone, with its status dot when `dot`,
-/// and its place in the running wave (ui/wave.ts) when `wave` is set.
-export function Avatar({ agent, dot = false, wave }: { agent: Subagent; dot?: boolean; wave?: number }) {
-  const harness = useContext(SubagentHarnessContext);
+/// A subagent's avatar: the harness's mark in the agent's tone, and its place in the running wave
+/// (ui/wave.ts) when `wave` is set. No status dot on its corner: the row says the state in words
+/// (Leo 2026-10-22: "the bottom right dots in most situations is kinda weird and unnecsesary").
+export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
+  // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's.
+  const chat = useContext(SubagentHarnessContext);
+  const harness = agent.harness ?? chat;
   const { className, style } = waveProps(wave);
   return (
     <span
@@ -98,8 +101,7 @@ export function Avatar({ agent, dot = false, wave }: { agent: Subagent; dot?: bo
       style={style}
       data-state={agent.state}
     >
-      {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
-      {dot && <span className="cv-subagent-avatar__dot" aria-hidden="true" />}
+      <AgentMark agent={harness} size={14} fallback={<Icon name="agent.session" size={14} />} />
     </span>
   );
 }
@@ -160,7 +162,7 @@ export function SubagentGroupHeader({
   );
 }
 
-/// One subagent in an open group: its avatar with a status dot, name (in the agent's color,
+/// One subagent in an open group: its avatar, name (in the agent's color,
 /// agentTones.ts), state or current action with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
 /// rows. A click opens its own view; a running one has a stop button beside it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
@@ -180,7 +182,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   );
   const content = (
     <>
-      <Avatar agent={agent} dot />
+      <Avatar agent={agent} />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
           {agent.name}
@@ -209,7 +211,8 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Icon name="disclosure.collapsed" size={12} />
     </button>
   );
-  if (!stop || !running(agent)) return line;
+  // An agent a shell call started stops with that call, not through Claude.
+  if (!stop || !running(agent) || agent.command) return line;
   return (
     <div className="cv-subagent-stoppable">
       {line}

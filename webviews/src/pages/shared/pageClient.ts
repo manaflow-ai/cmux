@@ -7,6 +7,7 @@
 // the namespace instead. No page file changes.
 
 import { holdPaintForClaim } from "./paintGate";
+import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 
 export interface PageError extends Error {
   code: string;
@@ -342,6 +343,11 @@ export function findReplyHandler(name = "cmuxPage", target: unknown = globalThis
  */
 export function createPageClient(fallback?: () => PageClient): PageClient | null {
   const handler = findReplyHandler();
-  if (handler) return new BridgePageClient(handler);
+  if (handler) {
+    const client = new BridgePageClient(handler);
+    // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
+    installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
+    return client;
+  }
   return fallback ? fallback() : null;
 }

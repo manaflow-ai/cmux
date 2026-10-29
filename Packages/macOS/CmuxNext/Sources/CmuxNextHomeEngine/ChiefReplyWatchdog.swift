@@ -7,7 +7,8 @@ public import Foundation
 /// unanswered and posts a failure note after its retries (optchat-chief
 /// brain/reply_ledger.rs); this rule needs only the conversation's head, so it
 /// also covers a host that died or never got the message.
-public nonisolated enum ChiefReplyWatchdog {
+public nonisolated struct ChiefReplyWatchdog {
+    public nonisolated init() {}
     /// How long a person's message may wait before Home says so.
     public static let limit: TimeInterval = 120
 

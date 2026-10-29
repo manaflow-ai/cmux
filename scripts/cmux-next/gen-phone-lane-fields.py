@@ -27,6 +27,10 @@ REVIEWED_TYPES = {
                 "b23ae39eaed8f1d7"),
     "TabRef": ("a tab named by its numeric surface id or public tab_ id; the daemon resolves it in its own tree",
                "aa168c418c03be91"),
+    # Narrows a `send`: the daemon writes only while the terminal's agent waits at its prompt in this
+    # harness session. One optional string; it names no program, directory or environment.
+    "SendExpectAgent": ("an agent's harness session id that a send must still match; it only narrows the write",
+                        "201877f6931063f5"),
 }
 REVIEWED_FIELDS = {
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
@@ -35,6 +39,9 @@ REVIEWED_FIELDS = {
                                      "1b92a6de6fe0171a"),
     ("resize-attached-view", "identity"): ("SizingIdentity: whose size lease this is",
                                            "603297ce84b828a2"),
+    ("set-host-size-policy", "policy"): ("HostSizePolicyRequest: a mode name and a list of device tokens; the "
+                                         "daemon validates both and writes two settings keys, nothing else",
+                                         "17f8e98fe6f266e3"),
     ("clear-history", "fallback_key"): ("TerminalKeyInput: a key to send when the surface cannot clear",
                                         "a5c09e7823e98e46"),
     # This lane refuses new-conversation-tab outright (DaemonLanePolicy.evaluate); cmux-mobile-host is the

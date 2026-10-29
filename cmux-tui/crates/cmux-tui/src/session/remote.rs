@@ -148,9 +148,14 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     let protocol = ident.get("protocol").and_then(Value::as_u64).unwrap_or(0);
     let (ours, _) = cmux_tui_core::server::api_revision_range();
     let theirs_min = ident.get("min_api_revision").and_then(Value::as_u64);
+    let revision_error = if ident.get("api_revision").is_some() {
+        api_revision::RemoteApiRevision::from_identity(ident).err()
+    } else {
+        None
+    };
     let client_too_old = protocol > SUPPORTED_PROTOCOL_VERSION
         || theirs_min.is_some_and(|min| min > u64::from(ours));
-    if protocol != SUPPORTED_PROTOCOL_VERSION || client_too_old {
+    if protocol != SUPPORTED_PROTOCOL_VERSION || revision_error.is_some() || client_too_old {
         anyhow::bail!("{}", skew_refusal(ident, protocol, client_too_old));
     }
     parse_identity_capabilities(ident)
@@ -1623,6 +1628,7 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+mod api_revision;
 mod connect;
 #[path = "remote_disconnect.rs"]
 mod disconnect;
@@ -1646,6 +1652,9 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    /// Translation state is installed after `identify`; older daemons do not
+    /// advertise it and stay on the legacy wire path.
+    api_revision: Mutex<Option<api_revision::RemoteApiRevision>>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1682,6 +1691,64 @@ pub struct RemoteSession {
     provider_workspaces_guarded: AtomicBool,
     /// The daemon's sidebar document (`sidebar-doc-v1`), as a read model.
     sidebar_doc: sidebar_doc::RemoteSidebarDoc,
+}
+
+impl RemoteSession {
+    fn install_api_revision(&self, revision: Option<api_revision::RemoteApiRevision>) {
+        *self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revision;
+    }
+
+    pub(super) fn translate_incoming_line(&self, line: &str) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(|| Ok(line.to_owned()), |revision| revision.incoming(line))
+    }
+
+    pub(super) fn translate_outgoing_line(
+        &self,
+        id: u64,
+        command: &str,
+        line: &str,
+    ) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(|| Ok(line.to_owned()), |revision| revision.outgoing(id, command, line))
+    }
+
+    pub(super) fn translate_outgoing_no_reply(
+        &self,
+        command: &str,
+        line: &str,
+    ) -> anyhow::Result<String> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(
+                || Ok(line.to_owned()),
+                |revision| revision.outgoing_no_reply(command, line),
+            )
+    }
+
+    pub(super) fn api_revision(&self) -> Option<u32> {
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(api_revision::RemoteApiRevision::local_revision)
+    }
+
+    fn forget_api_request(&self, id: u64) {
+        if let Some(revision) =
+            self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+        {
+            revision.forget(id);
+        }
+    }
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2496,6 +2563,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        api_revision: Mutex::new(None),
         disconnect_state: disconnect::DisconnectCell::default(),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),

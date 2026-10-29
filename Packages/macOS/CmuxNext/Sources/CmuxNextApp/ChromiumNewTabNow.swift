@@ -4,17 +4,19 @@ import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
 import Foundation
 
-/// A Chromium tab on the New Tab page, made in the turn that first shows it when Chromium
-/// already runs, so the tab's toolbar is on its first frame instead of a frame later (perceived
-/// speed, Cmd-Shift-L). Anything else (another address, a proxied or remote-localhost store,
-/// Chromium still starting) takes `TabContentCache.browser(for:)`'s asynchronous path. The
-/// configuration is that path's (`configureBrowser`, then `historyStarts`, which keeps a New Tab
-/// page as it is) for a page that needs nothing asynchronous.
+/// A Chromium tab on the New Tab page, or on any address in a tab opened here (a stand-in, a
+/// link's tab), made in the turn that first shows it when Chromium already runs, so the tab's
+/// toolbar is on its first frame instead of a frame later (perceived speed, Cmd-Shift-L, PL-cef-tab).
+/// Anything else (a restored tab's address, whose saved history is read first; a proxied or
+/// remote-localhost store; Chromium still starting) takes `TabContentCache.browser(for:)`'s
+/// asynchronous path. The configuration is that path's (`configureBrowser`, then
+/// `historyStarts`, which keeps a New Tab page and a tab opened here as they are) for a page that
+/// needs nothing asynchronous.
 struct ChromiumNewTabNow {
     let cache: TabContentCache
 
     func page(_ tab: TabModel, url: URL?) -> (any BrowserTab)? {
-        guard let url, BrowserNewTabPage.isNewTabPage(url), cache.chromiumNow.runs() else { return nil }
+        guard let url, BrowserNewTabPage.isNewTabPage(url) || cache.browserTabs.wasOpenedHere(tab), cache.chromiumNow.runs() else { return nil }
         let key = tab.id, requests = cache.pageRequests
         var configuration = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default, initialURL: url)
         guard requests.proxiedTabs.plan(for: key, url: url, base: configuration) == .notProxied else { return nil }

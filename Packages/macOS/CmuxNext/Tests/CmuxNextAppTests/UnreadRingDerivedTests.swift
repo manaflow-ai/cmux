@@ -37,7 +37,7 @@ struct UnreadRingDerivedTests {
         tab.expectMarkedUnread(true)
         let marks = service.attentionMarks(for: workspace)
         #expect(marks.count == 1, "Mark as Unread set the tab unread, yet its pane draws no ring")
-        #expect(marks.values.first?.hairline == false, "a marked tab rings in the notification blue, not a hairline")
+        #expect(marks.values.first?.agentChat == false, "a marked terminal tab rings with the terminal look, not an agent chat's")
         #expect(service.hasHighlight(workspace), "Dismiss Highlight must show while the marked tab rings")
     }
 

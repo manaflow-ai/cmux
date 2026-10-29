@@ -9,11 +9,13 @@
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
-import { useT, type StringKey } from "../i18n";
+import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
+import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
+import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
   type SubsessionRow,
@@ -21,7 +23,7 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "../inspector/ChildSessionRows";
+import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 
@@ -44,6 +46,8 @@ export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
 
 export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): SubagentStatus {
   if (running(agent)) return waiting.has(agent.id) ? "waiting" : "running";
+  // acpmux waits to retry it (subagents/retryState.ts): it is about to run again.
+  if (retrying(agent)) return "running";
   if (agent.state === "completed") return "done";
   return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
 }
@@ -54,6 +58,13 @@ export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string
   const status = subagentStatus(agent, waiting);
   if (status !== "stopped") return STATUS_LABEL[status];
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
+}
+
+/// What a subagent's line says of its state: acpmux's retry while one waits ("Retrying (2/4) after a
+/// capacity error"), else its status's word.
+export function subagentStateText(t: Translate, agent: Subagent, waiting: ReadonlySet<string>): string {
+  const retry = retrying(agent);
+  return retry ? retryLabel(t, retry) : t(subagentStatusLabel(agent, waiting));
 }
 
 /// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
@@ -68,7 +79,16 @@ export function pendingToolCalls(
   if (snapshot.permission?.pending) add(snapshot.permission.toolCallId);
   for (const group of snapshot.permissionGroups?.groups ?? [])
     for (const item of group.items)
-      if (item.state === "pending") add((item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId);
+      if (item.state === "pending") {
+        const request = item.request as {
+          toolCall?: { toolCallId?: unknown };
+          subject?: { type?: unknown; toolCall?: { toolCallId?: unknown } };
+        };
+        add(
+          request.toolCall?.toolCallId ??
+            (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined),
+        );
+      }
   for (const row of snapshot.rows)
     if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
   return calls;
@@ -150,8 +170,8 @@ export function SubagentStatusList({
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
-    subsessions.filter((session) => session.state === "working").length +
-    sessions.filter((child) => child.state === "running").length;
+    subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
+    sessions.filter((child) => sessionStatus(child) === "running").length;
   const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
@@ -175,8 +195,10 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 detail={agent.kind}
+                mark={agent.harness}
                 status={status}
-                state={t(subagentStatusLabel(agent, waiting))}
+                state={subagentStateText(t, agent, waiting)}
+                working={Boolean(retrying(agent))}
                 time={formatDuration(elapsed(agent, now))}
                 iconSize={ROW_ICON}
                 depth={depth}
@@ -213,7 +235,10 @@ export function SubagentStatusList({
 /// person for), its unread dot, how many messages wait for it, and its state.
 function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
   const t = useT();
-  const status = SUBSESSION_STATUS[session.state];
+  // While acpmux retries its failed turn, it works again (subagents/retryState.ts ``sessionRetry``).
+  const phase = sessionRetry(session);
+  const retry = phase.kind === "retrying" ? phase.retry : undefined;
+  const status = retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
   return (
@@ -243,7 +268,8 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
       <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {t(SUBSESSION_STATE_LABEL[session.state])}
+        {retry && <Spinner size={12} loading />}
+        {retry ? retryLabel(t, retry) : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );

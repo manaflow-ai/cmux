@@ -5,7 +5,7 @@ import Testing
 
 /// The thin sidebar (`sidebar.style` = rail; Lawrence 2026-10-21: "make a minimal custom design for
 /// the sidebar that is thinner and takes up virtually 0 horizontal space and is still very clean";
-/// plans/cmux-next/minimal-sidebar.md). A 6 pt rail of workspace ticks; pointing at it opens the
+/// plans/cmux-next/minimal-sidebar.md). A 6 pt rail of workspace ticks; Toggle Sidebar opens the
 /// full sidebar over the content.
 @MainActor
 struct SidebarRailTests {
@@ -51,51 +51,6 @@ struct SidebarRailTests {
         #expect(SidebarRailMark(workspace: workspace, isSelected: false).state == .unread)
         workspace = SidebarWorkspace(id: WorkspaceID("w"), title: "notes")
         #expect(SidebarRailMark(workspace: workspace, isSelected: false).state == .idle)
-    }
-
-    // MARK: Opening and closing
-
-    @Test func restingOnTheRailOpensItAndAQuickPassDoesNot() {
-        var peek = SidebarRailPeek()
-        #expect(peek.handle(.pointerEnteredRail) == .startDwell)
-        #expect(peek.handle(.pointerExited) == .cancelTimers)
-        _ = peek.handle(.dwellElapsed)
-        #expect(!peek.isOpen, "a pass to the window edge must not open the sidebar")
-
-        #expect(peek.handle(.pointerEnteredRail) == .startDwell)
-        _ = peek.handle(.dwellElapsed)
-        #expect(peek.isOpen)
-    }
-
-    @Test func leavingClosesAfterTheGraceUnlessThePersonIsBusy() {
-        var peek = SidebarRailPeek()
-        _ = peek.handle(.pointerEnteredRail)
-        _ = peek.handle(.dwellElapsed)
-        #expect(peek.handle(.pointerEnteredSidebar) == .cancelTimers)
-        #expect(peek.handle(.pointerExited) == .startGrace)
-        // A drag or a menu outside the sidebar keeps it open for another grace.
-        #expect(peek.handle(.graceElapsed(busy: true)) == .startGrace)
-        #expect(peek.isOpen)
-        #expect(peek.handle(.graceElapsed(busy: false)) == .none)
-        #expect(!peek.isOpen)
-    }
-
-    @Test func comingBackDuringTheGraceKeepsItOpen() {
-        var peek = SidebarRailPeek()
-        _ = peek.handle(.pointerEnteredRail)
-        _ = peek.handle(.dwellElapsed)
-        _ = peek.handle(.pointerExited)
-        #expect(peek.handle(.pointerEnteredSidebar) == .cancelTimers)
-        _ = peek.handle(.graceElapsed(busy: false))
-        #expect(peek.isOpen)
-    }
-
-    @Test func aRevealOpensAtOnceAndClosesLikeAHover() {
-        var peek = SidebarRailPeek()
-        #expect(peek.handle(.reveal) == .startGrace)
-        #expect(peek.isOpen)
-        _ = peek.handle(.graceElapsed(busy: false))
-        #expect(!peek.isOpen)
     }
 
     // MARK: Width

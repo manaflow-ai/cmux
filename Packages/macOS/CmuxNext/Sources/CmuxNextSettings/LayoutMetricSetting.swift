@@ -17,6 +17,8 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
 
     public static let sidebarWidth = LayoutMetricSetting(name: "sidebarWidth", range: 160...420, compact: 208, comfortable: 240)
     public static let columnGap = LayoutMetricSetting(name: "columnGap", range: 0...24, compact: 6, comfortable: 8)
+    public static let dividerThickness = LayoutMetricSetting(name: "dividerThickness", range: 0...6, compact: 1, comfortable: 1)
+    public static let dividerHitWidth = LayoutMetricSetting(name: "dividerHitWidth", range: 1...24, compact: 7, comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: 24...56, compact: 32, comfortable: 40)
 
     /// The tab strip's widths (the Tabs group): the max is today's per density; the selected minimum and
@@ -29,7 +31,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     public static let tabPinnedWidth = token("tabPinnedWidth", 24...120) { $0.pinnedWidth }
     public static let tabWidths: [LayoutMetricSetting] = [tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, titlebarHeight] + tabWidths
+    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabWidths
 
     private static func token(_ name: String, _ range: ClosedRange<Double>, _ width: (MotionTabStrip) -> CGFloat) -> LayoutMetricSetting {
         LayoutMetricSetting(name: name, range: range, compact: Double(width(MotionTabStrip(comfortable: false))),

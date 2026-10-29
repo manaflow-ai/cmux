@@ -43,7 +43,13 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
   return Object.fromEntries(
     shaped
       .filter((entry) => entry.kind === "activity")
-      .map((entry) => [entry.id, renderToStaticMarkup(<ToolRows row={entry} />).replace(/<[^>]+>/g, " ")]),
+      // Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+      .map((entry) => [
+        entry.id,
+        renderToStaticMarkup(<ToolRows row={entry} />)
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " "),
+      ]),
   );
 }
 
@@ -91,7 +97,8 @@ test("an ended turn's open Worked for folds each run into its summary line", () 
     text("done"),
     row("s", "turnSummary", { status: "completed", toolCount: 5 }),
   ];
-  const open = new Set(["worked-u"]);
+  // The long text between the runs is a takeaway, so each run folds under its own line.
+  const open = new Set(["worked-u", "worked-between"]);
   const folded = turnView(ended, open, { liveRuns: true }).filter((entry) => entry.kind === "activity");
   expect(folded.map((entry) => entry.foldRun)).toEqual([true, true]);
   const listed = turnView(ended, open, { liveRuns: false }).filter((entry) => entry.kind === "activity");

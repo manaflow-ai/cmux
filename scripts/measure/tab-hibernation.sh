@@ -15,7 +15,17 @@ cd "$(git rev-parse --show-toplevel)"
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="tabhib"
 out="$(mktemp -d)"
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
+# --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
+# debug.* control commands kept); every other argument goes to the bench.
+reload_config=() bench_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --config=*) reload_config=(--config "${arg#--config=}") ;;
+    *) bench_args+=("$arg") ;;
+  esac
+done
+set -- ${bench_args[@]+"${bench_args[@]}"}
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "tab-hibernation: the tagged reload printed no app path" >&2
@@ -23,7 +33,8 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 echo "tab-hibernation: ref $(git rev-parse HEAD)"
-python3 scripts/cmux-next/bench_hibernation.py --app "$app" --engines chromium --tabs 48 --heap-mb 40 \
+# A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hibernation.py --app "$app" --engines chromium --tabs 48 --heap-mb 40 \
   --pressure --pressure-reuse --out "$PWD/tab-hibernation.json" "$@"
 # The run's verdict on the never-hibernate rule: a media or agent-driven page that slept fails it.
 python3 - "$PWD/tab-hibernation.json" <<'PY'

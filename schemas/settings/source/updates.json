@@ -112,10 +112,10 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: a found update waits, and one click downloads and installs it."
+            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "download",
@@ -224,7 +224,7 @@
             "text": "A downloaded update installs as cmux quits. Terminals keep running."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "install",
@@ -332,7 +332,7 @@
             "step": 60,
             "unit": "seconds"
           },
-          "default": 900,
+          "default": 600,
           "keywords": [
             "update",
             "install",

@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence, 2026-10-20: "The card is potentially too liquid glassy so it is very hard to see and
 /// use. Like the floating card when I hover over workspaces and tabs." Every floating card that

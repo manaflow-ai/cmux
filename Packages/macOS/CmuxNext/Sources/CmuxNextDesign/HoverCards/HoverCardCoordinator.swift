@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///
@@ -39,7 +41,14 @@ public final class HoverCardCoordinator {
     private var movesParent: (window: NSWindow, accepted: Bool)?
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
+    /// The last window-server answer to "which window is on top here", for its point and the time it was
+    /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
+    /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
+    /// next frame (no notification of this app says so).
+    var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
+    /// One frame at 120 Hz: how long a cached top window holds.
+    static let topWindowLifetime: CFTimeInterval = 1.0 / 120
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -65,6 +74,8 @@ public final class HoverCardCoordinator {
         if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
         return mouse
     }
+    /// The clock the cached top window expires on, in seconds (tests inject one).
+    public var now: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
@@ -98,21 +109,20 @@ public final class HoverCardCoordinator {
     private func installObserversIfNeeded() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: DesignSettings.hoverCardsDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hoverCardsSettingChanged() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(DesignSettings.hoverCardsDidChange, center: center) { [weak self] in
+            self?.hoverCardsSettingChanged()
         })
-        observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
+            if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) }
         })
-        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.dismiss(.windowResignedKey)
         })
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let number = (note.object as? NSWindow)?.windowNumber
-                MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
+            observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+                self?.windowGeometryChanged(number, liveResizeEnded: ended)
             })
         }
     }
@@ -121,10 +131,6 @@ public final class HoverCardCoordinator {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            for observer in observers {
-                NotificationCenter.default.removeObserver(observer)
-                NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            }
             if let monitor { NSEvent.removeMonitor(monitor) }
             timer.cancel()
         }

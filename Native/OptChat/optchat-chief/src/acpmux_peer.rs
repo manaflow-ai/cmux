@@ -5,11 +5,18 @@
 //! reconnect (the handoff wait included), the host checks the server peer of
 //! its own connection:
 //!
-//! - its uid is this process's uid;
+//! - its uid is this process's uid (another user is refused);
 //! - its executable (symlinks resolved) is the acpmux this host runs:
 //!   `ACPMUX_BIN`, else the `acpmux` beside this executable;
-//! - when this host is Team-signed (macOS), the peer's code, named by its
-//!   audit token, is Apple-anchored and signed by the same team.
+//! - or, when its executable is gone (an app update moved and deleted the
+//!   bundle a running acpmux came from), the kernel's code signature of the
+//!   running process is Apple-anchored and has the team ID and identifier of
+//!   that acpmux (`code_signature`, macOS only). A path that still exists and
+//!   is another file is refused as before.
+//!
+//! No code-signing gate on the peer: "acpmux is too belt and suspenders
+//! there" (Leo, 2026-10-23). A same-user socket is usable whatever signs the
+//! binary behind it, as in `AcpmuxServerPeer`.
 //!
 //! With the tests' feature `test-in-process-peer` only, a peer that is this
 //! process itself (an in-process fake daemon) passes. Any other peer is refused: nothing is written, and the caller gets a
@@ -68,16 +75,31 @@ pub fn check(stream: &UnixStream, expected: Option<&Path>) -> Result<(), String>
     let Some(expected) = expected else {
         return Err("ACPMUX_BIN is not set and no acpmux is beside this executable".into());
     };
-    let exe = executable(peer.pid)?;
-    if exe != expected {
-        return Err(format!(
-            "pid {} runs {}, not {}",
-            peer.pid,
-            exe.display(),
-            expected.display()
-        ));
-    }
-    signature(stream)
+    let gone = match executable(peer.pid) {
+        Ok(exe) if exe == expected => return Ok(()),
+        Ok(exe) if exe.exists() => {
+            return Err(format!(
+                "pid {} runs {}, not {}",
+                peer.pid,
+                exe.display(),
+                expected.display()
+            ));
+        }
+        Ok(exe) => format!("pid {} runs {}, which is gone", peer.pid, exe.display()),
+        Err(why) => why,
+    };
+    // Its executable is gone (an app update moved and deleted the bundle it
+    // runs from): only the kernel's signature can name it (code_signature).
+    moved(stream, expected).map_err(|why| format!("{gone}; {why}"))
+}
+
+/// A peer whose executable is gone passes only when the kernel's signature
+/// of it is Apple-anchored and signed by the team and identifier of
+/// `expected` (`code_signature`'s module doc).
+fn moved(stream: &UnixStream, expected: &Path) -> Result<(), String> {
+    let running = crate::code_signature::running_peer(stream)?;
+    let ours = crate::code_signature::of_file(expected)?;
+    crate::code_signature::verify(&running, &ours)
 }
 
 struct Peer {
@@ -176,208 +198,4 @@ fn executable(pid: i32) -> Result<PathBuf, String> {
 fn executable(pid: i32) -> Result<PathBuf, String> {
     std::fs::read_link(format!("/proc/{pid}/exe"))
         .map_err(|e| format!("pid {pid}'s executable is unknown ({e})"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn signature(_stream: &UnixStream) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn signature(stream: &UnixStream) -> Result<(), String> {
-    match codesign::own_team() {
-        None => Ok(()),
-        Some(team) => codesign::peer_signed_by(stream.as_raw_fd(), team),
-    }
-}
-
-/// The Team signature check (Security.framework), as `AcpmuxServerPeer`.
-#[cfg(target_os = "macos")]
-mod codesign {
-    use core_foundation_sys::base::{CFRelease, CFTypeRef, kCFAllocatorDefault};
-    use core_foundation_sys::data::CFDataCreate;
-    use core_foundation_sys::dictionary::{
-        CFDictionaryCreate, CFDictionaryGetValue, CFDictionaryRef, kCFTypeDictionaryKeyCallBacks,
-        kCFTypeDictionaryValueCallBacks,
-    };
-    use core_foundation_sys::string::{
-        CFStringCreateWithBytes, CFStringGetCString, CFStringRef, kCFStringEncodingUTF8,
-    };
-    use std::ffi::c_void;
-    use std::sync::OnceLock;
-
-    type OSStatus = i32;
-    type SecCodeRef = *const c_void;
-    type SecStaticCodeRef = *const c_void;
-    type SecRequirementRef = *const c_void;
-    const SIGNING_INFORMATION: u32 = 1 << 1;
-
-    #[link(name = "Security", kind = "framework")]
-    unsafe extern "C" {
-        static kSecCodeInfoTeamIdentifier: CFStringRef;
-        static kSecGuestAttributeAudit: CFStringRef;
-        fn SecCodeCopySelf(flags: u32, code: *mut SecCodeRef) -> OSStatus;
-        fn SecCodeCopyStaticCode(
-            code: SecCodeRef,
-            flags: u32,
-            out: *mut SecStaticCodeRef,
-        ) -> OSStatus;
-        fn SecCodeCopySigningInformation(
-            code: SecStaticCodeRef,
-            flags: u32,
-            info: *mut CFDictionaryRef,
-        ) -> OSStatus;
-        fn SecCodeCopyGuestWithAttributes(
-            host: SecCodeRef,
-            attributes: CFDictionaryRef,
-            flags: u32,
-            guest: *mut SecCodeRef,
-        ) -> OSStatus;
-        fn SecRequirementCreateWithString(
-            text: CFStringRef,
-            flags: u32,
-            requirement: *mut SecRequirementRef,
-        ) -> OSStatus;
-        fn SecCodeCheckValidity(
-            code: SecCodeRef,
-            flags: u32,
-            requirement: SecRequirementRef,
-        ) -> OSStatus;
-    }
-
-    /// Releases a CF object at the end of its scope.
-    struct Owned(CFTypeRef);
-    impl Drop for Owned {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                // SAFETY: the pointer came from a Create or Copy call.
-                unsafe { CFRelease(self.0) }
-            }
-        }
-    }
-
-    /// This host's team when it is Team-signed; None for an ad-hoc build.
-    pub fn own_team() -> Option<&'static str> {
-        static TEAM: OnceLock<Option<String>> = OnceLock::new();
-        TEAM.get_or_init(|| {
-            // SAFETY: each out-pointer is checked, and each object released by Owned.
-            unsafe {
-                let mut code: SecCodeRef = std::ptr::null();
-                if SecCodeCopySelf(0, &mut code) != 0 || code.is_null() {
-                    return None;
-                }
-                let _code = Owned(code);
-                let mut statik: SecStaticCodeRef = std::ptr::null();
-                if SecCodeCopyStaticCode(code, 0, &mut statik) != 0 || statik.is_null() {
-                    return None;
-                }
-                let _statik = Owned(statik);
-                let mut info: CFDictionaryRef = std::ptr::null();
-                if SecCodeCopySigningInformation(statik, SIGNING_INFORMATION, &mut info) != 0
-                    || info.is_null()
-                {
-                    return None;
-                }
-                let _info = Owned(info.cast());
-                let team =
-                    CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier.cast()) as CFStringRef;
-                if team.is_null() {
-                    return None;
-                }
-                let mut buffer = [0 as std::ffi::c_char; 64];
-                if CFStringGetCString(
-                    team,
-                    buffer.as_mut_ptr(),
-                    buffer.len() as _,
-                    kCFStringEncodingUTF8,
-                ) == 0
-                {
-                    return None;
-                }
-                let text = std::ffi::CStr::from_ptr(buffer.as_ptr())
-                    .to_string_lossy()
-                    .into_owned();
-                (!text.is_empty()).then_some(text)
-            }
-        })
-        .as_deref()
-    }
-
-    /// The peer of `fd` (by its audit token) is Apple-anchored and signed by `team`.
-    pub fn peer_signed_by(fd: i32, team: &str) -> Result<(), String> {
-        const SOL_LOCAL: libc::c_int = 0;
-        const LOCAL_PEERTOKEN: libc::c_int = 0x006;
-        let refused = || Err(format!("the peer is not signed by this host's team {team}"));
-        let mut token = [0u8; 32];
-        let mut len = token.len() as libc::socklen_t;
-        // SAFETY: token and len are valid for the sizes given; each CF object is released by Owned.
-        unsafe {
-            if libc::getsockopt(
-                fd,
-                SOL_LOCAL,
-                LOCAL_PEERTOKEN,
-                token.as_mut_ptr().cast(),
-                &mut len,
-            ) != 0
-                || len as usize != token.len()
-            {
-                return refused();
-            }
-            let data =
-                Owned(CFDataCreate(kCFAllocatorDefault, token.as_ptr(), token.len() as _).cast());
-            if data.0.is_null() {
-                return refused();
-            }
-            let keys = [kSecGuestAttributeAudit as *const c_void];
-            let values = [data.0];
-            let attributes = Owned(
-                CFDictionaryCreate(
-                    kCFAllocatorDefault,
-                    keys.as_ptr(),
-                    values.as_ptr(),
-                    1,
-                    &kCFTypeDictionaryKeyCallBacks,
-                    &kCFTypeDictionaryValueCallBacks,
-                )
-                .cast(),
-            );
-            if attributes.0.is_null() {
-                return refused();
-            }
-            let mut code: SecCodeRef = std::ptr::null();
-            if SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.0.cast(), 0, &mut code)
-                != 0
-                || code.is_null()
-            {
-                return refused();
-            }
-            let _code = Owned(code);
-            let text =
-                format!("anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
-            let string = Owned(
-                CFStringCreateWithBytes(
-                    kCFAllocatorDefault,
-                    text.as_ptr(),
-                    text.len() as _,
-                    kCFStringEncodingUTF8,
-                    0,
-                )
-                .cast(),
-            );
-            if string.0.is_null() {
-                return refused();
-            }
-            let mut requirement: SecRequirementRef = std::ptr::null();
-            if SecRequirementCreateWithString(string.0.cast(), 0, &mut requirement) != 0
-                || requirement.is_null()
-            {
-                return refused();
-            }
-            let _requirement = Owned(requirement);
-            if SecCodeCheckValidity(code, 0, requirement) != 0 {
-                return refused();
-            }
-        }
-        Ok(())
-    }
 }

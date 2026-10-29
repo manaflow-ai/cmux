@@ -18,6 +18,9 @@ public struct SidebarDocDrag {
     public var drop: ([String], SidebarDocTarget) -> Void
     /// The adopt ref (`session_id`, `workspace_id`, `workspace_key`) of a workspace the document does not place yet.
     public var adoptRef: (WorkspaceID) -> [String: String]?
+    /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
+    /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
+    public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
@@ -142,10 +145,33 @@ public struct SidebarDocDrag {
                 }
             }
         }
-        let target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
+        var target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
                                             moving: Set(moving))
+        if position.group == nil { target = Self.topLevelAnchor(target, siblings: siblings, nested: Self.nestedGroups(shown), moving: Set(moving)) }
         let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
         return (target, adopt)
+    }
+
+    /// The groups in `section` that sit in another group (nested groups list flat, after their parent).
+    static func nestedGroups(_ section: SidebarSection) -> Set<String> {
+        Set(section.nodes.compactMap { node in
+            if case let .group(group) = node, group.parent != nil { group.id.rawValue } else { nil }
+        })
+    }
+
+    /// `target` with its anchor moved off a nested group: a top-level slot counts the section's
+    /// rows flat, so the slot before a subgroup (or after the last row, when that is a subgroup)
+    /// named the subgroup as a top-level sibling, a move the document refuses. Such a slot is the
+    /// gap before the next top-level row, or after the last one.
+    static func topLevelAnchor(_ target: SidebarDocTarget, siblings: [String], nested: Set<String>, moving: Set<String>) -> SidebarDocTarget {
+        guard let anchor = target.before ?? target.after, nested.contains(anchor) else { return target }
+        let staying = siblings.filter { !moving.contains($0) }
+        if target.before != nil, let start = staying.firstIndex(of: anchor),
+           let next = staying[start...].first(where: { !nested.contains($0) }) {
+            return SidebarDocTarget(section: target.section, before: next)
+        }
+        guard let last = staying.last(where: { !nested.contains($0) }) else { return SidebarDocTarget(section: target.section, index: 0) }
+        return SidebarDocTarget(section: target.section, after: last)
     }
 
     /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their

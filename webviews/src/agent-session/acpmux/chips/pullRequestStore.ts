@@ -37,6 +37,8 @@ export type LinkedPullRequest = HeaderPullRequest & {
   readonly labels?: readonly string[];
   readonly baseRef?: string;
   readonly headRef?: string;
+  /** Its comments, review comments included; null or absent when the host's read did not say. */
+  readonly comments?: number | null;
 };
 
 /** What the host has for one link: the pull request, and when gh last answered about it. */
@@ -44,6 +46,8 @@ export type PullRequestAnswer = {
   readonly pullRequest: LinkedPullRequest | null;
   /** Seconds since 1970; undefined when the host has never had an answer. */
   readonly fetchedAt?: number;
+  /** When the read that gave it began, seconds since 1970: what it says was true then. */
+  readonly readFrom?: number;
   /** The host is reading it now, so the page asks again shortly. */
   readonly reading: boolean;
 };
@@ -55,8 +59,11 @@ const MAX_KEPT = 200;
 const answers = new Map<string, PullRequestAnswer>();
 const asking = new Set<string>();
 const listeners = new Set<() => void>();
+/// Bumped by every answer the store takes, so a reader of many links can keep its snapshot until one changes.
+let version = 0;
 
 function changed() {
+  version += 1;
   for (const listener of listeners) listener();
 }
 
@@ -71,15 +78,39 @@ function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer):
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 
-function ask(url: string) {
+/**
+ * Asks the host for `url`'s answer from its cache alone (`cached`): a call to the App that never
+ * starts a GitHub read, for a reader that registers its links in batches (`link.inspect`). One ask
+ * at a time per link.
+ */
+export function askPullRequest(url: string): void {
+  ask(url, true);
+}
+
+/** How many answers the store has taken; changes exactly when one does. */
+export const pullRequestsVersion = (): number => version;
+
+/** What the store has for `url` now; undefined before the host answers. */
+export const pullRequestAnswer = (url: string): PullRequestAnswer | undefined => answers.get(url);
+
+function readFromOf(
+  value: { fetchedAt?: unknown; readFrom?: unknown },
+  previous: PullRequestAnswer | undefined,
+): { readFrom?: number } {
+  const readFrom = typeof value.fetchedAt === "number" ? value.readFrom : previous?.readFrom;
+  return typeof readFrom === "number" ? { readFrom } : {};
+}
+
+function ask(url: string, cached = false) {
   if (asking.has(url)) return;
   asking.add(url);
   let settled = false;
-  void callChipHost("pr.inspect", { url })
+  void callChipHost("pr.inspect", cached ? { url, cached: true } : { url })
     .then((reply) => {
       const value = (reply ?? {}) as {
         pullRequest?: LinkedPullRequest | null;
         fetchedAt?: unknown;
+        readFrom?: unknown;
         reading?: unknown;
       };
       const pullRequest = value.pullRequest ?? null;
@@ -88,6 +119,8 @@ function ask(url: string) {
         pullRequest:
           pullRequest && typeof pullRequest.number === "number" ? pullRequest : (answers.get(url)?.pullRequest ?? null),
         fetchedAt: typeof value.fetchedAt === "number" ? value.fetchedAt : answers.get(url)?.fetchedAt,
+        // When that answer's read began goes with the answer: a reply with no new one keeps ours.
+        ...readFromOf(value, answers.get(url)),
         reading: value.reading === true,
       };
       if (same(answers.get(url), answer)) return;
@@ -104,6 +137,12 @@ function ask(url: string) {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Follows every answer the store takes (the Inspector's Changes reads many links at once). */
+export function subscribePullRequests(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
 /**

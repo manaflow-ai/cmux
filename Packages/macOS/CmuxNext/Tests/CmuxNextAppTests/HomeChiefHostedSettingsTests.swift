@@ -52,6 +52,10 @@ struct HomeChiefHostedSettingsTests {
         let records = HomeChiefRecord.list(from: list)
         #expect(records.map(\.id) == [Self.agent, "agent_placed"])
         #expect(HomeChiefRecord.archivedIDs(from: list) == ["agent_old"])
+        // A deleted Chief (and one archived past its restore window) is only a tombstone: still hidden.
+        var deleted = list
+        deleted["tombstones"] = [["id": "agent_gone", "owner_user": "user_1", "archived_at": "2026-10-02T00:00:00Z"]]
+        #expect(HomeChiefRecord.archivedIDs(from: deleted) == ["agent_old", "agent_gone"])
         let none = HomeCloudChiefs()
         #expect(none.placement(of: Self.main, records: records).map { [$0.id, "\($0.placed)"] } == [Self.agent, "false"])
         #expect(none.placement(of: "conv_placed", records: records)?.placed == true)

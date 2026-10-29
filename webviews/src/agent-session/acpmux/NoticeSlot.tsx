@@ -10,8 +10,9 @@ import {
 } from "react";
 
 /// How much a notice above the composer matters (hq#2569 #12): an error beats what is happening
-/// now, which beats a hint, which beats an update the person started. Higher wins.
-export const NOTICE_TIER = { error: 40, status: 30, hint: 20, update: 10 } as const;
+/// now, which beats a hint, which beats an update the person started, which beats standing
+/// information that is always there (the agent rules card). Higher wins.
+export const NOTICE_TIER = { error: 40, status: 30, hint: 20, update: 10, info: 5 } as const;
 export type NoticeTier = keyof typeof NOTICE_TIER;
 
 type Entry = { tier: number; order: number };

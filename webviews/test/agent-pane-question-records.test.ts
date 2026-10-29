@@ -2,9 +2,10 @@
 // An agent's question (Claude Code AskUserQuestion here) shows as a card above the composer while
 // it waits. Once answered it left nothing in the chat: the card went, and so did what the person
 // chose. Codex and Claude Code keep a compact record where the question was asked. The transcript
-// now keeps one: "Auth method: OAuth 2.0" for an answer, "Not answered: …" for a question
-// cancelled or declined. It comes from acpmux's own log (`permission_request`, then its
-// `permission_decision`), so a reload shows it as before, and it stays out of the turn's
+// now keeps one: "Auth method: OAuth 2.0" for an answer, "Skipped: …" for a question declined and
+// "Stopped before an answer: …" for one the turn's stop cancelled. It comes from acpmux's own log
+// (`permission_request`, then its `permission_decision`), so a reload shows it as before, and it
+// stays out of the turn's
 // "Worked for" fold. The page is the pane's dev entry with its browser host, talking JSON-RPC to
 // a stand-in acpmux daemon that can push live events.
 //
@@ -231,14 +232,14 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.close();
   });
 
-  test("a cancelled or declined question leaves a Not answered line", async () => {
+  test("a question the turn stopped or the person skipped says so", async () => {
     const cancelled = await open(CANCELLED, "Stopped.");
     await cancelled.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(cancelled)).toEqual([`Not answered: ${PROMPT}`]);
+    expect(await records(cancelled)).toEqual([`Stopped before an answer: ${PROMPT}`]);
     await cancelled.close();
     const declined = await open(DECLINED, "I'll pick one myself.");
     await declined.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(declined)).toEqual([`Not answered: ${PROMPT}`]);
+    expect(await records(declined)).toEqual([`Skipped: ${PROMPT}`]);
     await declined.close();
   });
 

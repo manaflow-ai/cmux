@@ -58,6 +58,10 @@ public final class HangEpisodeRecorder: Sendable {
         var episodes: [Episode] = []
         /// One symbolication at a time: a job stuck on the loader lock holds only itself.
         var symbolicating = false
+        /// The streams of ``changes()`` still iterated.
+        var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+        /// How many times ``notifyChanged()`` told the subscribers (tests: one per change).
+        var notifications = 0
     }
 
     static let filePrefix = "hang-"
@@ -93,6 +97,15 @@ public final class HangEpisodeRecorder: Sendable {
         queue.async { [self] in loadEntries() }
     }
 
+    /// Defense only: ends every ``changes()`` stream still registered when the recorder goes, so
+    /// a subscriber that does not own the recorder stops waiting. Debug Settings holds its
+    /// recorder, so its streams end when its page closes, not here; and a page keeps the recorder
+    /// it opened with (``MainThreadWatchdog/episodes`` is set once, at launch). (The queued
+    /// writes hold the recorder, so this runs after the last of them.)
+    deinit {
+        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.finish() }
+    }
+
     /// `~/Library/Logs/<bundle id>/hangs`.
     public static func defaultDirectory(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appending(path: "Library/Logs").appending(path: bundleID ?? "com.cmuxterm.app.next").appending(path: "hangs")
@@ -101,8 +114,40 @@ public final class HangEpisodeRecorder: Sendable {
     /// The hang files, newest first (at most ``maxFiles``). A lock and a copy.
     public var entries: [Entry] { state.withLock { $0.entries } }
 
-    /// Posted (object: the recorder) on the recorder's queue after ``entries`` changed.
-    public static let didChange = Notification.Name("cmux-next.hang-episodes.changed")
+    /// One element after each change of ``entries``, yielded on the recorder's queue right after
+    /// the change (a hang file written or enriched, or the earlier launches' files loaded).
+    /// Changes the subscriber has not taken yet fold into one pending element.
+    ///
+    /// Only this recorder's subscribers hear it, and only while they iterate: the stream ends,
+    /// and the recorder forgets it, when the iterating task is cancelled (how a subscriber that
+    /// owns the recorder ends its stream). Every stream still registered also ends if the
+    /// recorder goes away. Subscribe before the
+    /// change you wait for (the stream does not replay earlier changes); read ``entries`` for
+    /// the list itself.
+    ///
+    /// ```swift
+    /// let changes = recorder.changes()
+    /// watch = Task { @MainActor in for await _ in changes { emit() } }
+    /// ```
+    public func changes() -> AsyncStream<Void> {
+        let id = UUID()
+        // One pending element is enough: it only says "read entries again", so changes a slow
+        // subscriber has not taken yet fold into one.
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation.onTermination = { [weak self] _ in
+            guard let self else { return }
+            state.withLock { _ = $0.subscribers.removeValue(forKey: id) }
+        }
+        state.withLock { $0.subscribers[id] = continuation }
+        return stream
+    }
+
+    /// Streams of ``changes()`` still registered (tests: an ended stream is forgotten).
+    var subscriberCount: Int { state.withLock { $0.subscribers.count } }
+
+    /// The changes told to the subscribers so far, each one element per stream (tests: a stream
+    /// folds changes not yet taken, so only this shows a change told twice).
+    var changeNotificationCount: Int { state.withLock { $0.notifications } }
 
     /// The text of a hang file in ``directory``: nil when it is gone, is not a regular file (a
     /// symlink is refused, never followed), or is larger than ``maxBytes``. Call off the main thread.
@@ -242,7 +287,7 @@ public final class HangEpisodeRecorder: Sendable {
             state.entries.sort { $0.started > $1.started }
             if state.entries.count > maxFiles { state.entries.removeLast(state.entries.count - maxFiles) }
         }
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        notifyChanged()
     }
 
     /// The files of earlier launches, newest first, read once at init.
@@ -256,7 +301,17 @@ public final class HangEpisodeRecorder: Sendable {
             let fresh = Set(state.entries.map(\.url))
             state.entries = (state.entries + loaded.filter { !fresh.contains($0.url) }).sorted { $0.started > $1.started }
         }
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        notifyChanged()
+    }
+
+    /// Tells every ``changes()`` subscriber that ``entries`` changed, on the caller's thread (the
+    /// recorder's queue), outside the lock.
+    private func notifyChanged() {
+        let subscribers = state.withLock { state in
+            state.notifications += 1
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield() }
     }
 
     /// This folder's hang files that are regular files (symlinks and folders are skipped), newest first.

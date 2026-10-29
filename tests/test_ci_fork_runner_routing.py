@@ -22,7 +22,6 @@ MACOS_15_FORK_JOBS = {
     # Builds the release Ghostty CLI helper against the macOS 15 SDK.
     ("ci-macos.yml", "swift-package-tests"),
     ("release.yml", "build-ghostty-cli-helper"),
-    ("nightly.yml", "build-nightly-ghostty-cli-helper"),
     # Checks the release Ghostty CLI helper's Zig fetch list with a real
     # build, which must use the same macOS 15 SDK as the helper it describes.
     ("cmux-next-source-archive.yml", "archive"),
@@ -32,9 +31,6 @@ MACOS_15_FORK_JOBS = {
     ("plain-paste-worker.yml", "macos-15"),
     # Seeds the macOS 15 pool's SwiftPM manifest cache, keyed on its Xcode.
     ("seed-swiftpm-manifests.yml", "seed"),
-    # Launches the published cmux NEXT DMG on macOS 15 (the macOS 14 floor's
-    # oldest hosted major); on macos-26 it would prove nothing.
-    ("nightly.yml", "nightly-next-macos15-launch"),
 }
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every
@@ -87,7 +83,7 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "report text that prints the lane's effective label, not a runs-on value"
     ),
     ("cmux-next-fast-tier-seed.yml",
-     '{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
@@ -191,10 +187,18 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
-    ("cmux-next.yml", "vars.CI_FAST_LANE_RUNNER == '' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',"): (
-        "a continuation line of the side-lane placement step's CASCADE_RUNS list: "
-        "it compares the fast-lane variable with '' to name the fast-tier job, "
-        "selects no runner, and the placement step itself is gated to glaeda routes"
+    ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next-guards.yml", "MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
+        "side_lane_placement.py's input: the placement step is gated to glaeda routes "
+        "(never a fork) and selects no runner; fast_route() writes it to fast_runner "
+        "only while one of its runners is idle"
     ),
     ("ci.yml", "DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}"): (
         "pr_runner_pool.py's input: it compares the lane with its default and "

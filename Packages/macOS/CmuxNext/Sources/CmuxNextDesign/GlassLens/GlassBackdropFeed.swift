@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// Feeds one web view's page the wallpaper still its glass lenses (`window.cmuxTheme.backdrop`,
 /// plans/cmux-next/glass-lens-DESIGN.md): the art of the backdrop behind the view, where it lies
@@ -28,7 +30,7 @@ public final class GlassBackdropFeed {
     private weak var source: WindowMaterialView?
     /// The views whose frame or bounds move the page in the window, and their observers.
     private var watched: [ObjectIdentifier] = []
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     /// The one-shot frame that runs the next ``update()``; made on first use.
     private var nextFrame: FrameClient?
 
@@ -52,7 +54,6 @@ public final class GlassBackdropFeed {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             nextFrame?.deactivate()
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
         }
     }
 
@@ -127,15 +128,14 @@ public final class GlassBackdropFeed {
         let center = NotificationCenter.default
         for watchedView in views {
             for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
-                observers.append(center.addObserver(forName: name, object: watchedView, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.setNeedsUpdate() } // main-proof: observer on queue: .main
+                observers.append(MainActorObservation(name, object: watchedView, center: center) { [weak self] in
+                    self?.setNeedsUpdate()
                 })
             }
         }
     }
 
     private func unwatch() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         watched = []
     }

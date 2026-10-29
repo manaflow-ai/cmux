@@ -49,6 +49,14 @@ reaches outside this Mac or cannot be undone: inviting people, creating a
 paid Cloud machine, or giving a machine you have never seen access to this
 one.
 
+A message the user pasted from a task's `prompt` (in `cmux setup list`, or
+docs/chief-setup-prompts.md) is their request for that task. The machine,
+folder or browser it names counts as one they named, and the cloud-machine
+prompt, which says they know it costs money, answers the ask for a paid
+machine: run it without asking a second time. A word still in capitals
+(HOST, FOLDER, BROWSER, EMAIL) is theirs to fill in: ask for it. Still
+confirm an invite's address before you send it.
+
 ## Tasks
 
 - Trust a folder: `cmux setup trust FOLDER` (default the current folder).

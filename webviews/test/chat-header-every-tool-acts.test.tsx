@@ -1,22 +1,19 @@
 // l10n-allow-file: test fixture chat titles and paths, not shipped UI.
 // No dead clicks in the chat header (Leo 2026-10-21): every item in the header row does something when
-// clicked. The row as App.tsx draws it: the Environment line (machine · folder · branch), the panel
-// toggle (the summary's with the Inspector off, the Inspector's with it on), the Needs you inbox,
-// every quick action and the "..." menu. Each one is clicked on its own fresh render and must call its action, open its
-// popup, flip its toggle or light what it opened. The Environment line opens the Inspector at
-// Environment, and when that is already in view the section lights up, so the click still answers;
-// with the Inspector off it opens the chat folder's Files tree.
+// clicked. The row as App.tsx draws it: the panel toggle (the summary's with the Inspector off,
+// the Inspector's with it on), the Needs you inbox, every quick action and the "..." menu.
+// Each one is clicked on its own fresh render and must call its action, open its popup or flip
+// its toggle. Machine and folder are composer chips, never header buttons.
 import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { EnvironmentLine, environmentOpener } from "../src/agent-session/acpmux/header/EnvironmentLine";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
 import { useChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { resetInspectorState, setInspectorOpen } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -109,11 +106,6 @@ function Header({ calls }: { calls: string[] }) {
       }}
     >
       <header className="acpmux-header">
-        <EnvironmentLine
-          summary={snapshot.summary}
-          machineName="Studio"
-          onOpen={environmentOpener(inspector.reveal, record("environment.files"))}
-        />
         <div className="acpmux-handoff-header-tools">
           <ChatHeaderTools
             onTerminal={record("terminal")}
@@ -178,7 +170,7 @@ async function everyItemActs(inspector: boolean, before?: () => void) {
     const item = items[index];
     if (!item) break;
     const label = item.getAttribute("aria-label") ?? "";
-    labels.push(label.startsWith("Environment") ? "Environment" : label);
+    labels.push(label);
     // Every item in the row is a live button: none is disabled, none is decoration.
     expect([label, (item as HTMLButtonElement).disabled]).toEqual([label, false]);
     const was = fingerprint(container, calls);
@@ -193,13 +185,12 @@ async function everyItemActs(inspector: boolean, before?: () => void) {
   return labels;
 }
 
-test("with the Inspector on, every header item acts on a click; the Environment line lights Environment when it is in view", async () => {
+test("with the Inspector on, every header item acts on a click", async () => {
   setChatDisplay({});
   const labels = await everyItemActs(true);
   // The Inspector's toggle leads the top-right tools, as Claude Code desktop's panel toggle does.
   expect(labels).toEqual([
-    "Environment",
-    "Inspector",
+    "Session Info",
     "Needs you",
     "Changes",
     "Preview",
@@ -212,28 +203,10 @@ test("with the Inspector on, every header item acts on a click; the Environment 
   ]);
 });
 
-test("with the Inspector closed, the Environment line opens it at Environment", async () => {
-  setChatDisplay({});
-  const container = installDom(true);
-  const calls: string[] = [];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<Header calls={calls} />);
-  });
-  await act(async () => setInspectorOpen(false));
-  expect(container.querySelector("aside.acpmux-chat-inspector")).toBeNull();
-  await act(async () => container.querySelector<HTMLButtonElement>("button.acpmux-env-line")!.click());
-  expect(container.querySelector("aside.acpmux-chat-inspector")).not.toBeNull();
-  expect(
-    container.querySelector<HTMLElement>('section[data-section="environment"]')?.hasAttribute("data-revealed"),
-  ).toBe(true);
-});
-
-test("with the Inspector off, every header item acts; the Environment line opens the folder's Files tree", async () => {
+test("with the Inspector off, every header item acts on a click", async () => {
   setChatDisplay({});
   const labels = await everyItemActs(false);
   expect(labels).toEqual([
-    "Environment",
     "Chat summary",
     "Needs you",
     "Changes",

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFilesUI
 
 /// Makes each window's file explorer (the right sidebar's Files section) and
 /// finds the one an action runs on: the right-clicked one for a row's menu (its

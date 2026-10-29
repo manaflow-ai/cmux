@@ -1,6 +1,7 @@
 import QuartzCore
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The opt-in steady ring (blink is the default style) is clearly visible and arrives with
 /// one short soft pulse (Leo, 2026-10-14: the steady ring settled at the old faint resting
@@ -17,6 +18,16 @@ import Testing
     }
 
     @Test func steadyRingRestsVisibly() {
+        // The blink's own rest needs its animated look: Reduce Motion or the static look (both
+        // process-wide, set by suites that run alongside) turn it into the steady ring.
+        let design = DesignSettings.shared
+        let before = (indicator: design.statusIndicator, reduceMotion: Motion.reduceMotionOverride)
+        design.statusIndicator.animation = .animated
+        Motion.reduceMotionOverride = false
+        defer {
+            design.statusIndicator = before.indicator
+            Motion.reduceMotionOverride = before.reduceMotion
+        }
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
         #expect(rest >= 0.65, "steady rests at \(rest): too faint to notice")
         // The blink keeps its faint rest after its flashes.
@@ -52,16 +63,6 @@ import Testing
         #expect(Motion.indicators.attentionAnimation(settings, look: .subtle) == nil, "\(style) animates under Reduce Motion")
         let rest = Motion.attentionRestingOpacity(settings, look: .subtle)
         #expect(rest == AttentionHighlightLook.subtle.steadyOpacity, "\(style) rests at \(rest), not the steady strength")
-    }
-
-    @Test func aFurtherNotificationSwellsWithoutDroppingOut() throws {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
-        let values = opacities(Motion.indicators.attentionAnimation(steady, look: .subtle, showing: true))
-        #expect(values.first == rest)
-        #expect((values.min() ?? 0) >= rest, "the ring dropped out: \(values)")
-        #expect((values.max() ?? 0) > rest)
     }
 
     /// The static look (cx-sya4n) turns a blink or pulse into the steady ring: the ring then

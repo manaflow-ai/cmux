@@ -22,9 +22,12 @@ extension PaneController {
         case .toggleGroupCollapsed(let id):
             let group = TabGroupID_(id)
             let collapsed = !(stripModel.group(id)?.isCollapsed ?? false)
-            if collapsed, let selected = stripModel.selectedID, stripModel.tab(selected)?.groupID == id,
-               let outside = stripModel.orderedTabs.first(where: { $0.groupID != id }) {
-                select(outside.id)
+            // The nearest tab still shown, as the menu's Collapse picks it: the first tab outside the
+            // group could sit in another collapsed group, selected but not drawn.
+            if collapsed, let next = TabGroupOrdering.selectionBeforeCollapsing(
+                id, in: stripModel.orderedTabs, collapsed: Set(stripModel.groups.filter(\.isCollapsed).map(\.id)),
+                selected: stripModel.selectedID) {
+                select(next)
             }
             groupCommand("update-tab-group", intent: .setTabGroupCollapsed(group, collapsed: collapsed)) { connection, transaction in
                 if v2 { return try await connection.state.updateTabGroup(group.rawValue, collapsed: collapsed) }
@@ -99,7 +102,7 @@ extension PaneController {
     /// After a drag moved `tab` into this pane: joins `group` (or leaves its
     /// group when nil) if membership differs. Needs tab-groups-v1.
     func syncGroupMembership(of tab: TabModel, to group: String?) {
-        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.shared.tabGroups) else { return }
+        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapability.tabGroups.rawValue) else { return }
         if let group {
             groupCommand("add-tabs-to-group", groupWrites.add([tab], to: CmuxNextDaemon.TabGroupID(rawValue: group)))
         } else {

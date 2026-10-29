@@ -6,20 +6,40 @@ import Foundation
 final class CEFExtensionStores {
     unowned let runtime: CEFRuntime
     private var stores: [BrowserProfileID: BrowserExtensionStore] = [:]
+    /// The backend of a new mirror; nil: Chromium's (tests pass their own).
+    private let makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)?
     /// Page menu sources by extension id, version and folder: each manifest
     /// is read once per installed version (``withRowIcons(_:profile:)``).
     private var menuSources: [String: BrowserExtensionMenuSource] = [:]
 
-    init(runtime: CEFRuntime) {
+    init(runtime: CEFRuntime, makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)? = nil) {
         self.runtime = runtime
+        self.makeBackend = makeBackend
     }
 
-    /// The extension mirror of `profile` (created on first use).
+    /// The extension mirror of `profile` (created on first use, empty).
     func store(for profile: BrowserProfileID) -> BrowserExtensionStore {
         if let store = stores[profile] { return store }
-        let store = BrowserExtensionStore(profile: profile, backend: CEFExtensionBackend(runtime: runtime, profile: profile))
+        let store = BrowserExtensionStore(profile: profile, backend: makeBackend?(profile) ?? CEFExtensionBackend(runtime: runtime, profile: profile))
         stores[profile] = store
         return store
+    }
+
+    /// The mirror of `profile` for a reader (the browser host, Settings, menus): filled from
+    /// Chromium once, when it is made. A read never asks Chromium again: the fork's extension and
+    /// action events (``refresh(window:browser:)``) and each new window (`CEFPaneHost.windowCreated`)
+    /// keep it current. A refresh per read was a synchronous `cmux_ext_list` per Chromium tab on
+    /// every tab-list change (PL-burst, STRESS: 99.6 ms on new tab, Cmd-W and move).
+    func readyStore(for profile: BrowserProfileID) -> BrowserExtensionStore {
+        let made = stores[profile] == nil
+        let store = store(for: profile)
+        if made { store.refresh() }
+        return store
+    }
+
+    /// Refreshes every mirror (tests; an extension event of no known window).
+    func refreshAll() {
+        for store in stores.values { store.refresh() }
     }
 
     func hasStore(for profile: BrowserProfileID) -> Bool { stores[profile] != nil }
@@ -60,7 +80,7 @@ final class CEFExtensionStores {
         var profiles: Set<BrowserProfileID> = []
         if let tab = runtime.tabsByBrowser[browser] { profiles.insert(tab.profileID) }
         for host in runtime.hosts.values where host.owns(window: window) { profiles.insert(host.key.profile) }
-        if profiles.isEmpty { profiles = Set(stores.keys) }
+        guard !profiles.isEmpty else { return refreshAll() }
         for profile in profiles { stores[profile]?.refresh() }
     }
 }

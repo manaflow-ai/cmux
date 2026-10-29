@@ -54,14 +54,14 @@ enum BrowserHitHandlers {
         registry.bind("browser.link.openInIncognitoWindow", run: { invocation in
             context.services.openOffTheRecord(try Self.url(invocation), source: Self.page(invocation, context))
         })
-        registry.bind("browser.link.openInSplit", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+        registry.bindEffect("browser.link.openInSplit", requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
             let url = try Self.url(invocation)
             let pane = try context.pane(invocation)
             let services = context.services
             let profile = Self.page(invocation, context).flatMap { services.cache.key(of: $0) }.flatMap { services.cache.tabModel($0) }
                 .map { services.browserProfiles.profileID(ofTab: $0) }
-            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
-                                             byPerson: invocation.origin == .user, context: context)
+            return try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
+                                                    byPerson: invocation.origin == .user, context: context)
         })
     }
 
@@ -88,7 +88,7 @@ enum BrowserHitHandlers {
             }
             context.services.cache.pageRequests.openInNewWorkspace(url, opener: page, newWindow: false, window: window)
         })
-        registry.bind("browser.link.openInNewSpace", requires: DaemonCapabilities.shared.profiles,
+        registry.bind("browser.link.openInNewSpace", requires: DaemonCapability.profiles.rawValue,
                       daemon: context.services.machines.local, run: { invocation in
             try context.requireRooms()
             let url = try Self.url(invocation)
@@ -112,8 +112,8 @@ enum BrowserHitHandlers {
     /// A new workspace whose only tab shows `url` on the default engine.
     static func openWorkspace(_ url: URL, newWindow: Bool, window: String?, room: ProfileID?, _ services: AppServices) throws {
         let daemon = services.activeDaemon
-        guard daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.frontendBrowserTabs))
+        guard daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.frontendBrowserTabs.rawValue))
         }
         guard case let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let address = url.absoluteString

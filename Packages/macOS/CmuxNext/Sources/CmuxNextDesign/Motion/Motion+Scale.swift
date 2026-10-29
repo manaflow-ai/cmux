@@ -1,4 +1,5 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 extension Motion {
     /// Scale a floating panel opens from,

@@ -8,10 +8,10 @@ enum ImportedTabsOpener {
     @MainActor
     static func open(_ summary: ImportSummary, services: AppServices) {
         let daemon = services.activeDaemon
-        guard daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else { return }
+        guard daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) else { return }
         let browserTabs = services.cache.browserTabs
         // An older daemon without the capability would ignore the field: send it only when served.
-        let background: Bool? = daemon.supports(DaemonCapabilities.shared.frontendBrowserActivate) ? false : nil
+        let background: Bool? = daemon.supports(DaemonCapability.frontendBrowserActivate.rawValue) ? false : nil
         for workspace in summary.tabWorkspaces {
             let tabs = workspace.tabs.compactMap { tab -> (ImportedTab, BrowserEngine)? in
                 guard case .open(let choice) = browserTabs.resolve(requested: nil, url: tab.url) else { return nil }

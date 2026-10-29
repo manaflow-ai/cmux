@@ -13,7 +13,8 @@ extension NotificationCenterService {
         let pet = ChiefPetRoutes(services: services).makePet()
         chiefPet = pet
         pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
-                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" })
+                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
+                  upload: { [weak services] in services?.wornUpload(of: nil)?.file })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's
@@ -21,7 +22,7 @@ extension NotificationCenterService {
     func notifyChiefPet(_ notification: DaemonNotification, located: LocatedTab, decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
         // Off, the pet takes nothing: no notice is built (the body reads whether the screen is locked).
         guard decision.alerts, let chiefPet, chiefPet.isOn else { return }
-        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, workspace: located.workspace.displayName,
+        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, name: shownName(of: located.tab), workspace: located.workspace.displayName,
                                             programTitle: program?.title(localizations: localizations),
                                             body: notification.bannerBody(previews: previews, screenLocked: screenLocked())))
     }
@@ -46,7 +47,7 @@ extension NotificationCenterService {
         let target = located.tab.surface
         let daemon = services.daemon(for: located.pane)
         // An older daemon ignores `expect_foreground`: the reply still goes, checked one round trip early.
-        let guarded = daemon.supports(DaemonCapabilities.shared.sendExpectForeground)
+        let guarded = daemon.supports(DaemonCapability.sendExpectForeground.rawValue)
         let failed = await daemon.failure("chief-pet-reply") { try await $0.typeToForegroundProgram(target, text: text) }
         guard failed == nil else {
             note("pet reply refused: only a shell runs in \(located.tab.id), or the daemon refused")

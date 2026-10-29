@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
+        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
         type: string
@@ -107,6 +107,13 @@ on:
         required: false
         default: "mac"
         type: string
+    outputs:
+      # cmux-tui-artifacts.yml publishes the Windows daemon in its own pass
+      # only when this is true: an optional (windows_optional) Windows build
+      # that failed still ends this workflow green.
+      windows_built:
+        description: "true when build-windows uploaded the cmux-tui-x86_64-pc-windows-gnu artifact"
+        value: ${{ jobs.build-windows.outputs.built }}
 
 permissions: {}
 
@@ -128,6 +135,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      unix_targets: ${{ steps.targets.outputs.unix_targets }}
       linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
     steps:
       - name: Select binary targets
@@ -141,8 +149,8 @@ jobs:
           # The binary legs on Linux run their cargo groups at once
           # (scripts/ci/cargo-groups.sh), so they take 32 vCPU: on 4 (musl) and
           # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188).
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
-          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') }}
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404') }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
@@ -222,6 +230,10 @@ jobs:
                   target for target in targets
                   if target["target"] == "x86_64-apple-darwin"
               ]
+          elif target_set == "windows":
+              # cmux-tui-artifacts.yml builds Windows in its own call so the
+              # macOS and Linux tree never waits for the Windows leg.
+              selected = []
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")
 
@@ -233,6 +245,7 @@ jobs:
               raise SystemExit("npm and PyPI packaging require target_set=all")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
+          print("unix_targets=" + ("true" if selected else "false"))
 
           linux_package_targets = [
               {
@@ -264,6 +277,8 @@ jobs:
       CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     name: build ${{ matrix.target }}
     needs: plan-build
+    # target_set=windows selects no Unix target (an empty matrix is an error).
+    if: needs.plan-build.outputs.unix_targets == 'true'
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -304,9 +319,8 @@ jobs:
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
-      - name: Fetch the ghostty-next Zig packages (retried)
-        shell: bash
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -350,6 +364,10 @@ jobs:
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          # The terminal holder (std and libc only), its own invocation so its
+          # features do not unify with the daemon's. The daemon starts every
+          # holder from a copy of it found beside its own executable.
+          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -414,6 +432,10 @@ jobs:
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
+          # The terminal holder (std and libc only), its own invocation so its
+          # features do not unify with the daemon's. The daemon starts every
+          # holder from a copy of it found beside its own executable.
+          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -485,7 +507,7 @@ jobs:
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
-        # cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
+        # cmux-holder, cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
         # cmux-browser-host, cmux-agent-screen-detection), with the same stamps, into the same target
         # directory, so "Stage binary" is unchanged. scripts/ci/macos-cross.sh
         # says how; the cmux-tui-artifacts shadow job proves parity.
@@ -573,6 +595,14 @@ jobs:
             terminal_host_binary="dist/cmux-tui-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-host" "$terminal_host_binary"
           fi
+          # The terminal holder rides the same way as cmux-tui-holder-<target>
+          # and installs as cmux-holder beside cmux-tui, where the daemon starts
+          # every terminal holder from (host_exe.rs). macOS only for now.
+          holder_binary=""
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+            holder_binary="dist/cmux-tui-holder-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-holder" "$holder_binary"
+          fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
@@ -607,6 +637,9 @@ jobs:
             fi
             if [[ -n "$terminal_host_binary" ]]; then
               cp "$terminal_host_binary" "dist/cmux-tui-host-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$holder_binary" ]]; then
+              cp "$holder_binary" "dist/cmux-tui-holder-${{ matrix.compatibility_target }}"
             fi
             if [[ -n "$agent_detector_binary" ]]; then
               cp "$agent_detector_binary" "dist/cmux-tui-agent-screen-detection-${{ matrix.compatibility_target }}"
@@ -696,6 +729,8 @@ jobs:
     continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 60
+    outputs:
+      built: ${{ steps.built.outputs.built }}
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -734,9 +769,8 @@ jobs:
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
-      - name: Fetch the ghostty-next Zig packages (retried)
-        shell: bash
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -866,6 +900,12 @@ jobs:
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
+
+      # The workflow output windows_built: a failed step above leaves it unset.
+      - name: Record the uploaded Windows build
+        id: built
+        shell: bash
+        run: echo "built=true" >> "$GITHUB_OUTPUT"
 
   # acpmux for GPUI on Windows (cx-ephhf), published by cmux-tui-artifacts.yml
   # in cmux-tui-windows/<sha>/ and as an optional Windows tree companion. Its

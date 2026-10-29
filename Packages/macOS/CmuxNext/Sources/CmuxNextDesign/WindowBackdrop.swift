@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import CmuxNextDesignTokens
 
 /// How the window behind the terminal is drawn for the resolved
 /// `background-opacity` and `background-blur`: one ``WindowMaterial`` for

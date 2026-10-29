@@ -20,7 +20,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "newTab.ofKind",
                 title: String(localized: "action.newTab.ofKind", defaultValue: "New Tab of the Same Kind", bundle: .module),
                 keywords: ["tab", "terminal", "browser", "agent", "same", "kind", "like this", "create"],
-                category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
+                category: .tab, symbol: "square.on.square.dashed", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.tab]
             ),
             // Chrome's New Tab to the Right (cx-d0d.58): Cmd-T's tab, right after this tab
@@ -45,21 +45,21 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "newTab.atStart",
                 title: String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module),
                 keywords: ["tab", "new", "start", "first", "beginning", "left", "front", "create"],
-                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                category: .tab, symbol: "backward.end", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-at-start"
             ),
             ActionDescriptor(
                 id: "newTab.atEnd",
                 title: String(localized: "action.newTab.atEnd", defaultValue: "New Tab at End", bundle: .module),
                 keywords: ["tab", "new", "end", "last", "append", "create"],
-                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                category: .tab, symbol: "forward.end", surfaces: [.palette, .keyboard],
                 targets: [.tab], cliName: "tab new-at-end"
             ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
                 keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
-                category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                category: .tab, symbol: "square.grid.2x2", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
             ),
             // New Horizontal Tab (cx-soza): a tab in the focused pane, turning its tab bar on first,
@@ -91,7 +91,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
                 keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("`", modifiers: [.control]),
-                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
+                category: .tab, symbol: "terminal", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),
             ActionDescriptor(
@@ -101,6 +101,29 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice, CatalogArgument.browserProfileString],
                 targets: [.tab], cliName: "tab new-browser"
+            ),
+            ActionDescriptor(
+                id: "macScreen.open",
+                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
+                category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
+                targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
+            ),
+            // The menu bar item shown while a device sees or controls this Mac runs these two
+            // (MacScreenShareIndicator); unavailable while no device is connected.
+            ActionDescriptor(
+                id: "macScreen.stopSharing",
+                title: String(localized: "action.macScreen.stopSharing", defaultValue: "Stop Sharing This Mac", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "stop", "end", "disconnect", "viewer", "control"],
+                category: .tab, symbol: "display", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "macScreen.revokeViewer",
+                title: String(localized: "action.macScreen.revokeViewer", defaultValue: "Revoke This Device", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "revoke", "device", "permission", "viewer", "block"],
+                category: .tab, symbol: "person.badge.minus", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "openBrowser.webkit",
@@ -113,7 +136,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "openBrowser.chromium",
                 title: String(localized: "action.openBrowser.chromium", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "chrome", "chromium", "cef", "extensions", "create"],
-                category: .tab, symbol: "circle.circle", surfaces: [.palette, .contextMenu],
+                category: .tab, symbol: "globe", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-chromium"
             ),
             ActionDescriptor(
@@ -254,7 +277,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.moveSurfaceToPaneLeft", defaultValue: "Move Tab to Pane Left", bundle: .module),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.shift, .option, .command]),
-                category: .tab, symbol: "arrow.left.square.fill", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .tab, symbol: "arrow.left.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.tab], cliName: "tab move-to-pane-left", mainMenu: .file
             ),
             ActionDescriptor(
@@ -262,7 +285,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.moveSurfaceToPaneRight", defaultValue: "Move Tab to Pane Right", bundle: .module),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.shift, .option, .command]),
-                category: .tab, symbol: "arrow.right.square.fill", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .tab, symbol: "arrow.right.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.tab], cliName: "tab move-to-pane-right", mainMenu: .file
             ),
             ActionDescriptor(
@@ -270,7 +293,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.moveSurfaceToPaneUp", defaultValue: "Move Tab to Pane Above", bundle: .module),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.shift, .option, .command]), category: .tab,
-                symbol: "arrow.up.square.fill", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.tab],
+                symbol: "arrow.up.square", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.tab],
                 cliName: "tab move-to-pane-above", mainMenu: .file
             ),
             ActionDescriptor(
@@ -278,7 +301,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.moveSurfaceToPaneDown", defaultValue: "Move Tab to Pane Below", bundle: .module),
                 keywords: ["tab", "pane"],
                 defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.shift, .option, .command]),
-                category: .tab, symbol: "arrow.down.square.fill", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                category: .tab, symbol: "arrow.down.square", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 targets: [.tab], cliName: "tab move-to-pane-below", mainMenu: .file
             ),
             ActionDescriptor(
@@ -311,13 +334,13 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "palette.toggleTabPin",
                 title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module),
                 keywords: ["tab", "pin", "chat"], defaultShortcut: Shortcut("p", modifiers: [.option, .command]),
-                category: .tab, symbol: "pin.fill", surfaces: [.palette, .contextMenu, .keyboard],
+                category: .tab, symbol: "pin", surfaces: [.palette, .contextMenu, .keyboard],
                 targets: [.tab], cliName: "tab pin-unpin"
             ),
             ActionDescriptor(
                 id: "palette.toggleTabUnread",
                 title: String(localized: "action.palette.toggleTabUnread", defaultValue: "Mark Tab Unread", bundle: .module),
-                keywords: ["tab", "unread"], category: .tab, symbol: "circle.fill", surfaces: [.palette, .contextMenu],
+                keywords: ["tab", "unread"], category: .tab, symbol: "envelope.badge", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab mark-as-unread"
             ),
             ActionDescriptor(
@@ -388,25 +411,25 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.copyPaneID",
                 title: String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module),
-                keywords: ["id", "pane"], category: .tab, symbol: "doc.on.doc", surfaces: [.palette, .contextMenu],
+                keywords: ["id", "pane"], category: .tab, symbol: "number.square", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-pane-id"
             ),
             ActionDescriptor(
                 id: "palette.copyPaneLink",
                 title: String(localized: "action.palette.copyPaneLink", defaultValue: "Copy Pane Link", bundle: .module),
-                keywords: ["url", "pane"], category: .tab, symbol: "link", surfaces: [.palette, .contextMenu],
+                keywords: ["url", "pane"], category: .tab, symbol: "link.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-pane-link"
             ),
             ActionDescriptor(
                 id: "palette.copySurfaceID",
                 title: String(localized: "action.palette.copySurfaceID", defaultValue: "Copy Tab ID", bundle: .module),
-                keywords: ["id", "surface"], category: .tab, symbol: "doc.on.clipboard",
+                keywords: ["id", "surface"], category: .tab, symbol: "number",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab copy-id"
             ),
             ActionDescriptor(
                 id: "palette.copySurfaceLink",
                 title: String(localized: "action.palette.copySurfaceLink", defaultValue: "Copy Tab Link", bundle: .module),
-                keywords: ["url", "surface"], category: .tab, symbol: "link.badge.plus",
+                keywords: ["url", "surface"], category: .tab, symbol: "link",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab copy-link"
             ),
             ActionDescriptor(

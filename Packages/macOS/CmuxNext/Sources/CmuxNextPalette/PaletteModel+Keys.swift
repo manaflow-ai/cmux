@@ -14,6 +14,17 @@ extension PaletteModel {
     public func handle(_ command: PaletteKeyCommand) -> Bool {
         if actionsMenu != nil, handleActionsMenu(command) { return true }
         switch command {
+        case .moveUp, .moveDown, .pageUp, .pageDown, .moveToFirst, .moveToLast:
+            keyboardLeads = true
+            defer { reportHighlight() }
+            return handleKey(command)
+        default:
+            return handleKey(command)
+        }
+    }
+
+    private func handleKey(_ command: PaletteKeyCommand) -> Bool {
+        switch command {
         case .moveUp: send(.move(-1))
         case .moveDown: send(.move(1))
         case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
@@ -86,6 +97,19 @@ extension PaletteModel {
         }
         if let item = selectedItem, item.closeCommand != nil, item.isEnabled { closeRow(item) }
         return true
+    }
+
+    /// A middle-click on row `rowID`: closes it as Cmd-W does (Tab Search: the row's tab; Leo 2026-10-27: middle-click
+    /// closes a tab wherever one is shown). A row without a close command takes nothing. It closes the row the click
+    /// named (its id, which a search in flight does not change), so unlike Cmd-W it never waits for a search to pick
+    /// the selection. The selection moves only when the closed row held it.
+    public func closeRow(rowID: String) {
+        guard let item = rows.first(where: { $0.id == rowID })?.item, item.isEnabled,
+              let command = item.closeCommand, current != nil else { return }
+        actionsMenu = nil
+        if rowID == selectedRowID { return closeRow(item) }
+        guard performClose(command, rowID: rowID) else { return }
+        reload()
     }
 
     func closeRow(_ item: PaletteItem) {
@@ -187,6 +211,14 @@ extension PaletteModel {
 
     public func hover(_ rowID: String?) {
         if hoveredRowID != rowID { hoveredRowID = rowID }
+    }
+
+    /// The pointer itself moved over the list (not a scroll sliding rows
+    /// under it): hover leads the live preview again.
+    public func pointerMoved(over rowID: String?) {
+        let led = keyboardLeads
+        keyboardLeads = false
+        if hoveredRowID != rowID { hoveredRowID = rowID } else if led { reportHighlight() }
     }
 
     /// Click: select the row and run its primary command (or enter its

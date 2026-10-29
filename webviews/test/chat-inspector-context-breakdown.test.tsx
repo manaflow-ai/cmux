@@ -160,7 +160,7 @@ test("without a breakdown the Inspector's Context keeps its used and free rows",
   ]);
 });
 
-test("the composer ring's details draw the same breakdown, and keep their bar without one", async () => {
+test("the composer ring keeps Claude's breakdown details and uses a compact tooltip without one", async () => {
   const container = installDom();
   root = createRoot(container);
   const open = async () => {
@@ -170,12 +170,15 @@ test("the composer ring's details draw the same breakdown, and keep their bar wi
   await act(async () => root!.render(<ContextRing used={171_500} size={400_000} breakdown={BREAKDOWN} />));
   const pop = await open();
   expect(pop.classList.contains("acpmux-context-pop--breakdown")).toBe(true);
-  expect(rowNames(pop)[0]).toBe("Messages");
-  expect(pop.querySelector(".acpmux-context-bar")).toBeNull();
+  expect(pop.querySelector(".acpmux-context-card-parts")?.textContent).toContain("Messages");
+  expect(pop.querySelector(".acpmux-context-card-bar")).not.toBeNull();
   await act(async () => root!.unmount());
   root = createRoot(container);
   await act(async () => root!.render(<ContextRing used={60_000} size={200_000} />));
   const plain = await open();
   expect(plain.querySelector(".acpmux-context-breakdown")).toBeNull();
-  expect(plain.querySelector(".acpmux-context-bar")).not.toBeNull();
+  expect(plain.classList.contains("acpmux-context-pop--compact")).toBe(true);
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("30%");
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("60K");
+  expect(plain.querySelector(".acpmux-context-card-bar")).not.toBeNull();
 });

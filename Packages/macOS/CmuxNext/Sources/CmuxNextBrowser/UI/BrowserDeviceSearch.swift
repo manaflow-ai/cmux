@@ -56,7 +56,9 @@ final class BrowserDeviceSearch: NSObject, NSSearchFieldDelegate {
         for item in menu.items.dropFirst() {
             item.isHidden = !words.isEmpty
         }
-        guard !words.isEmpty else { return }
+        // The browse rows show again, a checked device among them: the themed menu measures its
+        // columns again, so its rows take the state column back while it is open.
+        guard !words.isEmpty else { return menu.themeAddedRows() }
         let matches = devices.filter { device in
             let text = "\(device.brand) \(device.title)"
             return words.allSatisfy { text.localizedStandardContains($0) }

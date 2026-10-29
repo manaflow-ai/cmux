@@ -23,6 +23,20 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
         }
     }
 
+    /// The key of 64 lowercase hex digits (tests: a key acpmux's own tests use too).
+    init?(hex: String) {
+        // Parsed before the buffer exists, so a bad digit fails with nothing to free.
+        let hexDigits = Set("0123456789abcdef".utf8)
+        let digits = Array(hex.utf8)
+        guard digits.count == Self.length * 2, digits.allSatisfy(hexDigits.contains) else { return nil }
+        let parsed = (0..<Self.length).compactMap {
+            UInt8(String(decoding: digits[($0 * 2)...($0 * 2 + 1)], as: UTF8.self), radix: 16)
+        }
+        guard parsed.count == Self.length else { return nil }
+        bytes = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.length, alignment: 1)
+        bytes.copyBytes(from: parsed)
+    }
+
     deinit {
         Self.zero(bytes)
         bytes.deallocate()

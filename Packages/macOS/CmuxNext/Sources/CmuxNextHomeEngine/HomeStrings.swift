@@ -46,4 +46,24 @@ public nonisolated enum HomeStrings {
         String(localized: "home.chief.archive.failed", defaultValue: "The Chief couldn’t be archived. Try again.", table: "Home",
                bundle: .module)
     }
+    public static var deleteDefaultChief: String {
+        String(localized: "home.chief.delete.default", defaultValue: "Make another Chief the default before deleting this one.",
+               table: "Home", bundle: .module)
+    }
+    public static var deleteFailed: String {
+        String(localized: "home.chief.delete.failed", defaultValue: "The Chief couldn’t be deleted. Try again.", table: "Home",
+               bundle: .module)
+    }
+    /// Delete Chief's question: its title names the Chief.
+    public static func deleteChiefTitle(_ name: String) -> String {
+        String(format: String(localized: "home.chief.delete.title", defaultValue: "Delete “%@”?", table: "Home", bundle: .module), name)
+    }
+    public static var deleteChiefBody: String {
+        String(localized: "home.chief.delete.body",
+               defaultValue: "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead.",
+               table: "Home", bundle: .module)
+    }
+    public static var deleteChiefButton: String {
+        String(localized: "home.chief.delete.button", defaultValue: "Delete Chief", table: "Home", bundle: .module)
+    }
 }

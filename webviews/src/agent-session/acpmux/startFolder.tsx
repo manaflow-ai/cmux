@@ -109,6 +109,7 @@ export function StartFolderAsk({
   ask,
   current,
   error,
+  confirming,
   onUse,
   onCancel,
 }: {
@@ -116,6 +117,7 @@ export function StartFolderAsk({
   /// The chat's start folder now, when it has one (else it starts in the private folder).
   current?: string;
   error?: string;
+  confirming?: boolean;
   onUse(): void;
   onCancel(): void;
 }) {
@@ -124,7 +126,7 @@ export function StartFolderAsk({
     <output className="acpmux-switch-notice acpmux-folder-choice acpmux-start-folder-ask" aria-live="polite">
       {ask.reason === "home" ? t("startFolder.homeQuestion") : t("startFolder.root", { folder: ask.cwd })}{" "}
       {ask.reason === "home" && (
-        <button type="button" className="acpmux-folder-choice-button" onClick={onUse}>
+        <button type="button" className="acpmux-folder-choice-button" disabled={confirming} onClick={onUse}>
           {t("startFolder.useHome")}
         </button>
       )}{" "}

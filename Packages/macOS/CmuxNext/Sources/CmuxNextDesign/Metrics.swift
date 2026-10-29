@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// Layout constants shared by chrome components.
 ///
@@ -105,14 +106,14 @@ public struct Metrics {
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
-    public static var dividerThickness: CGFloat { scale(ChromeTunables.dividerThickness.value) }
+    public static var dividerThickness: CGFloat { MetricTunables.dividerThickness.value }
     /// Width of the sidebar's resting edge line (`sidebar.border`,
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
-    public static var dividerHitWidth: CGFloat { scale(ChromeTunables.dividerHitWidth.value) }
+    public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
     /// 0 is edge to edge).

@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import Observation
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// Every input that shapes how indicators look, resolved once: the
 /// `appearance.statusIndicator.*` settings plus the Debug Settings
@@ -117,9 +118,9 @@ public final class StatusIndicatorAppearance {
     public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
-    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
-    private var resyncObservers: [(token: any NSObjectProtocol, center: NotificationCenter)] = []
+    private var resyncObservers: [MainActorObservation] = []
 
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
@@ -129,9 +130,8 @@ public final class StatusIndicatorAppearance {
         startObserving()
         // Reduce Motion is not observable through Observation.
         let center = NSWorkspace.shared.notificationCenter
-        reduceMotionObserver = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-                                                  object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) } // main-proof: observer on queue: .main
+        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: center) { [weak self] in
+            self?.apply(StatusIndicatorConfig.current)
         }
         // The override (tests) is a plain static: re-read synchronously when it
         // changes, or an appearance created before the override keeps the
@@ -154,10 +154,7 @@ public final class StatusIndicatorAppearance {
             (workspace, NSWorkspace.screensDidWakeNotification), (workspace, NSWorkspace.sessionDidBecomeActiveNotification),
         ]
         resyncObservers = moments.map { center, name in
-            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.resync() } // main-proof: observer on queue: .main
-            }
-            return (token, center)
+            MainActorObservation(name, center: center) { [weak self] in self?.resync() }
         }
     }
 

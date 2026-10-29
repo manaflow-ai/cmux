@@ -7,25 +7,29 @@ extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
         get { driver.installsInBackground }
-        set { driver.installsInBackground = newValue }
+        set {
+            driver.installsInBackground = newValue
+            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
+            log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+        }
     }
 
-    /// Whether a staged background update should enter the safe idle relaunch gate automatically.
-    /// The gate waits for active agent turns, running commands and recent user input.
+    /// Whether a staged background update should install automatically once ready. A host that
+    /// preserves daemon sessions across app relaunches bypasses the relaunch gate entirely.
     public var installsUpdatesWhenIdle: Bool {
         get { driver.installsWhenIdle }
         set { driver.installsWhenIdle = newValue }
     }
 
-    /// The longest an automatic idle install waits for agents, commands and input before it
-    /// relaunches anyway (default 15 minutes).
+    /// The legacy idle-install wait cap for hosts that opt into ``UpdateRelaunchGate``. cmux-next
+    /// leaves the setting available for diagnostics but disables the gate with `holdsUserInstalls`.
     public var idleInstallWaitCap: Duration {
         get { driver.relaunchGate.automaticWaitCap }
         set { driver.relaunchGate.automaticWaitCap = newValue }
     }
 
-    /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
-    /// agents and running commands. Automatic idle installs always wait.
+    /// Whether this host uses the relaunch gate for user and automatic installs. Set this to false
+    /// when the daemon keeps agents and running commands alive across an app relaunch.
     public var holdsUserInstalls: Bool {
         get { driver.holdsUserInstalls }
         set { driver.holdsUserInstalls = newValue }
@@ -58,7 +62,18 @@ extension UpdateController {
     /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
-        if driver.installStaged() {
+        if driver.quitInstallCommitted, driver.quitInstall != nil {
+            log.append("background install: click while the app quits for the install; it reopens updated")
+            return
+        }
+        if driver.installStaged() || driver.installQuitInstallNow() {
+            armStagedInstallWatchdog()
+            return
+        }
+        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+            // An automatic install the relaunch gate holds: the click is Install Now.
+            log.append("background install: click on a held relaunch; installing now")
+            installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return
         }
@@ -72,6 +87,37 @@ extension UpdateController {
             return
         }
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
+    }
+
+    /// Whether the app still means to quit for an automatic install: false once a click, a cancel
+    /// or the session's end took it over (``dropQuitInstall()``).
+    public var waitsToQuitForInstall: Bool {
+        driver.quitInstall != nil
+    }
+
+    /// The host's wait for the moment ended and its helper quits the app now: a click no longer
+    /// installs through Sparkle (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``).
+    public func commitQuitInstall() {
+        driver.commitQuitInstall()
+    }
+
+    /// The automatic install the app meant to quit for was taken over (a click, a cancel, the
+    /// session's end) while it waited: its held reply goes, so nothing installs it later.
+    public func dropQuitInstall() {
+        driver.quitInstall = nil
+    }
+
+    /// The automatic install the app quit for did not end it (the quit was refused, or the helper
+    /// that reopens the app could not start): the update is staged again and waits for a click
+    /// (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``). No-op otherwise.
+    public func restageAfterDeclinedQuit() {
+        driver.restageAfterDeclinedQuit()
+    }
+
+    /// The automatic install the app was to quit for: the user came into the app meanwhile, so
+    /// Sparkle installs and relaunches it as for a click (activating). No-op otherwise.
+    public func relaunchHeldInstallThroughSparkle() {
+        driver.relaunchHeldInstallThroughSparkle()
     }
 
     /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
@@ -95,6 +141,12 @@ extension UpdateController {
     @discardableResult
     public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
+    }
+
+    /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
+    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    public var canCancelStagedUpdate: Bool {
+        driver.stagedCancel != nil
     }
 
     /// With ``installsUpdatesInBackground``: whether a found update downloads at once (true,
@@ -135,15 +187,5 @@ extension UpdateController {
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
-    }
-
-    /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
-    /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
-    /// full archive. A held update is taken by the next scheduled check either way, and a check
-    /// the person starts never waits. Nil (the default) offers every update at once; set it only
-    /// for a feed that lists deltas after the full archive (the cmux-next nightly).
-    public var pendingDeltaWindow: TimeInterval? {
-        get { driver.pendingDeltaWait?.window }
-        set { driver.pendingDeltaWait = newValue.map(PendingDeltaWait.init(window:)) }
     }
 }

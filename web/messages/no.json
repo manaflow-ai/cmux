@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "Opprett denne maskinen på nytt",
       "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
-      "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
+      "action": "Opprett en ny maskin. Klargjør et SCP-endepunkt med `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, og kopier filene med SCP før du sletter denne maskinen."
     },
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "Fortsatt i gang",
       "message": "Skyleverandøren har ikke fullført denne endringen ennå. Den kan fortsatt bli fullført.",
-      "action": "Sjekk maskinens status med cmux vm ls eller i maskinlisten før du prøver igjen."
+      "action": "Sjekk maskinens status med cmux cloud list-machines eller i maskinlisten før du prøver igjen."
     },
     "providerTimeout": {
       "title": "Skyleverandøren er treg",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "Maskinen er opptatt",
       "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
-      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
+      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux cloud list-machines, og gjenoppta den først hvis den er satt på pause."
     },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
         "restore": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
-        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
-        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux vm exec`, eller bruk en maskintype som kan åpne porter.",
-        "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
+        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux cloud new-machine`.",
+        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux cloud exec --target machine:<id> --command <command>`, eller bruk en maskintype som kan åpne porter.",
+        "default": "Ikke prøv på nytt. Kjør `cmux cloud list-machines`, eller kontakt brukerstøtte hvis du mener dette er feil."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro kreves",
-      "message": "Cloud VM-er krever en cmux Pro-plan.",
-      "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+      "title": "cmux {plan} kreves",
+      "message": "Cloud VM-er krever en cmux {plan}-plan.",
+      "action": "Oppgrader til cmux {plan} på {upgradeUrl} for å opprette Cloud VM-er."
     },
     "displayName": {
       "title": "Ugyldig maskinnavn",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go inkluderer én kjørende VM om gangen.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan}-regnekvoten er brukt opp",
       "computeMessage": "{plan}-planen din har brukt sine {included} regnetimer i denne faktureringsperioden. En regnetime er 1 vCPU med 2 GB minne i én time. Maskinene dine kan starte igjen {resetDate}.",
       "computeAction": "Pausede maskiner beholder filene sine. Kontakt support hvis du trenger mer regnekraft før {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan}-diskkvoten er brukt opp",
       "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",

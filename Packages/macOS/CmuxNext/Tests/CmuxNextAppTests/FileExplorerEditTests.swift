@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextFiles
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The Files tree makes, renames and trashes items (classic's file explorer menu: New File, New
 /// Folder, Rename, Move to Trash) and shows each item's git state.

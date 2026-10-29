@@ -7,15 +7,17 @@ import Foundation
 public final class LayoutOverlaySyncObservation {
     private weak var root: LayoutRootView?
     private let id: Int
+    private let remove: @MainActor (LayoutRootView, Int) -> Void
 
-    init(root: LayoutRootView, id: Int) {
+    init(root: LayoutRootView, id: Int, remove: @escaping @MainActor (LayoutRootView, Int) -> Void = { $0.overlaySyncObservers[$1] = nil }) {
         self.root = root
         self.id = id
+        self.remove = remove
     }
 
     /// Unregisters the observer now.
     public func cancel() {
-        root?.overlaySyncObservers[id] = nil
+        if let root { remove(root, id) }
         root = nil
     }
 
@@ -41,6 +43,17 @@ extension LayoutRootView {
 
     func notifyOverlaySync() {
         for block in overlaySyncObservers.values { block() }
+    }
+
+    /// Calls `block` with true when a layout motion starts (a split, close, zoom, New Column, a
+    /// released divider or a strip scroll springs) and with false after the frame it lands in:
+    /// content that is expensive to move every frame (a Chromium page window) can tell motion
+    /// frames from rest. During the motion, each frame's ``observeOverlaySync(_:)`` call carries
+    /// ``panesMovedInLastOverlaySync``. Lives as long as the returned observation.
+    public func observeLayoutMotion(_ block: @escaping (_ moving: Bool) -> Void) -> LayoutOverlaySyncObservation {
+        nextOverlaySyncObserver += 1
+        layoutMotionObservers[nextOverlaySyncObserver] = block
+        return LayoutOverlaySyncObservation(root: self, id: nextOverlaySyncObserver, remove: { $0.layoutMotionObservers[$1] = nil })
     }
 }
 

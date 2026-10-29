@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The hover card state machine (plans/cmux-next/hovercards.md). One per
 /// app: there is one phase, so at most one card is pending or shown.

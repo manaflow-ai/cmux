@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Bakes the Cloud Chief VM snapshot (chief-brain-cc/; backend/chief-cc/bake.sh): a Freestyle VM from BASE (a hand
-# snapshot with Claude Code and node), plus tailscale, the `chief` and `ccproxy` users, run.mjs,
+# snapshot with Claude Code and node), plus tailscale, the `chief` and `ccproxy` users, the turn runner
+# (chief-turn-runner, Rust: Native/OptChat/chief-turn, built in the bake VM unless CHIEF_TURN_RUNNER_BIN names a
+# linux x86_64 build),
 # start.sh, boot.sh, proxy.mjs and its unit, chief-net (the Chief's network tool, net.ts), the Chief's
 # cloud-route tools (msg 8200: gh, chief-vm, chief-agents, cmux and mac through the Mac gate, hub, cmux-ci)
 # and cached clones of cmux (feat-cmux-next) and cmuxterm-hq (main) in /home/chief/work, then a snapshot
@@ -23,10 +25,10 @@ hq="${HQ_DIR:?HQ_DIR (a cmuxterm-hq checkout on main)}"
 gh_version="${GH_VERSION:-2.102.1}"
 auth() { printf 'header = "authorization: Bearer %s"\n' "$(cat "$keyfile")"; }
 call() { curl -sS -m 600 -K <(auth) -H 'content-type: application/json' -X "$1" "$api$2" ${3:+--data-binary "$3"}; }
-exec_root() { # exec_root COMMAND [STDIN_FILE]
-  local body
-  if [[ -n "${2:-}" ]]; then body="$(jq -n --arg c "$1" --arg s "$(base64 < "$2" | tr -d '\n')" '{command:$c, stdin:$s, timeoutMs:300000, linuxUser:"root"}')"
-  else body="$(jq -n --arg c "$1" '{command:$c, timeoutMs:300000, linuxUser:"root"}')"; fi
+exec_root() { # exec_root COMMAND [STDIN_FILE]   (EXEC_MS: its time limit, default 300000)
+  local body ms="${EXEC_MS:-300000}"
+  if [[ -n "${2:-}" ]]; then body="$(jq -n --arg c "$1" --arg s "$(base64 < "$2" | tr -d '\n')" --argjson ms "$ms" '{command:$c, stdin:$s, timeoutMs:$ms, linuxUser:"root"}')"
+  else body="$(jq -n --arg c "$1" --argjson ms "$ms" '{command:$c, timeoutMs:$ms, linuxUser:"root"}')"; fi
   local out; out="$(call POST "/v5/vms/$vm/exec-await" "$body")"
   local code; code="$(jq -r '.statusCode' <<<"$out")"
   [[ "$code" == "0" ]] || { jq -r '.stdout, .stderr' <<<"$out" | tail -20 >&2; echo "exec failed ($code): $1" >&2; exit 1; }
@@ -38,7 +40,28 @@ trap 'call DELETE "/v5/vms/$vm" >/dev/null || true' EXIT
 echo "bake vm $vm" >&2
 exec_root 'command -v tailscale >/dev/null || (curl -fsSL https://tailscale.com/install.sh | sh) >/tmp/ts.log 2>&1; tailscale version | head -1'
 exec_root 'id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief; id ccproxy >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin ccproxy; install -d -o chief -g chief -m 755 /home/chief/work; install -d -m 755 /opt/chief-cc /etc/chief-cc'
-for f in run.mjs proxy.mjs chief-net.mjs; do exec_root "cat > /opt/chief-cc/$f && chmod 644 /opt/chief-cc/$f" "$here/image/$f"; done
+for f in proxy.mjs chief-net.mjs; do exec_root "cat > /opt/chief-cc/$f && chmod 644 /opt/chief-cc/$f" "$here/image/$f"; done
+# The turn runner (Native/OptChat/chief-turn): the same Rust crate that reads Claude Code's stream for the Mac
+# Chief host. Built here (rustup in /root, removed after) unless CHIEF_TURN_RUNNER_BIN is a linux x86_64 build.
+if [[ -n "${CHIEF_TURN_RUNNER_BIN:-}" ]]; then
+  exec_root 'base64 -d > /opt/chief-cc/chief-turn-runner && chmod 755 /opt/chief-cc/chief-turn-runner' <(base64 < "$CHIEF_TURN_RUNNER_BIN")
+else
+  runner_tar="$(mktemp)"
+  tar --no-xattrs -C "$here/../../Native/OptChat/chief-turn" -czf "$runner_tar" Cargo.toml Cargo.lock src
+  # The toolchain, then the build detached and polled (one exec may run at most 5 min).
+  exec_root 'set -e; rm -rf /root/ctr && mkdir -p /root/ctr && base64 -d | tar -xz -C /root/ctr; command -v cc >/dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential >/dev/null; }; export RUSTUP_HOME=/root/ctr/rustup CARGO_HOME=/root/ctr/cargo; curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null 2>&1; /root/ctr/cargo/bin/cargo --version' <(base64 < "$runner_tar")
+  exec_root 'cd /root/ctr && RUSTUP_HOME=/root/ctr/rustup CARGO_HOME=/root/ctr/cargo setsid nohup sh -c "/root/ctr/cargo/bin/cargo build --release --locked --bin chief-turn-runner > /root/ctr/build.log 2>&1; echo \$? > /root/ctr/build.rc" < /dev/null > /dev/null 2>&1 & echo building'
+  rc=""
+  for _ in $(seq 1 90); do
+    sleep 10
+    rc="$(exec_root 'cat /root/ctr/build.rc 2>/dev/null || true')"
+    [[ -n "$rc" ]] && break
+  done
+  [[ "$rc" == 0 ]] || { exec_root 'tail -30 /root/ctr/build.log' >&2 || true; echo "chief-turn-runner build failed (${rc:-timeout})" >&2; exit 1; }
+  exec_root 'install -m 755 /root/ctr/target/release/chief-turn-runner /opt/chief-cc/chief-turn-runner && rm -rf /root/ctr'
+  rm -f "$runner_tar"
+fi
+exec_root 'rc=0; /opt/chief-cc/chief-turn-runner ../x || rc=$?; [ "$rc" = 2 ] && echo "chief-turn-runner ok"'
 for f in start.sh boot.sh; do exec_root "cat > /opt/chief-cc/$f && chmod 755 /opt/chief-cc/$f" "$here/image/$f"; done
 exec_root 'printf "#!/bin/sh\nexec /opt/node/bin/node /opt/chief-cc/chief-net.mjs \"\$@\"\n" > /usr/local/bin/chief-net && chmod 755 /usr/local/bin/chief-net'
 # The cloud-route tools (msg 8200 items 5-10, 13).

@@ -86,7 +86,12 @@ pub(super) const GUIDES: &[Guide] = &[
         status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
         progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
         and workspace_log_append; clear them when the work is done. Ask for attention: \
-        notification_create {title, body} (desktop: false shows no banner). The focus tools \
+        notification_create {title, body} (desktop: false shows no banner). When the user must \
+        act in a tab (confirm, log in, approve, pick), mark it: tab_update {tab, attention: \
+        \"one-line reason\"} (CLI `cmux attention request --tab TAB --reason TEXT`); it never \
+        moves focus, and tab_update {tab, attention: null} (`cmux attention clear --tab TAB`) \
+        drops it. Tell the user the workspace and tab by their titles, never a ws_ or tab_ id. \
+        The focus tools \
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",
@@ -117,8 +122,9 @@ pub(super) const GUIDES: &[Guide] = &[
             "cookies",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
-        ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
-        Use, browser import, key bindings, notifications, team invites) with the read-only \
+        ssh machines, peer updates, accounts, Cloud machines, Tailscale, pairing tickets, MCP \
+        wiring, Computer Use, browser import, key bindings, notifications, team invites) with \
+        the read-only \
         commands that check it, the commands that do it, and what only the person can do. \
         `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
         trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
@@ -159,6 +165,70 @@ pub(super) const GUIDES: &[Guide] = &[
         harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
         imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
         changed, planned, needs_user, failed or not_applicable.",
+    },
+    Guide {
+        topic: "Set up cmux with Chief: copyable setup prompts",
+        keywords: &[
+            "setup",
+            "prompt",
+            "prompts",
+            "chief",
+            "copy",
+            "paste",
+            "starter",
+            "remote",
+            "tailnet",
+            "tailscale",
+            "pair",
+            "pairing",
+            "ticket",
+        ],
+        text: "Every task `cmux setup list` names has a `prompt`: one paragraph a person pastes \
+        into Chief, or any agent chat in cmux, that names the exact command to run, what to hand \
+        the person and what to reply; its `status_prompt` sets up this Mac (`cmux setup status` \
+        and the fix of each check). docs/chief-setup-prompts.md has them as copyable blocks \
+        (`cmux setup list --prompts-md` writes it). A pasted prompt is the person's request for \
+        that task: run its command. Words left in capitals (HOST, FOLDER, BROWSER, EMAIL) are \
+        the person's to fill in, so ask for them. Remote machines: `cmux setup machine HOST` adds \
+        a Mac on the tailnet or any ssh host as an agent peer, and `cmux acp host doctor NAME \
+        [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use line that \
+        installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
+        setup tailnet` serves this machine over Tailscale.",
+    },
+    Guide {
+        topic: "Start, prompt and drive another agent chat in the app",
+        keywords: &[
+            "agent",
+            "agents",
+            "start",
+            "spawn",
+            "delegate",
+            "subagent",
+            "message",
+            "nudge",
+            "continue",
+            "interrupt",
+            "stop",
+            "model",
+            "effort",
+            "screenshot",
+            "capture",
+        ],
+        text: "Start an ordinary agent chat the user sees in the app, as New Agent Chat and a \
+        first message do, without moving their focus: `cmux agents chat new [--workspace WS | \
+        --pane PANE] [--harness claude|codex|...] [--model M] [--effort \
+        low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] [--cwd DIR] \
+        [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor --pane it gets \
+        a new workspace. It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
+        first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
+        id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
+        agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
+        --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
+        pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
+        `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
+        from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
+        `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
+        browser page's own pixels are `cmux browser page screenshot`).",
     },
 ];
 
@@ -379,6 +449,16 @@ mod tests {
         assert!(has_scope_operations("projection"));
     }
 
+    /// An agent that wants another agent to do work finds the chat verbs.
+    #[test]
+    fn starting_another_agent_finds_its_guide() {
+        for query in ["spawn an agent", "interrupt", "screenshot a pane"] {
+            let found = guides(query);
+            assert_eq!(found.len(), 1, "{query}");
+            assert!(found[0].text.contains("agents chat new"), "{query}");
+        }
+    }
+
     /// An agent that searches in its own words for showing its work finds
     /// the guide, and the guide names only tools that exist.
     #[test]
@@ -400,6 +480,26 @@ mod tests {
             assert!(operations.contains_key(op), "{op}");
             assert!(GUIDES[0].text.contains(&op.replace('.', "_")), "{op}");
         }
+    }
+
+    /// `cmux docs search setup` and an agent asking in its own words for
+    /// setup prompts or a remote machine find the Chief prompts guide, and it
+    /// sends them to `cmux setup list`, where the prompts live.
+    #[test]
+    fn chief_prompt_guide_is_found_by_setup_words() {
+        let topic = "Set up cmux with Chief: copyable setup prompts";
+        for query in
+            ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
+        {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        for words in
+            ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
+        {
+            assert!(guide.text.contains(words), "{words}");
+        }
+        assert_eq!(guides("status").len(), 1);
     }
 
     #[test]

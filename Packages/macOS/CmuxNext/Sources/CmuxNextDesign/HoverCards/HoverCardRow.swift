@@ -56,13 +56,18 @@ public struct HoverCardRowContent: Hashable, Sendable {
     public var additions: Int?
     public var deletions: Int?
     public var accessory: HoverCardAccessory?
+    /// The leading icon's own ink (a pull request's state color, a wait's attention); nil draws
+    /// it in the machine's color pick (`iconMachine`), else the secondary ink like every other
+    /// row's icon.
+    public var iconTone: HoverCardTone?
     /// The machine whose color pick (`appearance.machineColors`) the icon draws in; with no pick
     /// (or nil) the icon keeps textSecondary.
     public var iconMachine: String?
 
     public init(text: String, ink: HoverCardTone = .secondary, lines: Int = 1, status: String? = nil,
                 statusTone: HoverCardTone = .secondary, additions: Int? = nil, deletions: Int? = nil,
-                accessory: HoverCardAccessory? = nil, iconMachine: String? = nil) {
+                accessory: HoverCardAccessory? = nil, iconTone: HoverCardTone? = nil, iconMachine: String? = nil) {
+        self.iconTone = iconTone
         self.text = text
         self.ink = ink
         self.lines = lines
@@ -197,7 +202,8 @@ public final class HoverCardRowView: NSView {
     /// Recolors the row in its theme scope; the card runs it on adopt and on every theme change.
     public func applyColors() {
         performWithTheme {
-            icon.contentTintColor = content.iconMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary
+            icon.contentTintColor = content.iconTone?.color
+                ?? content.iconMachine.flatMap { MachineColor(name: $0).pickedColor } ?? Palette.textSecondary
             statusLabel.textColor = content.statusTone.color
             textLabel.textColor = content.ink.color
             additionsLabel.textColor = HoverCardTone.success.color

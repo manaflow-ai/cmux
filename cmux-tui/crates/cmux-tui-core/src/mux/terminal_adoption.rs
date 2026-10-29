@@ -374,13 +374,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.mark_terminal_ended(
-                &terminal.terminal_id,
-                "terminal-record-missing",
-                "missing-host-record",
-                &options,
-            )?;
+            self.adopt_from_holder_or_end(&terminal, &options)?;
         }
+        self.release_unclaimed_holder_terminals(&options);
         Ok(())
     }
 

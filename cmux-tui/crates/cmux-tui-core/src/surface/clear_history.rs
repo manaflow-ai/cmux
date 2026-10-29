@@ -145,6 +145,23 @@ impl Surface {
             {
                 mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
             }
+            // What the person cleared never comes back: the journal records
+            // the clear, and a holder gets the cleared screen as the
+            // prologue a restarted daemon starts from (its older snapshot
+            // still held the history).
+            if let Some(mux) = pty.mux.upgrade() {
+                pty.journal_clear_gap(&mux);
+            }
+            #[cfg(unix)]
+            {
+                let holder = match &*pty.runtime.lock().unwrap() {
+                    PtyRuntime::Local { holder, .. } => holder.clone(),
+                    _ => None,
+                };
+                if let Some(holder) = holder {
+                    holder.resnapshot();
+                }
+            }
             pty.mark_output_dirty();
             return Ok(());
         }

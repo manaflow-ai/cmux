@@ -9,16 +9,22 @@
 @theme inline {
   --text-caption: var(--text-caption);
   --text-caption--line-height: var(--text-caption--line-height);
+  --text-caption--letter-spacing: var(--text-caption--letter-spacing);
   --text-detail: var(--text-detail);
   --text-detail--line-height: var(--text-detail--line-height);
+  --text-detail--letter-spacing: var(--text-detail--letter-spacing);
   --text-body: var(--text-body);
   --text-body--line-height: var(--text-body--line-height);
+  --text-body--letter-spacing: var(--text-body--letter-spacing);
   --text-control: var(--text-control);
   --text-control--line-height: var(--text-control--line-height);
+  --text-control--letter-spacing: var(--text-control--letter-spacing);
   --text-title: var(--text-title);
   --text-title--line-height: var(--text-title--line-height);
+  --text-title--letter-spacing: var(--text-title--letter-spacing);
   --text-heading: var(--text-heading);
   --text-heading--line-height: var(--text-heading--line-height);
+  --text-heading--letter-spacing: var(--text-heading--letter-spacing);
   --text-content: var(--text-content);
   --text-content--line-height: var(--text-content--line-height);
 }
@@ -33,7 +39,7 @@
   --cmux-diff-fg-dark: var(--cmux-app-text, #fff);
   --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
   --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
-  --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --cmux-diff-ui-font-family: var(--font-ui);
   /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
   --cmux-diff-ui-font-size: 13px;
   --cmux-diff-ui-line-height: 18px;
@@ -50,22 +56,29 @@
      #a6e22e). */
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
+  --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-light);
   --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
   --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
+  /* A modified file's name and square in the files list, softened as the counts are. */
+  --cmux-diff-count-modified: color-mix(in srgb, var(--cmux-diff-modified-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   /* cmux NEXT chrome (the toolbar, the files panel, the file bars): every chip has a one-pixel
-     rim, what is selected or open takes the theme accent, and the toolbar and files panel share
-     one lift off the backdrop so they frame the code. The lift is a tint of the text color, so it
-     stays translucent over a see-through window (glass) and follows every theme. */
+     rim and what is selected or open takes the theme accent. The toolbar has no fill, as every
+     page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
   --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-chrome-lift: color-mix(in srgb, var(--cmux-diff-fg) 3%, transparent);
+  /* The header's controls: the toolbar pill on the right and the source, base and jump chips on
+     the left share one glossy fill (a tint of the text color, so the page or the window's backdrop
+     shows through) and one hairline rim. */
+  --cmux-diff-pill-bg: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  --cmux-diff-pill-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
-  /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
-     the same lift, composited onto the solid backdrop. */
+  /* The files panel in an opaque window: 3% of the text color over the solid backdrop (over glass
+     it paints nothing; see the glass rules below). */
   --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
   --cmux-diff-files-selected-bg: color-mix(in srgb, var(--cmux-diff-accent) 16%, var(--cmux-diff-files-bg));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
@@ -76,9 +89,9 @@
      override); without a host, the terminal theme color. Only `html` paints
      it; the toolbar, diff body and every other block are clear over it.
      `--cmux-diff-solid-bg` is that backdrop composited onto the theme color at
-     full alpha (backdrop.ts sets it): file header bars are never transparent,
-     and the files panel uses it because the tree's truncation marker must
-     cover the text under it. This fallback is the opaque case. */
+     full alpha (backdrop.ts sets it): the file header bars and the files panel
+     paint it in an opaque window, and the tree's truncation marker always does,
+     so it covers the text under it. This fallback is the opaque case. */
   --cmux-diff-viewer-bg: var(--cmux-surface-background, var(--cmux-diff-bg));
   --cmux-diff-solid-bg: var(--cmux-diff-bg);
 
@@ -91,6 +104,7 @@
     --cmux-diff-fg: var(--cmux-diff-fg-dark);
     --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-dark);
     --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-dark);
+    --cmux-diff-modified-fg: var(--cmux-diff-modified-fg-dark);
   }
 }
 * {
@@ -98,6 +112,50 @@
 }
 html {
   background: var(--cmux-diff-viewer-bg);
+}
+/* A chat that shares the native tab row leaves that row's background visible behind its tools.
+   The page still owns the background below the row; only the offered strip is transparent. */
+html:has(.acpmux-shell[data-tab-row]) {
+  background: transparent !important;
+}
+/* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
+   the backdrop shows through as it does through every other surface. Off under Reduce Transparency
+   (the system's, by the media query, or the host's data-reduce-transparency): every variable below
+   then falls back to the opaque look.
+   - The file bars are a clear film (a 5% tint of the text color) with a plain blur.
+   - The files panel paints nothing, as the app's right sidebar (RightSidebarView: "It paints no
+     ground: the window's shows through"): the window's own tint and blur over the image make its
+     names readable. Its sticky folder rows keep the film, so rows scrolling under them do not show
+     through their text; it takes the film while it slides, when it passes over code.
+   - The tree's own layers go clear so no tint stacks; a shortened name's marker keeps the solid
+     backdrop so the hidden text does not show under it.
+   - File names keep their status color, mixed toward the text color for contrast. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) {
+    --cmux-diff-files-bg: transparent;
+    --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
+    --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
+    --cmux-diff-files-layer-bg: transparent;
+    --cmux-diff-truncate-marker-bg: var(--cmux-diff-solid-bg);
+    --cmux-diff-tree-name-strength: 65%;
+    /* A tint of the text color, not the theme surface (no navy or other theme hue). */
+    --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
+    /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
+       (a navy or a vivid image) through the film. */
+    --cmux-diff-glass-filter: blur(20px);
+  }
+  /* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's
+     own pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css,
+     CHROMIUM OVER THE WINDOW GLASS). As the app's floating glass does there, the Stage all / Revert
+     all bar and the hunk pill lay their tint over the theme surface at --glass-underlay, so the
+     code under them fades. The file bars stay a clear film. WebKit keeps the real blur. */
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) {
+      --cmux-diff-float-fill:
+        linear-gradient(var(--cmux-diff-header-bg), var(--cmux-diff-header-bg)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
 }
 html,
 body {
@@ -655,13 +713,17 @@ body {
   stroke-linejoin: round;
 }
 #layout-toggle svg [data-diff-deletion],
-#layout-toggle svg [data-diff-addition] {
+#layout-toggle svg [data-diff-addition],
+.segment-button svg [data-diff-deletion],
+.segment-button svg [data-diff-addition] {
   stroke: none;
 }
-#layout-toggle svg [data-diff-deletion] {
+#layout-toggle svg [data-diff-deletion],
+.segment-button svg [data-diff-deletion] {
   fill: color-mix(in srgb, var(--cmux-diff-deletion-fg) 55%, var(--cmux-diff-solid-bg));
 }
-#layout-toggle svg [data-diff-addition] {
+#layout-toggle svg [data-diff-addition],
+.segment-button svg [data-diff-addition] {
   fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
 }
 .toolbar-icon svg [data-precision-dot],
@@ -771,8 +833,8 @@ body[data-files-hidden="true"] #content {
    right edge of #content. These rules are its resting states; the slide
    between them is a composited Web Animations transform driven by
    files-panel-motion.ts, which starts in the toggle's frame and changes the
-   diff column's width once, when the slide ends. The panel stays painted
-   while it closes (data-files-motion). */
+   diff column's width once per slide, two frames after the toggle, in both
+   directions. The panel stays painted while it closes (data-files-motion). */
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "viewer";
@@ -784,6 +846,7 @@ body[data-status-only="true"] #content {
   bottom: 0;
   z-index: 2;
   width: var(--cmux-diff-files-width);
+
   min-height: 0;
   min-width: 0;
   display: flex;
@@ -830,12 +893,20 @@ body[data-files-hidden="true"] #files-sidebar {
 body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
   visibility: visible;
 }
+/* While it slides over code (and as the narrow overlay below), a panel that paints nothing over
+   glass takes the file bars' film and blur, so its names never sit on crisp code. */
+#files-sidebar[data-files-motion] {
+  background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+  -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+  backdrop-filter: var(--cmux-diff-glass-filter, none);
+}
 body[data-status-only="true"] #files-sidebar {
   display: none;
 }
 /* The curtain: the panel's resting box in the panel's background, under it. While the panel
-   closes over a diff still laid out beside it, its scaleX (from its left edge) follows the
-   panel, so the strip the panel uncovers is never blank. At rest it is scaled to nothing. */
+   moves over a diff laid out beside it (an open after its diff narrowed, a close's first two
+   frames, an open reversed before its diff widened), its scaleX (from its left edge) follows the panel, so the strip the
+   panel uncovers is never blank. At rest it is scaled to nothing. */
 #files-motion-curtain {
   position: absolute;
   top: 0;
@@ -864,7 +935,8 @@ body[data-status-only="true"] #files-motion-curtain {
   align-items: center;
   gap: 7px;
   height: 28px;
-  margin: 4px 8px 1px;
+  /* A little room under the filter before the first file row. */
+  margin: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2);
   padding: 0 4px 0 10px;
   border: 1px solid var(--cmux-diff-rim);
   border-radius: 9px;
@@ -929,10 +1001,16 @@ body[data-status-only="true"] #files-motion-curtain {
   /* Classic viewer rows (screenshot 5.20.26): 13 px regular text on 29 px
      rows, dim file names, bright folder names and selection, a 16 px icon
      lane and the library's guide line under the open folder. */
-  --trees-bg-override: var(--cmux-diff-files-bg);
+  /* Over glass the tree's own surfaces are clear (--cmux-diff-files-layer-bg): the panel is the one
+     glass, with no second box inside it. */
+  --trees-bg-override: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg));
   --trees-fg-override: var(--cmux-diff-text-dim);
   --trees-fg-muted-override: var(--cmux-diff-text-dim);
-  --trees-bg-muted-override: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-files-bg));
+  --trees-bg-muted-override: color-mix(
+    in srgb,
+    var(--cmux-diff-fg) 5%,
+    var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg))
+  );
   /* The file in view (the selected row) takes the theme accent, as a sidebar selection does. */
   --trees-selected-bg-override: var(--cmux-diff-files-selected-bg);
   --trees-selected-fg-override: var(--cmux-diff-fg);
@@ -1090,7 +1168,9 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     opacity: 1;
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-rim);
-    background: var(--cmux-diff-files-bg);
+    background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+    -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+    backdrop-filter: var(--cmux-diff-glass-filter, none);
     box-shadow: var(--elevation-2);
     isolation: isolate;
   }
@@ -1501,6 +1581,145 @@ body[data-loading="true"] #status::before {
 .file-review-stage:hover {
   background: var(--cmux-diff-hover-bg);
 }
+/* Revert (D3): the file bar's arrow, a hunk's buttons on hover at the right of the line, and the
+   Stage all / Revert all bar floating at the bottom center of the diff (the Codex Review pane's). */
+.file-review-revert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-dim);
+  cursor: pointer;
+}
+.file-review-revert:hover {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.file-review-revert svg,
+.diff-hunk-action-icon svg {
+  /* The viewBox sets the height. */
+  width: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.diff-hunk-action-icon {
+  display: inline-flex;
+}
+.diff-hunk-actions,
+.diff-bulk-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+  /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code in
+     an opaque window; over glass it is the file bars' film plus their blur (and Chromium's underlay,
+     --cmux-diff-float-fill), so code under it frosts. */
+  background: var(--cmux-diff-float-fill, color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg)));
+  -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+  backdrop-filter: var(--cmux-diff-glass-filter, none);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim),
+    var(--elevation-2);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: calc(var(--cmux-diff-ui-font-size) * 0.9);
+  color: var(--cmux-diff-fg);
+}
+/* The Codex Review pane's hunk pill: Revert's arrow and Stage's plus, icon buttons in a capsule
+   at the right end of the hunk's first changed line. */
+.diff-hunk-actions {
+  right: 12px;
+  z-index: var(--layer-overlay);
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+.diff-bulk-bar {
+  bottom: 14px;
+  left: 50%;
+  z-index: var(--layer-overlay);
+  gap: 4px;
+  padding: 4px;
+  max-width: calc(100% - 24px);
+  border-radius: 9px;
+  transform: translateX(-50%);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+.diff-hunk-action,
+.diff-bulk-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.diff-bulk-action {
+  height: 28px;
+  padding: 0 12px;
+}
+.diff-hunk-action {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--cmux-diff-text-muted);
+}
+.diff-hunk-action:hover {
+  color: var(--cmux-diff-fg);
+}
+.diff-hunk-action:hover,
+.diff-bulk-action:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.diff-hunk-action:disabled,
+.diff-bulk-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.file-review-revert:focus-visible,
+.diff-hunk-action:focus-visible,
+.diff-bulk-action:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: 1px;
+}
+/* Revert loses work: Revert all reads in the deletion color. The hunk pill's arrow stays quiet,
+   as in the Codex Review pane; a hunk revert has Undo. */
+.diff-bulk-action[data-kind="revert"] {
+  color: var(--cmux-diff-deletion-fg);
+}
+.diff-bulk-note {
+  min-width: 0;
+  padding: 0 4px 0 8px;
+  overflow: hidden;
+  color: var(--cmux-diff-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A failure wraps, so git's whole reason reads in the bar (no tooltip repeats shown text). */
+.diff-bulk-note[data-kind="error"] {
+  color: var(--cmux-diff-deletion-fg);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.diff-bulk-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 2px;
+  background: var(--cmux-diff-border);
+}
 /* Stage, Commit and Push reuse the changes view's git.css (cx-ueuc8): its tokens, from the viewer's. */
 .diff-git {
   --agent-text: var(--cmux-diff-fg);
@@ -1519,7 +1738,25 @@ body[data-loading="true"] #status::before {
 .diff-git-tools {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
+}
+/* Commit and Push are glossy chips, like the source, base and jump chips beside them. */
+.diff-git-tools .acpmux-git-tool {
+  border-radius: 7px;
+  background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
+  color: var(--cmux-diff-fg);
+}
+.diff-git-tools .acpmux-git-tool:hover:not(:disabled) {
+  background: var(--cmux-diff-pill-hover-bg);
+}
+.diff-git-tools .acpmux-git-tool:active:not(:disabled) {
+  background: var(--acpmux-step-pressed);
+}
+/* The commit form is open: the accent tint, as an open base picker, hovered or not. */
+.diff-git-tools .acpmux-git-tool[aria-expanded="true"],
+.diff-git-tools .acpmux-git-tool[aria-expanded="true"]:hover:not(:disabled) {
+  background: var(--cmux-diff-accent-tint);
 }
 .diff-git-bar {
   display: flex;
@@ -1623,11 +1860,10 @@ svg[data-icon-fill] {
   gap: 6px;
   min-height: 50px;
   padding: 0 7px 0 8px;
-  /* Glass: the chrome lift over the window's backdrop, blurred where a menu or the narrow files
-     panel passes under it (--surface-blur is none under Reduce Transparency). */
-  background: var(--cmux-diff-chrome-lift);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* No fill and no backdrop filter, like the tab bar and every other page header: it shows the
+     page's backdrop as it is. (--surface-blur's saturate(1.4) tinted the flat color under it, so
+     the header read as a different color than the rest of the app.) */
+  background: transparent;
 }
 /* toolbar-left is an inline-size container (the base picker's drop-order
    queries), so it cannot size to its content: it takes the header's width. */
@@ -1644,8 +1880,8 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 2px 10px 2px 2px;
   border-radius: 7px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
+  background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
   font-variant-numeric: tabular-nums;
 }
 .source-pill-button {
@@ -1690,12 +1926,12 @@ svg[data-icon-fill] {
   padding: 0 10px 0 12px;
   border: 0;
   border-radius: 7px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
+  background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
   font-weight: 400;
 }
 #toolbar .base-picker-button:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  background: var(--cmux-diff-pill-hover-bg);
 }
 #toolbar .base-picker-button[aria-expanded="true"] {
   background: var(--cmux-diff-accent-tint);
@@ -1713,13 +1949,13 @@ svg[data-icon-fill] {
   padding: 0;
   border: 0;
   border-radius: 7px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
+  background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
   color: var(--cmux-diff-fg);
   cursor: pointer;
 }
 .toolbar-round-button:hover {
-  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  background: var(--cmux-diff-pill-hover-bg);
 }
 .toolbar-round-button[aria-expanded="true"] {
   background: var(--cmux-diff-accent-tint);
@@ -1761,10 +1997,13 @@ svg[data-icon-fill] {
 .source-menu .toolbar-menu-item {
   grid-template-columns: minmax(0, 1fr) 18px;
 }
-.toolbar-menu-item:focus:not(:focus-visible),
+/* Only the pointer tints a row: a click leaves focus on it, and a tint on that focus stayed after
+   the pointer left, as if the row were selected (its check mark says it is on). */
 .toolbar-menu-item:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
+}
+.toolbar-menu-item:focus:not(:focus-visible) {
   outline: none;
 }
 /* Keyboard focus on a menu row is the row tint and optional accent bar (desktop.css). */
@@ -1900,10 +2139,13 @@ svg[data-icon-fill] {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* A clear 1 px border keeps the 34 px height; the rim is drawn inside (box-shadow). */
   padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-bg);
+  background-clip: padding-box;
+  box-shadow: var(--cmux-diff-pill-rim);
 }
 .diff-pill-button {
   position: relative;
@@ -1921,15 +2163,15 @@ svg[data-icon-fill] {
 }
 .diff-pill-button:hover,
 .diff-pill-button[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 14%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-hover-bg);
   color: var(--cmux-diff-fg);
 }
-/* A pressed toggle (the files sidebar) sinks into the pill. */
+/* A pressed toggle (the files sidebar): a stronger tint than hover, so it reads as on. */
 .diff-pill-button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
+  background: color-mix(in lab, var(--cmux-diff-fg) 16%, transparent);
   color: var(--cmux-diff-fg);
 }
-/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+/* An unavailable pill button: its tooltip says why, and hover does not light it. */
 .diff-pill-button[aria-disabled="true"],
 .diff-pill-button[aria-disabled="true"]:hover {
   background: transparent;
@@ -1963,46 +2205,8 @@ svg[data-icon-fill] {
 .diff-pill-button svg [data-diff-addition] {
   fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
 }
-/* Tooltip below the hovered or keyboard-focused button (the pill sits at the
-   top of the page). */
-.diff-pill-button::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 50%;
-  translate: -50% -4px;
-  padding: 5px 10px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  border-radius: 9px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 86%, var(--cmux-diff-fg));
-  box-shadow: var(--elevation-2);
-  color: var(--cmux-diff-fg);
-  font-size: 12px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition:
-    opacity var(--cmux-motion-quick) ease,
-    translate var(--cmux-motion-quick) ease;
-}
-.diff-pill-button:last-child::after {
-  left: auto;
-  right: 0;
-  translate: 0 -4px;
-}
-.diff-pill-button:hover::after,
-.diff-pill-button:focus-visible::after {
-  opacity: 1;
-  translate: -50% 0;
-  transition-delay: 350ms;
-}
-.diff-pill-button:last-child:hover::after,
-.diff-pill-button:last-child:focus-visible::after {
-  translate: 0 0;
-}
-.diff-pill-button[aria-expanded="true"]::after {
-  display: none;
-}
+/* A button's tooltip is the shared one every cmux page has (ui/titleTooltips.ts, from its
+   `data-tooltip`). The pill drew its own here too, so two showed at once. */
 /* The "..." menu opens down from the pill. */
 #options-menu.options-menu {
   position: absolute;
@@ -2011,11 +2215,6 @@ svg[data-icon-fill] {
   min-width: 248px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-}
-@media (prefers-reduced-motion: reduce) {
-  .diff-pill-button::after {
-    transition: none;
-  }
 }
 
 /* The base picker popover uses the toolbar menu surface. */
@@ -2111,6 +2310,30 @@ svg[data-icon-fill] {
   text-overflow: ellipsis;
   color: var(--cmux-diff-fg);
 }
+/* The file name as a bare button (FileHeader's onOpenFile). */
+button.file-header-open {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-user-select: text;
+  user-select: text;
+}
+button.file-header-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.file-header-open:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
 .file-header-caret {
   flex: 0 0 auto;
   width: 20px;
@@ -2122,8 +2345,9 @@ svg[data-icon-fill] {
   border-radius: 5px;
   color: var(--cmux-diff-text-muted);
 }
-/* The whole bar is the toggle; the caret shows its hover and state. */
-.file-header:hover .file-header-caret {
+/* The whole bar is the toggle; the caret shows its hover and state. The file
+   name opens the file instead (D4), so hovering it underlines the name, not the caret. */
+.file-header:hover:not(:has(.file-header-open:hover)) .file-header-caret {
   background: var(--cmux-diff-hover-bg);
   color: var(--cmux-diff-fg);
 }
@@ -2321,4 +2545,119 @@ svg[data-icon-fill] {
 .selectable {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* Inline previews (InlinePreview.tsx): an image file's two sides, or Markdown rendered, in place of
+   its diff (the line annotation of the file's one-line item). */
+.inline-preview {
+  padding: 16px 24px 24px;
+  font-family: var(--cmux-diff-ui-font-family);
+  color: var(--cmux-diff-fg);
+  white-space: normal;
+}
+.rich-preview-status {
+  margin: 24px 0;
+  color: var(--cmux-diff-text-muted);
+  text-align: center;
+}
+/* The rendered Markdown reads like a document: the page's text, a measure, quiet rules. */
+.rich-preview-markdown {
+  max-width: 760px;
+  line-height: 1.6;
+}
+.rich-preview-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.25;
+}
+.rich-preview-markdown h1 {
+  font-size: 1.8em;
+}
+.rich-preview-markdown h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--cmux-diff-border);
+}
+.rich-preview-markdown h3 {
+  font-size: 1.15em;
+}
+.rich-preview-markdown :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0 0 1em;
+}
+.rich-preview-markdown :is(code, pre) {
+  font-family: var(--cmux-diff-font-family, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+.rich-preview-markdown code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+}
+.rich-preview-markdown pre {
+  overflow: auto;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
+}
+.rich-preview-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.rich-preview-markdown blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--cmux-diff-border);
+  color: var(--cmux-diff-text-muted);
+}
+.rich-preview-markdown table {
+  border-collapse: collapse;
+}
+.rich-preview-markdown :is(th, td) {
+  padding: 8px 12px;
+  border: 1px solid var(--cmux-diff-border);
+}
+.rich-preview-markdown .md-link {
+  color: var(--cmux-diff-accent);
+}
+.rich-preview-markdown .md-image {
+  color: var(--cmux-diff-text-muted);
+  font-style: italic;
+}
+.rich-preview-markdown li[data-task] {
+  list-style: none;
+}
+.rich-preview-markdown .md-task {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin: 0 0.45em 0 -1.3em;
+  border: 1px solid var(--cmux-diff-text-muted);
+  border-radius: 3px;
+  vertical-align: -0.05em;
+}
+.rich-preview-markdown li[data-task="done"] .md-task {
+  border-color: var(--cmux-diff-accent);
+  background: var(--cmux-diff-accent);
+}
+/* Before and after, side by side, each on a checkerboard so transparency shows. */
+.rich-preview-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.rich-preview-image {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.rich-preview-image img {
+  max-width: 100%;
+  max-height: 60vh;
+  align-self: flex-start;
+  object-fit: contain;
+  border-radius: 6px;
+  background: repeating-conic-gradient(
+      color-mix(in lab, var(--cmux-diff-fg) 10%, transparent) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
 }

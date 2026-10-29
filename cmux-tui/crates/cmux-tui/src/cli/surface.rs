@@ -18,6 +18,8 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "settings",
+    "attention",
     "agent",
     "room",
     "closed",
@@ -84,4 +86,7 @@ pub(super) const MACHINE_CATALOG_HELP: &str = "\
 USAGE
   cmux machine list [--catalog]
   cmux machine <selector> show [--catalog]
+
+With the cmux app running, `machine list` also lists its Cloud machines
+(`kind: cloud`, `target: machine:<id>`); without it a note says they are missing.
 ";

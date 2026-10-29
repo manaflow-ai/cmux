@@ -364,7 +364,12 @@ Left for slice 1b (named so nobody thinks they shipped):
    that call the ops with the app's sign-in.
 3. The host-side read-back check (G7) in optchat-chief: the brain does not see tool outputs
    today (they are folded for the transcript only); slice 1 ships the prompt rule instead.
-4. MySQL projection `cloud_groups` (directory/admin): not needed for slice 1 reads; it needs a
+4. Placement names a473's ids, not host names or Cloud VM ids (a473, 2026-10-22,
+   remote-groups-DESIGN.md section 19): `placement.machine_id` (`machine_<32 hex>`, one per
+   daemon state root) and `placement.session_resource_id`. Slice 1's free-text `host`/`machine`
+   fields get replaced by these two in slice 1b; `sec_m_<registry_id>` is local sidebar
+   placement only and is never stored.
+5. MySQL projection `cloud_groups` (directory/admin): not needed for slice 1 reads; it needs a
    Vitess migration through the staging gate.
 
 ## 9. Coordination

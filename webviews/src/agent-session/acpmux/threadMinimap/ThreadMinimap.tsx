@@ -3,11 +3,11 @@
 // like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
-// as a dot past the tick, and clicking the dot's spot toggles one. Geometry comes from the
+// as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
-import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
@@ -15,22 +15,37 @@ import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
-import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
+import {
+  animateScroll,
+  highlightBubble,
+  MOTION_SCROLL_EVENT,
+  reducedMotion,
+  settleScroll,
+  stopScroll,
+} from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
+import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
+import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
+import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
+import { tickRanges } from "./tickWindow";
+import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
   cardOffset,
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
   MIN_PROMPTS,
   minimapTurns,
-  RAIL_LEFT,
+  railFade,
+  railFades,
   railHeight,
+  railPlacement,
+  railScrollTop,
+  railTop as railTopAt,
   ROW_PITCH,
   ROW_WIDTH,
   SETTLE_FRAMES,
@@ -42,8 +57,10 @@ import {
   tickProgress,
   turnScrollTop,
   visibleTurns,
+  type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
+  type RowsChange,
 } from "./model";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
@@ -55,16 +72,30 @@ const gutter = (width: number) => transcriptColumn(width).inset;
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
 
-/// The band's first turn at the last commit: its key and row, where its prompt was in the layout,
-/// and where its row drew in the rail; and the first turn's key, which older turns change.
-type Anchor = { key: string; firstKey: string; index: number; layoutTop: number; y: number };
+/// A row the rail's state names: the index the state holds for it, and its prompt's key.
+type KeyedRow = { index: number; key: string };
+
+/// The band's first turn at the last commit: its tick (key and row id) and row, where its prompt was
+/// in the layout, and where its row drew in the rail; and the first tick's, which older turns change.
+type Anchor = { tick: TickRef; first: TickRef; index: number; layoutTop: number; y: number };
+
+/// A tick as the rail's state remembers it: its key and its prompt's row id.
+type TickRef = Pick<MinimapTickRow, "key" | "id">;
+
+/// The index of the tick `ref` names in `ticks`, or -1: by its row first, then by its key. The row
+/// id holds where older turns arrive (a repeated key can move to an older echo, model.ts ticksOf);
+/// the key holds where acpmux's echo replaces this pane's row for a send (a new row, one promptId).
+export function tickIndex(ticks: readonly TickRef[], ref: TickRef, from = 0): number {
+  for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.id === ref.id) return index;
+  for (let index = from; index < ticks.length; index += 1) if (ticks[index]!.key === ref.key) return index;
+  return -1;
+}
 
 /// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
-function prependedBy(anchor: Anchor | undefined, turns: readonly MinimapTurn[]): number | undefined {
-  if (!anchor || !turns.length || turns[0]!.key === anchor.firstKey) return undefined;
-  for (let index = anchor.index; index < turns.length; index += 1)
-    if (turns[index]!.key === anchor.key) return index - anchor.index;
-  return undefined;
+export function prependedBy(anchor: Anchor | undefined, ticks: readonly MinimapTickRow[]): number | undefined {
+  if (!anchor || !ticks.length || tickIndex(ticks, anchor.first) === 0) return undefined;
+  const at = tickIndex(ticks, anchor.tick, anchor.index);
+  return at < 0 ? undefined : at - anchor.index;
 }
 
 /// The prompt row's element, when the virtualized transcript has it mounted.
@@ -86,35 +117,54 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  foot,
   scrolls,
   width,
   placed,
+  change,
 }: {
-  rows: AcpmuxRow[];
+  rows: readonly AcpmuxRow[];
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
+  /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
+  foot?: number;
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
+  /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
+  /// reads only the rows from there (model.ts minimapTurns).
+  change?: RowsChange;
 }) {
   const t = useT();
-  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
-  /// default: the turn steps below still run), read once per pane.
-  const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
+  /// steps below still run), read once per pane. The Chat Minimap setting
+  /// (`agentPane.display.minimap`) wins when set, live.
+  const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const [heightArm] = useState(() => experimentArm(threadMinimapHeight));
+  const arm = useThreadMinimapArm() ?? experiment;
+  /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
+  const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
+  /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
+  const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
+  /// The turns of the last commit: the next render reads from them and leaves them as they are, so
+  /// a render React drops before it commits changes nothing (#24058 review round 6).
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
-  const turns = useMemo(() => {
-    const next = minimapTurns(rows, sessionId, lastTurns.current);
-    lastTurns.current = next;
-    return next.turns;
-  }, [rows, sessionId]);
+  // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
+  // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
+  const read = useMemo(() => minimapTurns(rows, sessionId, lastTurns.current, change), [rows, sessionId, change]);
+  useLayoutEffect(() => {
+    lastTurns.current = read;
+  }, [read]);
+  const { turns, ticks } = read;
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// The row keyboard focus is on.
@@ -130,16 +180,30 @@ export function ThreadMinimap({
   const dismiss = preview.dismiss;
   const [scrubbing, setScrubbing] = useState(false);
   const [, setBandMoves] = useState(0);
-  const [reduce, setReduce] = useState(false);
+  // Read at mount too, so the ticks' entrance (threadMinimap.css) does not run under the app's gate.
+  const [reduce, setReduce] = useState(reducedMotion);
   const [listTop, setListTop] = useState(0);
+  /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
+  /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
+  const listOffset = useRef(0);
+  /// A row a key moves focus to that is not drawn yet (tickWindow.ts): drawn on the next commit,
+  /// which focuses it.
+  const [reveal, setReveal] = useState<number | undefined>(undefined);
+  /// The focused, hovered and card rows as of the last commit, each with its prompt's key.
+  const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
+  /// The prompt key of the tick the page's focus is on, if one is.
+  const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
   const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
-  const list = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLOListElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   /// A press is under way: the focus it brings is not keyboard focus.
   const pressing = useRef(false);
   const scrub = useRef<{ pointer: number; y: number; moved: boolean; at?: number } | undefined>(undefined);
+  /// Where the pointer last was over the list (its clientY), while it is on the rail: when the list
+  /// scrolls under a still pointer, the hovered row is the one now under it.
+  const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
   const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
@@ -153,7 +217,7 @@ export function ThreadMinimap({
   /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
   /// that scroll arrives, the band reads the offset as it will be.
   const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
-  const added = prependedBy(anchor.current, turns);
+  const added = prependedBy(anchor.current, ticks);
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
   if (anchored && seen !== undefined)
@@ -161,13 +225,25 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
-  const height = railHeight(turns.length, windowHeight, viewportHeight);
+  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  const height = railHeight(
+    turns.length,
+    windowHeight,
+    viewportHeight,
+    foot,
+    onScreen.last - onScreen.first + 1,
+    railHeightConfig(heightArm),
+  );
+  const placement = railPlacement(gutter(width));
+  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. The
+  // one full-width rail hides only below its usable horizontal gutter.
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH && !placement.hidden;
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
   const live = useRef({
     turns,
+    ticks,
     tops: layout.tops,
     total: layout.totalHeight,
     marks,
@@ -175,10 +251,12 @@ export function ThreadMinimap({
     onScreen,
     sessionId,
     shown,
+    hovered,
   });
   useLayoutEffect(() => {
     live.current = {
       turns,
+      ticks,
       tops: layout.tops,
       total: layout.totalHeight,
       marks,
@@ -186,6 +264,7 @@ export function ThreadMinimap({
       onScreen,
       sessionId,
       shown,
+      hovered,
     };
   });
 
@@ -201,12 +280,19 @@ export function ThreadMinimap({
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
+      // would draw the band after this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
-    // band already drawn.
+    // band already drawn. A wheel glide or jump (scrollMotion.ts) writes the offset in a frame
+    // callback, whose scroll event comes a frame late: it announces its write in that frame too.
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    return () => node.removeEventListener("scroll", scrolled, { capture: true });
+    node.addEventListener(MOTION_SCROLL_EVENT, scrolled);
+    return () => {
+      node.removeEventListener("scroll", scrolled, { capture: true });
+      node.removeEventListener(MOTION_SCROLL_EVENT, scrolled);
+    };
   }, [scroller]);
 
   // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
@@ -239,7 +325,8 @@ export function ThreadMinimap({
   }, [scroller, sessionId]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
+  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
@@ -251,12 +338,16 @@ export function ThreadMinimap({
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
     // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
-    // corrected from the bubble itself, frame by frame, until it holds.
+    // corrected from the prompt's row itself, frame by frame, until it holds. The row's top, not the
+    // bubble's: a prompt's sent images draw above its bubble, and a settle on the bubble slid the
+    // landing down past them (Leo, 2026-10-25: "it jumps all the way up to the attachment area ...
+    // Then it just sends me back down to the, like, only the text area"). The row's top does not
+    // move when its images load and it grows; that growth goes below it.
     const settle = () =>
       settleScroll(
         node,
         () => {
-          const box = bubbleOf(mountedRow(node, turn.id))?.getBoundingClientRect();
+          const box = mountedRow(node, turn.id)?.getBoundingClientRect();
           // Not drawn yet, or no layout to measure (a hidden pane).
           if (!box || box.height === 0) return undefined;
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
@@ -284,18 +375,16 @@ export function ThreadMinimap({
   useEffect(() => {
     /// An earlier step's turn, by its key (older turns arriving renumber the rows), while its scroll
     /// and landing are under way.
-    const pending = { key: undefined as string | undefined, until: 0 };
+    const pending = { tick: undefined as TickRef | undefined, until: 0 };
     /// From the turn being read (an earlier step's while it is under way, else the last whose
     /// landing is at or above the view's top): forward goes to the next match after it; back to its
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, tops, total } = live.current;
+      const { turns: all, ticks: keys, tops, total } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
-        pending.key !== undefined && performance.now() < pending.until
-          ? all.findIndex((turn) => turn.key === pending.key)
-          : -1;
+        pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
       const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
@@ -310,7 +399,8 @@ export function ThreadMinimap({
       if (index === undefined) return;
       const to = jump(index, how);
       if (to === undefined) return;
-      pending.key = live.current.turns[index]?.key;
+      const tick = live.current.ticks[index];
+      pending.tick = tick && { key: tick.key, id: tick.id };
       pending.until = performance.now() + STEP_PENDING_MS;
     };
     const any = () => true;
@@ -323,7 +413,7 @@ export function ThreadMinimap({
     ];
     // The reader's own scroll ends a pending step.
     const reader = () => {
-      pending.key = undefined;
+      pending.tick = undefined;
     };
     const node = scroller.current;
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
@@ -363,26 +453,23 @@ export function ThreadMinimap({
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
-    const railTop = Math.round((viewportHeight - height) / 2);
+    const railTop = railTopAt(height, viewportHeight, foot);
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
       const index = was.index + added;
       const node = list.current;
       const shell = rail.current;
-      if (added > 0) {
-        const by = (row: number | undefined) => (row === undefined ? row : row + added);
-        setHovered(by);
-        setFocused(by);
-        setCardRow(by);
-        if (scrub.current?.at !== undefined) scrub.current.at += added;
-      }
+      // The hovered, focused and card rows follow their prompts by key (the rows' keys below); a
+      // scrub's row follows here.
+      if (added > 0 && scrub.current?.at !== undefined) scrub.current.at += added;
       if (node && shell) {
         let moved = railTop + index * ROW_PITCH - scrolled - was.y;
         const room = Math.max(0, turns.length * ROW_PITCH - height);
         const next = Math.max(0, Math.min(room, scrolled + moved));
         if (next !== scrolled) {
           node.scrollTop = next;
+          listOffset.current = next;
           moved -= next - scrolled;
           scrolled = next;
           setListTop(next);
@@ -406,24 +493,88 @@ export function ThreadMinimap({
     const first = turns[onScreen.first];
     if (first)
       anchor.current = {
-        key: first.key,
-        firstKey: turns[0]!.key,
+        tick: { key: ticks[onScreen.first]!.key, id: ticks[onScreen.first]!.id },
+        first: { key: ticks[0]!.key, id: ticks[0]!.id },
         index: onScreen.first,
         layoutTop: layout.tops[first.index] ?? 0,
         y: railTop + onScreen.first * ROW_PITCH - scrolled,
       };
   });
 
-  // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
+  // A rail longer than its room keeps the whole band (the prompts on screen) in view and clear of
+  // its fades while the reader scrolls, and reaches its end with the chat's: at the bottom of the
+  // chat the last ticks show lit (railScrollTop). It used to keep only the band's first row in view,
+  // so the rows below it, the bottom of the chat among them, could stay under the bottom fade or
+  // past the rail's end. It follows with a tick hovered or focused too (#24058 review round 4: it
+  // used to stop, so scrolling the chat under a hovered rail took the band out of it): railScrollTop
+  // keeps the list where it is while the whole band shows clear of the fades, so the tick under the
+  // pointer moves only once the band would leave the rail. Only a scrub, whose pointer is on the
+  // row it shows, holds the list.
+  /// After the list moved under a pointer that did not (the reader wheels the chat with the pointer
+  /// on the rail, or a key focuses a tick past the list's end and the browser scrolls the list to it),
+  /// no pointerenter comes, so the magnified row would stay the old one while another sits under the
+  /// pointer (#24058 review rounds 5 and 6). The hovered row becomes the one under it now. A scrub
+  /// sets its own row from its pointer.
+  const followPointer = useCallback((node: HTMLElement) => {
+    const over = live.current.hovered;
+    const y = pointerY.current;
+    if (over === undefined || y === undefined || scrub.current?.moved) return;
+    const under = Math.floor((y - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH);
+    const index = Math.max(0, Math.min(live.current.turns.length - 1, under));
+    if (index === over) return;
+    setHovered(index);
+    setCardRow(index);
+  }, []);
   useLayoutEffect(() => {
     const node = list.current;
+    // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
+    // its top: the cached offset goes with it, so the new list is placed from 0 like any other.
+    if (!node) {
+      if (listOffset.current === 0) return;
+      listOffset.current = 0;
+      setListTop(0);
+      return;
+    }
+    // A list that no longer overflows (another chat, fewer prompts) starts at its top again.
+    if (!overflow) {
+      if (listOffset.current === 0) return;
+      node.scrollTop = 0;
+      listOffset.current = 0;
+      setListTop(0);
+      return;
+    }
     // The commit that added older turns placed the list itself, around the band.
-    if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
-    const rowTop = onScreen.first * ROW_PITCH;
-    if (rowTop >= node.scrollTop && rowTop + ROW_PITCH <= node.scrollTop + height) return;
-    node.scrollTop = Math.max(0, rowTop - height / 3);
-    setListTop(node.scrollTop);
-  }, [onScreen.first, overflow, height, hovered, focused]);
+    if (scrubbing || holding.current) return;
+    const current = listOffset.current;
+    const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current);
+    if (Math.abs(next - current) < 0.5) return;
+    node.scrollTop = next;
+    // railScrollTop keeps it inside the list's room, so the list takes it as it is.
+    listOffset.current = next;
+    setListTop(next);
+    followPointer(node);
+  }, [shown, onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
+
+  // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
+  // scrolls the list to it, whose scroll moves the drawn rows along).
+  useLayoutEffect(() => {
+    if (reveal === undefined) return;
+    setReveal(undefined);
+    list.current?.querySelector<HTMLButtonElement>(`[data-tick="${reveal}"]`)?.focus();
+  }, [reveal]);
+
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  /// The band glides only when the scroll moves it (threadMinimap.css): a commit that changes the
+  /// active row, the hover or the scrub (the pointer leaving the rail, a key focusing a tick) marks
+  /// the rail `data-snap`, so the rows it changes switch at once. The rail's next render that changes
+  /// none of these (the scroll's next band move) drops the mark, and its rows glide.
+  const pose = `${active ?? ""}|${hovered !== undefined}|${scrubbing}`;
+  const committedPose = useRef(pose);
+  const snap = pose !== committedPose.current;
+  useLayoutEffect(() => {
+    committedPose.current = pose;
+  });
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
@@ -447,6 +598,9 @@ export function ThreadMinimap({
       },
       escape() {
         dismiss();
+      },
+      reveal(index) {
+        setReveal(index);
       },
       click(index, target) {
         if (swallowClick.current) {
@@ -475,6 +629,66 @@ export function ThreadMinimap({
     }),
     [intend, dismiss, jump],
   );
+
+  /// Each tick's row by its prompt's key, built once per change of the ticks (a new prompt, older
+  /// turns, a cut), never per token.
+  const rowOf = useMemo(() => new Map(ticks.map((tick, index) => [tick.key, index])), [ticks]);
+  /// The focused, hovered and card rows by their prompt's key. Older turns arriving or earlier ones
+  /// going renumber every row in the render that changes the ticks, before any effect can: a row the
+  /// state still names by the index it had at the last commit is the row its prompt is at now (a
+  /// lookup, no search), and the effect below sets the state to it. A row the state changed to since
+  /// is itself.
+  const resolve = (index: number | undefined, last: KeyedRow | undefined) =>
+    index === undefined || !last || last.index !== index ? index : rowOf.get(last.key);
+  const held = {
+    focused: resolve(focused, keyed.current.focused),
+    hovered: resolve(hovered, keyed.current.hovered),
+    card: resolve(cardRow, keyed.current.card),
+  };
+  /// The tick that has the page's focus (a pointer's click focuses one too, without the keyboard's
+  /// grow or card), by its prompt's key: it stays drawn wherever the list scrolls.
+  /// A focused button that goes (its chat replaced, its prompt cut, the rail hidden) may send no blur:
+  /// a key that is no longer a tick of this chat's shown rail holds nothing, and the effect below
+  /// drops it, as it does once the page's focus is not in the list at all.
+  const domFocusLive = shown && domFocus !== undefined && domFocus.sessionId === sessionId && rowOf.has(domFocus.key);
+  const domFocused = domFocusLive ? rowOf.get(domFocus.key) : undefined;
+  /// The rows the list draws (tickWindow.ts), the same array while they stay the same, so a render
+  /// that moves none (a streamed token) renders no row.
+  const drawn = tickRanges(ticks.length, listTop, height, [
+    held.focused,
+    held.hovered,
+    reveal,
+    showCard ? held.card : undefined,
+    domFocused,
+  ]);
+  const drawnKey = drawn.join(" ");
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
+  const ranges = useMemo(() => drawn, [drawnKey]);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
+  useLayoutEffect(() => {
+    // Reading the page's focus lays nothing out.
+    const focusIn = !!list.current && list.current.contains(list.current.ownerDocument.activeElement);
+    if (domFocus !== undefined && (!domFocusLive || !focusIn)) setDomFocus(undefined);
+    if (held.focused !== focused) setFocused(held.focused);
+    if (held.hovered !== hovered) setHovered(held.hovered);
+    if (held.card !== cardRow) setCardRow(held.card);
+    const at = (index: number | undefined) =>
+      index === undefined || !ticks[index] ? undefined : { index, key: ticks[index]!.key };
+    keyed.current = { focused: at(held.focused), hovered: at(held.hovered), card: at(held.card) };
+  });
+  /// The rail going (a short chat, no room): its keyboard tick, hover and card go with it, so the rail
+  /// that comes back draws none of them. Only on the change, so a rail that mounts hidden cools nothing.
+  const wasShown = useRef(shown);
+  useLayoutEffect(() => {
+    const went = wasShown.current && !shown;
+    wasShown.current = shown;
+    if (!went) return;
+    setFocused(undefined);
+    setHovered(undefined);
+    setCardRow(undefined);
+    setReveal(undefined);
+    dismiss();
+  }, [shown, dismiss]);
 
   if (full)
     return (
@@ -509,26 +723,44 @@ export function ThreadMinimap({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const railTop = Math.round((viewportHeight - height) / 2);
-  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
-  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  const railTop = railTopAt(height, viewportHeight, foot);
+  const fades = railFades(onScreen, turns.length, height, listTop);
+  const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
+    const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
+    return y >= 0 && y < turns.length * ROW_PITCH;
+  };
+  // The rail keeps its full row box at rest. Hover, focus and scrubbing only magnify the ticks; the
+  // preview card remains beside the same rail and may overlap the transcript freely.
+  const magnified = hovered;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
       ? 0
       : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
   return (
-    <div className="acpmux-minimap">
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       <nav
         ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
+        style={
+          {
+            left: placement.left,
+            top: railTop,
+            width: ROW_WIDTH,
+            height,
+            "--acpmux-minimap-lit": lit,
+            "--acpmux-minimap-mark": mark.bar,
+            "--acpmux-minimap-mark-dot": mark.dot,
+          } as React.CSSProperties
+        }
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
+        data-snap={snap || undefined}
         onPointerLeave={(event) => {
           if (scrub.current?.moved) return;
+          pointerY.current = undefined;
           setHovered(undefined);
           // Into the card keeps it; anywhere else it goes on this frame.
           if (!within(card.current, event.relatedTarget)) intend(null);
@@ -539,14 +771,39 @@ export function ThreadMinimap({
           if (hovered === undefined) intend(null);
         }}
       >
-        <div
+        <ol
           ref={list}
           className="acpmux-minimap__list"
-          data-fade-top={listTop > 0 || undefined}
-          data-fade-bottom={(overflow && listTop + height < turns.length * ROW_PITCH - 1) || undefined}
-          onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
+          // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
+          data-fade-top={fades.top || undefined}
+          data-fade-bottom={(overflow && fades.bottom) || undefined}
+          style={
+            {
+              "--acpmux-minimap-fade": `${railFade(height)}px`,
+              // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css).
+              "--acpmux-minimap-first": Math.floor(listTop / ROW_PITCH),
+              "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
+            } as React.CSSProperties
+          }
+          onFocus={(event) => {
+            const tick = (event.target as Element).closest?.<HTMLElement>("[data-tick]");
+            const key = tick ? ticks[Number(tick.dataset.tick)]?.key : undefined;
+            if (key !== undefined) setDomFocus({ sessionId, key });
+          }}
+          onBlur={(event) => {
+            if (!within(event.currentTarget, event.relatedTarget)) setDomFocus(undefined);
+          }}
+          onScroll={(event) => {
+            listOffset.current = event.currentTarget.scrollTop;
+            setListTop(listOffset.current);
+            followPointer(event.currentTarget);
+          }}
+          onPointerOver={(event) => {
+            pointerY.current = event.clientY;
+          }}
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
+            if (!inTickContent(event, event.currentTarget)) return;
             pressing.current = true;
             swallowClick.current = false;
             const state = { pointer: event.pointerId, y: event.clientY, moved: false };
@@ -567,7 +824,16 @@ export function ThreadMinimap({
             page.addEventListener("pointercancel", released);
           }}
           onPointerMove={(event) => {
+            pointerY.current = event.clientY;
             const state = scrub.current;
+            if (!inTickContent(event, event.currentTarget)) {
+              if (!state?.moved) {
+                setHovered(undefined);
+                setCardRow(undefined);
+                if (!within(card.current, event.relatedTarget)) intend(null);
+              }
+              return;
+            }
             if (!state) return;
             if (!state.moved) {
               if (Math.abs(event.clientY - state.y) < SCRUB_SLOP) return;
@@ -589,36 +855,34 @@ export function ThreadMinimap({
           onPointerUp={endScrub}
           onPointerCancel={endScrub}
         >
-          {turns.map((turn, index) => (
-            <Tick
-              key={turn.key}
-              index={index}
-              last={turns.length - 1}
-              progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
-              active={index === active}
-              current={index >= onScreen.first && index <= onScreen.last}
-              marked={marks.has(turn)}
-              describedBy={showCard && cardRow === index ? cardId : undefined}
-              label={t(marks.has(turn) ? "minimap.tickBookmarked" : "minimap.tick", {
-                index: index + 1,
-                count: turns.length,
-                prompt: turn.prompt,
-              })}
-              actions={actions}
-            />
-          ))}
-        </div>
+          <TickList
+            ticks={ticks}
+            sessionId={sessionId}
+            hovered={magnified}
+            focused={focused}
+            active={active}
+            first={onScreen.first}
+            last={onScreen.last}
+            described={showCard ? cardRow : undefined}
+            cardId={cardId}
+            actions={actions}
+            ranges={ranges}
+          />
+        </ol>
       </nav>
       {showCard && (
         <PreviewCard
           ref={card}
           id={cardId}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={placement.left + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
+          metadata={cardTurn.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
@@ -639,15 +903,91 @@ export function ThreadMinimap({
   );
 }
 
+/// The rail's rows, one per prompt. Memoized on what they show: a render of the rail that changes
+/// none of these (a token streaming into the live reply, a scroll that keeps the band) renders no
+/// row, so the rail's work per token does not grow with the chat.
+const TickList = memo(function TickList({
+  ticks,
+  sessionId,
+  hovered,
+  focused,
+  active,
+  first,
+  last,
+  described,
+  cardId,
+  actions,
+  ranges,
+}: {
+  ticks: readonly MinimapTickRow[];
+  sessionId: string | undefined;
+  /// The row the magnify centers on (the hovered one, or a narrow rail's held card's).
+  hovered: number | undefined;
+  focused: number | undefined;
+  active: number | undefined;
+  /// The band: the prompts on screen.
+  first: number;
+  last: number;
+  /// The row the open card describes.
+  described: number | undefined;
+  cardId: string;
+  actions: TickActions;
+  /// The rows to draw (tickWindow.ts); spacers stand in for the rest.
+  ranges: ReadonlyArray<readonly [number, number]>;
+}) {
+  const t = useT();
+  const marks = usePromptMarks(sessionId);
+  const drawn: React.ReactNode[] = [];
+  let next = 0;
+  for (const [from, to] of ranges) {
+    if (from > next) drawn.push(<Spacer key={`gap-${next}`} rows={from - next} />);
+    for (let index = from; index < to; index += 1) drawn.push(tickAt(index));
+    next = to;
+  }
+  if (ticks.length > next) drawn.push(<Spacer key={`gap-${next}`} rows={ticks.length - next} />);
+  return drawn;
+
+  function tickAt(index: number) {
+    const tick = ticks[index]!;
+    // A list item that names its place among every prompt, drawn or not; it draws no box.
+    return (
+      <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
+        <Tick
+          index={index}
+          last={ticks.length - 1}
+          progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+          active={index === active}
+          current={index >= first && index <= last}
+          marked={marks.has(tick)}
+          describedBy={described === index ? cardId : undefined}
+          label={t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
+            index: index + 1,
+            count: ticks.length,
+            prompt: tick.prompt,
+          })}
+          actions={actions}
+        />
+      </li>
+    );
+  }
+});
+
+/// The rows not drawn, as one block as tall as they are.
+function Spacer({ rows }: { rows: number }) {
+  return <li className="acpmux-minimap__gap" aria-hidden style={{ height: rows * ROW_PITCH }} />;
+}
+
 type TickActions = {
   enter(index: number): void;
   focus(index: number): void;
   blur(index: number): void;
   escape(): void;
+  /// Moves focus to a row that is not drawn.
+  reveal(index: number): void;
   click(index: number, target: EventTarget): void;
 };
 
-/// One prompt's row: a 10 px by 36 px button with its tick and, past the tick, the bookmark dot.
+/// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
 const Tick = memo(function Tick({
   index,
   last,
@@ -681,6 +1021,7 @@ const Tick = memo(function Tick({
       className="acpmux-minimap__tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
+      style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}
       aria-describedby={describedBy}
@@ -690,6 +1031,17 @@ const Tick = memo(function Tick({
       onClick={(event) => actions.click(index, event.target)}
       keyboard={(event) => {
         if (event.key === "Escape") actions.escape();
+        const list = event.currentTarget.closest(".acpmux-minimap__list");
+        const tickAt = (row: number) => list?.querySelector<HTMLButtonElement>(`[data-tick="${row}"]`);
+        // Tab walks every row; a row past the drawn ones is drawn, then focused.
+        if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
+          const row = index + (event.shiftKey ? -1 : 1);
+          if (row >= 0 && row <= last && !tickAt(row)) {
+            event.preventDefault();
+            actions.reveal(row);
+          }
+          return;
+        }
         const to =
           event.key === "ArrowUp"
             ? index - 1
@@ -700,14 +1052,15 @@ const Tick = memo(function Tick({
                 : event.key === "End"
                   ? last
                   : undefined;
-        if (to !== undefined)
-          event.currentTarget.parentElement
-            ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(last, to))}"]`)
-            ?.focus();
+        if (to === undefined) return;
+        const row = Math.max(0, Math.min(last, to));
+        const node = tickAt(row);
+        if (node) node.focus();
+        else actions.reveal(row);
       }}
     >
       <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />
-      <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
+      {marked && <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />}
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );
