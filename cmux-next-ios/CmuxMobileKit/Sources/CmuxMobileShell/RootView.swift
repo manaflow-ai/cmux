@@ -11,6 +11,7 @@ import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileSupport
 import SwiftUI
 import OSLog
 import UIKit
@@ -62,6 +63,8 @@ public struct RootView: View {
     @State private var store: AppStore
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
+    /// The app's keyboard notifications, for every keyboard-pinned composer.
+    @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -80,6 +83,8 @@ public struct RootView: View {
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
+    /// A pairing code opened while signed out: applied once the account's live data starts.
+    @State private var heldInvite: PairInvite?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -154,6 +159,7 @@ public struct RootView: View {
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
+        .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
@@ -193,6 +199,18 @@ public struct RootView: View {
             accountUserID = id
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
+        // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
+        .onOpenURL { url in
+            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
+            guard let invite = PairInvite(url: url) else { return }
+            if let live { live.accept(invite) } else { heldInvite = invite }
+        }
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
+            NotificationRouter.shared.open(link: link)
+        }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
         .task(id: auth.isSignedIn) {
@@ -325,6 +343,10 @@ public struct RootView: View {
         auth.willSignOut = AccountSignOut().willSignOut { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
+        if let invite = heldInvite {
+            heldInvite = nil
+            coordinator.accept(invite)
+        }
     }
 
     #if DEBUG
@@ -493,6 +515,7 @@ struct ShellView: View {
         .task {
             #if DEBUG
             if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            KeyboardPinTrace.startIfRequested()
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG

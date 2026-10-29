@@ -125,13 +125,24 @@ bool IsLoopbackHost(const std::string& raw) {
 }
 
 // Whether a main-frame URL is a web URL (http, https) and loopback.
-static bool WebURL(const std::string& url, bool* loopback) {
+static bool WebURL(const std::string& url, bool* loopback, std::string* host_out = nullptr) {
   CefURLParts parts;
   if (!CefParseURL(url, parts)) return false;
   std::string scheme = CefString(&parts.scheme).ToString();
   if (scheme != "http" && scheme != "https") return false;
-  *loopback = IsLoopbackHost(CefString(&parts.host).ToString());
+  std::string host = CefString(&parts.host).ToString();
+  *loopback = IsLoopbackHost(host);
+  if (host_out) *host_out = host;
   return true;
+}
+
+// An Open Desktop page: a host under `.cloud-desktop.localhost`
+// (RemoteLocalhostService.desktopHostSuffix), which only the machine's own store reaches.
+static bool IsCloudDesktopHost(std::string host) {
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (!host.empty() && host.back() == '.') host.pop_back();
+  static const std::string suffix = ".cloud-desktop.localhost";
+  return host.size() > suffix.size() && host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 constexpr int kStoreGuardMask = 3;
@@ -143,8 +154,11 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   int store = it->second & kStoreGuardMask;
   if (store == 0) return false;
   bool loopback = false;
+  std::string host;
   // Non-web URLs (about:blank, data:, chrome://) never switch stores.
-  if (!WebURL(url, &loopback)) return false;
+  if (!WebURL(url, &loopback, &host)) return false;
+  // 3: any URL but an Open Desktop page, which goes to its machine's store, never this Mac.
+  if (store == 3) return IsCloudDesktopHost(host);
   return store == 1 ? !loopback : loopback;
 }
 

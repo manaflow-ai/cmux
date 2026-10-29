@@ -68,6 +68,9 @@
 //!   (`mediaRead.remote`). They read a chat's images and videos on this
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
+//! - Web, LocalApp and Peer: no `_acpmux/github_action` (`github_broker.rs`), which an agent
+//!   session asks over the unix socket only, and no `_acpmux/github_app_lease`
+//!   (`github_app_token.rs`), which only the app's unix-socket call makes.
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
@@ -157,10 +160,16 @@ pub(super) fn mark_forwarded(
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
     }
-    if control_of(origin, auth, params) == crate::hub::Control::Web {
+    let control = control_of(origin, auth, params);
+    if control == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
+    } else if !crate::hub::vm_boundary::owner(auth, control, params) {
+        // A paired machine's request, or one a peer forwarded for one: never the
+        // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
+        let via = crate::hub::vm_boundary::VIA_DEVICE;
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
     }
 }
 
@@ -184,6 +193,11 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
+    // agent session of this daemon asks over the unix socket; no page, app or peer does.
+    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+        return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
     // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
@@ -426,6 +440,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
     {
         return Err(RpcError::invalid_params(
@@ -461,7 +476,9 @@ async fn check_inner(
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
-        web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
+        let control = control_of(origin, auth, params);
+        let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
+        web_starts_asking(hub, control, vm_boundary, m, params).await?;
     }
     // A chat in Full access by a machine's setting: every request that controls or changes its
     // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
@@ -574,6 +591,9 @@ pub(super) fn after(
         && let Ok(v) = reply
     {
         super::redact::redact_for_remote(m, v);
+        if origin == super::Origin::Peer {
+            super::redact::hide_peers_from_peer(v);
+        }
     }
 }
 
@@ -739,16 +759,17 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
+    vm_boundary: bool,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
-    // On a dedicated agent VM (vmHost, not a Mac) the owner's peer daemon's
-    // session with no policy stays without one: `requests.rs` starts it
-    // approve-all (hub/remote_sandbox.rs `vm_host_peer_approves`).
-    let vm_host_peer = crate::hub::vm_host_peer_approves(
-        hub.config.read().await.vm_host,
+    // A session whose caller asked for the VM boundary this machine takes
+    // (`hub/vm_boundary.rs`): the owner's peer daemon's session with no policy
+    // stays without one, and `requests.rs` starts it approve-all.
+    let vm_host_peer = crate::hub::vm_boundary_peer_approves(
+        vm_boundary && hub.takes_vm_boundary().await,
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
         hub.approve_all_allowed(),
@@ -797,7 +818,8 @@ async fn web_starts_asking(
     }
     // Web CONTROL of a session (not reads) needs its current mode in the
     // asking table and no drift since (`hub/web_control.rs`); the hub checks
-    // again at dispatch.
+    // again at dispatch. A permission answer that only narrows, or carries
+    // the person's proof, is held to less (`Hub::web_answer_check`).
     let controls = matches!(
         m,
         method::SESSION_PROMPT
@@ -861,6 +883,14 @@ async fn web_starts_asking(
     if controls {
         let key = super::session_key(params)?;
         return match hub.resolve(key) {
+            Ok(s) if m == method::MUX_PERMISSION_RESPOND => {
+                let (narrows, proved) = hub.answer_shape(params);
+                hub.web_answer_check(&s, control, narrows, proved)
+            }
+            Ok(s) if m == method::MUX_PERMISSION_GROUP_RESPOND => {
+                let narrows = params["decision"].as_str() == Some("deny");
+                hub.web_answer_check(&s, control, narrows, false)
+            }
             Ok(s) => hub.web_control_check(&s, control),
             // A configured peer's session: forwarded with `via: web`, so
             // that peer applies the Web's rules on its own fresh state.
@@ -886,7 +916,9 @@ async fn web_starts_asking(
     {
         return Err(e);
     }
-    if sets_mode {
+    // A copy or a mode switch of a session at its owner's VM boundary is its owner's alone
+    // (`hub/vm_boundary.rs`): a fork keeps the boundary.
+    if sets_mode || (web && copies && s.meta().vm_boundary) {
         hub.web_control_check(&s, control)?;
     }
     let meta = s.meta();

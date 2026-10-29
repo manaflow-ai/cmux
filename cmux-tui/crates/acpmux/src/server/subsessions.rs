@@ -172,14 +172,23 @@ async fn handle(
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, true)?;
+            // `send_message` asks before it reads the files it names: nothing is sent.
+            if params.get("attachCheck") == Some(&Value::Bool(true)) {
+                return hub.subsession_attach_check(&caller).map(|()| json!({}));
+            }
             let text = str_param(params, "text").unwrap_or_default();
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let deliver = crate::hub::Delivery::parse(str_param(params, "deliver"), interrupt)?;
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
-            // Files sent with it, as `send_message` reads them (`attach.rs`).
+            // Files sent with it, as `send_message` reads them (`attach.rs`): inline, or uploads
+            // to the receiver named by reference.
+            let file = |b: &Value| {
+                crate::attach::all(std::slice::from_ref(b))
+                    || crate::prompt_uploads::names_upload(b)
+            };
             let attachments = match params.get("attachments") {
                 None | Some(Value::Null) => Vec::new(),
-                Some(Value::Array(blocks)) if crate::attach::all(blocks) => blocks.clone(),
+                Some(Value::Array(blocks)) if blocks.iter().all(file) => blocks.clone(),
                 Some(_) => {
                     return Err(RpcError::invalid_params(
                         "attachments must be attachment blocks (send_message reads the files)",

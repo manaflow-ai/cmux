@@ -30,7 +30,11 @@ mod capability_cache;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_client_session;
+#[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -49,6 +53,8 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
@@ -193,10 +199,21 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
+            "remote" => return remote_family_word(args.get(index + 1)),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
+}
+
+/// Whether the word after `remote` keeps argv in the remote command family:
+/// none, a flag, `help` or one of its actions. Any other word is an app
+/// action's CLI name (`remote new-group`, `remote reconnect`), which the app
+/// action fallback runs.
+fn remote_family_word(word: Option<&String>) -> bool {
+    word.is_none_or(|word| {
+        word.starts_with('-') || word == "help" || remote_action_command(word).is_some()
+    })
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -305,6 +322,46 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     }
 }
 
+/// Scopes that print their own help (`cmux agents --help`) but route before
+/// the parser whose `help <scope>` knows only its own scopes, so `cmux help
+/// agents` answered "unknown resource scope".
+pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
+    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
+    "device",
+];
+
+/// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
+/// --help`; `cmux device help`, the one spelling `device` answers) for a
+/// scope in [`OWN_HELP_SCOPES`] the parser's help does not take. Global
+/// options change no help text and are dropped wherever they stood, so the
+/// scope is the first word every early dispatch reads (`raw_args.first()`
+/// for `chats` and `harness`). No-op elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
+    rewrite_help_word_on(args, Surface::current());
+}
+
+fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
+    let Ok((_, command_args)) = parse_globals(args) else {
+        return;
+    };
+    let [help, scope] = command_args.as_slice() else {
+        return;
+    };
+    if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
+        return;
+    }
+    let own_help = if scope == "device" { "help" } else { "--help" };
+    *args = vec![scope.clone(), own_help.to_string()];
+}
+
+/// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
+/// `harness`/`chats` aliases (the whole command line, alias first).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
+    let skip = usize::from(raw_args.first().is_some_and(|head| head == "acp"));
+    raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
 /// typed protocol path (`cmux raw operation chief.profile.update`, a
 /// `cmux raw command` frame naming one): the same refusal as
@@ -348,7 +405,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -943,6 +1003,7 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
+  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -1119,7 +1180,13 @@ CLI actions (the live action catalog is authoritative):
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
+  open-desktop              apply-machine-config
+  deliver-secrets           start-session
+
+Client sessions (a scoped token for one of your machines, no app needed):
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
@@ -1154,7 +1221,13 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
+  open-desktop              apply-machine-config
+  deliver-secrets           start-session
+
+クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。

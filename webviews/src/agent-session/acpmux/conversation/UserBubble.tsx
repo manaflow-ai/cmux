@@ -23,6 +23,7 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
@@ -45,6 +46,26 @@ export function UserBubble({
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   const resend = row.resend ?? row.text ?? text;
+  // Only a recorded companion relation or an exact retained original path proves that a
+  // file belongs to an image. An unrelated file after an image must remain visible on replay.
+  const originals = new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" &&
+    part.companionOf === undefined &&
+    !part.mimeType?.startsWith("video/") &&
+    !originals.has(attachmentPath(part.uri) ?? "")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+  const files = recorded?.length
+    ? recorded
+    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+        file.kind === "link" && !file.mimeType.startsWith("video/")
+          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+          : [],
+      );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -70,71 +91,83 @@ export function UserBubble({
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-          bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
-        <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-          {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      {Boolean(files?.length) && (
+        <div className="cv-user__files">
+          {files!.map((file, index) => (
+            <FileAttachment key={index} file={file} />
+          ))}
         </div>
       )}
-      {!row.failed && !row.queued && (text || pending) && (
-        <UserFooter
-          className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-          pending={pending}
-        >
-          {branch && branches && (
-            <span className="cv-user__versions">
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("message.previousVersion")}
-                title={t("message.previousVersion")}
-                disabled={branch.index === 0}
-                onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-              >
-                <ChevronLeft size={12} />
-              </button>
-              <span
-                className="cv-user__version-count"
-                aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
-              >
-                {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                {branch.index + 1}/{branch.sessions.length}
+      <div className="cv-user__body">
+        {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
+            bubble under them read as a lost message; Leo 2026-10-21). */}
+        {text.trim() && (
+          <div className="ui-glass cv-user__bubble selectable">
+            <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+            {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+          </div>
+        )}
+        {!row.failed && !row.queued && (text || pending) && (
+          <UserFooter
+            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+            pending={pending}
+          >
+            {branch && branches && (
+              <span className="cv-user__versions">
+                <button
+                  type="button"
+                  className="cv-iconbtn cv-iconbtn--compact"
+                  aria-label={t("message.previousVersion")}
+                  title={t("message.previousVersion")}
+                  disabled={branch.index === 0}
+                  onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                <span
+                  className="cv-user__version-count"
+                  aria-label={t("message.versionCount", {
+                    index: branch.index + 1,
+                    total: branch.sessions.length,
+                  })}
+                >
+                  {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
+                  {branch.index + 1}/{branch.sessions.length}
+                </span>
+                <button
+                  type="button"
+                  className="cv-iconbtn cv-iconbtn--compact"
+                  aria-label={t("message.nextVersion")}
+                  title={t("message.nextVersion")}
+                  disabled={branch.index === branch.sessions.length - 1}
+                  onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+                >
+                  <ChevronRight size={12} />
+                </button>
               </span>
+            )}
+            <MessageTime at={row.at} className="cv-user__time" />
+            <MessageCopy text={row.text ?? text} />
+            {through !== undefined && (
               <button
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("message.nextVersion")}
-                title={t("message.nextVersion")}
-                disabled={branch.index === branch.sessions.length - 1}
-                onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+                aria-label={t("message.edit")}
+                title={t("message.edit")}
+                onClick={() => setEditing(true)}
               >
-                <ChevronRight size={12} />
+                <Pencil size={ROW_ICON} />
               </button>
-            </span>
-          )}
-          <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={row.text ?? text} />
-          {through !== undefined && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("message.edit")}
-              title={t("message.edit")}
-              onClick={() => setEditing(true)}
-            >
-              <Pencil size={ROW_ICON} />
-            </button>
-          )}
-          {/* Not while it is still on its way: a second send would duplicate it. */}
-          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && (
-            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
-          )}
-        </UserFooter>
-      )}
+            )}
+            {/* Not while it is still on its way: a second send would duplicate it. */}
+            {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+            {forkThrough !== undefined && (
+              <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+            )}
+          </UserFooter>
+        )}
+      </div>
     </>
   );
 }

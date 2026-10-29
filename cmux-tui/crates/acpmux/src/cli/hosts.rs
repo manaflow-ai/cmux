@@ -27,12 +27,15 @@ mod host_lock;
 mod host_migrate;
 #[path = "host_update.rs"]
 mod host_update;
+pub(crate) use host_auto_update::{
+    NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script, take_auto_update_off,
+};
 pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -345,12 +348,60 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// started then would find `daemon.lock` held and exit. So the old pid, read
 /// from `launchctl print`, is waited on for at most 30 s (launchd SIGKILLs a
 /// job after its 20 s `ExitTimeOut`); the bootstrap runs after the deadline
-/// in any case. Fails when the bootstrap fails.
-const LAUNCHD_RELOAD: &str = r#"acpmux_job=gui/$(id -u)/com.acpmux.daemon
+/// in any case.
+///
+/// Nothing is stopped unless a daemon can be brought back. Before the
+/// bootout, launchd is asked whether it would take the daemon's job: the
+/// domain must take a probe job (`/usr/bin/true`, booted out at once), the
+/// job's label must not be disabled there (`launchctl print-disabled`, which
+/// must answer: one that fails refuses too), and
+/// its plist must parse (`plutil -lint`). The job was taken from that plist
+/// when it was last bootstrapped, so these are what can make launchd refuse it
+/// now. When any fails, the script refuses ([`REFUSED`] `launchdRefused`,
+/// exit 3) and the daemon that runs is left running. A bootstrap that still
+/// fails after the bootout starts the daemon in place ([`restart_detached`]).
+///
+/// The restart follows where the daemon runs, not where it should: one that
+/// is not the job's process (`daemon status`'s pid is not the job's), such as
+/// a daemon an earlier update started in place before anyone logged in, or
+/// #24474's login-session job, is shut down keeping its agents first, so the
+/// job's daemon gets `daemon.lock`; one that does not shut down is refused
+/// (`daemonStillRuns`) before launchd is touched.
+///
+/// A Mac no one is logged in to at the screen has no GUI domain (`launchctl
+/// print gui/<uid>` fails; a bootstrap into it fails with `125: Domain does
+/// not support specified action`): there the daemon restarts in place, where
+/// acpmux's own start over ssh puts it then (`daemon/login_placement.rs`,
+/// `NoGuiLogin`), and launchd is not asked to stop or start anything. An
+/// in-place start says so on stdout ([`IN_PLACE`]).
+fn launchd_reload(json: bool) -> String {
+    let detached = restart_detached(json);
+    format!(
+        r#"acpmux_uid=$(id -u); acpmux_job=gui/$acpmux_uid/com.acpmux.daemon; acpmux_plist=~/Library/LaunchAgents/com.acpmux.daemon.plist
+acpmux_refuse() {{ echo "{REFUSED}$1"; echo "$2, so the daemon was left running as it was" >&2; exit 3; }}
+if launchctl print gui/$acpmux_uid >/dev/null 2>&1; then
+acpmux_pd=$(mktemp -d "${{TMPDIR:-/tmp}}/acpmux-probe.XXXXXX") || exit 1
+printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict><key>Label</key><string>com.acpmux.probe</string><key>ProgramArguments</key><array><string>/usr/bin/true</string></array></dict></plist>' > "$acpmux_pd/probe.plist"
+launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1
+if ! acpmux_why=$(launchctl bootstrap gui/$acpmux_uid "$acpmux_pd/probe.plist" 2>&1); then rm -rf "$acpmux_pd"; acpmux_refuse launchdRefused "launchd refuses to start jobs in gui/$acpmux_uid ($acpmux_why)"; fi
+launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1; rm -rf "$acpmux_pd"
+acpmux_dis=$(launchctl print-disabled gui/$acpmux_uid 2>&1) || acpmux_refuse launchdRefused "launchd did not say whether com.acpmux.daemon is disabled in gui/$acpmux_uid ($acpmux_dis)"
+case "$acpmux_dis" in *'"com.acpmux.daemon" => disabled'*|*'"com.acpmux.daemon" => true'*) acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)";; esac
+if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux host setup writes it again)"; fi
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
+acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
+if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}
+if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then acpmux_refuse daemonStillRuns "the daemon (pid $acpmux_p) runs outside launchd's com.acpmux.daemon and did not shut down"; fi; fi
 launchctl bootout "$acpmux_job" 2>/dev/null || true
 if [ -n "$acpmux_old" ]; then acpmux_i=0; while ps -p "$acpmux_old" >/dev/null 2>&1 && [ "$acpmux_i" -lt 150 ]; do sleep 0.2; acpmux_i=$((acpmux_i+1)); done; fi
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"#;
+launchctl bootstrap gui/$acpmux_uid "$acpmux_plist" || {{ echo {IN_PLACE}bootstrapFailed; {detached}; }}
+else echo {IN_PLACE}noGuiLogin; {detached}; fi"#
+    )
+}
+
+/// What [`launchd_reload`] prints when it started the daemon in place, then
+/// why: `noGuiLogin` or `bootstrapFailed`.
+const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 
 /// The user systemd unit a Linux host runs its daemon under: one daemon per
 /// user, at `~/.acpmux` (cmuxterm-hq plans/cmux-next/acpmux-one-daemon.md).
@@ -492,7 +543,7 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// Whether the user's systemd manager outlives this ssh session: lingering,
 /// asked for when it is not (refused, the detached start, which survives a
 /// logout, is kept). Asked only once the unit is known to be used.
-const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
+pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
 /// Fails (exit 4) when the daemon still answers after its shutdown (a live
 /// daemon's status carries its `pid`; a stopped one's only `"running":
@@ -560,7 +611,14 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
                 .request("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true}))
                 .await
         }
-        None => client.request("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+        None => {
+            client
+                .request(
+                    "_acpmux/peer_reconnect",
+                    json!({"name": name, "wait": true, "force": true}),
+                )
+                .await
+        }
     }
 }
 
@@ -713,7 +771,8 @@ pub(crate) fn install_daemon(
     run(
         r,
         &format!(
-            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{LAUNCHD_RELOAD}"
+            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{}",
+            launchd_reload(json)
         ),
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);

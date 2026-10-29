@@ -327,7 +327,27 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert!(browser.contains("name: cmux-browser"), "{browser}");
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
     let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
-    assert!(cua_skill.contains("disable-model-invocation: true"), "the consent rule stays");
+    // The model may pick computer use for a task in a desktop app: the skill
+    // is model-invocable and claims those tasks over another app's skill and
+    // osascript. Consent is cmux's setup card, once per Mac; no per-app card
+    // exists yet (#13742), so the skill must not claim one (2026-10-27).
+    assert!(!cua_skill.contains("disable-model-invocation"), "{cua_skill}");
+    let front = cua_skill.split("\n---\n").next().unwrap();
+    for phrase in ["cmux chat", "app on the person's Mac", "cua_*", "never osascript"] {
+        assert!(front.contains(phrase), "description lacks {phrase}: {front}");
+    }
+    for phrase in [
+        "Allow computer use?",
+        "no other cmux prompt",
+        "target_not_allowed",
+        "Whole-screen captures are not filtered",
+        "copies app data out",
+    ] {
+        assert!(cua_skill.contains(phrase), "consent section lacks {phrase}");
+    }
+    for phrase in ["Allow in this chat", "Always allow", "per-app approval", "always attached"] {
+        assert!(!cua_skill.contains(phrase), "the skill claims {phrase}");
+    }
     // The acpmux CLI guide, pointing at the sub-session tools first.
     let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
     assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");

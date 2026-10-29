@@ -360,6 +360,11 @@ must leave the machine owner unknown rather than derive an ID from other fields.
 source as its native `machine.list` snapshot. Machine capabilities are separate
 from protocol features in `capabilities`. Older owners may omit the new fields;
 clients retain unknown platform and an empty capability list.
+
+With `revisions: true` the reply also carries `build_time`: unix seconds of the
+source commit the daemon was built from, or null when unknown. A client that
+updates the machine (`cmux link machine update --if-older`) moves it only to a
+build with a later time, never back to an older one.
 The conversations-only remote `identify` remains restricted to `app`, `protocol`
 and `capabilities`.
 
@@ -2688,6 +2693,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2707,6 +2713,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -7031,15 +7038,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
@@ -9104,7 +9111,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -9116,9 +9123,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
@@ -9469,13 +9476,24 @@ it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; an unknown param is
-`agent_session.bad_request`. The daemon's machine decides first, from its
-own identity read at each start and never from the request: on a Cloud VM, a
-team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that cmux-host
-writes at a team enroll, or the team files root `/srv/team`, root:`cmux-ssh`)
-answers `agent_session.team_vm_blocked`, and a VM with no readable kind or a
-kind other than `owner` answers `agent_session.host_unverified`; Macs, SSH
-hosts and owner VMs (kind `owner`, written at a machine bind) go on. The session starts with permission policy `ask`
+`agent_session.bad_request`. The machine kind decides first, read again at
+each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
+cmux-host writes at a team enroll, or the team files root `/srv/team`,
+root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
+go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
+answers `agent_session.host_unverified`. `vm_kind`
+(`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
+caller, as the caller read it on its link to this machine (attach-endpoint);
+only the exact string `owner` counts. Any other value says the caller knows
+this machine is a Cloud VM it does not own, so it answers
+`agent_session.host_unverified` on any host (a guest's root can remove every
+Cloud sign the daemon reads). The app starts a chat on a machine it knows as
+Cloud only on the `owner` answer for the link the start goes over, through any
+daemon. The VM's own
+kind `owner` (written at a machine bind) never allows a start by itself: the
+agents there keep sudo and can write it. A chat move in
+(`agent-transfer-receive`, `-finish`) and `agent-session-trust` take the same
+rule with their own `vm_kind`. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
@@ -9535,9 +9553,11 @@ absolute (at most 4096 bytes, no control characters) or an unknown param is
 `home_confirmed: true` (the person chose it as the chat's folder first, as
 Use Home Folder on the Mac), else `agent_session.home_unconfirmed`. The tab
 must be an `agent_session` tab of this store whose `host` names this store
-(bound or not), else `agent_session.unknown_tab`; the machine kind gate,
-the trusted local connection rule and the acpmux start are those of
-`agent-session-start`. The daemon never answers by itself: a client sends a
+(bound or not), else `agent_session.unknown_tab`; the machine kind gate
+(with `vm_kind`, `agent-session-trust-vm-kind-v1`), the trusted local
+connection rule and the acpmux start are those of `agent-session-start`. A
+page cannot vouch for the Cloud API's answer: the routed operations take no
+`vm_kind` (`agent_session.bad_request`), so they reach no Cloud VM's trust. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
 acpmux). Pages reach the same verb only as the routed v2 operations
@@ -9893,9 +9913,19 @@ daemon keeps the receive's folder in memory for its finish; at most 16
 receives are kept, checked before acpmux makes one.
 
 Machine kind: receive and finish read this machine's kind at each call, as
-`agent-session-start` does, and answer `agent_session.team_vm_blocked` on a
-team VM and `agent_session.host_unverified` on a Cloud VM of unknown kind
-(or a daemon never told its kind). A chat under peer control keeps its
+`agent-session-start` does, each with its own `vm_kind`
+(`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
+`agent_session.team_vm_blocked` on a team VM and
+`agent_session.host_unverified` on a Cloud VM without the caller's
+`vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
+told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
+target is a Cloud machine) sends it to a daemon that serves it; to an older
+one it sends none and refuses any kind but `owner` before the chat freezes,
+whatever that daemon advertises. Without the flag the caller says the target
+is not a Cloud machine. With `--to-pid PID` (the Cloud link process the
+caller read the kind from) the pump sends the receive and the finish only over
+a connection whose peer is that process, else it refuses before the receive
+and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.

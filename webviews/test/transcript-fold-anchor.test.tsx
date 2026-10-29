@@ -200,7 +200,7 @@ test("opening the last turn's Worked for while the view follows the latest row l
 });
 
 test("closing an open Worked for scrolled up the transcript leaves its line where it was clicked", async () => {
-  const { root, render } = mount(new Set([workedId(8)]));
+  const { root, render } = mount(new Set([workedId(7)]));
   /// The reader scrolls to `top` (a wheel, then the browser's scroll event).
   const scrollTo = async (top: number) => {
     await act(async () => {
@@ -211,16 +211,16 @@ test("closing an open Worked for scrolled up the transcript leaves its line wher
   };
   try {
     await act(async () => render());
-    // Up the transcript until turn 8's open line is drawn, then with it 200 px down the view.
-    for (let top = latest(); !line(8) && top > 0; top -= VIEWPORT / 2) await scrollTo(top);
-    await scrollTo(scroller().scrollTop + line(8).getBoundingClientRect().top - 200);
-    const before = line(8).getBoundingClientRect().top;
+    // Up the transcript until turn 7's open line is drawn, then with it 200 px down the view.
+    for (let top = latest(); !line(7) && top > 0; top -= VIEWPORT / 2) await scrollTo(top);
+    await scrollTo(scroller().scrollTop + line(7).getBoundingClientRect().top - 200);
+    const before = line(7).getBoundingClientRect().top;
     expect(before).toBe(200);
     expect(scroller().scrollTop).toBeLessThan(latest() - VIEWPORT);
 
-    await act(async () => line(8).click());
-    expect(line(8).getAttribute("aria-expanded")).toBe("false");
-    expect(line(8).getBoundingClientRect().top).toBe(before);
+    await act(async () => line(7).click());
+    expect(line(7).getAttribute("aria-expanded")).toBe("false");
+    expect(line(7).getBoundingClientRect().top).toBe(before);
   } finally {
     await act(async () => root.unmount());
   }

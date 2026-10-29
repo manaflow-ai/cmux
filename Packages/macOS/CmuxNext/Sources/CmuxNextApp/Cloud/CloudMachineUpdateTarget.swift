@@ -3,8 +3,9 @@ import CmuxNextDaemon
 import Foundation
 
 /// A Cloud machine as a ``DaemonUpdateTarget`` of the shared `DaemonUpdatePolicy`: the same
-/// `cmux link machine update` as Update Machine (``CloudMachineUpdate``), with `--to-bundled`, so a
-/// machine on any other build than the app's gets the app's own pinned build. The CLI keeps the
+/// `cmux link machine update` as Update Machine (``CloudMachineUpdate``), with `--to-bundled
+/// --if-older`, so a machine on an older build than the app's gets the app's own pinned build, and
+/// one on a newer build is left alone (the CLI orders the two by their source commit time). The CLI keeps the
 /// running binary, swaps `~/.cmux/bin/cmux-tui`, restarts only the daemon (terminals and chats keep
 /// running) and rolls back when the new daemon does not serve. The VM's acpmux is that same binary.
 /// A machine too old for that (`machine_update_unsupported`) gets the same build through the Cloud
@@ -28,16 +29,17 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     struct Source: Sendable {
         /// The machine's daemon now; nil while it neither answered nor was refused.
         var daemon: @Sendable () async -> Daemon?
-        /// `cmux link machine update --to-bundled` on the machine's daemon socket.
+        /// `cmux link machine update --to-bundled --if-older` on the machine's daemon socket.
         var update: @Sendable () async throws -> CloudMoveCLI.Answer
         /// Runs after every update that ran: lets the machine's connection reach its new daemon.
         /// `restarted` (``mayHaveRestarted(_:)``): the daemon may have restarted, so a connection the
         /// app still holds may be to the old one.
         var reconnect: @Sendable (_ restarted: Bool) async -> Void
         /// The update of a machine too old to update in place to `build` (``CloudLegacyMachineUpdate``),
-        /// run when ``update`` answers `machine_update_unsupported`; nil when the machine has no way
-        /// for it (no Cloud API exec, or no pinned build of `build` in this app).
-        var legacy: @Sendable (_ build: DaemonBuildCommit) async -> CloudMoveCLI.Answer? = { _ in nil }
+        /// run when ``update`` answers `machine_update_unsupported` naming the commit it judged
+        /// older (`judged`), and only while the machine still runs it; nil when the machine has no
+        /// way for it (no Cloud API exec, or no pinned build of `build` in this app).
+        var legacy: @Sendable (_ build: DaemonBuildCommit, _ judged: String) async -> CloudMoveCLI.Answer? = { _, _ in nil }
     }
 
     let machineID: String
@@ -56,17 +58,19 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The Rust target of every Cloud machine (images/cmux-vm: x86_64).
     static let cloudTarget = "x86_64-unknown-linux-gnu"
 
-    /// The machine's build while it lacks something this app uses (``DaemonCompatibility/Level/limited``);
-    /// nil for one that serves all of it, and while the toggles are off (``CloudTunables``). The
-    /// policy then leaves the machine alone, also one it queued before.
+    /// The machine's build while its daemon is connected, also one that serves everything this app
+    /// uses; nil while it is not, and while the toggles are off (``CloudTunables``). The policy
+    /// then leaves the machine alone, also one it queued before.
     ///
-    /// Never a move back: a Cloud daemon's build carries no date, so the policy cannot tell an older
-    /// build from a newer one (another app, a newer nightly, moved the machine forward). A machine
-    /// that serves every capability this app uses is never moved by it automatically, whatever its
-    /// build; one that lacks one is behind this app in what matters to it. Update Machine still
-    /// moves any machine on a click.
+    /// Never a move back: a Cloud daemon's build string carries no date, so the policy cannot tell
+    /// an older build from a newer one (another app, a newer nightly, moved the machine forward).
+    /// The CLI does (`--if-older`, by the source commit time the machine's daemon and this app's
+    /// cmux-tui both report): a machine on a newer build answers `not_older` and is left alone
+    /// (``DaemonUpdateOutcome/handledElsewhere``). Until 2026-10-27 a machine that served every
+    /// capability this app uses was never updated automatically, so it stayed on its image's
+    /// build after every app update (a VM on 8b3b1891 under an app on 52b77ef2f).
     func currentBuild() async -> String? {
-        guard enabled(), let daemon = await source.daemon(), daemon.level == .limited,
+        guard enabled(), let daemon = await source.daemon(), daemon.level != .incompatible,
               let build = daemon.build, !build.isEmpty else { return nil }
         return build
     }
@@ -88,8 +92,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         var answer: CloudMoveCLI.Answer?
         do {
             var reply = try await source.update()
-            // Too old to update in place: the Cloud API's exec installs the build instead.
-            if reply.errorCode == "machine_update_unsupported", let legacy = await source.legacy(build) { reply = legacy }
+            // Too old to update in place: the Cloud API's exec installs the build instead, over the
+            // build the CLI judged older only (none named: no build to hold it to, so not this way).
+            if reply.errorCode == "machine_update_unsupported", let judged = reply.build, !judged.isEmpty,
+               let legacy = await source.legacy(build, judged) { reply = legacy }
             answer = reply
             outcome = Self.outcome(reply, machine: displayName)
         } catch DaemonError.timedOut {
@@ -124,6 +130,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
 
     /// The policy's outcome of one `link machine update` answer (cmux-tui `link/machine_update.rs`).
     static func outcome(_ answer: CloudMoveCLI.Answer, machine: String) -> DaemonUpdateOutcome {
+        // A newer build than this app's (or the same tree): not this app's to replace, and not
+        // "on this app's build" either. Not recorded, so the next launch asks again.
+        if answer.ok, answer.notOlder { return .handledElsewhere }
         if answer.ok { return answer.updated ? .updated(build: answer.build) : .current }
         let detail = answer.error ?? answer.errorCode ?? CloudMoveCLI.badAnswer
         switch answer.errorCode {

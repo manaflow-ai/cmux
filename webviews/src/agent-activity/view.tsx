@@ -1,42 +1,27 @@
 // The Agent Activity page's view: the header (title, filter, layout) over the split, timeline or
 // grid of computer-use sessions. Pure over `state`; `dispatch` carries every user action to the
 // page (main.tsx), which also tells the host. The gallery renders it over fixture states.
-import { useEffect, useId, useState } from "react";
+// Screenshots go through the frame viewer (viewer.tsx): inline in the split, over the page from a
+// frame clicked in the timeline or grid.
+import { useId } from "react";
 import {
   connectionText,
-  currentEvent,
   currentFrameEvent,
+  displayFrame,
+  frameEvents,
   groups,
   selectedEvents,
-  type ActivityEvent,
+  stepLabel,
   type ActivitySession,
   type ActivityState,
 } from "./model";
 import { native } from "./native";
+import { FrameDialog, FrameLoaderProvider, FrameThumb, FrameViewer, frameTime, type FrameLoader } from "./viewer";
 
-function Frame({ event, noFrame, onClick }: { event?: ActivityEvent; noFrame: string; onClick?: () => void }) {
-  const frame = event && (event.afterFrame ?? event.beforeFrame);
-  const [image, setImage] = useState<string>();
-  useEffect(() => {
-    let active = true;
-    setImage(undefined);
-    if (frame)
-      native
-        .request<string>("frame", { blob: frame.blob, width: frame.width, height: frame.height })
-        .then((data) => {
-          if (active) setImage(`data:image/png;base64,${data}`);
-        })
-        .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [frame]);
-  return (
-    <button className="frame" onClick={onClick} disabled={!frame} title={frame ? undefined : noFrame}>
-      {image ? <img src={image} alt="" /> : frame ? <span>…</span> : <span>⌁</span>}
-    </button>
-  );
-}
+/** The host's bytes of a frame as a `data:` URL (AgentActivityRequests `frame`). */
+const hostFrames: FrameLoader = (frame, size, session) =>
+  native.request<string>("frame", { blob: frame.blob, width: frame.width, height: frame.height, size, session });
+
 function Status({ session, strings }: { session: ActivitySession; strings: ActivityState["strings"] }) {
   const live = typeof session.status === "string";
   const label =
@@ -68,21 +53,41 @@ function SessionRow({
     </button>
   );
 }
-function EventList({ state }: { state: ActivityState }) {
+/** Every step of the session, newest first; a step with a screenshot opens it in the viewer. */
+function EventList({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
+  const shown = currentFrameEvent(state)?.seq;
   return (
     <div className="events">
       {selectedEvents(state)
         .slice()
         .reverse()
-        .map((event) => (
-          <div className={`event selectable ${event.ok ? "" : "bad"}`} key={event.seq}>
-            <span>
-              {event.kind}
-              {event.tool ? ` · ${event.tool}` : ""}
-            </span>
-            <small>#{event.seq}</small>
-          </div>
-        ))}
+        .map((event) => {
+          const text = (
+            <>
+              <span className="event-text">
+                {stepLabel(event, state.strings)}
+                {event.target ? <small>{event.target}</small> : null}
+              </span>
+              <small>{frameTime(event)}</small>
+            </>
+          );
+          const className = `event ${event.ok ? "" : "bad"}`;
+          return displayFrame(event) ? (
+            <button
+              type="button"
+              className={className}
+              key={event.seq}
+              aria-current={event.seq === shown || undefined}
+              onClick={() => dispatch({ type: "scrub", seq: event.seq })}
+            >
+              {text}
+            </button>
+          ) : (
+            <div className={className} key={event.seq}>
+              {text}
+            </div>
+          );
+        })}
     </div>
   );
 }
@@ -92,11 +97,6 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
     .find((s) => s.id === state.selectedSessionID);
   const perform = (op: string, extra: Record<string, unknown> = {}) => {
     if (selected) native.request("perform", { op, session: selected.id, ...extra }).catch(() => undefined);
-  };
-  const events = selectedEvents(state);
-  const scrub = (index: number | undefined) => {
-    const seq = index === undefined ? undefined : events[Math.max(0, Math.min(events.length - 1, index))]?.seq;
-    dispatch({ type: "scrub", seq });
   };
   return (
     <div className="split">
@@ -137,20 +137,8 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
                 </button>
               </span>
             </header>
-            <div className="preview">
-              <Frame event={currentFrameEvent(state)} noFrame={state.strings.noFrame} />
-            </div>
-            <div className="scrub">
-              <button onClick={() => scrub(0)}>⏮</button>
-              <button onClick={() => scrub((events.findIndex((e) => e.seq === currentEvent(state)?.seq) || 0) - 1)}>
-                ◀
-              </button>
-              <button onClick={() => scrub((events.findIndex((e) => e.seq === currentEvent(state)?.seq) || 0) + 1)}>
-                ▶
-              </button>
-              <button onClick={() => scrub(undefined)}>⏭</button>
-            </div>
-            <EventList state={state} />
+            <FrameViewer state={state} dispatch={dispatch} session={selected} />
+            <EventList state={state} dispatch={dispatch} />
           </>
         ) : (
           <Empty strings={state.strings} />
@@ -163,21 +151,32 @@ function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any
   const sessions = groups(state).flatMap((g) => g.sessions);
   return (
     <div className="timeline">
-      {sessions.map((session) => (
-        <div className="lane" key={session.id}>
-          <SessionRow session={session} state={state} dispatch={dispatch} />
-          <div className="ticks">
-            {(state.eventsBySession[session.id] ?? []).map((event) => (
-              <Frame
-                key={event.seq}
-                event={event}
-                noFrame={state.strings.noFrame}
-                onClick={() => dispatch({ type: "scrub", seq: event.seq })}
-              />
-            ))}
+      {sessions.map((session) => {
+        const frames = frameEvents(state.eventsBySession[session.id] ?? []);
+        return (
+          <div className="lane" key={session.id}>
+            <SessionRow session={session} state={state} dispatch={dispatch} />
+            <div className="ticks">
+              {frames.length ? (
+                frames.map((event) => (
+                  <button
+                    type="button"
+                    className={`film ${event.ok ? "" : "bad"}`}
+                    key={event.seq}
+                    aria-label={`${stepLabel(event, state.strings)}, ${frameTime(event)}`}
+                    title={`${stepLabel(event, state.strings)} · ${frameTime(event)}`}
+                    onClick={() => dispatch({ type: "open", id: session.id, seq: event.seq })}
+                  >
+                    <FrameThumb event={event} session={session.id} />
+                  </button>
+                ))
+              ) : (
+                <small className="no-frames">{state.strings.noFrames}</small>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -186,13 +185,23 @@ function Grid({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =>
     <div className="grid">
       {groups(state)
         .flatMap((g) => g.sessions)
-        .map((session) => (
-          <button className="tile" key={session.id} onClick={() => dispatch({ type: "select", id: session.id })}>
-            <Frame event={(state.eventsBySession[session.id] ?? []).at(-1)} noFrame={state.strings.noFrame} />
-            <b>{session.agentName}</b>
-            <small>{session.label}</small>
-          </button>
-        ))}
+        .map((session) => {
+          const latest = frameEvents(state.eventsBySession[session.id] ?? []).at(-1);
+          return (
+            <button
+              type="button"
+              className="tile"
+              key={session.id}
+              onClick={() => dispatch({ type: "open", id: session.id, seq: latest?.seq })}
+            >
+              <span className="tile-frame">
+                {latest ? <FrameThumb event={latest} session={session.id} /> : <small>{state.strings.noFrames}</small>}
+              </span>
+              <b>{session.agentName}</b>
+              <small>{session.label}</small>
+            </button>
+          );
+        })}
     </div>
   );
 }
@@ -241,10 +250,13 @@ export function ActivityView({
   state,
   dispatch,
   error,
+  loadFrame = hostFrames,
 }: {
   state: ActivityState;
   dispatch: (a: any) => void;
   error?: string;
+  /** Where frames come from: the host by default; the gallery and tests pass their own. */
+  loadFrame?: FrameLoader;
 }) {
   const body =
     state.layout === "timeline" ? (
@@ -254,29 +266,38 @@ export function ActivityView({
     ) : (
       <Split state={state} dispatch={dispatch} />
     );
+  const viewing =
+    state.viewing && state.layout !== "split"
+      ? Object.values(state.sessionsByMachine)
+          .flat()
+          .find((session: ActivitySession) => session.id === state.selectedSessionID)
+      : undefined;
   return (
-    <div className="activity">
-      <nav>
-        <strong>{state.strings.title}</strong>
-        <input
-          type="search"
-          aria-label={state.strings.filter}
-          placeholder={state.strings.filter}
-          value={state.filter}
-          onChange={(e) => dispatch({ type: "filter", value: e.target.value })}
-        />
-        <Segmented
-          label={state.strings.layout}
-          value={state.layout}
-          options={[
-            ["split", state.strings.layoutSplit],
-            ["timeline", state.strings.layoutTimeline],
-            ["grid", state.strings.layoutGrid],
-          ]}
-          onChange={(layout) => dispatch({ type: "layout", value: layout })}
-        />
-      </nav>
-      {error ? <div className="error">{error}</div> : body}
-    </div>
+    <FrameLoaderProvider value={loadFrame}>
+      <div className="activity">
+        <nav>
+          <strong>{state.strings.title}</strong>
+          <input
+            type="search"
+            aria-label={state.strings.filter}
+            placeholder={state.strings.filter}
+            value={state.filter}
+            onChange={(e) => dispatch({ type: "filter", value: e.target.value })}
+          />
+          <Segmented
+            label={state.strings.layout}
+            value={state.layout}
+            options={[
+              ["split", state.strings.layoutSplit],
+              ["timeline", state.strings.layoutTimeline],
+              ["grid", state.strings.layoutGrid],
+            ]}
+            onChange={(layout) => dispatch({ type: "layout", value: layout })}
+          />
+        </nav>
+        {error ? <div className="error">{error}</div> : body}
+        {viewing && !error && <FrameDialog state={state} dispatch={dispatch} session={viewing} />}
+      </div>
+    </FrameLoaderProvider>
   );
 }

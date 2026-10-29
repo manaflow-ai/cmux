@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxMobileSupport
 import UIKit
 
 /// Messages' New Message sheet: "New Message" with a glass X, the To: field
@@ -22,6 +23,9 @@ public final class ConversationComposeViewController: UIViewController {
     let composer = ConversationComposerView()
     private let composerContainer = UIView()
     private var composerHeight: NSLayoutConstraint?
+    /// The docked keyboard's top edge: the composer sits on it.
+    private var keyboardDock: MobileKeyboardDock?
+    private let keyboardTracker = MobileKeyboardFrameTracker()
 
     public init(directory: any ConversationDirectory) {
         session = ConversationComposeSession(directory: directory)
@@ -145,7 +149,8 @@ public final class ConversationComposeViewController: UIViewController {
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         self.composerHeight = composerHeight
 
-        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        let keyboard = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboardTracker)
+        keyboardDock = keyboard
         let m = ComposeMetrics.self
         NSLayoutConstraint.activate([
             recipientField.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: m.fieldTopGap),
@@ -162,12 +167,12 @@ public final class ConversationComposeViewController: UIViewController {
             suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8),
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            suggestionsTable.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor),
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             // Like the conversation's docked composer: the field 16 pt above
             // the keyboard (Messages' New Message, iOS 27.0: 557 over 573).
-            composerContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4 + ConversationKeyboardPinGeometry.dockedDrop),
+            composerContainer.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor, constant: -4 + ConversationKeyboardPinGeometry.dockedDrop),
             composer.topAnchor.constraint(equalTo: composerContainer.topAnchor),
             composer.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
             composer.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
@@ -186,6 +191,11 @@ public final class ConversationComposeViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         recipientField.textField.becomeFirstResponder()
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        keyboardDock?.refresh()
     }
 
     private func sessionDidChange(_ change: ConversationComposeSession.Change) {

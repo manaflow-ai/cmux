@@ -1,19 +1,27 @@
-//! Bounded temporary image ownership for the authenticated terminal control channel.
+//! Temporary image ownership for the authenticated terminal control channel.
+//! Images of any size are accepted: bytes stream to a private file in bounded
+//! chunks, and only the number of uploads is limited, never their size.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::image_paste_file::ImagePasteFile;
+use crate::image_paste_file::{ImagePasteFile, WallClock};
+use crate::image_paste_storage::ImagePasteStorage;
 use base64::Engine;
 
 pub const CAPABILITY: &str = "terminal-image-paste-v1";
-pub(crate) const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 pub(crate) const MAX_CHUNK_BYTES: usize = 48 * 1024;
-const MAX_RETAINED_BYTES: usize = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 32;
 pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
+/// How long an upload may go without an accepted chunk before it expires.
+/// Each chunk restarts it, so a large image on a slow link still finishes.
 const UPLOAD_TTL: Duration = Duration::from_secs(120);
+/// The most often a chunk rewrites the durable receipt's expiry. A refresh
+/// writes `now + UPLOAD_TTL + IMAGE_TTL`, so the receipt outlasts the
+/// in-memory upload deadline by IMAGE_TTL minus this (570 s): a sweep in any
+/// daemon sharing the storage never finds a live upload expired.
+const RECEIPT_REFRESH: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ImagePasteOwner {
@@ -34,6 +42,8 @@ struct Upload {
     delivery_in_flight: bool,
     cleanup_pending: bool,
     deadline: Instant,
+    /// When the durable receipt's expiry was last written, on `clock`.
+    receipt_written: u64,
 }
 
 #[derive(Default)]
@@ -53,6 +63,11 @@ struct Shared {
 
 pub struct ImagePasteStore {
     shared: Arc<Shared>,
+    /// The clock receipts are written in; recovery sweeps compare with it.
+    clock: WallClock,
+    /// The temporary directory holding the per-UID storage, when not the
+    /// system one.
+    temporary: Option<std::path::PathBuf>,
 }
 
 impl Default for ImagePasteStore {
@@ -63,7 +78,11 @@ impl Default for ImagePasteStore {
 
 impl ImagePasteStore {
     fn with_recovery(recovery: Option<crate::image_paste_recovery::ImagePasteRecovery>) -> Self {
-        let store = Self { shared: Arc::new(Shared::default()) };
+        let store = Self {
+            shared: Arc::new(Shared::default()),
+            clock: WallClock::default(),
+            temporary: None,
+        };
         {
             let mut state = store.shared.state.lock().unwrap();
             state.recovery = recovery;
@@ -73,6 +92,16 @@ impl ImagePasteStore {
                 let _ = store.start_worker(&mut state);
             }
         }
+        store
+    }
+
+    /// A daemon whose storage lives below `temporary`, read with `clock`, and
+    /// which runs no recovery sweep of its own.
+    #[cfg(test)]
+    fn with_storage(temporary: &std::path::Path, clock: WallClock) -> Self {
+        let mut store = Self::with_recovery(None);
+        store.clock = clock;
+        store.temporary = Some(temporary.to_owned());
         store
     }
 
@@ -124,7 +153,7 @@ impl ImagePasteStore {
         size: usize,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(valid_id(id), "image-invalid-request");
-        anyhow::ensure!((1..=MAX_IMAGE_BYTES).contains(&size), "image-size-limit");
+        anyhow::ensure!(size > 0, "image-size-limit");
         let extension = extension(mime).ok_or_else(|| anyhow::anyhow!("image-type-rejected"))?;
         let mut state = self.shared.state.lock().unwrap();
         Self::reap(&mut state, Instant::now());
@@ -137,12 +166,6 @@ impl ImagePasteStore {
             recovered.is_none_or(|recovery| recovery.ready),
             "image-storage-unavailable"
         );
-        let reserved: usize = state
-            .uploads
-            .values()
-            .map(|upload| upload.size)
-            .sum::<usize>()
-            .saturating_add(recovered.map_or(0, |recovery| recovery.retained_bytes));
         let client_count =
             state.uploads.values().filter(|upload| upload.owner.client == owner.client).count();
         anyhow::ensure!(
@@ -151,11 +174,17 @@ impl ImagePasteStore {
                 .len()
                 .saturating_add(recovered.map_or(0, |recovery| recovery.retained_count))
                 < MAX_ENTRIES
-                && client_count < 8
-                && reserved.saturating_add(size) <= MAX_RETAINED_BYTES,
+                && client_count < 8,
             "image-capacity-limit"
         );
-        let file = ImagePasteFile::create(extension)
+        let storage = match &self.temporary {
+            Some(temporary) => ImagePasteStorage::at(temporary),
+            None => ImagePasteStorage::open(),
+        };
+        let now = self.clock.now();
+        let expires = Self::upload_expiry(now);
+        let file = storage
+            .and_then(|storage| ImagePasteFile::create_in(&storage, extension, expires))
             .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         self.start_worker(&mut state)?;
         state.uploads.insert(
@@ -170,6 +199,7 @@ impl ImagePasteStore {
                 delivery_in_flight: false,
                 cleanup_pending: false,
                 deadline: Instant::now() + UPLOAD_TTL,
+                receipt_written: now,
             },
         );
         self.shared.changed.notify_one();
@@ -193,8 +223,22 @@ impl ImagePasteStore {
         let upload = Self::upload(&mut state, owner, id)?;
         anyhow::ensure!(!upload.committed && offset == upload.received, "image-invalid-offset");
         anyhow::ensure!(bytes.len() <= upload.size - upload.received, "image-size-limit");
+        // The in-memory deadline below only guards this daemon. Every daemon
+        // of the user sweeps the shared storage by the durable receipt, so it
+        // must cover this upload too. Refresh it before accepting the bytes,
+        // so a failure leaves the offset unchanged, and at most once per
+        // RECEIPT_REFRESH, so a fast upload is not one fsync per chunk.
+        let now = self.clock.now();
+        if now >= upload.receipt_written.saturating_add(RECEIPT_REFRESH.as_secs()) {
+            upload
+                .file
+                .set_expiry(Self::upload_expiry(now))
+                .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
+            upload.receipt_written = now;
+        }
         upload.file.append(&bytes).map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         upload.received += bytes.len();
+        upload.deadline = Instant::now() + UPLOAD_TTL;
         Ok(())
     }
 
@@ -217,6 +261,12 @@ impl ImagePasteStore {
         let path = upload.file.path().map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         let path = path.to_str().ok_or_else(|| anyhow::anyhow!("image-storage-unavailable"))?;
         let quoted = format!("'{}'", path.replace('\'', "'\\''"));
+        // A crash after this point leaves recovery to remove the image: give
+        // the agent its full reading time from now, not from upload creation.
+        upload
+            .file
+            .set_expiry(self.clock.now().saturating_add(IMAGE_TTL.as_secs()))
+            .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         // Input delivery can fail after a partial write. Retain the readable file
         // until TTL and never automatically retry an ambiguous paste.
         upload.committed = true;
@@ -242,6 +292,14 @@ impl ImagePasteStore {
         Self::reap(&mut state, Instant::now());
         self.shared.changed.notify_one();
         result
+    }
+
+    /// The durable expiry of an upload whose receipt is written at `now`:
+    /// its whole transfer window, then the reading time after a commit there.
+    /// The receipt is refreshed while chunks arrive, so it never falls behind
+    /// the in-memory deadline by more than RECEIPT_REFRESH.
+    fn upload_expiry(now: u64) -> u64 {
+        now.saturating_add((UPLOAD_TTL + IMAGE_TTL).as_secs())
     }
 
     pub fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {

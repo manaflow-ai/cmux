@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The DEV Release compile records the Linux whole-app build's REF, off by default and never in its way.
+"""The DEV Release compile records the fleet whole-app build's REF, off by default and never in its way.
 
 scripts/cmux-next/hybrid_ref_capture.py and the cmux-scheme-compile steps around it:
 
@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -39,6 +40,8 @@ import hybrid_ref_capture as cap  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 TOOLCHAIN = "Xcode 26.6\nBuild version 17F113\n25F61\n"
+# The app target is cmux-next and its module is cmux (DEV run 40446615480): a driver is the module
+# its builtin-SwiftDriver line names, not the task's target.
 LOG = """\
 xcodebuild command: xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release OTHER_SWIFT_FLAGS=\\$\\(inherited\\)\\ -DCMUX_NO_PASSWORD_IMPORT\\ -DCMUX_NO_BROWSER_DATA_IMPORT build
 SwiftDriver CmuxNextApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'CmuxNextApp')
@@ -46,7 +49,7 @@ SwiftDriver CmuxNextApp normal arm64 com.apple.xcode.tools.swift.compiler (in ta
     builtin-SwiftDriver -- /X/swiftc -module-name CmuxNextApp -O -whole-module-optimization @/dd/a.resp
 SwiftCompile normal arm64 Compiling\\ a.swift (in target 'CmuxNextApp')
     /X/usr/bin/swift-frontend -frontend -c /ws/a.swift -module-name CmuxNextApp -o /dd/a.o
-SwiftDriver cmux normal arm64 com.apple.xcode.tools.swift.compiler (in target 'cmux')
+SwiftDriver cmux-next normal arm64 com.apple.xcode.tools.swift.compiler (in target 'cmux-next' from project 'cmux')
     cd /ws
     builtin-SwiftDriver -- /X/swiftc -module-name cmux -O @/dd/b.resp
 """
@@ -233,6 +236,126 @@ class Snapshot(unittest.TestCase):
         self.assertIn('"${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1', text[snapshot - 400:snapshot + 400])
 
 
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class Have(unittest.TestCase):
+    NOW = 1_800_000_000.0
+
+    def run_have(self, replies, budget=600.0):
+        """replies: a list of (status, headers, body); returns (result or exception, sleeps, calls)."""
+        import urllib.error
+        clock = [self.NOW]
+        sleeps, calls = [], []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            status, headers, body = replies.pop(0)
+            if status == 200:
+                return FakeResponse(json.dumps(body).encode())
+            raise urllib.error.HTTPError(request.full_url, status, "x", headers, io.BytesIO(body.encode()))
+
+        def sleep(s):
+            sleeps.append(s)
+            clock[0] += s
+
+        try:
+            result = cap.have("k" * 64, "o/r", "t", budget, opener=opener, sleep=sleep, clock=lambda: clock[0])
+        except cap.LookupFailed as e:
+            result = e
+        return result, sleeps, calls
+
+    def stamp(self, days_ago: float) -> str:
+        import datetime as dt
+        return (dt.datetime.fromtimestamp(self.NOW - days_ago * 86400, dt.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_counts_only_readable_captures(self) -> None:
+        arts = [{"expired": False, "created_at": self.stamp(1)}, {"expired": True, "created_at": self.stamp(1)},
+                {"expired": False, "created_at": self.stamp(13.5)}]
+        recent = [{"expired": False, "created_at": self.stamp(0.5)}, {"expired": False, "created_at": self.stamp(1.5)}]
+        result, sleeps, calls = self.run_have([(200, {}, {"artifacts": arts}), (200, {}, {"artifacts": recent})])
+        self.assertEqual(result, (1, 1), "13 days for a complete capture, one day for an incomplete one")
+        self.assertEqual(sleeps, [])
+        self.assertIn("name=hybrid-ref-capture-" + "k" * 64 + "&", calls[0])
+        self.assertIn("name=" + cap.incomplete_name("k" * 64) + "&", calls[1])
+
+    def test_rate_limit_waits_for_its_reset(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 120)},
+                   '{"message":"API rate limit exceeded for installation."}')
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), (200, {}, {"artifacts": []})])
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(sleeps, [121.0])
+
+    def test_retry_after_and_429(self) -> None:
+        result, sleeps, _ = self.run_have([(200, {}, {"artifacts": []}), (429, {"Retry-After": "30"}, ""), (200, {}, {"artifacts": []})])
+        self.assertEqual((result, sleeps), ((0, 0), [30.0]))
+
+    def test_a_reset_past_the_budget_fails_without_waiting(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 3000)}, "rate limit")
+        result, sleeps, _ = self.run_have([limited])
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertIn("HTTP 403", str(result))
+        self.assertEqual(sleeps, [])
+
+    def test_a_truncated_error_body_is_still_retried(self) -> None:
+        import http.client
+        import urllib.error
+
+        class Truncated(io.BytesIO):
+            def read(self, *a):
+                raise http.client.IncompleteRead(b"par")
+
+        replies = iter([lambda req: urllib.error.HTTPError(req.full_url, 502, "x", {}, Truncated()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode())])
+        sleeps = []
+
+        def opener(request, timeout):
+            reply = next(replies)(request)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        result = cap.have("k" * 64, "o/r", "t", 600, opener=opener, sleep=sleeps.append, clock=lambda: self.NOW)
+        self.assertEqual((result, sleeps), ((0, 0), [15.0]))
+
+    def test_a_forbidden_lookup_is_not_retried(self) -> None:
+        result, sleeps, _ = self.run_have([(403, {}, '{"message":"Resource not accessible by integration"}')])
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertEqual(sleeps, [])
+
+    def test_the_budget_covers_both_lookups(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 400)}, "rate limit")
+        later = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 900)}, "rate limit")
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), later])
+        self.assertIsInstance(result, cap.LookupFailed, "401 s, then 500 s more would pass 600")
+        self.assertEqual(sleeps, [401.0])
+
+    def test_server_errors_back_off_within_the_budget(self) -> None:
+        result, sleeps, _ = self.run_have([(502, {}, "bad gateway")] * 20, budget=100)
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertEqual(sleeps, [15.0, 30.0], "15 + 30, then 60 would pass 100")
+        self.assertLessEqual(sum(sleeps), 100)
+def shortest_minutes(timeout: int | str) -> int:
+    """The shortest limit a job's timeout-minutes can resolve to.
+
+    A plain number is itself. An expression (`${{ cond && 90 || 60 }}`, the
+    hosted-runner branch of cmux-scheme-compile) is bounded by its smallest
+    numeric branch, so a check against it holds on every runner.
+    """
+    if isinstance(timeout, int):
+        return timeout
+    branches = [int(n) for n in re.findall(r"(?:&&|\|\|)\s*(\d+)\b", timeout)]
+    if not branches:
+        raise AssertionError(f"timeout-minutes {timeout!r} has no numeric branch")
+    return min(branches)
+
+
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -254,15 +377,19 @@ class Workflow(unittest.TestCase):
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
-        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertLessEqual(decide["timeout-minutes"], 12, "the lookup waits out a rate limit for 10 minutes at most")
+        self.assertIn("--budget 600", decide["run"])
         self.assertTrue(upload["continue-on-error"])
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], shortest_minutes(self.job["timeout-minutes"]) - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
                       "timed from the job's own start, not from a later step")
         self.assertIn('if [[ -z "$started" ]]', capture["run"], "an unknown start skips the capture")
-        self.assertIn("select(.expired == false and .created_at >= ", decide["run"], "an expired capture does not count")
+        self.assertIn('[[ -n "$started" ]] || started="$DECIDE_STARTED"', capture["run"],
+                      "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
+        self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
+        self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
         self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
@@ -275,6 +402,49 @@ class Workflow(unittest.TestCase):
                         self.order.index("hybrid-ref-capture"), "the capture runs last")
         self.assertEqual(self.steps["compile-cmux-next-dev-release"]["env"]["CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES"],
                          "${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}")
+
+    def test_a_needed_capture_compiles_instead_of_reusing(self) -> None:
+        # 40428066457: the product was a reuse hit, so a capture rerun would have compiled nothing.
+        decide, lookup = self.steps["hybrid-ref"], self.steps["dev-product"]
+        self.assertLess(self.order.index("hybrid-ref"), self.order.index("dev-product"))
+        self.assertNotIn("steps.dev-product", decide["if"])
+        self.assertIn("steps.hybrid-ref.outputs.compile == 'true' && ", lookup["env"]["SKIP_REASON"])
+
+    def decide(self, have_output: str | None) -> dict[str, str]:
+        """Runs the decide step's shell with a fake hybrid_ref_capture.py; returns its outputs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = root / "scripts/cmux-next/hybrid_ref_capture.py"
+            fake.parent.mkdir(parents=True)
+            fake.write_text("import sys\n"
+                            "if sys.argv[1] == 'key': print('k' * 64); sys.exit(0)\n"
+                            + ("sys.exit(1)\n" if have_output is None else f"print({have_output!r})\n"))
+            out = root / "out"
+            proc = subprocess.run(["bash", "-e", "-c", self.steps["hybrid-ref"]["run"]], cwd=root, capture_output=True,
+                                  text=True, env={**os.environ, "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6",
+                                                  "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "o/r"})
+            outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            outputs["rc"] = str(proc.returncode)
+            return outputs
+
+    def test_the_decision(self) -> None:
+        cases = {"complete=0\nrecent_incomplete=0": ("true", "true", "0"),
+                 "complete=1\nrecent_incomplete=0": ("false", "false", "0"),
+                 "complete=0\nrecent_incomplete=2": ("true", "false", "0"),
+                 # a failed lookup must compile: with reuse it would build nothing to capture (40428066457)
+                 None: ("true", "true", "1")}
+        for have_output, (capture, compile_, rc) in cases.items():
+            got = self.decide(have_output)
+            self.assertRegex(got["started"], r"^\d{10}$", "written before the lookup, even when it fails")
+            self.assertEqual((got["capture"], got["compile"], got["rc"]), (capture, compile_, rc), have_output)
+            self.assertEqual(got["key"], "k" * 64)
+
+    def test_an_incomplete_capture_has_its_own_name(self) -> None:
+        upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
+        self.assertEqual(upload["with"]["name"],
+                         "${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' "
+                         "|| 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}")
+        self.assertEqual(cap.incomplete_name("K"), "hybrid-ref-capture-incomplete-K")
 
     def test_no_new_permission(self) -> None:
         self.assertEqual(self.job["permissions"], {"actions": "read", "contents": "read", "statuses": "write"})

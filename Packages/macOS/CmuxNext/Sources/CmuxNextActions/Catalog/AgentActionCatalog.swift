@@ -30,6 +30,24 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab toggle-chat-notifications"
             ),
+            // How many sub-sessions the chat runs at once (acpmux `_acpmux/subsession/limits`); a dialog,
+            // so no CLI verb: `acpmux session limits` sets it from a shell.
+            {
+                var subagentLimit = ActionDescriptor(
+                    id: "agentChat.subagentLimit",
+                    title: String(localized: "action.agentChat.subagentLimit", defaultValue: "Chat Subagent Limit…", bundle: .module),
+                    keywords: ["subagent", "sub-session", "limit", "parallel", "concurrency", "running", "agent", "chat"],
+                    category: .agents, symbol: "slider.horizontal.3", surfaces: [.palette, .contextMenu], targets: [.tab],
+                    // The chat's tab and its sidebar row (the chat's own menu is at its 12-row cap).
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [
+                        ActionSurfaceCatalog.p(.tab, .identity, 206, folder: .options, label: ObjectMenuLabels.subagentLimit),
+                    ])
+                )
+                // The dialog sends the change on a person connection (`_acpmux/subsession/limits` is
+                // user-only): a socket caller must not open it and have it submitted for it.
+                subagentLimit.isPersonOnly = true
+                return subagentLimit
+            }(),
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
@@ -327,6 +345,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "agent computer-use-setup"
             ),
             ActionDescriptor(
+                id: "palette.computerUse.restart",
+                title: String(localized: "action.palette.computerUse.restart", defaultValue: "Restart Computer Use Helper", bundle: .module),
+                keywords: ["agent", "automation", "restart"], category: .agents, symbol: "arrow.clockwise",
+                surfaces: [.palette], cliName: "agent restart-computer-use-helper"
+            ),
+            ActionDescriptor(
                 id: "palette.computerUse.accessibility",
                 title: String(localized: "action.palette.computerUse.accessibility", defaultValue: "Grant Accessibility Access", bundle: .module),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "accessibility",
@@ -362,9 +386,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
-                // It starts the workspace's terminal: action.run waits the
-                // terminal start deadline, not 2 s, so the caller's run ends
-                // once the workspace exists (it renames it later by key).
+                // It makes a workspace and its chat tab (no terminal): action.run
+                // waits the terminal start deadline, not 2 s, so the caller's run
+                // ends once the workspace exists (it renames it later by key).
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),

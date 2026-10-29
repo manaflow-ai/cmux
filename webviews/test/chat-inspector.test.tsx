@@ -10,6 +10,7 @@
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
+import { accessibleName, resolveTarget } from "../src/gallery/play";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
@@ -36,6 +37,10 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { SubagentSummaryCard } from "../src/agent-session/acpmux/inspector/SubagentSummaryCard";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import type { SubsessionRow } from "../src/agent-session/acpmux/subagents/subsessions";
+import type { WorkflowSummary } from "../src/agent-session/acpmux/summary/workflow";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   spawnedSessions,
@@ -187,10 +192,9 @@ const meta = (element: HTMLElement | null) =>
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
-test("the Inspector inset follows the visible Left chip row only", () => {
-  expect(inspectorTopOffset(0, true)).toBe("calc(var(--acpmux-header-height, 44px) + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, true)).toBe("calc(28px + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, false)).toBe("28px");
+test("the Inspector starts right under the header: no row for a machine and folder label", () => {
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
+  expect(inspectorTopOffset(28)).toBe("28px");
 });
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
@@ -205,13 +209,12 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
 
-  // Environment: this Mac by its name, never "This computer"; the folder with its parent
-  // home-abbreviated and its full path on hover; the branch.
+  // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
+  // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toContain("atlas-web");
-  expect(rows[1]!.textContent).toContain("~/src");
+  expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
@@ -391,10 +394,10 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   expect(inspectorChatShift(1600, 320)).toBe(0);
   // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
   expect(inspectorChatShift(1200, 320)).toBe(111);
-  // The left gutter keeps the thread rail's room (threadMinimap/model.ts MIN_GUTTER): in a 1100px
-  // pane the column would have to move 146px out of a 190px gutter, onto the rail, so nothing moves.
-  expect(inspectorChatShift(1100, 320)).toBe(0);
-  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
+  // The rail's 36px box may overlap the text by 8px, so the usable gutter is 28px. In a 1100px
+  // pane the column moves by all 146px it lacks and leaves 44px for the rail.
+  expect(inspectorChatShift(1100, 320)).toBe(146);
+  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 28px.
   expect(inspectorChatShift(1140, 320)).toBe(126);
   // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
   // lacks 146px, and the form moves left by all of it, keeping 44px.
@@ -860,21 +863,22 @@ test("200 streamed tokens do not render the completed avatar preview again", asy
   };
   try {
     await paint(0);
-    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    // The compact agent summary previews four avatars in addition to the detailed ended preview.
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
     const initialHashes = toneHashes.mock.calls.length;
     for (let token = 1; token <= 200; token++) await paint(token);
     expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
-    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
     expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
     expect(endedRow(container)?.textContent).toBe("31 done");
 
     // A new ended agent changes the preview; real changes must not be frozen by memoization.
     await paint(201, [...completed, subagent(31, "completed")]);
-    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
     expect(endedRow(container)?.textContent).toBe("32 done");
     // The same identity can receive corrected state/harness metadata after its first snapshot.
     await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
-    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(avatarRenders).toHaveBeenCalledTimes(16);
     expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
   } finally {
     avatarRenders.mockRestore();
@@ -1050,15 +1054,138 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   const opened: string[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(<ChatInspector sessions={children} onOpenSession={(id) => opened.push(id)} />);
+    root.render(
+      <ChatInspector
+        sessions={children}
+        summary={{ sessionId: "vm-root", subsessionLimits: { maxRunning: 4 } }}
+        subsessions={[{ sessionId: "vm-sub", name: "Run the e2e suite", state: "working", depth: 0 }]}
+        onOpenSession={(id) => opened.push(id)}
+      />,
+    );
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("1 running · 1 done");
+  expect(compactButton(container).textContent).toContain("1 running · 1 done");
+  expect(subagents.querySelector(".acpmux-subagent-limit__text")?.textContent).toContain("Running 1 / 4 max");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
-    ["Run the e2e suite", "Running"],
+    ["Run the e2e suite", "Working"],
     ["Draft the release notes", "Done"],
   ]);
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["vm-sub"]);
+});
+
+const compactWorkflow: WorkflowSummary = {
+  id: "workflow-summary",
+  title: "Review workflow",
+  state: "running",
+  phases: [{ id: "review", name: "Review phase", state: "running", agentIds: ["worker"] }],
+  agents: [{ id: "worker", name: "Worker", state: "running" }],
+};
+const compactButton = (container: HTMLElement) =>
+  container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
+
+test("compact counts combine sources with slot waits queued and failed retries running", async () => {
+  const container = installDom(true);
+  const subsessions: SubsessionRow[] = [
+    { sessionId: "slot", name: "Slot queue", state: "working", slot: true, depth: 0 },
+    { sessionId: "retry", name: "Retry", state: "failed", retry: { attempt: 1, of: 4 }, depth: 0 },
+    { sessionId: "ended", name: "Ended", state: "done", depth: 0 },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SubagentSummaryCard
+        agents={[subagent(0, "running"), subagent(1, "failed"), subagent(2, "completed")]}
+        waiting={new Set()}
+        sessions={[{ sessionId: "started", title: "Started", state: "idle" }]}
+        subsessions={subsessions}
+        workflows={[compactWorkflow]}
+        onOpen={noop}
+      />,
+    );
+  });
+  expect(compactButton(container).querySelector(".acpmux-chat-inspector-agent-summary__counts")?.textContent).toBe(
+    [
+      translate("summary.subagents.running", { n: 3 }),
+      translate("workflow.queued", { n: 1 }),
+      translate("summary.subagents.done", { n: 3 }),
+      translate("summary.subagents.failed", { n: 1 }),
+    ].join(" · "),
+  );
+  expect(compactButton(container).textContent).toContain("Review workflow · Review phase");
+  await act(async () => {
+    root!.render(<ChatInspector subsessions={subsessions} />);
+  });
+  expect(meta(section(container, "subagents"))).toBe(
+    [
+      translate("summary.subagents.waiting", { n: 1 }),
+      translate("summary.subagents.running", { n: 1 }),
+      translate("summary.subagents.done", { n: 1 }),
+    ].join(" · "),
+  );
+});
+
+test("the compact Inspector card reveals the matching existing detail and leaves no empty group", async () => {
+  const container = installDom(true);
+  const opened: string[] = [];
+  const onSection = (id: string, open: boolean) => {
+    if (open) opened.push(id);
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector agents={[subagent(0, "running")]} workflows={[compactWorkflow]} onSection={onSection} />,
+    );
+  });
+  await click(compactButton(container));
+  expect(opened).toContain("subagents");
+  opened.length = 0;
+  await act(async () => root!.render(<ChatInspector workflows={[compactWorkflow]} onSection={onSection} />));
+  await click(compactButton(container));
+  expect(opened).toContain("tasks");
+  await act(async () => root!.render(<ChatInspector />));
+  expect(compactButton(container)).toBeNull();
+  expect(container.querySelector('[data-group="running"]')).toBeNull();
+});
+
+test("a forty-agent compact card keeps four avatars and the full count", async () => {
+  const container = installDom(true);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SubagentSummaryCard
+        agents={Array.from({ length: 40 }, (_, i) => subagent(i, "completed"))}
+        waiting={new Set()}
+        sessions={[]}
+        onOpen={noop}
+      />,
+    );
+  });
+  expect(compactButton(container).querySelectorAll(".acpmux-summary-avatar")).toHaveLength(4);
+  expect(compactButton(container).textContent).toContain(translate("summary.subagents.done", { n: 40 }));
+});
+
+test("the ended-row gallery target stays distinct from the agent summary and opens its list", async () => {
+  const container = installDom(true);
+  const agents = [...Array.from({ length: 40 }, (_, index) => subagent(index, "completed")), subagent(40, "failed")];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector agents={agents} onOpenSubagent={noop} />);
+  });
+  const target = { role: "button", name: /40 done · 1 failed/ };
+  const matches = [...container.querySelectorAll("button")].filter((button) =>
+    target.name.test(accessibleName(button)),
+  );
+  expect(matches).toHaveLength(1);
+  const ended = endedRow(section(container, "subagents")!)!;
+  expect(resolveTarget(container, target)).toBe(ended);
+  expect(accessibleName(ended)).toBe("40 done · 1 failed");
+  expect(container.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+  const selected = resolveTarget(container, target);
+  if (!(selected instanceof dom!.window.HTMLElement)) throw new Error("The ended row was not found");
+  await click(selected);
+  expect(ended.getAttribute("aria-expanded")).toBe("true");
+  expect(lines(container.querySelector(".acpmux-chat-inspector-subagents__list")!)).toHaveLength(41);
 });

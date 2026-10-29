@@ -26,6 +26,9 @@ export type SettingKind =
   // Keyed values (`browser.siteEngines`: site to engine); `appearance.themeEdits` is the theme
   // studio's and never a row.
   | "string_map"
+  // Notification sound rules by id or name (`notifications.sounds.workspaces`): a sound name, or
+  // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
+  | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 

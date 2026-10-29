@@ -10,10 +10,11 @@
   padding: var(--ui-popup-padding);
   border-radius: var(--ui-popup-radius, 10px);
   color: var(--agent-text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   pointer-events: auto;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 /* The composer popover stays compact in both states. It uses the same glass material supplied by
@@ -33,6 +34,7 @@
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-context-card-compact-tokens {
   margin-top: var(--ds-space-1);
@@ -40,11 +42,13 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-context-card-title {
   font-size: var(--text-detail);
   color: var(--agent-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-line {
@@ -53,6 +57,7 @@
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-context-card-bar {
@@ -91,6 +96,7 @@
   padding: 0;
   font-size: var(--text-detail);
   list-style: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-part {
@@ -133,6 +139,7 @@
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-details {

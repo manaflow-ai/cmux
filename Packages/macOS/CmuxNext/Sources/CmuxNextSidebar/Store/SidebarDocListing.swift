@@ -216,6 +216,11 @@ extension SidebarDocProjection {
         var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
         made.tint = group.color.flatMap { GroupTint(wire: $0) } ?? .palette(.unset(id: group.id))
+        // A group in Pinned reads as pinned, as one with members does (`SidebarDocMachines.model`): else its
+        // header offers Pin Group again, which the sidebar refuses (#22259).
+        made.isPinned = group.pinned
+        made.parent = group.parent.map { GroupID($0) }
+        made.depth = group.depth
         return made
     }
 }

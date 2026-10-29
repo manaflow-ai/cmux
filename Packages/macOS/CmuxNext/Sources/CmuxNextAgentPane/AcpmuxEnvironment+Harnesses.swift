@@ -55,6 +55,10 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// Stores one secret in the Keychain (`cmux harness secret set ID KEY`): `{id, key, value}`
     /// answers `{item}` (`cmux-harness/<id>/<KEY>`), the name a profile reads as `keychain:NAME`.
     case secretSet = "_acpmux/harness/secret/set"
+    /// Sets the icon of a profile in the user's harness folder (user 12922): `{id, icon}` (an
+    /// emoji, an SF Symbol name or an agent mark id), `{id, data, ext}` (base64 png or svg bytes,
+    /// copied next to the profile) or `{id, clear: true}`. Answers `{id, path, icon}`.
+    case icon = "_acpmux/harness/icon"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -64,7 +68,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet: .seconds(10)
+        case .list, .add, .remove, .restore, .reload, .secretSet, .icon: .seconds(10)
         }
     }
 }
@@ -81,6 +85,27 @@ extension AcpmuxEnvironment {
             throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
         }
     }
+
+    /// One `_acpmux/complete` (`params`: `prompt`, `harness`, `model`, `maxTokens`, `timeoutMs`): its
+    /// `text`, empty when the reply has none. When the named harness cannot answer here (no profile
+    /// by that id, no headless mode, its CLI not installed), `fallback` is asked instead: a profile id
+    /// differs per machine (`claude-cr`, a wrapper), so a caller names its preference and a fallback.
+    public nonisolated func completionText(params: [String: any Sendable],
+                                           fallback: [String: any Sendable]? = nil) async throws -> String {
+        let data: Data
+        do {
+            data = try await harness(.complete, params: params)
+        } catch let error as AcpmuxRPCError where fallback != nil && Self.harnessUnavailable.contains(error.name ?? "") {
+            data = try await harness(.complete, params: fallback ?? [:])
+        }
+        let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return reply?["text"] as? String ?? ""
+    }
+
+    /// `_acpmux/complete` refusals that name the harness, not the request: another harness may answer.
+    nonisolated static let harnessUnavailable: Set<String> = [
+        "complete.unknown_harness", "complete.unsupported_harness", "complete.not_installed",
+    ]
 
     /// `_acpmux/harness/health` (`refresh`: the daemon checks again). Named so a caller can default
     /// to it without an async closure literal default argument (crash_ratchet, cx-bsue).

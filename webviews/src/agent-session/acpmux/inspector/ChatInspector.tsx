@@ -51,7 +51,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { paneHeader, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -63,11 +63,12 @@ import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubsessionRow } from "../subagents/subsessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
-import { EnvironmentSection } from "./EnvironmentSection";
+import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
@@ -85,13 +86,16 @@ import {
 import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
+import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
+import { SubagentSummaryCard } from "./SubagentSummaryCard";
 import { TasksSection } from "./TasksSection";
-import { WorkflowTasks } from "./WorkflowTasks";
-import type { WorkflowSummary } from "../summary/workflow";
+import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { MIN_GUTTER } from "../threadMinimap/model";
+import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
+import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -121,9 +125,8 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
 /// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
-/// thread rail's room (threadMinimap/model.ts MIN_GUTTER), so the column never slides over the rail,
-/// which stays at the pane's left edge (inspector.css; Leo, 2026-10-25: "when that session rail is
-/// there, the session rail ends up pushing it to the side").
+/// thread rail's usable gutter (threadMinimap/model.ts RAIL_MIN_GUTTER), so the column only slides
+/// as far as the rail can follow it. The rail itself moves toward the text as the gutter shrinks.
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
 /// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
 /// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
@@ -137,7 +140,7 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  const room = inset - (wide ? HANDOFF_FORM_EDGE : MIN_GUTTER);
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : RAIL_MIN_GUTTER);
   return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
@@ -171,11 +174,9 @@ export const inspectorShown = ({
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
 
-/// The Inspector starts below the visible header and the Left placement row. Right uses the
-/// original header slot, so it keeps the original inset.
-export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
-  const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
-  return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+/// The Inspector starts right below the header: the pane's tab row when the header is in it.
+export function inspectorTopOffset(tabRowHeight: number): string {
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -231,13 +232,29 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
-  const [room, setRoom] = useState(UNMEASURED);
+type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
+
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
+  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
   useLayoutEffect(() => {
     if (!shell || !live) return;
+    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      const shellWidth = shell.clientWidth;
+      const suppressShiftTransition = lastShellWidth !== shellWidth;
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
+          ? current
+          : {
+              ...next,
+              shellWidth,
+              // A native pane changes the shell's own width. An artifact only changes `side`, so it
+              // keeps the Session Info shift transition and its normal floating motion.
+              suppressShiftTransition,
+            },
+      );
+      lastShellWidth = shellWidth;
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -247,6 +264,15 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
+  useLayoutEffect(() => {
+    if (!room.suppressShiftTransition) return;
+    const frame = requestAnimationFrame(() =>
+      setRoom((current) =>
+        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
+      ),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [room]);
   return room;
 }
 
@@ -268,6 +294,8 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  subsessions,
+  onSetRunningLimit,
   workflows,
   onOpenFolder,
   onSaveEnvironment,
@@ -275,6 +303,7 @@ export function useChatInspector({
   subagent,
   covered = false,
   onUncover,
+  onBeforeOpen,
   beside,
   wide = false,
   onReconnectMcp,
@@ -286,6 +315,8 @@ export function useChatInspector({
   /// Closes that view: opening the Inspector (its toggle, the palette, a running line's count)
   /// brings the chat back first.
   onUncover?: () => void;
+  /// Clears a competing full-height view before any Inspector entry point opens it.
+  onBeforeOpen?: () => void;
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
@@ -318,8 +349,16 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
+  /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -332,6 +371,9 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
+  /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
+  /// the chat (App.tsx, the computer use live preview).
+  shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
   // The native command palette shares the header's visibility and uncover behavior.
@@ -370,11 +412,12 @@ export function useChatInspector({
   useEffect(() => {
     if (!on) return;
     return registerPicker(label, () => {
+      onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
       setInspectorOpen(true);
     });
-  }, [on, label]);
+  }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -403,12 +446,14 @@ export function useChatInspector({
   const toggle = () => {
     if (shown) setInspectorOpen(false);
     else {
+      onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
+    onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
     setInspectorSection(section, true);
@@ -423,6 +468,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    shown,
     toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
@@ -443,9 +489,12 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        subsessions={subagent ? undefined : subsessions}
+        onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
+        onReveal={reveal}
         onStopProcess={onStopProcess}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
@@ -490,9 +539,12 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  subsessions = [],
+  onSetRunningLimit,
   workflows,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   onOpenOutput,
   onOpenUrl,
@@ -528,10 +580,20 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
+  /// Opens a section, scrolls it into view and lights it (the header's reveal), so a click that
+  /// points at a section always answers, even when that section is already open.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
@@ -553,7 +615,7 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
@@ -561,14 +623,7 @@ function InspectorPresence({
   // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
   const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
-  // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
-  // below it while open so the card never covers the chip; Right preserves the original header slot,
-  // and connection warnings, Off, or covered views remove that row.
-  const environmentRowVisible =
-    display.environmentPlacement === "left" &&
-    Boolean(snapshot.summary?.cwd || snapshot.summary?.branch) &&
-    !paneHeader(snapshot).status;
-  const inspectorTop = inspectorTopOffset(tabRowHeight, environmentRowVisible);
+  const inspectorTop = inspectorTopOffset(tabRowHeight);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
@@ -576,19 +631,30 @@ function InspectorPresence({
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
+    else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
+    // Push always narrows the transcript, not the header: native tabs reserve the tools at the
+    // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
+    if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
+  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
+  // A card under the panel (the computer use live preview) reads where it goes from the shell.
+  useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
@@ -631,10 +697,29 @@ function InspectorPresence({
   // again. Floating, it takes no room from the chat and stays.
   const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
+  // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
+  // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,
+  // so the chat and its new tab are what show, never the card over them (Leo, 2026-10-27: "why am i
+  // sent to a whole new thing instead of a tab opening on the right?").
+  const openedFolderAt = useRef(0);
+  const openFolder = useMemo(
+    () =>
+      onOpenFolder &&
+      ((path: string) => {
+        openedFolderAt.current = Date.now();
+        onOpenFolder(path);
+        if (overChat) onSuppress();
+      }),
+    [onOpenFolder, overChat, onSuppress],
+  );
+  useEffect(() => {
+    if (overChat && Date.now() - openedFolderAt.current < SPLIT_SETTLE_MS) onSuppress();
+  }, [overChat, onSuppress]);
   useEffect(() => {
     const was = roomyRef.current;
     roomyRef.current = roomy;
-    if (was && !roomy && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
+    const opened = Math.max(openedOutputAt.current, openedFolderAt.current);
+    if (was && !roomy && Date.now() - opened < SPLIT_SETTLE_MS) onSuppress();
   }, [roomy, openedOutputAt, onSuppress]);
   if (!drawn) return null;
   return (
@@ -675,18 +760,22 @@ function InspectorPresence({
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={scope ? undefined : sessions?.list}
+        subsessions={scope ? undefined : subsessions}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
+        onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
+        onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
+        onReveal={onReveal}
         onStopProcess={onStopProcess}
         sections={sections}
         onSection={setInspectorSection}
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
-        onOpenFolder={onOpenFolder}
+        onOpenFolder={openFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
@@ -856,11 +945,16 @@ export function ChatInspector({
   listed = false,
   transcriptTasks = [],
   sessions = [],
+  subsessions = [],
   workflows = [],
   onStopWorkflow,
+  workflowAgentRowVariant,
+  onOpenWorkflowAgent,
   onOpenSession,
+  onSetRunningLimit,
   revealed,
   onRevealed,
+  onReveal,
   onStopProcess,
   sections,
   onSection,
@@ -876,6 +970,7 @@ export function ChatInspector({
   banner,
   agent,
   layout = RAIL_LAYOUT,
+  projectRowLook,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -910,14 +1005,24 @@ export function ChatInspector({
   transcriptTasks?: readonly SummaryBackgroundTask[];
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, already folded by App.tsx.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
+  /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
+  /// Gallery-only alternatives for the live workflow agent row.
+  workflowAgentRowVariant?: WorkflowAgentRowVariant;
+  /// Opens a workflow agent through its workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
   onRevealed?: () => void;
+  /// Opens, scrolls to and lights a section, so a click that points at one always answers.
+  onReveal?: (section: InspectorSectionId) => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
@@ -929,7 +1034,7 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Opens one of the chat's folders in the Files tree beside the chat.
+  /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
@@ -940,6 +1045,8 @@ export function ChatInspector({
   agent?: Subagent;
   /// How its sections are laid out (`RAIL_LAYOUT`); the gallery shows the others.
   layout?: RailLayout;
+  /// How Environment's project row reads (EnvironmentSection's `name`); the gallery shows the others.
+  projectRowLook?: ProjectRowLook;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -993,6 +1100,19 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
+  // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
+  // them, at acpmux's default, shows nothing.
+  const limits = summary?.subsessionLimits;
+  const limitSet =
+    limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
+  const chatId = summary?.sessionId;
+  // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
+  // limit only from its own person, so the line only reads.
+  const setRunningLimit =
+    onSetRunningLimit && chatId && !summary?.peer
+      ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
+      : undefined;
   const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   const glance = layout === "glance";
@@ -1011,10 +1131,10 @@ export function ChatInspector({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
-        rows={rows}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
+        projectLook={projectRowLook}
       />
     </InspectorSection>
   );
@@ -1095,23 +1215,59 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = listedAgents.length + sessions.length > 0 && (
+  // A started chat also reported as a sub-session occupies one row and one running slot.
+  const subsessionIds = new Set(subsessions.map((row) => row.sessionId));
+  const children = sessions.filter((child) => !subsessionIds.has(child.sessionId));
+  const subagentsSection = (listedAgents.length + children.length + subsessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, children, subsessions))}
     >
-      <SubagentsSection
-        agents={listedAgents}
-        waiting={waiting}
-        onOpen={onOpenSubagent}
-        sessions={sessions}
-        onOpenSession={onOpenSession}
+      <SubagentLimitStepper
+        chatId={chatId}
+        limits={limits}
+        sessions={children}
+        subsessions={subsessions}
+        onSet={setRunningLimit}
       />
+      {listedAgents.length + children.length + subsessions.length > 0 && (
+        <SubagentsSection
+          agents={listedAgents}
+          waiting={waiting}
+          onOpen={onOpenSubagent}
+          sessions={children}
+          subsessions={subsessions}
+          onOpenSession={onOpenSession}
+        />
+      )}
     </InspectorSection>
   );
+  const agentSummary =
+    listedAgents.length + children.length + subsessions.length > 0 ||
+    workflows.some((workflow) => workflow.agents.length > 0) ? (
+      <SubagentSummaryCard
+        agents={listedAgents}
+        waiting={waiting}
+        sessions={children}
+        subsessions={subsessions}
+        workflows={workflows}
+        onOpen={() => {
+          const section = listedAgents.length + children.length + subsessions.length > 0 ? "subagents" : "tasks";
+          if (onReveal) return onReveal(section);
+          // No host reveal: open it here and light it in place, so the click always answers.
+          fold(section)(true);
+          const element = body.current?.querySelector<HTMLElement>(`[data-section="${section}"]`);
+          element?.scrollIntoView?.({ block: "nearest" });
+          if (!element) return;
+          unlight();
+          element.dataset.revealed = "";
+          lit.current = { section: element, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+        }}
+      />
+    ) : null;
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
@@ -1123,7 +1279,14 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
-      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
+      {workflows.length > 0 && (
+        <WorkflowTasks
+          workflows={workflows}
+          onStop={onStopWorkflow}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
+          agentRowVariant={workflowAgentRowVariant}
+        />
+      )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection
@@ -1154,8 +1317,9 @@ export function ChatInspector({
         </div>
       )}
       {/* What it runs. */}
-      {(subagentsSection || tasks) && (
+      {(agentSummary || subagentsSection || tasks) && (
         <div className="acpmux-chat-inspector-group" data-group="running">
+          {agentSummary}
           {subagentsSection}
           {tasks}
         </div>
