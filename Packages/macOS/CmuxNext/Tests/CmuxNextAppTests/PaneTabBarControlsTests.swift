@@ -86,7 +86,14 @@ import Testing
         let menu = NSMenu()
         menu.addItem(withTitle: "Terminal", action: nil, keyEquivalent: "")
         sidebar.contextMenuProvider = { _ in menu }
-        #expect(sidebar.newButton.accessibilityRole() == .button, "the + creates a workspace directly")
+        // The + is a plain action: a press runs it and opens no menu. (An off-window SidebarIconButton
+        // reports AXUnknown for its role on the CI minis, so the press itself is what is checked.)
+        var plusPresses = 0
+        let plusAction = sidebar.newButton.onPress
+        sidebar.newButton.onPress = { plusPresses += 1 }
+        #expect(sidebar.newButton.accessibilityPerformPress(), "the + creates a workspace directly")
+        #expect(plusPresses == 1)
+        sidebar.newButton.onPress = plusAction
         #expect(sidebar.newWorkspaceOptionsButton.symbol == "chevron.down", "the chooser is a separate chevron")
         #expect(sidebar.newWorkspaceOptionsButton.pressMenu?() != nil, "the chevron opens workspace options")
         #expect(sidebar.newWorkspaceOptionsButton.alphaValue == sidebar.newButton.alphaValue,
