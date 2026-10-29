@@ -2675,6 +2675,23 @@ def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
     return f"force-cancelled ({why})"
 
 
+def pr_recheck(github: "GitHub", run: Mapping[str, Any]) -> str | None:
+    """Why a run must not be cancelled now, from its branch's pull requests read again right before the cancel: one
+    opened at its head (OPEN_HEAD_RULE), or one of its branch's that carries `no-janitor` (or whose labels were not all
+    read). None when it may go. A read that fails raises (GitHub.request() records it, so phase 2 stops)."""
+    branch = str(run.get("head_branch") or "")
+    if not branch:
+        return None
+    prs = github.pull_requests([branch]).get(branch, [])
+    at_head = open_pr_at_head(run, prs)
+    if at_head is not None:
+        return f"on recheck, at the head of open PR #{at_head.get('number')}; {OPEN_HEAD_RULE}"
+    opted = next((pr for pr in prs if JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr)), None)
+    if opted is not None:
+        return f"on recheck, PR #{opted.get('number')} carries {JANITOR_OPT_OUT_LABEL} (or its labels were not all read)"
+    return None
+
+
 def cancel_plan(
     github: "GitHub",
     candidates: Sequence[Candidate],
@@ -2702,6 +2719,10 @@ def cancel_plan(
                 continue
             if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
                 results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
+                continue
+            why_not = pr_recheck(github, current)
+            if why_not:
+                results[run_id] = f"skipped ({why_not})"
                 continue
         except RuntimeError as error:  # GitHub.request() noted it in READS: the next hold() stops the rest
             failures += 1
@@ -2761,7 +2782,11 @@ def cancel_orphans(
             if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
                 results[run_id] = f"skipped (now {current.get('status')})"
                 continue
-        except RuntimeError as error:
+            why_not = pr_recheck(github, current)
+            if why_not:
+                results[run_id] = f"skipped ({why_not})"
+                continue
+        except RuntimeError as error:  # GitHub.request() noted it in READS: the next hold() stops the rest
             failures += 1
             results[run_id] = f"failed: {error}"
             continue
@@ -2951,11 +2976,12 @@ class GitHub:
         """One API call, and the one path every read of the sweep takes. A read that fails (after its retries, a
         rate limit included; a 404 is an answer, not a failure) is recorded in janitor_guard.READS, which holds
         every cancel for the rest of the sweep."""
-        read = method == "GET" or path == "/graphql"
+        read = method in ("GET", "DOWNLOAD") or path == "/graphql"
         try:
             return self._request_retrying(method, path, body, app_only=app_only)
         except RuntimeError as error:
-            if read and "(404)" not in str(error):
+            # A 404 from an API lookup is an answer (a branch that is gone); an artifact that cannot be fetched is not.
+            if read and (method == "DOWNLOAD" or "(404)" not in str(error)):
                 READS.failed(f"{method} {path.split('?')[0]}", error)
             raise
         except (ValueError, UnicodeDecodeError) as error:  # an answer that is not JSON: unread, never a crash
@@ -2965,8 +2991,10 @@ class GitHub:
                 from error
 
     def _request_retrying(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
-        """A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is made again after each
-        RETRY_DELAYS delay; a write is not, since it may have taken effect."""
+        """A read (GET, a GraphQL query, an artifact DOWNLOAD) that meets a 5xx or a dropped connection is made again
+        after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
+        if method == "DOWNLOAD":
+            return self._download_retrying(body)
         retry = method == "GET" or path == "/graphql"
         for delay in (*RETRY_DELAYS, None):
             try:
@@ -3169,14 +3197,33 @@ class GitHub:
         return [artifact for artifact in payload.get("artifacts") or [] if isinstance(artifact, Mapping)]
 
     def download(self, artifact: Mapping[str, Any]) -> bytes:
-        """One artifact's zip archive, through pr_runner_pool.py's redirect-safe download."""
+        """One artifact's zip archive, through request() like every read: its retries, the App token's fallback and
+        the read log apply (method DOWNLOAD, handled by _request_retrying())."""
+        return self.request("DOWNLOAD", "/actions/artifacts/{id}/zip", artifact)
+
+    def _download_retrying(self, artifact: Any) -> bytes:
+        """DOWNLOAD for _request_retrying(): retried after each RETRY_DELAYS delay on a 5xx or a dropped connection,
+        and made once more with the workflow's token when the App's is refused (401 or 403), as any read."""
+        for delay in (*RETRY_DELAYS, None):
+            try:
+                return self._download_once(artifact)
+            except (OSError, RuntimeError) as error:
+                text = str(error)
+                if ("(401)" in text or "(403)" in text) and self.fallback_token:
+                    self.headers["Authorization"] = f"Bearer {self.fallback_token}"
+                    self._token, self.fallback_token, self.app_token = self.fallback_token, "", False
+                    continue
+                transient = isinstance(error, OSError) or any(f"({code})" in text for code in RETRY_STATUSES)
+                if not transient or delay is None:
+                    raise RuntimeError(f"artifact download failed ({error})") from error
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _download_once(self, artifact: Mapping[str, Any]) -> bytes:
+        """pr_runner_pool.py's redirect-safe download, with this client's current token."""
         self.calls += 1
         self.kinds["GET /actions/artifacts/{id}/zip"] = self.kinds.get("GET /actions/artifacts/{id}/zip", 0) + 1
-        try:
-            return PoolClient(self._token, self.repo).download(artifact)
-        except (OSError, RuntimeError, ValueError) as error:  # urllib's HTTPError and URLError, a missing redirect
-            READS.failed("an artifact download", error)
-            raise RuntimeError(f"artifact download failed ({error})") from error
+        return PoolClient(self._token, self.repo).download(artifact)
 
     def get(self, path: str) -> Any:
         """pr_runner_pool.GitHub's get() through this client's request(), so owned_warm_state.py's reads are
@@ -3655,7 +3702,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: dead-label plan: {error}", file=sys.stderr)
 
     # ---- Phase 2: cancels only, in order, from phase 1's decisions. Nothing is cancelled once any read of the
-    # sweep failed. The only reads here are of the run being acted on: its recheck right before its cancel, and,
+    # sweep failed. The only reads here are of the run being acted on: its recheck right before its cancel (the run,
+    # and for categories a-f and orphans its branch's pull requests: pr_recheck()), and,
     # after its own cancel, whether that cancel took (an orphan's force-cancel, a dead-label move's re-run). A read
     # that fails stops the rest (GitHub.request() records it in READS, and every executor asks READS.hold() first).
     why_held = READS.hold()

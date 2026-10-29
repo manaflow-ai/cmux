@@ -142,7 +142,7 @@ def read_store(artifacts: Sequence[Mapping[str, Any]], download: Callable[[Mappi
                snapshot_file: str, keys: Sequence[str] = (LOST_KEY, DEAD_KEY), cap: int = CAP) -> OwedStore:
     """The store from the trusted snapshot artifacts (newest first), downloading each at most once and only as far
     back as a key needs. A download that fails raises (the caller then treats the store as unknown); an unreadable
-    archive counts as a document without the keys."""
+    archive counts as unread for every key."""
     cache: list[Mapping[str, Any] | None] = []
 
     def documents() -> Iterable[Mapping[str, Any] | None]:
@@ -150,9 +150,13 @@ def read_store(artifacts: Sequence[Mapping[str, Any]], download: Callable[[Mappi
             if index == len(cache):
                 blob = download(artifact)
                 try:
-                    cache.append(json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(snapshot_file)))
+                    document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(snapshot_file))
                 except SNAPSHOT_UNREADABLE:
-                    cache.append(None)
+                    document = None
+                # A copy that cannot be read may have held any list: it counts as unread for every key, never as
+                # one without them, so with no older copy that has a list the store stays unknown.
+                cache.append(document if isinstance(document, Mapping)
+                             else {key + UNREAD_SUFFIX: True for key in keys})
             yield cache[index]
 
     return OwedStore({key: entries_in(documents(), key) for key in keys}, cap)

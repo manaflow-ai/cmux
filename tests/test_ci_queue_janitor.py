@@ -3790,5 +3790,50 @@ class ReviewSevenTests(unittest.TestCase):
         self.assertEqual(owed, bad)
 
 
+class ReviewEightTests(unittest.TestCase):
+    """cmux#27114 review (492f7a7)."""
+
+    def setUp(self):
+        janitor.READS.reset()
+        self.addCleanup(janitor.READS.reset)
+
+    def test_downloads_go_through_request_with_retry_and_token_fallback(self):
+        fake = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="wf")
+        calls = []
+
+        def once(artifact):
+            calls.append(fake._token)
+            if len(calls) == 1:
+                raise RuntimeError("artifact download failed (403)")
+            return b"zip"
+        with mock.patch.object(fake, "_download_once", side_effect=once):
+            self.assertEqual(fake.download({"archive_download_url": "u"}), b"zip")
+        self.assertEqual(calls, ["app", "wf"])
+        with mock.patch.object(fake, "_download_once", side_effect=RuntimeError("artifact download failed (404)")), \
+                redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError):
+            fake.download({"archive_download_url": "u"})
+        self.assertIn("DOWNLOAD", janitor.READS.hold())
+
+    def test_a_corrupt_snapshot_leaves_the_store_unknown_not_empty(self):
+        store = janitor.janitor_guard.read_store([{"i": 0}], lambda a: b"not a zip", "macos-pool-load.json")
+        self.assertFalse(store.known)
+        self.assertEqual(store.room(), 0)
+
+    def test_a_pr_opened_at_the_head_after_phase_one_keeps_the_run(self):
+        run = make_run(branch="feature", sha="aaa", status="queued")
+        fake = FakeGitHub({run["id"]: dict(run)})
+        candidate = janitor.Candidate(run, "stale-pr", "x", janitor.macos_usage(()))
+        fake.prs["feature"] = [make_pr(9, head="aaa")]
+        results, _ = janitor.cancel_plan(fake, [candidate])
+        self.assertIn("open PR #9", results[run["id"]])
+        fake.prs["feature"] = [make_pr(9, head="bbb", labels=("no-janitor",))]
+        results, _ = janitor.cancel_plan(fake, [candidate])
+        self.assertIn("no-janitor", results[run["id"]])
+        orphan = janitor.OrphanDecision(janitor.Orphan(run, "e", "job", NOW, 0), "cancel")
+        results, _ = janitor.cancel_orphans(fake, [orphan], sleep=lambda _: None)
+        self.assertIn("no-janitor", results[run["id"]])
+        self.assertEqual(fake.posts(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
