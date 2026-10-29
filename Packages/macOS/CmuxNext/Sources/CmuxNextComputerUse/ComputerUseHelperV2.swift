@@ -49,6 +49,13 @@ public final class ComputerUseHelperV2 {
     /// This app's acpmux (executable and daemon socket), set by the agent
     /// pane source once it resolves acpmux.
     public var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
+    /// This app's acpmux daemon's `_acpmux/machine_consent_get` result (nil
+    /// on any failure), asked fresh for each of the helper's consent
+    /// questions; set with `acpmux`. Unset, every answer is "no answer" and
+    /// the helper refuses every call that needs consent.
+    public var machineConsent: @Sendable () async -> Data? = { nil }
+    /// Records a call the helper refused for consent ("screen" or "control").
+    public var consentRefused: @Sendable (String) async -> Void = { _ in }
     private let spawner: any ComputerUseHelperV2Spawning
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
@@ -238,8 +245,22 @@ public final class ComputerUseHelperV2 {
         controlLog?.cancel()
         let lines = spawned.lines
         let pid = spawned.pid
+        // Read per question, so wiring set after this start still answers.
+        let consent: @Sendable () async -> Data? = { [weak self] in
+            guard let query = await MainActor.run(body: { self?.machineConsent }) else { return nil }
+            return await query()
+        }
+        let refused: @Sendable (String) async -> Void = { [weak self] surface in
+            guard let record = await MainActor.run(body: { self?.consentRefused }) else { return }
+            await record(surface)
+        }
+        let send: @Sendable (Data) async -> Void = { line in await spawned.send(line) }
         // task-owner: stored in controlLog, cancelled by stop() and terminateForQuit(); it ends at the helper's EOF.
-        controlLog = Task.detached { await Self.logControlLines(lines, pid: pid) }
+        controlLog = Task.detached {
+            await Self.logControlLines(lines, pid: pid) { object in
+                ComputerUseHelperV2Consent.handle(object, send: send, consent: consent, refused: refused)
+            }
+        }
         guard await Self.writeEndpoint(path: endpointPath, socket: socketPath, secret: secret, owner: spawned.pid) else {
             await stop()
             return unavailable("cannot write \(endpointPath)")
@@ -435,12 +456,14 @@ public final class ComputerUseHelperV2 {
     /// `register_acpmux` acks and control errors; tool `result` lines are
     /// skipped), so a live check reads them from the unified log
     /// (scripts/cmux-next/cua-helper-v2-live.py). The lines carry no secret.
-    nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t) async {
+    /// `handled` takes the lines it answers (machine consent) first.
+    nonisolated static func logControlLines(_ lines: AsyncStream<Data>, pid: pid_t,
+                                            handled: @Sendable ([String: Any]) -> Bool = { _ in false }) async {
         // Its own Logger: the file-level one is main-actor isolated.
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         for await line in lines {
             guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  let type = object["type"] as? String, type != "result" else { continue }
+                  let type = object["type"] as? String, type != "result", !handled(object) else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
             logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
         }

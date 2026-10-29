@@ -14,20 +14,28 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
 /// An admitted peer sends `{"secret":"<hex>"}` first, then requests:
 ///   {"id":N,"method":"tools/list"}
+///   {"id":N,"method":"machine/consent"}
 ///   {"id":N,"method":"tools/call","name":"click","arguments":{...}}
 /// and gets `{"id":N,"ok":true,"result":...}` or `{"id":N,"ok":false,"error":"..."}`.
+/// `machine/consent` answers `{consentRequired, consent: {screen, control}}`
+/// from `consent`, fresh on every request; the request's other fields are
+/// ignored. A call refused for consent also carries
+/// `"code":"consent_required","surface":S`, and the connection stays open.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
     private let inspector: any PeerInspecting
     private let tools: any ToolInvoking
+    private let consent: any MachineConsentAuthority
     private let listener = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
-    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking) {
+    public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking,
+                consent: any MachineConsentAuthority = UnavailableConsent()) {
         self.path = path
         self.admission = admission
         self.inspector = inspector
         self.tools = tools
+        self.consent = consent
     }
 
     public enum StartError: Error, Equatable {
@@ -159,17 +167,23 @@ public final class HelperSocketServer: Sendable {
         let name = request["name"] as? String
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
         let tools = self.tools
+        let consent = self.consent
         Task.detached {
             do {
                 let result: Data
                 switch method {
                 case "tools/list": result = try await tools.listTools()
+                case "machine/consent": result = await consent.current().wire
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
                     result = try await tools.invoke(name: name, arguments: arguments)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
+            } catch let refusal as ConsentRefusal {
+                connection.write(HelperWire.line(["ok": false, "error": refusal.description,
+                                                  "code": ConsentRefusal.code, "surface": refusal.surface.rawValue],
+                                                 raw: ["id": id]))
             } catch {
                 connection.write(HelperWire.line(["ok": false, "error": String(describing: error)],
                                                  raw: ["id": id]))

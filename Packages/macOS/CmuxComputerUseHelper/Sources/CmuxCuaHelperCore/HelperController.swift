@@ -16,7 +16,10 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
 ///   {"type":"call","id":N,"name":TOOL,"arguments":{...}}
 ///   {"type":"request_permission","permission":"accessibility"|"screen_recording"}
+///   {"type":"machine_consent","id":N,"ok":BOOL,"result":{...}}  (the answer to the helper's question)
 /// helper -> host:
+///   {"type":"machine_consent","id":N}  (asks the host's acpmux daemon for machine consent)
+///   {"type":"consent_refused","surface":"screen"|"control","tool":TOOL}
 ///   {"type":"ready","protocol":1,"pid":N,"socket":PATH}
 ///   {"type":"ack","of":"register_acpmux","ok":BOOL}
 ///   {"type":"result","id":N,"ok":BOOL,"result":...|"error":STRING}
@@ -28,6 +31,9 @@ public final class HelperController: Sendable {
     private let inspector: any PeerInspecting
     private let onExit: @Sendable (Int32) -> Void
     private let requestPermission: @Sendable (HelperPermission) async -> Bool
+    /// Machine consent, asked of the host; nil means no host answers and
+    /// every call that needs consent is refused.
+    private let consent: HostConsentChannel?
     public let admission = AdmissionState()
     private let server = OSAllocatedUnfairLock<HelperSocketServer?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
@@ -35,6 +41,7 @@ public final class HelperController: Sendable {
     public init(input: Int32 = STDIN_FILENO, output: Int32 = STDOUT_FILENO, tools: any ToolInvoking,
                 inspector: any PeerInspecting = KernelPeerInspector(),
                 requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
+                consent: HostConsentChannel? = nil,
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
         self.input = input
         self.output = output
@@ -42,6 +49,8 @@ public final class HelperController: Sendable {
         self.inspector = inspector
         self.onExit = onExit
         self.requestPermission = requestPermission
+        self.consent = consent
+        consent?.bind { [self] line in write(line) }
     }
 
     /// Reads the control pipe on its own thread until EOF.
@@ -100,6 +109,10 @@ public final class HelperController: Sendable {
                                                              startMicroseconds: UInt64(micros)))
             }
             send(["type": "ack", "of": "register_acpmux", "ok": ok])
+        case "machine_consent":
+            guard let id = message["id"] as? Int else { return }
+            let result = message["ok"] as? Bool == true ? message["result"].map { HelperWire.json($0) } : nil
+            consent?.receive(id: id, result: result)
         case "call":
             let id = HelperWire.json(message["id"] ?? NSNull())
             let name = message["name"] as? String ?? ""
@@ -128,7 +141,8 @@ public final class HelperController: Sendable {
         admission.configure(AdmissionConfig(helperUID: geteuid(), acpmuxCDHashes: hashes,
                                             acpmuxRequirement: message["acpmux_requirement"] as? String,
                                             acpmuxDaemons: [], secret: secret))
-        let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector, tools: tools)
+        let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector, tools: tools,
+                                              consent: consent ?? UnavailableConsent())
         do {
             try socketServer.start()
         } catch {

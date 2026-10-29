@@ -53,6 +53,15 @@ import Foundation
             }
         }
         computerUse.upstream.acpmux = { resolve().map { ($0.executable, $0.socketPath) } }
+        // Machine consent for the helper comes from this app's own daemon socket only.
+        computerUse.upstream.machineConsent = {
+            guard let socket = resolve()?.socketPath else { return nil }
+            return await AcpmuxMachineConsent.current(socketPath: socket)
+        }
+        computerUse.upstream.consentRefused = { surface in
+            guard let socket = resolve()?.socketPath else { return }
+            await AcpmuxMachineConsent.recordRefusal(socketPath: socket, surface: surface)
+        }
         let upstream = computerUse.upstream
         let host = AcpmuxHost(resolve: resolve,
                               computerUse: { computerUse.childEnvironment },
