@@ -130,6 +130,8 @@ futures-util.workspace = true
 # cmux NEXT's Chief home adoption copies live SQLite databases with
 # `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
 rusqlite.workspace = true
+# `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
+cmux-chat-index.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

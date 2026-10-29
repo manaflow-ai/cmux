@@ -119,20 +119,26 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
           const more = [...menu.querySelectorAll('[role="menuitem"]')].some((item) =>
             item.textContent?.includes("More models"),
           );
-          // The composer's model menu's text size and row height (modelPicker.css .acpmux-quick-menu,
-          // #26071: the menu matches the composer's text size): the prompt's content size.
+          // The composer's model menu's text size and row height (modelPicker.css .acpmux-quick-menu):
+          // a native menu's 13px chrome type, never the prompt's content size (Leo 2026-10-28: "AND
+          // I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED IT'S FUCKING TONKA TOYS").
           const probe = document.createElement("span");
-          probe.style.fontSize = "var(--text-content)";
+          probe.style.fontSize = "var(--text-body)";
           menu.append(probe);
           const content = parseFloat(getComputedStyle(probe).fontSize);
           probe.remove();
-          const rowHeight = parseFloat(getComputedStyle(menu).getPropertyValue("--ui-row-height"));
+          // The row height token is a calc() of the interface scale; a probe resolves it.
+          const tall = document.createElement("div");
+          tall.style.height = "var(--ui-row-height)";
+          menu.append(tall);
+          const rowHeight = tall.getBoundingClientRect().height;
+          tall.remove();
           return { rows, titles, more, content, rowHeight };
         });
         expect(geometry.titles).toEqual(["Retry with another model"]);
         expect(geometry.more, "older models fold under More models").toBe(true);
         for (const row of geometry.rows) {
-          expect(row.fontSize, "the composer menu's text size").toBe(geometry.content);
+          expect(row.fontSize, "the menu's chrome text size").toBe(geometry.content);
           expect(row.height, "a menu row's height").toBeLessThanOrEqual(geometry.rowHeight);
           expect(row.inset, "the label is inset in its row").toBeGreaterThanOrEqual(6);
           expect(row.fromMenu, "rows are inset from the menu's edge").toBeGreaterThanOrEqual(3);
