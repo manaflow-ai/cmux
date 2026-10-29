@@ -4,21 +4,20 @@ import Foundation
 
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
-    private static let maximumUploadStageFile = 1 * 1024 * 1024 * 1024
 
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
             guard let name = params["name"] as? String, AgentPaneUpload.isFileName(name),
-                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0, size <= maximumUploadStageFile else { return .unsupported(method) }
+                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0 else { return .unsupported(method) }
             let batchToken = params["batchToken"] as? String
             var batch: [AgentPaneUploadBatchEntry]?
             if let list = params["batch"] as? [[String: Any]] {
-                guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
+                guard !list.isEmpty else { return .unsupported(method) }
                 let parsed = list.compactMap { item -> (String, Int)? in
                     guard let n = item["name"] as? String, AgentPaneUpload.isFileName(n), let s = (item["size"] as? NSNumber)?.intValue,
-                          s >= 0, s <= maximumUploadStageFile else { return nil }
+                          s >= 0 else { return nil }
                     return (n, s)
                 }
                 guard parsed.count == list.count else { return .unsupported(method) }
@@ -348,6 +347,11 @@ extension AgentPaneRequest {
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
+        case "chat.btw.inline":
+            if let question = params?["question"] as? String, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, question.utf8.count <= 32 * 1024,
+               let sessionId = params?["sessionId"] as? String, !sessionId.isEmpty, sessionId.utf8.count <= 256 {
+                self = .btwInline(question: question, sessionId: sessionId)
+            } else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
