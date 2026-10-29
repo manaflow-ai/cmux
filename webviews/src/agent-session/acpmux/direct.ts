@@ -214,10 +214,6 @@ export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 /// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
 const LIMIT_READS = 3;
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
-/// How long Stop waits for the turn to end before the pane stops showing it as working. It is
-/// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
-/// as working before acpmux's forced end and its note.
-const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
 const QUEUE_WITHDRAWN_KEPT = 16;
@@ -1357,13 +1353,19 @@ export class AcpmuxDirectClient {
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
   private silentTurn = false;
-  /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
-  /// one starts (an acpmux that waits on an agent ignoring the cancel).
-  private stopGaveUp = false;
-  private stopTimer?: ReturnType<typeof setTimeout>;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
-  /// rebuild (loadOlder, lag resync) replays older ones, which must not cancel the grace.
+  /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
+  /// The last seq seen when Stop was sent to the loaded chat: the snapshot says `stopping` until that
+  /// turn ends, or a turn opens after it. Apart from `stopAfterSeq`, which the stopped turn's own late
+  /// `turn_started` answers.
+  private stoppingAfterSeq?: number;
+  /// Stop went out while acpmux listed the chat running but its turn had not opened here yet:
+  /// `"pending"` until the next turn opens, then that opener's seq, so a rebuild replaying the same
+  /// opener still treats it as the stopped turn's own.
+  private stoppedTurnOpener?: "pending" | number;
+  /// The daemon's turn identity distinguishes a late opener from a new turn after a missed end.
+  private stoppedTurnId?: string;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -1694,6 +1696,9 @@ export class AcpmuxDirectClient {
         this.groupedPermissions.clear();
         this.permissions.disconnected();
         this.rejectPending();
+        // Delivery is no longer observable on this connection. A reconnect must not inherit Stop.
+        this.stopAfterSeq = undefined;
+        this.stoppingEnded();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
         if (this.onLost) {
@@ -1894,9 +1899,8 @@ export class AcpmuxDirectClient {
     for (const [settle, sessionId] of this.resendWaits) if (sessionId !== this.selectedSessionId) settle();
     // The chats started from the chat before are no longer watched.
     this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
-    clearTimeout(this.stopTimer);
-    this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+    this.stoppingEnded();
     this.events = [];
     this.turnOpener = undefined;
     this.historyExhausted = false;
@@ -3779,12 +3783,32 @@ export class AcpmuxDirectClient {
     return undefined;
   }
 
-  /// A turn event newer than Stop ends its grace and its give-up.
+  /// A turn event newer than Stop answers its local interruption attribution.
   private stopAnswered(event: EventRecord): void {
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
-    clearTimeout(this.stopTimer);
-    this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+  }
+
+  /// A turn that opens after a Stop, with none open, is a new one, unless Stop went out before the
+  /// stopped turn opened here (`stoppedTurnOpener`): then that first opening, and its replays, are the
+  /// stopped turn's own.
+  private stoppingOpens(event: EventRecord): void {
+    if (this.stoppingAfterSeq === undefined || event.seq <= this.stoppingAfterSeq) return;
+    const turnId = typeof event.msg?.turnId === "string" ? event.msg.turnId : undefined;
+    if (turnId && this.stoppedTurnId && turnId !== this.stoppedTurnId) {
+      this.stoppingEnded();
+      return;
+    }
+    if (turnId) this.stoppedTurnId = turnId;
+    if (this.turnOpen) return;
+    if (this.stoppedTurnOpener === "pending") this.stoppedTurnOpener = event.seq;
+    else if (this.stoppedTurnOpener === undefined || event.seq > this.stoppedTurnOpener) this.stoppingEnded();
+  }
+
+  private stoppingEnded(): void {
+    this.stoppingAfterSeq = undefined;
+    this.stoppedTurnOpener = undefined;
+    this.stoppedTurnId = undefined;
   }
 
   /// A decided question stays in the transcript as a compact record where its card was: what was
@@ -4211,12 +4235,14 @@ export class AcpmuxDirectClient {
           // This pane's prompt reached the agent: its row (now acpmux's) shows it read.
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
+        this.stoppingOpens(event);
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
+        this.stoppingOpens(event);
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -4252,8 +4278,9 @@ export class AcpmuxDirectClient {
         this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
-        // Stop was answered: its grace must not judge the next turn.
+        // Only the daemon's turn-end event completes Stop, never a client-side deadline.
         this.stopAnswered(event);
+        if (this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq) this.stoppingEnded();
         this.pendingPermission = undefined;
         this.waitingPermissions.clear();
         this.groupedPermissions.clear();
@@ -4687,6 +4714,12 @@ export class AcpmuxDirectClient {
     }
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
+    const working =
+      this.replayThrough === undefined &&
+      // acpmux may still list a paused queue as running after its turn failed.
+      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)));
+    // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
+    if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
@@ -4775,11 +4808,9 @@ export class AcpmuxDirectClient {
       ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
-      isWorking:
-        this.replayThrough === undefined &&
-        !this.stopGaveUp &&
-        // acpmux may still list a paused queue's session as running from before its turn failed.
-        (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
+      isWorking: working,
+      // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
+      ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
         ? { turnTokenSplit: this.turnTokenSplit }
@@ -5523,28 +5554,36 @@ export class AcpmuxDirectClient {
     return this.handoff.refresh();
   }
   async cancel(): Promise<void> {
-    if (!this.actingSessionId || !this.socket) return;
-    // Stop ends the turn: a prompt sent now before it no longer continues the turn.
-    this.interrupting = undefined;
-    const text = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "session/cancel",
-      params: { sessionId: this.actingSessionId },
-    });
-    this.wire.sent(text, "session/cancel");
-    this.socket.send(text);
-    // Stop always frees the chat: a turn still open after the grace (acpmux ends one whose agent
-    // ignores the cancel; an older one does not) stops showing as working, and the chat says so.
     const sessionId = this.actingSessionId;
-    const generation = this.selectionGeneration;
-    clearTimeout(this.stopTimer);
-    this.stopAfterSeq = this.lastSeq;
-    this.stopTimer = setTimeout(() => {
-      if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
-      if (!this.turnOpen && this.summary?.status !== "running") return;
-      this.stopGaveUp = true;
-      this.notice(translate("stop.forced"));
-    }, STOP_GRACE_MS);
+    if (!sessionId) return;
+    const socket = this.socket;
+    if (this.closed || socket?.readyState !== WebSocket.OPEN)
+      throw Object.assign(new Error(translate("error.notOpen")), { code: "native.not_connected", origin: "native" });
+    // session/cancel is a notification: completing this send does not mean the turn ended.
+    const text = JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
+    this.wire.sent(text, "session/cancel");
+    socket.send(text);
+    // During a switch's hold Stop targets the chat still drawn, never the hidden chat loading.
+    // Only record it after a successful send, and only against that chat's loaded state.
+    if (sessionId === this.selectedSessionId) {
+      this.interrupting = undefined;
+      this.stopAfterSeq = this.lastSeq;
+      this.stoppingAfterSeq = this.lastSeq;
+      this.stoppedTurnOpener = this.turnOpen ? undefined : "pending";
+      let opener: EventRecord | undefined;
+      if (this.turnOpen) {
+        for (let index = this.events.length - 1; index >= 0; index--) {
+          const event = this.events[index]!;
+          if (event.kind === "turn_started" || event.kind === "user_message") {
+            opener = event;
+            break;
+          }
+        }
+      }
+      const turnId = opener?.msg?.turnId ?? this.summary?.turn?.turnId;
+      this.stoppedTurnId = typeof turnId === "string" ? turnId : undefined;
+      this.emit();
+    }
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
@@ -6914,8 +6953,8 @@ export class AcpmuxDirectClient {
     this.sessionReread = undefined;
     clearTimeout(this.missingRecheck);
     this.missingRecheck = undefined;
-    clearTimeout(this.stopTimer);
-    this.stopTimer = undefined;
+    this.stopAfterSeq = undefined;
+    this.stoppingEnded();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);

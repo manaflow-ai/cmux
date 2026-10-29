@@ -35,7 +35,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let creator: WorkspaceCreator?
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
-    @ObservationIgnored private var surfaces: [String: AgentChatSurface] = [:]
+    @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -422,20 +422,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The workspace's toast (a tab that could not be opened or closed): one short line
     /// (`TabNotice`). `WorkspaceScreen` draws it as a `cmuxMobileDismissibleToast` above the
-    /// bottom chrome; it clears after `noticeLifetime`, on a swipe or on a tap.
+    /// bottom chrome; it clears after `ToastDismissal.lifetime(for:)`, on a swipe or on a tap.
     public private(set) var toastText: String?
     /// TabsKit's own toast is never used: it draws at the top, over the title and Back
     /// (upstream request U6), so the kit always sees no notice.
     public var notice: String? { nil }
     public func clearNotice() { toastText = nil }
 
-    /// How long a toast stays (a UI timeout, not synchronization).
-    static let noticeLifetime: Duration = .seconds(4)
-
     func show(_ text: String) {
         toastText = text
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.noticeLifetime)
+            try? await Task.sleep(for: ToastDismissal.lifetime(for: text))
             if self?.toastText == text { withAnimation { self?.clearNotice() } }
         }
     }
@@ -814,13 +811,22 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    // MARK: Panes (verify/parity-mac.md, Panes; actions in WorkspaceTabsSource+Panes.swift)
+
+    /// The pane whose name the person is editing (Rename Pane…).
+    public var renamingPane: WorkspaceLayout.Pane?
+    /// An Undo Layout Change that closes panes, waiting for the person's yes.
+    public var pendingLayoutUndo: LayoutUndoConfirmation?
+    /// The chat whose fork destination the person is picking (Fork Conversation…).
+    public var forkingTab: WorkspaceTab?
+
     // MARK: Move to another workspace, pins, groups, chat menu (verify/parity-mac.md)
 
     /// The tab whose destination the person is picking (Move Tab to Workspace…).
     public var movingTab: WorkspaceTab?
     /// The tab whose group the person is picking (Add Tab to Group…).
     public var addingToGroupTab: WorkspaceTab?
-    /// A page pushed over the workspace (swipe back returns): its Screens, or a tab group's
+    /// A page pushed over the workspace (swipe back returns): its Screens, its Panes, or a tab group's
     /// actions (the Mac's group chip menu).
     public var route: WorkspaceRoute?
     /// The screen whose name the person is editing (Rename Screen…).
@@ -828,11 +834,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public enum WorkspaceRoute: Hashable, Identifiable {
         case screens
+        /// The Panes page (the Mac's panes of this workspace).
+        case panes
         /// The group's id.
         case tabGroup(String)
         public var id: String {
             switch self {
             case .screens: "screens"
+            case .panes: "panes"
             case .tabGroup(let group): "tab-group.\(group)"
             }
         }
@@ -984,7 +993,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private func chatItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
         guard canEditTabs else { return [] }
         return [
-            TabsKitMenuItem(title: "Fork", systemImage: "arrow.triangle.branch") { [weak self] in Task { await self?.fork(tab.id) } },
+            // The Mac's Fork Conversation destinations (AgentActionCatalog): beside the chat,
+            // in a new tab, or in a new workspace.
+            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: "arrow.triangle.branch") { [weak self] in
+                self?.forkingTab = tab
+            },
             TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
         ]
     }
@@ -1281,7 +1294,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
-        let screens = screensItems(tab)
+        // Panes and Screens: the workspace's layout pages.
+        let layoutPages = panesItems() + screensItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
@@ -1312,7 +1326,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     ? [TabsKitMenuItem(title: "Open Chat Folder in Terminal", systemImage: "apple.terminal") { [weak self] in
                         Task { await self?.openChatFolderInTerminal(tab.id) }
                     }] : []) + chatsItems,
-                screens,
+                layoutPages,
                 edit,
                 [leave],
                 [
@@ -1332,7 +1346,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], chatsItems, screens, edit, closes].filter { !$0.isEmpty }
+            return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -1341,7 +1355,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
                 chatsItems,
-                screens,
+                layoutPages,
                 edit,
                 [leave],
                 closes,
@@ -1353,7 +1367,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Home", systemImage: "circle", isEnabled: model != nil) { model?.pressButton("home") },
                     TabsKitMenuItem(title: "Lock", systemImage: "lock", isEnabled: model != nil) { model?.pressButton("lock") },
                 ],
-                screens,
+                layoutPages,
                 edit,
                 [leave],
                 closes,

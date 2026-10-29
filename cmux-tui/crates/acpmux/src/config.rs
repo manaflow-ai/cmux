@@ -822,6 +822,9 @@ pub struct TransportConfig {
     /// false no UDP socket is bound by acpmux.
     #[serde(default)]
     pub wireguard: bool,
+    /// Static Labs mesh interface; ignored while wireguard is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard_static: Option<crate::wireguard::StaticConfig>,
 }
 
 impl TitlesConfig {
@@ -1329,6 +1332,15 @@ impl Config {
 
     /// Write back to the file this config came from. No-op for in-code configs.
     pub fn save(&self) -> Result<()> {
+        self.save_with_writer(write_atomic)
+    }
+
+    /// Preserve discovered/shadowed profile filtering when a caller needs a
+    /// stronger durability contract than ordinary config writes.
+    pub(crate) fn save_with_writer(
+        &self,
+        write: impl FnOnce(&Path, &[u8]) -> Result<()>,
+    ) -> Result<()> {
         let Some(path) = &self.path else {
             tracing::debug!("config has no file; not saved");
             return Ok(());
@@ -1361,7 +1373,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {

@@ -83,7 +83,9 @@ struct AcpmuxRecords {
             guard let permissionID = msg["permissionId"]?.stringValue else { return [] }
             let outcome = msg["outcome"]
             let optionID = outcome?["outcome"]?.stringValue == "selected" ? outcome?["optionId"]?.stringValue : nil
-            return [.permissionDecision(permissionId: permissionID, optionId: optionID)]
+            // A question's answers, as acpmux put them into the tool's input.
+            let answers = outcome?["_meta"]?["updatedInput"]?["answers"].flatMap { try? Self.convert($0, to: AgentQuestionJSON.self) }
+            return [.permissionDecision(permissionId: permissionID, optionId: optionID, answers: answers)]
         default:
             return []
         }
