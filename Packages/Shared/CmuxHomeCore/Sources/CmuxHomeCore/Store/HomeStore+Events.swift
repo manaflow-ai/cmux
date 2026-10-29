@@ -194,6 +194,10 @@ extension HomeStore {
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
                 settleLive(page.conversation.id) // a reply a page brought ends its run
+                // A page can arrive after the initial transcript read (for example
+                // while paging older history). Hydrate the agent-message projection
+                // for the expanded window just as a snapshot read does.
+                requestAgentMessages(page.conversation.id)
             default:
                 break
             }
