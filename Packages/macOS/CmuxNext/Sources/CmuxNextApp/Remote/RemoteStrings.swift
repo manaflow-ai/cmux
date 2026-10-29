@@ -23,6 +23,8 @@ enum RemoteStrings {
     static var splitRightOrDown: String { String(localized: "remote.terminal.splitRightOrDown", defaultValue: "A terminal from another machine can split right or down only.", table: "Remote", bundle: .module) }
     static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
+    static var signInToCheck: String { String(localized: "remote.joined.signInToCheck", defaultValue: "Sign in to cmux to check this machine.", table: "Remote", bundle: .module) }
+    static var checkStopped: String { String(localized: "remote.joined.checkStopped", defaultValue: "The check stopped before it finished. Try again.", table: "Remote", bundle: .module) }
     static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
     static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module) }
     static var workspaceNotOnSSHMachine: String { String(localized: "remote.failed.workspaceNotSSH", defaultValue: "This workspace does not run on an SSH machine.", table: "Remote", bundle: .module) }

@@ -41,7 +41,7 @@ impl Hub {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-            return Ok(json!({"session": matches[0], "matches": matches, "link": null}));
+            return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
         }
         let (link, found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
@@ -58,7 +58,7 @@ impl Hub {
         }
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
-            "session": matches[0],
+            "session": matches.first(),
             "matches": matches,
             "link": link.map(|l| json!({
                 "harness": l.harness,
