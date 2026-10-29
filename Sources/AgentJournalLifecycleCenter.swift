@@ -92,7 +92,10 @@ final class AgentJournalLifecycleCenter: Sendable {
             }
             func reconcile(_ event: AgentJournalEvent, store: AgentJournalStore, deliver: Bool) async -> Bool {
                 guard let eventAliases = resolver(store) else { return false }
-                let canonical = Self.canonicalized(event, aliases: eventAliases)
+                guard let canonical = Self.admittingBackgroundWorkDrain(
+                    Self.canonicalized(event, aliases: eventAliases),
+                    state: state
+                ) else { return false }
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle,
                    let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
@@ -102,7 +105,8 @@ final class AgentJournalLifecycleCenter: Sendable {
                         Self.apply(
                             application.assignment,
                             workspaceHint: application.workspaceHint,
-                            activity: application.activity
+                            activity: application.activity,
+                            settledDrainedBackgroundWork: application.settledDrainedBackgroundWork
                         )
                     }
                 }
