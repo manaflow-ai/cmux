@@ -70,6 +70,41 @@ import Testing
         #expect(submitted == nil)
     }
 
+    @Test func tabCompletionUsesNamedTextAndPreservesDisabledImeAndTraversalRules() throws {
+        let content = NativePopupContent()
+        let model = try #require(NativePopupModel.decode([
+            "schemaVersion": 1, "id": "completion", "revision": 1,
+            "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20], "side": "bottom", "align": "start", "width": 320,
+            "search": ["id": "query", "value": "", "placeholder": "Search", "completeOnTab": true] as [String: Any],
+            "rows": [
+                ["id": "disabled", "kind": "action", "label": "Disabled", "completion": "disabled", "disabled": true],
+                ["id": "first", "kind": "action", "label": "First", "value": "opaque-key", "completion": "First suggestion"],
+                ["id": "second", "kind": "action", "label": "Second", "completion": "Second suggestion"]
+            ]
+        ]))
+        content.update(model)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        var events: [(String, String?, String?)] = []
+        content.emit = { events.append(($0.rawValue, $1, $2)) }
+        #expect(content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
+        #expect(events.last?.0 == "complete" && events.last?.1 == "first" && events.last?.2 == "First suggestion")
+        search.stringValue = "First suggestion"
+        #expect(!content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
+        #expect(!content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertBacktab(_:))))
+        let editor = NSTextView()
+        editor.setMarkedText("Fir", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        search.stringValue = "Fir"
+        #expect(!content.control(search, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:))))
+        var disabled = model
+        disabled.rows[1].disabled = true
+        disabled.rows[2].disabled = true
+        content.update(disabled)
+        search.stringValue = ""
+        events.removeAll()
+        #expect(!content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
+        #expect(events.isEmpty)
+    }
+
     @Test func alwaysHighlightsInitiallyButDisabledAndMarkedTextNeverSubmit() throws {
         let content = NativePopupContent()
         var next = try model(policy: "always")
