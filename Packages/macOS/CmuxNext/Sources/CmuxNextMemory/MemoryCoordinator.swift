@@ -27,9 +27,10 @@ public import CmuxNextWakeups
 /// - A ``MemoryLevelConsumer`` (a lossy planner with its own pace) also gets the level: at
 ///   registration and after the limits of each level change.
 /// - A slice only unlinks: consumers put what they free in ``releaseSink``, which drops it on a
-///   utility-QoS queue. Each escalation to critical asks the sink for one heap relief when that
-///   level's release pass has finished; warning, a repeated level, or a level that leaves critical
-///   before the pass ends asks for none.
+///   utility-QoS queue. Each escalation of ``limitLevel`` (the level after the hold below) to critical
+///   asks the sink for one heap relief when that level's release pass has finished; warning, a
+///   repeated level (a raw return to critical inside a hold that kept critical), or a level that
+///   leaves critical before the pass ends asks for none.
 /// - Hysteresis: after the level falls, lossless consumers keep the limits of the
 ///   stricter ``limitLevel`` until the level has not changed for ``limitRiseDelay`` (30 s, one
 ///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Only limits a
@@ -163,7 +164,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     private var inputSinceFrameSlice = false
     /// ``followApp(windows:input:)``'s subscriptions, kept for the coordinator's life.
     private var appFollow: (windows: ShownWindowsObservation, input: InputSubscription)?
-    /// Set by an escalation to critical; the slice that finishes that pass relieves the heap once.
+    /// Set by an escalation of ``limitLevel`` to critical; the slice that finishes that pass relieves the heap once.
     private var isHeapReliefDue = false
     private let slicer: any MemoryReleaseSlicer
     private let turns: (any MemoryReleaseTurns)?
@@ -318,7 +319,6 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         let newLevel = pressureOverride ?? kernelLevel
         guard newLevel != level else { return }
         level = newLevel
-        isHeapReliefDue = newLevel == .critical
         // releasedLimitLevel is never stricter than limitLevel, so a rise always takes the else branch.
         let held = newLevel.stricter(releasedLimitLevel)
         if let limitRiseDeadline, held != newLevel {
@@ -345,6 +345,14 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     }
 
     private func setLimitLevel(_ newLevel: MemoryPressureLevel) {
+        // The heap relief follows this effective level, not the raw one: a rise to critical is an escalation
+        // (one relief), a raw return to critical inside a hold that kept it there is a repeated level (none),
+        // and leaving critical before the pass ends cancels the relief.
+        if newLevel != .critical {
+            isHeapReliefDue = false
+        } else if limitLevel != .critical {
+            isHeapReliefDue = true
+        }
         limitLevel = newLevel
         if releasedLimitLevel.severity > newLevel.severity { releasedLimitLevel = newLevel }
     }
