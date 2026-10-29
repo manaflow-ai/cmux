@@ -6,7 +6,8 @@ import Testing
 /// The disclosed tab rows read as children of their workspace, at every sidebar density and width.
 /// The workspace remains the root row: tabs use a stronger inset and quieter secondary typography,
 /// while focused and unread tabs keep the primary ink and existing focus fill.
-@MainActor @Suite(.serialized) struct SidebarWorkspaceTabHierarchyTests {
+@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "needs a GUI display host"))
+struct SidebarWorkspaceTabHierarchyTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode

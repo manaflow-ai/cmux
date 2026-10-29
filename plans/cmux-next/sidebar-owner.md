@@ -519,3 +519,12 @@ existing colors, glass, row geometry and drag behavior.
 ## Home, pinned and list rows share one leading inset and text column (2026-10-28)
 
 - Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot). Before: Home's glyph drew centered in its 20 pt box (ink about 3 pt right of the inset), a pin's ink at the inset, and band labels at box end + 8 pt while pinned titles sat at pin end + 4 pt and workspace titles after an icon at `titleTextX`. Now a bare band glyph starts its ink at the inset (as the pin does), and Home's label, pinned titles and pinned group names use `SidebarStyle.leadingTextX`, the column workspace rows with an icon already used. Wells, tiles, chips and rail buttons are unchanged. Test: `HomePinnedRowAlignmentTests` (every density, Minimal Mode, 200 and 260 pt).
+
+## Disclosed workspace tab hierarchy (2026-10-29)
+
+- Aziz: “This workspace tabs disclosure is annoying, can't make out workspace from non-workspace easily.”
+  Disclosed tab titles now sit 16 pt inside their workspace title column (`SidebarStyle.tabChildIndent`,
+  `Metrics.space4`) and use the existing caption scale. Plain tabs use secondary ink; focused, selected and
+  unread tabs keep primary ink and the existing focused fill. Disclosure, row frames, group rails, motion,
+  trailing columns and defaults stay unchanged. `SidebarWorkspaceTabHierarchyTests` covers ungrouped,
+  grouped and nested parents, favicon and plain tabs, every density, Minimal Mode, narrow widths and reuse.

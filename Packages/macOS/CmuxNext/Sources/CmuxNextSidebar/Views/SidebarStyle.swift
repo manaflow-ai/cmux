@@ -20,6 +20,12 @@ enum SidebarStyle {
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
+    /// The title inset for a disclosed tab, measured from its workspace title column. Tabs are
+    /// children of the workspace row, so this is deliberately larger than the old icon well gap.
+    static var tabChildIndent: CGFloat { Metrics.space4 }
+    /// Tab titles stay at the caption scale so the workspace remains the visual root of the list.
+    static var tabTitleFont: NSFont { Typography.caption }
+    static var tabDetailFont: NSFont { Typography.caption }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.

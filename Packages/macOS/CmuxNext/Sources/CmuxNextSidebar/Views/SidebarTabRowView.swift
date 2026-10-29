@@ -8,14 +8,14 @@ import CmuxNextIcons
 /// workspace's line is the only bar in a hierarchy (cx-ai79). It draws no
 /// kind or agent glyph; only a browser tab's page favicon (Lawrence
 /// 2026-10-14, cx-im75u). An unread tab shows a small muted unread dot
-/// at its trailing edge; its title keeps the primary color and regular weight.
+/// at its trailing edge; a plain tab's caption title recedes while focused and unread titles keep primary contrast.
 /// `sidebar.tabLines` (`SidebarTabLine`, Leo 2026-10-27: "look at what's redundant and look at what's
 /// useful"): by default the name leaves out what the workspace row says, a quieter detail follows it,
 /// an agent's mark takes the icon slot and the tab's own status sits on the trailing column.
 final class SidebarTabRowView: SidebarRowView {
     private let icon = DecorativeImageView() // the row's label names the tab
-    private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let detail = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private let title = SidebarRowView.label(font: SidebarStyle.tabTitleFont)
+    private let detail = SidebarRowView.label(font: SidebarStyle.tabDetailFont)
     /// The tab's own status, on the trailing column as a workspace row's (the tab bar's dot).
     private let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
@@ -51,6 +51,11 @@ final class SidebarTabRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton] }
+
+    override var titleFrame: NSRect { title.frame }
+    override var titleFont: NSFont { title.font ?? SidebarStyle.tabTitleFont }
+    var debugTitleInk: NSColor? { title.textColor }
+    var debugIconFrame: NSRect { icon.frame }
 
     /// The ✕ shows or hides in `layout()`, as a workspace row's does.
     override func hoverChanged() {
@@ -89,7 +94,8 @@ final class SidebarTabRowView: SidebarRowView {
         // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14). The workspace's focused tab
         // is marked by a quiet fill (Leo 2026-10-27: "it should also just slightly demarcate, you know, which pane
         // you're focused on, right? Like which tab within your workspace").
-        title.setFont(SidebarStyle.subtitleFont)
+        title.setFont(SidebarStyle.tabTitleFont)
+        detail.setFont(SidebarStyle.tabDetailFont)
         // A page's favicon draws as is; with the marks on, an agent's mark where there is no favicon.
         let side = SidebarStyle.tabIconSize
         let mark = look.drawsMarks && tab.favicon == nil ? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) } : nil
@@ -120,7 +126,10 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.setColor(Palette.textPrimary)
+            // Plain child rows recede under the workspace root. Focused and unread tabs keep the
+            // primary ink so state remains legible at the quieter hierarchy level.
+            let keepsContrast = isFocusedTab || isSelected || unreadDot.state.isUnread
+            title.setColor(keepsContrast ? Palette.textPrimary : Palette.textSecondary)
             detail.setColor(Palette.textTertiary)
             icon.contentTintColor = iconIsMark ? Palette.textSecondary : nil
             paintFill(isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil)
@@ -138,7 +147,9 @@ final class SidebarTabRowView: SidebarRowView {
         let b = layoutBounds
         // A grouped tab row keeps an ungrouped one's left edge (SidebarListView.frame(for:)).
         let iconSide = SidebarStyle.tabIconSize
-        let iconX = SidebarStyle.titleLeading + Metrics.space3
+        // The title column, rather than the favicon well, carries the hierarchy. Keep the label
+        // cell's internal padding in the well so a no-icon tab still lands exactly at the child inset.
+        let iconX = SidebarStyle.titleLeading + SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
