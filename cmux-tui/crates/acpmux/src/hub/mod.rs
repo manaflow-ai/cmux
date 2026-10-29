@@ -392,6 +392,8 @@ pub struct Hub {
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
+    /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
+    pub(crate) ws_shutdown: crate::server::WsShutdown,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -635,6 +637,7 @@ impl Hub {
             list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
+            ws_shutdown: Default::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),

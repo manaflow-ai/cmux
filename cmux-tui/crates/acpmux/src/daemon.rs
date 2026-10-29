@@ -323,8 +323,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
-    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
-    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -440,9 +438,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
-        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
+        tokio::spawn(crate::server::serve_ws_until(
+            hub.clone(),
+            l,
+            token,
+            auth,
+            ws_shutdown.clone(),
+        ))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -564,6 +569,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
+    // Tell peers and web clients this is a service restart before tearing down transports.
+    // Hosted agents keep running through the existing shutdown/adoption path.
+    ws_shutdown.restart();
+    let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
+    if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
+        tracing::warn!("websocket listeners did not drain before the shutdown deadline");
+    }
+    if let Some(mut task) = ws_task {
+        if tokio::time::timeout_at(drain_deadline, &mut task).await.is_err() {
+            task.abort();
+            let _ = task.await;
+            tracing::warn!("websocket clients did not drain before the shutdown deadline");
+        }
+    }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
@@ -576,9 +595,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
-    if let Some(t) = ws_task {
-        t.abort();
-    }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {

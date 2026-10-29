@@ -27,6 +27,10 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+mod ws_shutdown;
+pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
+pub use ws_shutdown::WsShutdown;
+
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]
 pub struct SubOpts {
@@ -771,7 +775,23 @@ pub async fn serve_ws_with(
     token: String,
     auth: WsAuth,
 ) -> Result<()> {
+    let shutdown = hub.ws_shutdown.clone();
+    serve_ws_until(hub, listener, token, auth, shutdown).await
+}
+
+/// The daemon's listener: drains established WebSockets with Close 1012 on shutdown.
+pub async fn serve_ws_until(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+) -> Result<()> {
+    let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
+    if shutdown.is_requested() {
+        return Ok(());
+    }
     let bound = listener.local_addr()?;
     let (extra_origins, extra_hosts) = {
         let config = hub.config.read().await;
@@ -789,8 +809,15 @@ pub async fn serve_ws_with(
     // already; a caller that did not (tests) gets `token`.
     hub.web_token.set_if_unset(token);
     let handshake_slots = Arc::new(Semaphore::new(WS_HANDSHAKE_CONCURRENCY));
+    let mut connections = tokio::task::JoinSet::new();
     loop {
-        let (stream, peer) = match listener.accept().await {
+        let accepted = tokio::select! {
+            biased;
+            () = shutdown.requested() => break,
+            _ = connections.join_next(), if !connections.is_empty() => continue,
+            accepted = listener.accept() => accepted,
+        };
+        let (stream, peer) = match accepted {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("ws accept failed: {e}");
@@ -813,7 +840,8 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        tokio::spawn(async move {
+        let shutdown = shutdown.clone();
+        connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
@@ -872,7 +900,7 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio::time::timeout(
+            let mut ws = match tokio::time::timeout(
                 WS_HANDSHAKE_TIMEOUT,
                 tokio_tungstenite::accept_hdr_async_with_config(
                     stream,
@@ -898,14 +926,26 @@ pub async fn serve_ws_with(
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
-                    return pairing::serve_redeem(hub, ws, secret).await;
+                    let restarting = tokio::select! {
+                        biased;
+                        () = shutdown.closing() => true,
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
+                    };
+                    if restarting {
+                        ws_shutdown::close(&mut ws, true).await;
+                    }
+                    return;
                 }
                 pairing::Admitted::Device(device) => Some(device),
                 pairing::Admitted::Dashboard => None,
             };
-            let (mut sink, mut source) = ws.split();
+            let (sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
-            let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+            let (out_tx, out_rx) = mpsc::channel::<String>(4096);
+            let mut children = ws_shutdown::Children::new();
+            let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+            let writer = tokio::spawn(ws_shutdown::write(sink, out_rx, stopped, shutdown.clone()));
+            children.track(&writer);
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
             let mut proof = ConnAuth::ListenerToken;
@@ -921,17 +961,20 @@ pub async fn serve_ws_with(
                 origin = Origin::Peer;
                 proof = ConnAuth::PeerToken;
             } else if let Some(auth) = &local_app {
-                let frame = tokio::time::timeout(FIRST_FRAME, async {
-                    while let Some(Ok(frame)) = source.next().await {
-                        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
-                            return Some(t.to_string());
-                        }
-                    }
-                    None
-                })
-                .await
-                .ok()
-                .flatten();
+                let frame = tokio::select! {
+                    biased;
+                    () = shutdown.closing() => None,
+                    frame = async {
+                        tokio::time::timeout(FIRST_FRAME, async {
+                            while let Some(Ok(frame)) = source.next().await {
+                                if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+                                    return Some(t.to_string());
+                                }
+                            }
+                            None
+                        }).await.ok().flatten()
+                    } => frame,
+                };
                 let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let hello = local_app::Hello {
                     listener: bound,
@@ -953,52 +996,38 @@ pub async fn serve_ws_with(
             // Binary frames are upload data (`upload_frames.rs`), written in order by their own
             // worker; it refuses them on any connection but the local app's.
             let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
+            let read_shutdown = shutdown.clone();
             let reader = tokio::spawn(async move {
-                while let Some(frame) = source.next().await {
-                    let frame = match frame {
-                        Ok(frame) => frame,
-                        // A read error ends the connection; say why, or the client sees only a reset.
-                        Err(e) => {
-                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
-                            break;
+                tokio::select! {
+                    biased;
+                    () = read_shutdown.closing() => {},
+                    () = async {
+                        while let Some(frame) = source.next().await {
+                            let frame = match frame {
+                                Ok(frame) => frame,
+                                // A read error ends the connection; say why, or the client sees only a reset.
+                                Err(e) => {
+                                    tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
+                                    break;
+                                }
+                            };
+                            let sent = match frame {
+                                // After the frames before it are written (`upload_frames::InFlight`).
+                                tokio_tungstenite::tungstenite::Message::Text(t) => {
+                                    frames.in_flight.drained().await;
+                                    in_tx.send(t.to_string()).await.is_ok()
+                                }
+                                tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                                _ => true,
+                            };
+                            if !sent {
+                                break;
+                            }
                         }
-                    };
-                    let sent = match frame {
-                        // After the frames before it are written (`upload_frames::InFlight`).
-                        tokio_tungstenite::tungstenite::Message::Text(t) => {
-                            frames.in_flight.drained().await;
-                            in_tx.send(t.to_string()).await.is_ok()
-                        }
-                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
-                        _ => true,
-                    };
-                    if !sent {
-                        break;
-                    }
+                    } => {},
                 }
             });
-            // Ends the writer when the server ends the connection itself:
-            // other tasks may still hold a clone of `out_tx`.
-            let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
-            tokio::spawn(async move {
-                loop {
-                    let line = tokio::select! {
-                        line = out_rx.recv() => line,
-                        _ = &mut stopped => None,
-                    };
-                    let Some(line) = line else { break };
-                    let text = line.trim_end_matches('\n').to_owned();
-                    if sink
-                        .send(tokio_tungstenite::tungstenite::Message::Text(text.into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                // Say so with a Close frame.
-                let _ = sink.close().await;
-            });
+            children.track(&reader);
             // A rotation ends a Web or Peer connection, which presented the
             // dashboard token; a revocation ends a paired machine's, which
             // presented its own. Ending its read half closes `in_rx`, so
@@ -1019,6 +1048,9 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
+            if let Some(watcher) = &watcher {
+                children.track(watcher);
+            }
             match device {
                 Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
                 None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
@@ -1029,8 +1061,23 @@ pub async fn serve_ws_with(
             let _ = stop.send(());
             // Its read half may wait on a silent client; the close is ours.
             reader.abort();
+            let _ = writer.await;
         });
     }
+    // Close admission before clients see 1012, so their immediate retry cannot reconnect to
+    // this dying listener. Already accepted upgrades also see the latched shutdown signal.
+    drop(listener);
+    shutdown.close_clients();
+    if tokio::time::timeout(ws_shutdown::DRAIN_BUDGET, async {
+        while connections.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
+    }
+    Ok(())
 }
 
 async fn refuse_ws_transport(mut stream: tokio::net::TcpStream, status: u16, error: &str) {

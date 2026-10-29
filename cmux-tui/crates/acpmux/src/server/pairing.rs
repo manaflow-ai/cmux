@@ -116,14 +116,13 @@ const REDEEM_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// answer it, and close.
 pub(super) async fn serve_redeem<S>(
     hub: Arc<Hub>,
-    ws: tokio_tungstenite::WebSocketStream<S>,
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
     secret: String,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (mut sink, mut source) = ws.split();
     let first = tokio::time::timeout(REDEEM_WAIT, async {
-        while let Some(Ok(frame)) = source.next().await {
+        while let Some(Ok(frame)) = ws.next().await {
             if let Frame::Text(t) = frame {
                 return Some(t.to_string());
             }
@@ -135,7 +134,7 @@ pub(super) async fn serve_redeem<S>(
     .flatten();
     let Some(Ok(Message::Request { id, method: m, params })) = first.map(|f| Message::parse(&f))
     else {
-        let _ = sink.close().await;
+        super::ws_shutdown::close(ws, false).await;
         return;
     };
     let reply = if m == method::MUX_PAIR_REDEEM {
@@ -147,8 +146,8 @@ pub(super) async fn serve_redeem<S>(
         Ok(v) => Message::ok(id, v),
         Err(e) => Message::err(id, e),
     };
-    let _ = sink.send(Frame::Text(line.to_value().to_string().into())).await;
-    let _ = sink.close().await;
+    let _ = ws.send(Frame::Text(line.to_value().to_string().into())).await;
+    super::ws_shutdown::close(ws, false).await;
 }
 
 async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, RpcError> {
