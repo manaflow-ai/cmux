@@ -29,3 +29,13 @@ test("the standard inline-summary floor follows the effective page scale", () =>
   expect(scaledFloor).toBe(528);
   expect(scaledFloor).toBeLessThan(scaledCap);
 });
+
+test("summary room measurement reruns when the effective page scale changes", () => {
+  const source = readFileSync(
+    path.join(import.meta.dir, "../src/agent-session/acpmux/summary/cardState.ts"),
+    "utf8",
+  );
+  expect(source).toContain("const scale = uiScale();");
+  expect(source).toContain("[shell, blocked, chatWidth, scale]");
+  expect(source).toContain("inlineChatFloor(chatWidth, scale)");
+});

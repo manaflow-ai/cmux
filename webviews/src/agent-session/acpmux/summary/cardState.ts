@@ -73,6 +73,7 @@ const subscribePanel = (listener: () => void) => {
 export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): boolean {
   const [room, setRoom] = useState(false);
   const chatWidth = useChatWidth();
+  const scale = uiScale();
   useLayoutEffect(() => {
     if (!shell || blocked) {
       setRoom(false);
@@ -85,7 +86,9 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       // The summary takes 300px from the same flex row as the transcript. At a width where that
       // would erase the active mode's extra measure, keep it as a popover. The preceding mode's
       // cap is the floor for each wider mode.
-      setRoom(available >= inlineChatFloor(chatWidth) / chatColumnOf(chatWidth).share + SUMMARY_COLUMN_WIDTH);
+      setRoom(
+        available >= inlineChatFloor(chatWidth, scale) / chatColumnOf(chatWidth, undefined, scale).share + SUMMARY_COLUMN_WIDTH,
+      );
     };
     measure();
     const frame = requestAnimationFrame(measure);
@@ -100,7 +103,7 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       observer.disconnect();
       children.disconnect();
     };
-  }, [shell, blocked, chatWidth]);
+  }, [shell, blocked, chatWidth, scale]);
   return room;
 }
 
