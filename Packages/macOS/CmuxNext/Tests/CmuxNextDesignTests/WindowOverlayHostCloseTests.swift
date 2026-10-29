@@ -59,7 +59,7 @@ import Testing
     /// A dialog presented late on a closed window's host shows nothing and takes no input: no
     /// handle, no modal state, no Escape monitor that would outlive the window or catch keys meant
     /// for its fresh host once it shows again.
-    @Test func aLateDialogOnAClosedWindowInstallsNothing() {
+    @Test func aLateDialogOnAClosedWindowInstallsNothing() async {
         let window = Self.window(onScreen: true)
         defer { window.close() }
         let host = WindowOverlayHost.host(for: window)
@@ -69,12 +69,16 @@ import Testing
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
         let handle = late.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dismissOnEscape: true,
                                                                   dimsContent: true, passesThroughClicks: false))
+        var ownerCleanedUp = false
+        handle.onDismiss = { ownerCleanedUp = true }  // wired after present, as every owner does
         #expect(late === host)
-        #expect(handle.isDismissed)
         #expect(late.presentedHandles.isEmpty)
         #expect(!late.blocksWholeWindow)
         #expect(late.escapeMonitor == nil)
         #expect(dialog.superview == nil)
+        for _ in 0..<20 where !handle.isDismissed { await Task.yield() }
+        #expect(handle.isDismissed)
+        #expect(ownerCleanedUp, "the owner's onDismiss never ran, so it keeps a stale overlay")
 
         window.orderFrontRegardless()
         let again = WindowOverlayHost.host(for: window)
