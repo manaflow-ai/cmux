@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Run scripts/cmux-next/restore-journey.py on a fleet capture slot against a fleet DEV build.
 #
-#   scripts/cmux-next/restore-journey-slot.sh JOB [OUT_DIR] [-- restore-journey args...]
+#   scripts/cmux-next/restore-journey-slot.sh JOB [--update-to JOB_B] [OUT_DIR] [-- restore-journey args...]
 #
+# --update-to JOB_B: a relaunch after an update to another build. JOB_B (a done `cmux-ci build cmux`
+# job, its commit from the controller or RJ_UPDATE_COMMIT) is staged beside JOB, and the journey's
+# update variant installs it in place of the slot's copy of JOB before it relaunches
+# (restore-journey.py --update-to, rj_update.py): the state seeded on JOB must come back on JOB_B.
+#   scripts/cmux-next/restore-journey-slot.sh JOB_A --update-to JOB_B OUT -- --variants update
 # JOB is a done `cmux-ci build cmux` job. The build is staged once per host under
 # /Users/Shared/cmux-capture/restore-journey/<JOB> (outside the lease root, so a re-acquire only
 # relaunches), launched in the slot with `capture-host launch`, and the journey runs on the host
@@ -19,6 +24,12 @@ set -euo pipefail
 job=${1:?usage: restore-journey-slot.sh JOB [OUT_DIR] [-- args]}
 shift
 [[ $job =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad JOB: $job" >&2; exit 2; }
+update_job=
+if [ "${1:-}" = "--update-to" ]; then
+  update_job=${2:?--update-to needs JOB_B}
+  shift 2
+  [[ $update_job =~ ^[A-Za-z0-9._-]+$ ]] && [ "$update_job" != "$job" ] || { echo "bad --update-to JOB_B: $update_job" >&2; exit 2; }
+fi
 out=/tmp/restore-journey-$job-$(date +%H%M%S)
 if [ "${1:-}" = "--" ]; then
   shift
@@ -75,16 +86,32 @@ echo "lease $lease host $host slot $slot"
 
 # capture-host launches only the build it is told (--commit, checked against the bundle): the
 # job's commit, or RJ_COMMIT for a job the controller no longer lists.
-commit=${RJ_COMMIT:-$(cmux-ci status "$job" 2>/dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ref", ""))' 2>/dev/null || true)}
+job_commit() { cmux-ci status "$1" 2>/dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("ref", ""))' 2>/dev/null || true; }
+commit=${RJ_COMMIT:-$(job_commit "$job")}
 [[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "no 40-hex commit for job $job (set RJ_COMMIT)" >&2; exit 2; }
-ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$stage' '$run'
-  if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then
-    tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
-    for a in \"\$tmp\"/*.app; do mv \"\$a\" '$stage/'; done; rm -rf \"\$tmp\"
+# stage_build JOB DIR COMMIT: the job's app unzipped once into DIR on the host, its commit beside it.
+stage_build() {
+  ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$2' '$run'
+  if ! find '$2' -maxdepth 1 -name '*.app' | grep -q .; then
+    tmp=\$(mktemp -d '$2/unzip.XXXXXX') && cmux-ci artifact '$1' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
+    for a in \"\$tmp\"/*.app; do mv \"\$a\" '$2/'; done; rm -rf \"\$tmp\"
   fi
   # The commit the staged build was made from, beside it, for capture-host's launch check.
-  echo '$commit' > '$stage/capture-commit'"
-scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+  echo '$3' > '$2/capture-commit'"
+}
+stage_build "$job" "$stage" "$commit"
+update_args=
+if [ -n "$update_job" ]; then
+  update_commit=${RJ_UPDATE_COMMIT:-$(job_commit "$update_job")}
+  [[ $update_commit =~ ^[0-9a-f]{40}$ ]] || { echo "no 40-hex commit for job $update_job (set RJ_UPDATE_COMMIT)" >&2; exit 2; }
+  update_stage=/Users/Shared/cmux-capture/restore-journey/$update_job
+  stage_build "$update_job" "$update_stage" "$update_commit"
+  update_app=$(ssh -o BatchMode=yes "$host" "ls -d '$update_stage'/*.app | head -1")
+  [ -n "$update_app" ] || { echo "job $update_job staged no app" >&2; exit 1; }
+  update_args="--update-to $(printf '%q' "$update_app")"
+  echo "update: $commit -> $update_commit ($update_app)"
+fi
+scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_update.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
@@ -117,7 +144,7 @@ set +e
 left=$((600 - ($(date +%s) - acquired) - 40))
 [ "$left" -gt 120 ] || { echo "only ${left}s left on the lease; not starting the journey" >&2; exit 1; }
 ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --max-seconds $left --socket '$sock' --out '$run/out' \
-  --fake-agent '$run/fake_agent.py' --src '$app' $args" 2>&1 | tee "$out/journey.txt"
+  --fake-agent '$run/fake_agent.py' --src '$app' $update_args $args" 2>&1 | tee "$out/journey.txt"
 status=${PIPESTATUS[0]}
 set -e
 scp -q -r "$host:$run/out/." "$out/" || true
