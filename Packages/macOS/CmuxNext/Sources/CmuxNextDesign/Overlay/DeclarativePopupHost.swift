@@ -66,7 +66,7 @@ final class DeclarativePopupHost {
     }
 
     func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil,
-              sideBySide: Bool = false) -> [String: Any] {
+              sideBySide: Bool = false, preserveKey: Bool = false) -> [String: Any] {
         guard next.isValid, let webView, let window = parentWindow ?? webView.window, window.isVisible else { return ["shown": false] }
         self.sideBySide = sideBySide
         guard next.revision > (retired[next.id] ?? -1) else { return ["shown": false] }
@@ -105,13 +105,16 @@ final class DeclarativePopupHost {
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
         if opening { content.focusInitial() }
+        else if preserveKey { panel.makeKey() }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
     }
 
-    func update(_ next: NativePopupModel, screenAnchor: CGRect? = nil) {
+    func update(_ next: NativePopupModel, screenAnchor: CGRect? = nil, preserveKey: Bool = false) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
-        _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent, sideBySide: sideBySide)
+        let childWasKey = child?.panel.isKeyWindow == true
+        _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent,
+                 sideBySide: sideBySide, preserveKey: preserveKey)
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
@@ -125,7 +128,7 @@ final class DeclarativePopupHost {
             submenu.title = row.label
             submenu.parentId = next.id
             submenu.align = .start
-            child.update(submenu, screenAnchor: submenuAnchor(for: view))
+            child.update(submenu, screenAnchor: submenuAnchor(for: view), preserveKey: childWasKey)
         } else {
             child?.hide()
             child = nil

@@ -201,7 +201,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let target = NativePopupControlTarget(action)
         targets.append(target)
         control.target = target
-        control.action = #selector(NativePopupControlTarget.perform(_:))
+        control.action = #selector(NativePopupControlTarget.controlChanged(_:))
     }
 
     private func activate(_ row: NativePopupRow, view: NSView) {

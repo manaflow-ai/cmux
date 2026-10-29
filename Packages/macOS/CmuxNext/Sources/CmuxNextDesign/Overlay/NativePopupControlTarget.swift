@@ -7,5 +7,5 @@ final class NativePopupControlTarget: NSObject {
 
     init(_ action: @escaping (NSControl) -> Void) { self.action = action }
 
-    @objc func perform(_ sender: NSControl) { action(sender) }
+    @objc func controlChanged(_ sender: NSControl) { action(sender) }
 }

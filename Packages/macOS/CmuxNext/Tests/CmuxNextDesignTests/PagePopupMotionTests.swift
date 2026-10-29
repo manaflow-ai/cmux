@@ -165,7 +165,7 @@ import Testing
         parentContent.openSubmenu(oldRow, parentContent)
         #expect(events.isEmpty, "a disabled ancestor or stale row must not authorize a child action")
         #expect(host.activeID == model.id)
-        #expect(parentPanel.childWindows?.contains { $0.isVisible } != true)
+        #expect(await GUIAnimationTestSupport.settle { parentPanel.childWindows?.contains { $0.isVisible } != true })
         host.hide()
         #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
     }
