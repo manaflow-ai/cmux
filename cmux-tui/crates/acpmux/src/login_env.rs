@@ -1205,13 +1205,13 @@ mod machine_file_tests {
         {
             // Atomic replace with the same size changes the file identity.
             let next = conf.join("replacement");
-            std::fs::write(&next, b"export SESSION_KEY='same-length-secret-value'\n")
+            std::fs::write(&next, b"export SESSION_KEY='same-length-secret-001'\n")
                 .expect("prepare replacement");
             let before = machine_files_stamp_in(dir.path());
-            let same_length = std::fs::read(&secrets).expect("old bytes").len();
-            let mut replacement = std::fs::read(&next).expect("new bytes");
-            replacement.resize(same_length, b' ');
-            std::fs::write(&next, replacement).expect("same length replacement");
+            assert_eq!(
+                std::fs::metadata(&next).expect("replacement").len(),
+                std::fs::metadata(&secrets).expect("old value").len(),
+            );
             std::fs::rename(&next, &secrets).expect("atomic replace");
             assert_ne!(machine_files_stamp_in(dir.path()), before);
         }
