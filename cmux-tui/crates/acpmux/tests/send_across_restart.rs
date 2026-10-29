@@ -128,7 +128,7 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
 
     let started = Instant::now();
-    let send = cli_command(
+    let mut send = cli_command(
         &dir,
         &["send", "--no-wait", "--prompt-id", "handover-prompt", "lane", "across the handover"],
     )
