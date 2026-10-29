@@ -603,11 +603,24 @@ impl ConversationStore {
         &mut self,
         conversation: &str,
         turns: Option<&[String]>,
+        answers: Option<&[String]>,
         before_started_at: Option<u64>,
         limit: u32,
     ) -> anyhow::Result<(Vec<Run>, bool)> {
         if load_head(&self.connection, conversation)?.is_none() {
             return Err(rejected(Reject::UnknownConversation));
+        }
+        if let Some(answers) = answers {
+            let mut statement = self.connection.prepare(
+                "SELECT run_json FROM conversation_run WHERE conversation = ?1",
+            )?;
+            let wanted: std::collections::HashSet<&str> = answers.iter().map(String::as_str).collect();
+            let mut runs = Vec::new();
+            for json in statement.query_map(params![conversation], |row| row.get::<_, String>(0))? {
+                let run: Run = serde_json::from_str(&json?)?;
+                if run.answers.iter().any(|answer| wanted.contains(answer.as_str())) { runs.push(run); }
+            }
+            return Ok((runs, false));
         }
         if let Some(turns) = turns {
             let mut statement = self.connection.prepare(

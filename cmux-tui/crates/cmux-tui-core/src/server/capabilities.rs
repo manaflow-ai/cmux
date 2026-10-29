@@ -302,6 +302,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+        conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY,
         conversation_live::CHIEF_LIVE_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,

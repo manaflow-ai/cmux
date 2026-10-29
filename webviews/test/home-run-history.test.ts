@@ -79,6 +79,8 @@ function client(all: Message[], allRuns: Run[]) {
       }
       if (op === HomeOps.attachmentSupport) return { local: false, cloud: false } as R;
       if (op === HomeOps.runs) {
+        const answers = Array.isArray(params.answers) ? new Set(params.answers.map(String)) : undefined;
+        if (answers) return { runs: allRuns.filter((entry) => entry.answers.some((answer) => answers.has(answer))), hasMore: false } as R;
         const before = typeof params.beforeStartedAt === "number" ? params.beforeStartedAt : Number.MAX_SAFE_INTEGER;
         const limit = Number(params.limit) || 50;
         const available = allRuns.filter((entry) => entry.startedAt < before).sort((a, b) => b.startedAt - a.startedAt);
@@ -165,6 +167,21 @@ test("reload continues past an old answer-bearing boundary for a silent report",
   expect(
     fake.calls.filter((call) => call.op === HomeOps.runs).some((call) => call.params.beforeStartedAt !== undefined),
   ).toBe(true);
+  expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+  stop();
+});
+
+test("answer lookup keeps old silent reports bounded by current history", async () => {
+  const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
+  const allRuns = [run(1, "m1", 0), ...Array.from({ length: 10_000 }, (_, index) => run(index + 2, "unrelated", index + 2))];
+  const fake = client(all, allRuns);
+  const store = new HomeChannelsStore(fake.api as never);
+  const stop = store.subscribe(() => {});
+  await store.start();
+  await waitForReport(store);
+  const runCalls = fake.calls.filter((call) => call.op === HomeOps.runs);
+  expect(runCalls.some((call) => Array.isArray(call.params.answers))).toBe(true);
+  expect(runCalls.length).toBeLessThanOrEqual(3);
   expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
   stop();
 });

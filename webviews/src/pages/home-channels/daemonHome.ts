@@ -69,6 +69,7 @@ const TAPBACK_EMOJI: Record<string, string> = {
 const MAX_PAGE = 200;
 /** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
 const RUNS_CAPABILITY = "conversation-runs-v1";
+const RUN_ANSWERS_CAPABILITY = "conversation-run-answers-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
 const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 /** A Chief's live run frames (`conversation-live*`, the `conversation-live` event for a page that asks). */
@@ -555,6 +556,7 @@ export class DaemonHomeClient implements PageClient {
           capabilities: [
             "conversation-draft-events-v1",
             RUNS_CAPABILITY,
+            RUN_ANSWERS_CAPABILITY,
             AVATARS_CAPABILITY,
             LIVE_CAPABILITY,
             CLOUD_TYPING_CAPABILITY,
@@ -856,8 +858,14 @@ export class DaemonHomeClient implements PageClient {
         const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
           (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
         );
+        const answers = ((params.answers as unknown[] | undefined) ?? []).filter(
+          (answer): answer is string => typeof answer === "string" && answer.length > 0 && answer.length <= 128,
+        );
         const request: Json = { conversation: id };
-        if (turns.length > 0) request.turns = turns.slice(0, 200);
+        if (answers.length > 0) {
+          if (!(await this.capable(RUN_ANSWERS_CAPABILITY))) return { runs: [], hasMore: false };
+          request.answers = answers.slice(0, 200);
+        } else if (turns.length > 0) request.turns = turns.slice(0, 200);
         else {
           request.limit = Math.min(bounded(params.limit, 50), 200);
           if (typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt))
@@ -1119,7 +1127,7 @@ export class DaemonHomeClient implements PageClient {
    * agent), merged newest first. A daemon without the proxy answers nothing. */
   private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
     // The brain lists newest first only: a read by reply keys has nothing more to find.
-    if (!(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) || Array.isArray(params.turns))
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) || Array.isArray(params.turns) || Array.isArray(params.answers))
       return { runs: [], hasMore: false };
     const agents = (this.cloud.summary(id)?.participants ?? [])
       .filter((participant) => participant.kind === "agent")

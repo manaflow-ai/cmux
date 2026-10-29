@@ -1059,46 +1059,46 @@ export class HomeChannelsStore {
         .map((participant) => participant.id),
     );
     const turns = RunBook.turns(messages, agents);
-    const replyKeys = new Set(
-      messages
-        .filter((message) => message.clientMessageId && agents.has(message.author))
-        .map((message) => `${message.author}\0${message.clientMessageId}`),
-    );
     try {
       const direct =
-        turns.length > 0 ? (await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns })).runs : [];
+        turns.length > 0
+          ? ((await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }).catch(() => ({ runs: [], hasMore: false }))).runs)
+          : [];
+      const messageIds = new Set(messages.map((message) => message.id));
+      const answerRuns =
+        messages.length > 0
+          ? ((await this.client.call<HomeRunList>(HomeOps.runs, {
+              conversation,
+              answers: [...messageIds].slice(0, 200),
+            }).catch(() => ({ runs: [], hasMore: false }))).runs)
+          : [];
+      const directRuns = [...direct, ...answerRuns];
+      this.runs.setRuns(directRuns);
+      for (const run of directRuns) await this.loadRunSteps(run);
       // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
       // are selected by their `answers` message id, so walk the owner's run-history cursor until
       // the oldest message in this window is covered and every loaded reply has a run. Cloud's
       // direct lookup can return nothing: a long run can start well before its loaded reply.
-      const unresolvedReplies = new Set(replyKeys);
-      for (const run of direct) {
-        if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
-      }
-      const messageIds = new Set(messages.map((message) => message.id));
       const oldestMessageAt = messages.reduce<number | undefined>(
         (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
         undefined,
       );
       const history: HomeRun[] = [];
-      // A report can answer a loaded question without a posted reply key and start before the
-      // oldest visible message. Once a page contains answer-bearing runs, keep walking the
-      // timestamp cursor until the owner says history ends; the boundary timestamp alone cannot
-      // prove that those older answer runs are covered.
-      let answerBearingHistory = false;
       let beforeStartedAt: number | undefined;
       let page = 0;
       for (;;) {
         const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
         page += 1;
         if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
-        const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        let list: HomeRunList;
+        try {
+          list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        } catch {
+          break;
+        }
         if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
-        answerBearingHistory ||= list.runs.some((run) => run.answers.length > 0);
-        for (const run of list.runs) {
-          if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
-        }
+        this.runs.setRuns(list.runs);
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
           undefined,
@@ -1106,7 +1106,7 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (unresolvedReplies.size === 0 && !answerBearingHistory && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+          (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
@@ -1115,7 +1115,7 @@ export class HomeChannelsStore {
       }
       if (generation !== this.generation || life !== this.life) return;
       const byKey = new Map<string, HomeRun>();
-      for (const run of [...history, ...direct]) {
+      for (const run of [...history, ...directRuns]) {
         const key = `${run.author}\0${run.id}`;
         const held = byKey.get(key);
         if (!held || run.rev > held.rev || (run.rev === held.rev && run.stepCount >= held.stepCount))
@@ -1125,13 +1125,12 @@ export class HomeChannelsStore {
       // Message rows also survive completed and silent turns, including after a reload. Avoid
       // fetching every historical run's tool log: only runs answering a loaded question, direct
       // reply runs, or still-running work can contribute a row to this window.
-      const directKeys = new Set(direct.map((run) => `${run.author}\0${run.id}`));
+      const directKeys = new Set(directRuns.map((run) => `${run.author}\0${run.id}`));
       const newestHistory = new Set(history.slice(0, newest ? 20 : 0).map((run) => `${run.author}\0${run.id}`));
       const relevantRuns = runs.filter((run) => {
         const relevant =
           run.status === "running" ||
           run.answers.some((answer) => messageIds.has(answer)) ||
-          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`)) ||
           directKeys.has(`${run.author}\0${run.id}`) ||
           newestHistory.has(`${run.author}\0${run.id}`);
         return relevant;
@@ -1145,8 +1144,7 @@ export class HomeChannelsStore {
         // A summary can contribute activity state without any row in the loaded transcript.
         if (
           run.answers.some((answer) => messageIds.has(answer)) ||
-          directKeys.has(`${run.author}\0${run.id}`) ||
-          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`))
+          directKeys.has(`${run.author}\0${run.id}`)
         )
           await this.loadRunSteps(run);
       }
