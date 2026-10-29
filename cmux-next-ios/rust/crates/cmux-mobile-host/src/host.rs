@@ -130,7 +130,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
     let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
-    if crate::notify::enabled() {
+    let _notifications = if crate::notify::enabled() {
         // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
         let sealer = services.pairing.as_ref().map(|pairing| {
             Arc::new(crate::sealed_notify::Sealer {
@@ -141,15 +141,17 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 acpmux: services.acpmux.clone(),
             })
         });
-        tokio::spawn(crate::notify::run(
+        Some(AbortTask(tokio::spawn(crate::notify::run(
             config.base_url.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
             Some(config.services.daemon_socket()),
             sealer,
-        ));
-    }
+        ))))
+    } else {
+        None
+    };
     let mailbox = mailbox_for(&services);
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
