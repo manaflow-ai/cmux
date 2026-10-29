@@ -7794,6 +7794,8 @@ function AcpmuxPane() {
           runOf: (row) => lastFailedRuns.current?.get(row)?.rowIds ?? [row],
           hold: (row) => void heldRowPrompt.hold(client.promptDelivery(row)?.promptId),
           takeTicket: () => heldRowPrompt.take()?.ticket,
+          copy: (rowIds) => client.failedPromptCopies(rowIds),
+          restore: (copies) => client.restoreFailedPrompts(copies),
         });
         const sendThrough = async (
           text: string,

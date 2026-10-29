@@ -1335,6 +1335,10 @@ export class AcpmuxDirectClient {
   }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
+  /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
+  /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
+  private clearedBySwitch = new Set<string>();
   /// Prompts sent from this page that acpmux has not taken yet: they live only here until then.
   private untakenSends = 0;
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
@@ -1913,6 +1917,11 @@ export class AcpmuxDirectClient {
     this.rows.clear();
     this.queueAuthors.clear();
     this.forkedAtSeq = undefined;
+    for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
+    for (const id of this.clearedBySwitch) {
+      if (this.clearedBySwitch.size <= 256) break;
+      this.clearedBySwitch.delete(id);
+    }
     this.failedPrompts.clear();
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
@@ -5413,6 +5422,19 @@ export class AcpmuxDirectClient {
     }
     return this.retryPrompt(kept, ticket);
   }
+  /// What a run of failed rows holds now, for a Trust replay to keep across a chat switch.
+  failedPromptCopies(rowIds: readonly string[]): FailedPromptCopy[] {
+    return rowIds.flatMap((rowId) => {
+      const failed = this.failedPrompts.get(rowId);
+      return failed ? [{ rowId, ...failed }] : [];
+    });
+  }
+  /// Puts back the failed prompts of `copies` that a chat switch cleared, so a Trust replay sends
+  /// them. One the person removed or took back into the composer stays gone, and each comes back once.
+  restoreFailedPrompts(copies: readonly FailedPromptCopy[]): void {
+    for (const { rowId, ...failed } of copies)
+      if (!this.failedPrompts.has(rowId) && this.clearedBySwitch.delete(rowId)) this.failedPrompts.set(rowId, failed);
+  }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
     const failed = this.failedPrompts.get(rowId);
@@ -6957,6 +6979,9 @@ const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticke
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 /// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
+/// A failed prompt row's prompt, kept by a Trust replay (``failedPromptCopies``).
+export type FailedPromptCopy = { rowId: string; input: string; attachments: ComposerAttachment[]; promptId?: string };
+
 export function isTrustRefusal(error: unknown): boolean {
   // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
   const reason = (error as { reason?: unknown } | null)?.reason;
