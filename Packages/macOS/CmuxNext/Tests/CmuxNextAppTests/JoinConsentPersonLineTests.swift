@@ -17,12 +17,31 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(line.isPerson && line.supportsConsent)
-        #expect(await line.set(.screen, granted: true) == JoinConsentRecord(screen: true, control: false))
+        #expect(await line.set(.screen, granted: true, ticket: JoinConsentGrantGate().ticket()) == JoinConsentRecord(screen: true, control: false))
         #expect(await line.read() == JoinConsentRecord(screen: true, control: false))
         line.close()
         #expect(daemon.connections == 1, "one connection")
         #expect(daemon.methods == ["initialize", "_acpmux/person_prove", "_acpmux/machine_consent_set", "_acpmux/machine_consent_get"])
         #expect(daemon.granted == ["screen"])
+    }
+
+    /// Round 15 P1 over the real line: a grant whose ticket went stale before the line wrote it (the Labs
+    /// switch moved or settings loaded) is dropped on the line's own queue, where the bytes would go out:
+    /// acpmux never sees the set, the connection closes and the call answers nil.
+    @Test func aStaleGrantTicketSendsNothingOverTheRealLine() async throws {
+        let socket = Self.socketPath()
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.spawnKey(for: socket))
+        defer { daemon.stop() }
+        let line = try #require(await Self.open(socket))
+        #expect(line.isPerson)
+        let gate = JoinConsentGrantGate()
+        let ticket = gate.ticket()
+        gate.invalidate()
+        #expect(await line.set(.screen, granted: true, ticket: ticket) == nil)
+        #expect(await line.read() == nil, "the refused grant closed the connection")
+        line.close()
+        #expect(daemon.methods == ["initialize", "_acpmux/person_prove"], "the stale grant never reached acpmux")
+        #expect(daemon.granted.isEmpty && daemon.refused.isEmpty)
     }
 
     @Test func aSetWithoutTheProveStepIsRefused() async throws {
@@ -32,7 +51,7 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(!line.isPerson)
-        #expect(await line.set(.control, granted: true) == nil)
+        #expect(await line.set(.control, granted: true, ticket: JoinConsentGrantGate().ticket()) == nil)
         line.close()
         #expect(daemon.methods == ["initialize", "_acpmux/machine_consent_set"], "no prove step")
         #expect(daemon.refused == ["control"] && daemon.granted.isEmpty)
@@ -45,7 +64,7 @@ import CmuxNextServer
         defer { daemon.stop() }
         let line = try #require(await Self.open(socket))
         #expect(!line.isPerson)
-        #expect(await line.set(.screen, granted: true) == nil)
+        #expect(await line.set(.screen, granted: true, ticket: JoinConsentGrantGate().ticket()) == nil)
         line.close()
         #expect(daemon.methods == ["initialize", "_acpmux/person_prove", "_acpmux/machine_consent_set"])
         #expect(daemon.refused == ["screen"] && daemon.granted.isEmpty)
