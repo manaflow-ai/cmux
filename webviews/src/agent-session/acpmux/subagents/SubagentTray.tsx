@@ -294,14 +294,13 @@ export const SubagentTray = memo(function SubagentTray({
             <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
-          {starts.length > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__time">
-              {formatDuration(Math.max(0, now - Math.min(...starts)))}
-            </span>
-          )}
-          <span className="acpmux-running-tray__right-action" data-alignment-column="right-action" aria-hidden="true">
+          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
+            {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+          </span>
+          <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
+          <span className="acpmux-running-tray__stop-slot" data-alignment-column="right-action" aria-hidden="true" />
         </button>
       )}
       {fold.present && (
@@ -343,6 +342,7 @@ export const SubagentTray = memo(function SubagentTray({
           label={t("subagents.open", { name: item.agent.name })}
           kind={t("tray.kind.subagent")}
           chevron
+          trayColumns
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -365,6 +365,7 @@ export const SubagentTray = memo(function SubagentTray({
             status="running"
             state={t("subagents.state.running")}
             expanded={canOpenTerminal ? openCommands.has(key) : undefined}
+            trayColumns
             time={
               item.command.startedAt === undefined
                 ? undefined
@@ -419,6 +420,7 @@ export const SubagentTray = memo(function SubagentTray({
         status={SESSION_STATUS[item.session.state]}
         working={item.session.state === "running"}
         state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        trayColumns
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
     );

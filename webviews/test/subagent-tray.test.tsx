@@ -397,6 +397,41 @@ describe("the tray", () => {
     }
   });
 
+  test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
+    const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
+    const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([running], [], [chat], true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenSession: () => {},
+        stop: async () => {},
+      }),
+    );
+    try {
+      const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).not.toBeNull();
+      const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      expect(lines).toHaveLength(2);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
+      expect(
+        lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
+          ?.textContent,
+      ).toBe("");
+      expect(
+        lines.find((line) => line.textContent?.includes("Reviewer"))?.querySelector(".cv-subagent__stop"),
+      ).not.toBeNull();
+    } finally {
+      await done();
+    }
+  });
+
   test("a subagent waiting on the person says so", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now() })], [], NONE, true);
     const { root, done } = await render(

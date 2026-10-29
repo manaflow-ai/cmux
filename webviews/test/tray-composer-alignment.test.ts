@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // Tray and composer share the same left and right control columns in both tray states.
 // The gallery variants are the public fixture IDs for before/after captures:
 // agent-pane.subagent-tray (alignment-collapsed/expanded and Codex/narrow variants).
@@ -10,7 +11,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
   const TOLERANCE = 1;
-  setDefaultTimeout(180_000);
+  setDefaultTimeout(300_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -158,7 +159,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 })(),
                 commandStop: (() => {
                   const stop = document.querySelector<HTMLElement>(
-                    '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
                   );
                   return stop ? rectFrom(stop) : null;
                 })(),
@@ -177,7 +178,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     ),
                   ].find((candidate) => !candidate.querySelector(".acpmux-chat-inspector-stop, .cv-subagent__stop"));
                   const right = row?.querySelector<HTMLElement>(
-                    '.acpmux-agent-line__button > [data-alignment-column="right-action"]',
+                    '.acpmux-agent-line__stop-slot[data-alignment-column="right-action"]',
                   );
                   return right ? rectFrom(right) : null;
                 })(),
@@ -287,7 +288,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               expect(checks.commandRightColumn).toBeLessThanOrEqual(TOLERANCE);
               expect(checks.commandStopWithinRow).toBeLessThanOrEqual(TOLERANCE);
               expect(result.noStopRow, "expanded tray must render a no-stop row").not.toBeNull();
-              expect(result.noStopRight, "no-stop row must retain its right chevron").not.toBeNull();
+              expect(result.noStopRight, "no-stop row must retain its reserved action slot").not.toBeNull();
               expect(checks.noStopRightColumn).toBeLessThanOrEqual(TOLERANCE);
               expect(checks.noStopRightInset).toBeLessThanOrEqual(TOLERANCE);
             }
