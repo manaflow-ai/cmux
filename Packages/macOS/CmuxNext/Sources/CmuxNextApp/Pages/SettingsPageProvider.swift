@@ -88,13 +88,16 @@ final class SettingsPageProvider: PageProvider {
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
     /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that turns
     /// Full access or Dedicated agent machine on when the click behind it was not the HID system's
-    /// (``personTurnsOn(_:_:)``); nil, never.
+    /// (``personTurnsOn(_:_:_:)``); nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     var spentFullAccessGesture: TimeInterval?
     /// A turn-on confirm is up: a second one waits for no answer and is refused.
     var confirmingOwner = false
+    /// Offs per switch and machine (``turnedOff(_:_:)``): an off while that switch's confirm is up
+    /// voids the confirm, so a late success never undoes the off.
+    var offs: [String: Int] = [:]
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -165,8 +168,8 @@ final class SettingsPageProvider: PageProvider {
             // alone never turns it on. Turning it off only narrows what the machine may do, so it
             // needs no gesture (a revoke always works, assistive technology included). The click
             // must also be the HID system's, or the person confirms with Touch ID or the
-            // password (``personTurnsOn(_:_:)``).
-            if on { try await personTurnsOn(.fullAccess, context) }
+            // password (``personTurnsOn(_:_:_:)``).
+            if on { try await personTurnsOn(.fullAccess, id, context) } else { turnedOff(.fullAccess, id) }
             return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
@@ -196,8 +199,8 @@ final class SettingsPageProvider: PageProvider {
             // asks for it (its remote chains then run without the sandbox), so, like Full access,
             // only the person's own click or key in this page turns it on (spent once); off makes
             // the machine keep the sandbox always, which only narrows, so it needs no gesture. The
-            // click must also be the HID system's, or the person confirms (``personTurnsOn(_:_:)``).
-            if on { try await personTurnsOn(.vmHost, context) }
+            // click must also be the HID system's, or the person confirms (``personTurnsOn(_:_:_:)``).
+            if on { try await personTurnsOn(.vmHost, id, context) } else { turnedOff(.vmHost, id) }
             return try await Self.host(setMachineVmHost, "machines")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)

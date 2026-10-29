@@ -9,6 +9,8 @@ extension SettingsPageProvider {
     enum WideningSwitch {
         case fullAccess, vmHost
 
+        func key(_ id: String) -> String { "\(self) \(id)" }
+
         /// The confirm's reason, which macOS shows as "cmux is trying to <reason>."
         var reason: String {
             switch self {
@@ -27,9 +29,11 @@ extension SettingsPageProvider {
     ///   login password (`ownerConfirm`), which a posted click cannot answer. Only a confirm that
     ///   succeeds turns it on; a cancel, a failure, a Mac that cannot ask, or a second ask while one is
     ///   up leaves it off.
-    /// The gesture is spent before the confirm, so a script riding the same click cannot reuse it.
-    /// An off only narrows, so its caller asks for none of this.
-    func personTurnsOn(_ widening: WideningSwitch, _ context: PageCallContext) async throws {
+    /// The gesture is spent before the confirm, so a script riding the same click cannot reuse it. An off
+    /// of the same switch on the same machine while the confirm is up voids it (``turnedOff(_:_:)``), so a
+    /// late success never turns back on what the person turned off. An off only narrows, so its caller
+    /// asks for none of this.
+    func personTurnsOn(_ widening: WideningSwitch, _ id: String, _ context: PageCallContext) async throws {
         let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
               event != spentFullAccessGesture else { throw refusal }
@@ -38,7 +42,13 @@ extension SettingsPageProvider {
         guard !confirmingOwner, let ownerConfirm else { throw refusal }
         confirmingOwner = true
         defer { confirmingOwner = false }
-        guard await ownerConfirm.authenticate(reason: widening.reason) else { throw refusal }
+        let key = widening.key(id), offsBefore = offs[key, default: 0]
+        guard await ownerConfirm.authenticate(reason: widening.reason), offs[key, default: 0] == offsBefore else { throw refusal }
+    }
+
+    /// An off of `widening` on machine `id`: it voids that switch's confirm if one is up.
+    func turnedOff(_ widening: WideningSwitch, _ id: String) {
+        offs[widening.key(id), default: 0] += 1
     }
 }
 

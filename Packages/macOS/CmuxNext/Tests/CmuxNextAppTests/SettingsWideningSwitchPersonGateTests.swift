@@ -25,11 +25,22 @@ import Testing
         var hold = false
         var reasons: [String] = []
         private var pending: CheckedContinuation<Bool, Never>?
+        private var asked: CheckedContinuation<Void, Never>?
 
         func authenticate(reason: String) async -> Bool {
             reasons.append(reason)
             guard hold else { return answer }
-            return await withCheckedContinuation { pending = $0 }
+            return await withCheckedContinuation {
+                pending = $0
+                asked?.resume()
+                asked = nil
+            }
+        }
+
+        /// Returns once a held confirm is up (set before the call that asks starts).
+        func held() async {
+            guard pending == nil else { return }
+            await withCheckedContinuation { asked = $0 }
         }
 
         func resume(_ answer: Bool) {
@@ -78,6 +89,17 @@ import Testing
                 return false
             } catch let error as PageError where error.code == PageNativeOp.userOnlyCode {
                 return true
+            }
+        }
+
+        /// A posted click's on for `op`, left running while its confirm is held.
+        func heldOn(_ op: Switch) throws -> Task<JSONValue, any Error> {
+            let event = try posted()
+            ledger.record(event)
+            let page = page, stamp = event.timestamp
+            return Task {
+                try await page.call(op.rawValue, params: ["id": "m1", "on": true],
+                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: stamp))
             }
         }
 
@@ -198,24 +220,52 @@ import Testing
 
     /// One confirm at a time: while one is up, a second posted click is refused without a second prompt
     /// (an agent cannot stack prompts behind the person's), and the first still turns on only its switch.
-    @Test func aSecondAskWhileOneIsUpIsRefused() async throws {
+    @Test(.timeLimit(.minutes(1))) func aSecondAskWhileOneIsUpIsRefused() async throws {
         let owner = FakeOwner()
         owner.hold = true
         let h = try await make(owner: owner)
-        defer { h.cleanUp() }
-        let first = try h.posted()
-        h.ledger.record(first)
-        let page = h.page, stamp = first.timestamp
-        let asking = Task {
-            try await page.call(Switch.fullAccess.rawValue, params: ["id": "m1", "on": true],
-                                context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: stamp))
+        defer {
+            owner.resume(false)
+            h.cleanUp()
         }
-        for _ in 0..<200 where owner.reasons.isEmpty { await Task.yield() }
+        let asking = try h.heldOn(.fullAccess)
+        await owner.held()
         #expect(owner.reasons.count == 1)
         #expect(try await h.refused(.vmHost, on: true, h.posted()))
         #expect(owner.reasons.count == 1, "no second prompt")
         owner.resume(true)
         _ = try await asking.value
         #expect(h.recorder.sets == ["device true"])
+    }
+
+    /// An off while that switch's confirm is up wins: the confirm's late success turns nothing back on.
+    /// An off of the other switch leaves the confirm standing.
+    @Test(.timeLimit(.minutes(1))) func anOffWhileTheConfirmIsUpVoidsIt() async throws {
+        let owner = FakeOwner()
+        owner.hold = true
+        let h = try await make(owner: owner)
+        defer {
+            owner.resume(false)
+            h.cleanUp()
+        }
+        for op in Switch.allCases {
+            let asking = try h.heldOn(op)
+            await owner.held()
+            #expect(try await !h.refused(op, on: false, h.posted()))
+            owner.resume(true)
+            do {
+                _ = try await asking.value
+                Issue.record("a confirm that outlived an off turned \(op) back on")
+            } catch let error as PageError {
+                #expect(error.code == PageNativeOp.userOnlyCode)
+            }
+        }
+        #expect(h.recorder.sets == ["device false", "vm false"])
+        let asking = try h.heldOn(.vmHost)
+        await owner.held()
+        #expect(try await !h.refused(.fullAccess, on: false, h.posted()))
+        owner.resume(true)
+        _ = try await asking.value
+        #expect(h.recorder.sets == ["device false", "vm false", "device false", "vm true"])
     }
 }
