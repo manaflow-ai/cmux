@@ -1664,13 +1664,17 @@ impl Brain {
                 self.state.pending_reports.push(pending.clone());
                 self.save();
             }
-            let Some(daemon) = self.daemon.as_mut() else {
-                continue;
-            };
             let mut complete = true;
             let mut transport_failed = false;
             for chunk in crate::run::chunks(steps) {
-                if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => daemon.run_append(&conversation, run.clone(), chunk),
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         // This port cannot store display-only runs. Delivery to
                         // Chief still proceeds; reconnecting cannot fix it.
@@ -1703,9 +1707,9 @@ impl Brain {
     }
 
     pub(super) fn flush_pending_reports(&mut self) -> std::collections::HashSet<String> {
-        let Some(daemon) = self.daemon.as_mut() else {
+        if self.daemon.is_none() {
             return std::collections::HashSet::new();
-        };
+        }
         let pending = std::mem::take(&mut self.state.pending_reports);
         if pending.is_empty() {
             return std::collections::HashSet::new();
@@ -1716,7 +1720,16 @@ impl Brain {
             let mut complete = true;
             let mut transport_failed = false;
             for chunk in crate::run::chunks(report.steps.clone()) {
-                if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => {
+                        daemon.run_append(&report.conversation, report.run.clone(), chunk)
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         (self.log)("agent report display unavailable: runs unsupported");
                         break;

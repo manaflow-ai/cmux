@@ -576,6 +576,8 @@ export interface HomeRunChange {
 export interface HomeRunList {
   runs: HomeRun[];
   hasMore: boolean;
+  /** This owner returned every retained run answering the requested message ids. */
+  answersComplete?: boolean;
 }
 
 /** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */

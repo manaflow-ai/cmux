@@ -44,7 +44,7 @@ const run = (index: number, answer: string, startedAt = index + 1): Run => ({
   answers: [answer],
 });
 
-function client(all: Message[], allRuns: Run[]) {
+function client(all: Message[], allRuns: Run[], answerLookup = true) {
   const streams = new MockPageStreams();
   const calls: { op: string; params: Record<string, unknown> }[] = [];
   const conversation = {
@@ -80,7 +80,17 @@ function client(all: Message[], allRuns: Run[]) {
       if (op === HomeOps.attachmentSupport) return { local: false, cloud: false } as R;
       if (op === HomeOps.runs) {
         const answers = Array.isArray(params.answers) ? new Set(params.answers.map(String)) : undefined;
-        if (answers) return { runs: allRuns.filter((entry) => entry.answers.some((answer) => answers.has(answer))), hasMore: false } as R;
+        if (answers)
+          return {
+            runs: answerLookup ? allRuns.filter((entry) => entry.answers.some((answer) => answers.has(answer))) : [],
+            hasMore: false,
+            answersComplete: answerLookup,
+          } as R;
+        if (Array.isArray(params.turns))
+          return {
+            runs: allRuns.filter((entry) => entry.turn && (params.turns as string[]).includes(entry.turn)),
+            hasMore: false,
+          } as R;
         const before = typeof params.beforeStartedAt === "number" ? params.beforeStartedAt : Number.MAX_SAFE_INTEGER;
         const limit = Number(params.limit) || 50;
         const available = allRuns.filter((entry) => entry.startedAt < before).sort((a, b) => b.startedAt - a.startedAt);
@@ -134,10 +144,27 @@ function waitForReport(store: {
   });
 }
 
+// Await the actual history tasks rather than stopping as soon as the first row appears.
+function trackRunLoads(store: InstanceType<typeof HomeChannelsStore>): () => Promise<void> {
+  const internal = store as unknown as {
+    loadRuns(conversation: string, messages: readonly Message[], newest: boolean): Promise<void>;
+  };
+  const original = internal.loadRuns.bind(store);
+  const loads: Promise<void>[] = [];
+  internal.loadRuns = (...args) => {
+    const load = original(...args);
+    loads.push(load);
+    return load;
+  };
+  return async () => {
+    await Promise.all(loads);
+  };
+}
+
 test("reload pages past twenty newer runs to restore a silent report", async () => {
   const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
   const allRuns = [run(1, "m1"), ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`))];
-  const fake = client(all, allRuns);
+  const fake = client(all, allRuns, false);
   const store = new HomeChannelsStore(fake.api as never);
   const stop = store.subscribe(() => {});
   await store.start();
@@ -149,7 +176,7 @@ test("reload pages past twenty newer runs to restore a silent report", async () 
   stop();
 });
 
-test("reload continues past an old answer-bearing boundary for a silent report", async () => {
+test("answer lookup restores a silent report older than the message window", async () => {
   const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
   // The first history page ends at a run started at the oldest loaded message. The report is
   // older, has no turn/reply key, and answers that loaded question; the strict timestamp cutoff
@@ -164,20 +191,25 @@ test("reload continues past an old answer-bearing boundary for a silent report",
   const stop = store.subscribe(() => {});
   await store.start();
   await waitForReport(store);
-  expect(
-    fake.calls.filter((call) => call.op === HomeOps.runs).some((call) => call.params.beforeStartedAt !== undefined),
-  ).toBe(true);
+  expect(fake.calls.filter((call) => call.op === HomeOps.runs).some((call) => Array.isArray(call.params.answers))).toBe(
+    true,
+  );
   expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
   stop();
 });
 
 test("answer lookup keeps old silent reports bounded by current history", async () => {
   const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
-  const allRuns = [run(1, "m1", 0), ...Array.from({ length: 10_000 }, (_, index) => run(index + 2, "unrelated", index + 2))];
+  const allRuns = [
+    run(1, "m1", 0),
+    ...Array.from({ length: 10_000 }, (_, index) => run(index + 2, "unrelated", index + 2)),
+  ];
   const fake = client(all, allRuns);
   const store = new HomeChannelsStore(fake.api as never);
+  const settled = trackRunLoads(store);
   const stop = store.subscribe(() => {});
   await store.start();
+  await settled();
   await waitForReport(store);
   const runCalls = fake.calls.filter((call) => call.op === HomeOps.runs);
   expect(runCalls.some((call) => Array.isArray(call.params.answers))).toBe(true);
@@ -618,6 +650,112 @@ test("a failed unversioned read retries on a later history page but not repeated
     await waitForReport(store);
     expect(attempts).toBe(2);
   } finally {
+    stop();
+  }
+});
+
+test("answer lookup batches every message in a retained 300-message window", async () => {
+  const all = Array.from({ length: 300 }, (_, index) => message(index + 1));
+  const fake = client(all, [
+    run(1, "m300", 0),
+    ...Array.from({ length: 199 }, (_, index) => run(index + 2, "elsewhere", index + 2)),
+  ]);
+  const api = {
+    ...fake.api,
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      const result = await fake.api.call<R>(op, raw);
+      return op === HomeOps.page ? { ...result, messages: all } : result;
+    },
+  };
+  const store = new HomeChannelsStore(api as never);
+  const settled = trackRunLoads(store);
+  const stop = store.subscribe(() => {});
+  try {
+    await store.start();
+    await settled();
+    expect(
+      fake.calls
+        .filter((call) => Array.isArray(call.params.answers))
+        .map((call) => (call.params.answers as string[]).length),
+    ).toEqual([200, 100]);
+    expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+  } finally {
+    stop();
+  }
+});
+
+for (const field of ["turns", "answers"]) {
+  test(`stopping Home during a ${field} lookup cancels hydration`, async () => {
+    const fake = client([{ ...message(2), clientMessageId: "turn" }], [run(1, "m2")]);
+    let release!: (value: unknown) => void;
+    let started!: () => void;
+    const pending = new Promise<unknown>((resolve) => {
+      release = resolve;
+    });
+    const requested = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const api = {
+      ...fake.api,
+      async call<R>(op: string, raw: unknown): Promise<R> {
+        if (op === HomeOps.runs && Array.isArray((raw as Record<string, unknown>)[field])) {
+          started();
+          return (await pending) as R;
+        }
+        return fake.api.call<R>(op, raw);
+      },
+    };
+    const store = new HomeChannelsStore(api as never);
+    const settled = trackRunLoads(store);
+    const stop = store.subscribe(() => {});
+    await store.start();
+    await requested;
+    stop();
+    release({ runs: [run(1, "m2")], hasMore: false });
+    await settled();
+    expect(fake.calls.filter((call) => call.op === HomeOps.run)).toHaveLength(0);
+    expect(store.runs.get("chief-conv", "chief", "r1")).toBeUndefined();
+  });
+}
+
+test("a slow failing later history page does not hide messages already found", async () => {
+  const reply = { ...message(130), clientMessageId: "unresolved" };
+  const fake = client([message(129), reply], [run(1, "m129", 100)], false);
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const api = {
+    ...fake.api,
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      const params = raw as Record<string, unknown>;
+      if (op === HomeOps.runs && !params.turns && !params.answers) {
+        if (params.beforeStartedAt !== undefined) {
+          started();
+          await pending;
+          throw new Error("owner disconnected");
+        }
+        return { runs: [run(1, "m129", 100)], hasMore: true } as R;
+      }
+      return fake.api.call<R>(op, raw);
+    },
+  };
+  const store = new HomeChannelsStore(api as never);
+  const settled = trackRunLoads(store);
+  const stop = store.subscribe(() => {});
+  try {
+    await store.start();
+    await requested;
+    expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+    release();
+    await settled();
+    expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+  } finally {
+    release();
     stop();
   }
 });

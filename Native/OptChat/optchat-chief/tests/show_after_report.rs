@@ -238,6 +238,7 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
         )));
     let _ = delivered_report(&mut h);
     assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 1);
 
     // A daemon reconnect flushes the durable outbox. The fake records both
     // the ambiguous first attempt and its replay; the owner would upsert the
@@ -267,6 +268,38 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
     ids.dedup();
     assert_eq!(ids.len(), 1, "the report has one stable note id");
     assert_eq!(reports.len(), 2, "one failed attempt and one replay");
+}
+
+#[test]
+fn a_replayed_report_transport_failure_requests_reconnect() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Transport("first connection reset".into())));
+    delivered_report(&mut h);
+    assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 1);
+
+    // The reconnect itself can lose its write too. The pending report must
+    // stay durable, and this second failure must request another reconnect
+    // rather than attempting later reports on the broken port.
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Transport("replay connection reset".into())));
+    h.connect();
+    assert!(!h.brain.state().pending_reports.is_empty());
+    assert_eq!(h.owner.lock().unwrap().reconnects, 2);
+
+    // A subsequent healthy connection flushes the retained report.
+    h.connect();
+    assert!(h.brain.state().pending_reports.is_empty());
 }
 
 #[test]
