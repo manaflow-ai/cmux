@@ -172,11 +172,18 @@ fn a_connections_requests_run_on_its_pump_and_the_persons_on_the_user_lane() {
         }
         scheduler.finish_and_wait();
     }
+    assert_eq!(
+        ConnectionRoute::of(true, EventCause::Automation),
+        ConnectionRoute { lane: Lane::System, priority: EventCause::Automation.work_priority() },
+        "an automation request on the person's connection stays off User"
+    );
     for cause in [EventCause::Frontend, EventCause::Automation, EventCause::Program] {
-        assert_eq!(
-            ConnectionRoute::of(true, cause),
-            ConnectionRoute { lane: Lane::User, priority: Priority::UserBlocking }
-        );
+        if cause != EventCause::Automation {
+            assert_eq!(
+                ConnectionRoute::of(true, cause),
+                ConnectionRoute { lane: Lane::User, priority: Priority::UserBlocking }
+            );
+        }
         assert_eq!(
             ConnectionRoute::of(false, cause),
             ConnectionRoute { lane: Lane::System, priority: cause.work_priority() }

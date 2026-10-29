@@ -149,12 +149,12 @@ impl Mux {
         );
     }
 
-    /// Queues the end of a local terminal's reader (`surface::local_reader`)
-    /// on the Files lane, in the terminal's publication `sequence`: after
-    /// every publication its output queued, and on a thread that may block
-    /// (the exit is a registry commit, `Mux::surface_exited`). A refused or
-    /// dropped item drops `end`, which releases what the reader held and
-    /// publishes nothing (shutdown, the owner gone).
+    /// Queues the exit publication of a local terminal whose reader ended
+    /// (`surface::local_reader`) on the Files lane, in the terminal's
+    /// publication `sequence`: after every publication its output queued,
+    /// and on a thread that may block (the exit is a registry commit,
+    /// `Mux::surface_exited`). A refused or dropped item publishes nothing
+    /// (shutdown); the reaper publishes the exit if it ends later.
     pub(crate) fn post_terminal_end(
         &self,
         sequence: &Arc<mux_work::Sequence>,

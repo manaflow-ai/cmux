@@ -221,6 +221,9 @@ impl Surface {
         if !self.has_pending_publication() {
             return;
         }
+        // The writer's half of the fence in `publish_posted_publications`:
+        // its change is stored before it reads the flag.
+        std::sync::atomic::fence(Ordering::SeqCst);
         if pty.publication_posted.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -258,6 +261,11 @@ impl Surface {
             self.id,
         );
         pty.publication_posted.store(false, Ordering::Release);
+        // The clear and the reads below against a writer's "change, then
+        // set the flag" are the store-buffering pattern: without a full
+        // fence both sides may see the other's old value, and a change made
+        // as this pass starts would be neither read here nor posted again.
+        std::sync::atomic::fence(Ordering::SeqCst);
         // The foreground check first: the directory upsert below carries the
         // record too, and must not publish the previous check's idle fact.
         self.check_pending_shell_foreground();

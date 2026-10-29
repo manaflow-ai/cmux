@@ -160,8 +160,11 @@ pub(crate) struct ConnectionRoute {
 }
 
 impl ConnectionRoute {
+    /// A request with an automation cause goes to System even on a
+    /// connection classed as the person's (an agent's connection from the
+    /// app's process): User carries only what the person waits on.
     pub(crate) fn of(person: bool, cause: crate::event_cause::EventCause) -> Self {
-        if person {
+        if person && cause != crate::event_cause::EventCause::Automation {
             return Self { lane: Lane::User, priority: Priority::UserBlocking };
         }
         Self { lane: Lane::System, priority: cause.work_priority() }

@@ -161,28 +161,16 @@ impl LocalReader {
         self.end();
     }
 
-    /// The stream ended. The end runs on the terminal's publication
-    /// sequence (Files lane, may block), after every publication its output
-    /// queued, from both readers and at every load: it releases the
-    /// parser's descriptor, publishes the final frame and, once the far side
-    /// ended too, the exit (a registry commit, which a reader may not make).
-    /// No inline path. An end that never runs there (shutdown dropped it, or
-    /// the owner is gone) still releases the descriptor and the final frame
-    /// as it drops ([`ReaderEnd`]); nothing is left to publish then.
+    /// The stream ended. The reader releases the parser's descriptor and
+    /// publishes the final frame here, at once (memory only, from both
+    /// readers and at every load), so the last frame never waits behind
+    /// other terminals' commits. The exit, a registry commit a reader may
+    /// not make, goes to the terminal's publication sequence (Files lane,
+    /// may block): after every publication the terminal's output queued, so
+    /// it follows the last cwd and progress. No inline path for it. An exit
+    /// item that never runs (shutdown) publishes nothing, and the reaper
+    /// publishes the exit if it ends later.
     fn end(self) {
-        let target = self
-            .surface
-            .as_pty()
-            .and_then(|pty| Some((pty.mux.upgrade()?, pty.publications.clone())));
-        let end = ReaderEnd(Some(self));
-        if let Some((owner, publications)) = target {
-            owner.post_terminal_end(&publications, move || end.run());
-        }
-    }
-
-    /// Releases the parser's descriptor and publishes the final frame:
-    /// memory only, and the PTY is drained.
-    fn release(&self) {
         #[cfg(unix)]
         {
             let mut output = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -190,37 +178,21 @@ impl LocalReader {
             // duplicated PTY descriptor alive with that placement.
             output.finish();
         }
-        if let Some(pty) = self.surface.as_pty() {
-            pty.publish_final_frame();
-            pty.local_pty_drained.store(true, Ordering::Release);
-        }
-    }
-}
-
-/// A local reader's end, owned from its post to its run. It runs on the
-/// terminal's publication sequence; dropped unrun, it still releases what
-/// the reader held. The reader (and its completion) drops with it, after
-/// the exit is published.
-struct ReaderEnd(Option<LocalReader>);
-
-impl ReaderEnd {
-    fn run(mut self) {
-        let Some(reader) = self.0.take() else { return };
-        // R3 (Debug): the exit commit never runs where blocking is disallowed.
-        debug_assert!(
-            !cmux_threads::blocking::is_blocking_disallowed(),
-            "a terminal's end ran on a thread that disallows blocking"
-        );
-        reader.release();
-        publish_local_exit_if_ready(&reader.surface);
-    }
-}
-
-impl Drop for ReaderEnd {
-    fn drop(&mut self) {
-        if let Some(reader) = self.0.take() {
-            reader.release();
-        }
+        let Some(pty) = self.surface.as_pty() else { return };
+        pty.publish_final_frame();
+        pty.local_pty_drained.store(true, Ordering::Release);
+        let Some(owner) = pty.mux.upgrade() else { return };
+        let surface = self.surface.clone();
+        owner.post_terminal_end(&pty.publications, move || {
+            // R3 (Debug): the exit commit never runs where blocking is disallowed.
+            debug_assert!(
+                !cmux_threads::blocking::is_blocking_disallowed(),
+                "a terminal's exit ran on a thread that disallows blocking"
+            );
+            publish_local_exit_if_ready(&surface);
+        });
+        // The reader's completion drops here, after the descriptor is
+        // released and the exit is queued, as before this change.
     }
 }
 
