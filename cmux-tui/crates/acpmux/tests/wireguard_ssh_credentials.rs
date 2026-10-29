@@ -130,7 +130,6 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
     let remote_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let local_endpoint = local_udp.local_addr().unwrap();
     let remote_endpoint = remote_udp.local_addr().unwrap();
-    drop(remote_udp);
     let remote_daemon = start(
         remote.path(),
         json!({
@@ -140,6 +139,7 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
         }),
         None,
     );
+    drop(remote_udp);
     let config: Value =
         serde_json::from_slice(&std::fs::read(remote.path().join("config.json")).unwrap()).unwrap();
     let token = config["websocket"]["token"].as_str().unwrap();
