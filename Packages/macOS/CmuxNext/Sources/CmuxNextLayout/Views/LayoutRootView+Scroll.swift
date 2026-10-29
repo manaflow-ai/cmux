@@ -10,15 +10,14 @@ public import CmuxNextDesign
 ///   + scroll moves the layout anywhere on the screen, a Chromium page's own window included:
 ///   sideways pans the columns strip (or the innermost scroll area under the pointer that can move,
 ///   scroll-areas-DESIGN.md I2), up and down scrolls the rows of the column under the pointer
-///   (rows.md V5), or pans the strip over a column whose rows do not overflow. In the layout's own
-///   window (a terminal, a chat, any pane that is not a Chromium page) a Command scroll is always
-///   the layout's, even where it has nothing to move (the strip fits): it is kept and nothing
-///   moves, so the pane never scrolls (Lawrence 2026-10-28). From a Chromium page's window, a
-///   Command gesture is the layout's only where the layout has anything to scroll (strip overflow,
-///   rows that overflow under the pointer, a scroll area under the pointer that can move); there,
-///   with `layout.pagesHandleCommandScroll` on, the page is asked first and keeps the gesture when
-///   it cancels Command + wheel (Figma, Excalidraw: `LayoutRootView+PageScroll`). Elsewhere the
-///   page gets it (Back and Forward swipes).
+///   (rows.md V5), or pans the strip over a column whose rows do not overflow. On a columns screen
+///   a Command scroll is always the layout's, over any pane, a Chromium page included, and in
+///   browser focus mode too (it gives the page the keys, not the Command scroll): even where it
+///   has nothing to move (the strip fits) it is kept and nothing moves but the rubber band, so the
+///   pane never scrolls (Lawrence 2026-10-28). From a Chromium page's window, with
+///   `layout.pagesHandleCommandScroll` on, the page is asked first and keeps the gesture when it
+///   cancels Command + wheel (Figma, Excalidraw: `LayoutRootView+PageScroll`). On a screen with
+///   nothing to scroll at all (no columns), the page gets it.
 /// - `none`: the rule before `command`. Horizontal gestures over a columns screen are claimed by
 ///   the layout (first dominant axis decides), except where the pane's own content scrolls
 ///   sideways (`LayoutRootView+ScrollClaim`); vertical ones pass through, except over a column
@@ -173,12 +172,11 @@ extension LayoutRootView: ScrollGestureOwning {
                 ? (view, local) : nil
             if event.modifierFlags.contains(.command) {
                 // Anywhere on the screen, over any pane: the layout's scroll.
-                // In the layout's own window (a terminal, a chat) a columns screen takes a Command
-                // scroll even when the strip fits: the strip follows the fingers (rubber band) and
-                // springs back, and the pane never scrolls (Lawrence 2026-10-28). A page window
-                // keeps one the layout has nothing to move for (its swipe Back and Forward).
-                let ownColumns = !fromPageWindow && view.geometry.isColumns
-                var targets = ScrollTargets(columns: view.acceptsHorizontalScroll || ownColumns ? view : nil,
+                // A columns screen takes a Command scroll even when the strip fits, over a terminal,
+                // a chat or a browser alike: the strip follows the fingers (rubber band) and springs
+                // back, and the pane never scrolls (Lawrence 2026-10-28, browser focus mode included).
+                // From a page window the page is asked first (`LayoutRootView+PageScroll`).
+                var targets = ScrollTargets(columns: view.acceptsHorizontalScroll || view.geometry.isColumns ? view : nil,
                                             rows: view.rowScrollColumn(at: local, modifierHeld: true).map { (view, $0) },
                                             area: area, columnsTakeEitherAxis: true)
                 targets.claimsWholeGesture = !targets.isEmpty
