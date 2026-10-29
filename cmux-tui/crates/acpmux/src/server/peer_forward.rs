@@ -37,6 +37,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_REPORT,
     // A GitHub action is for this daemon's own caller session (`github_broker.rs`).
     method::MUX_GITHUB_ACTION,
+    // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
+    method::MUX_GITHUB_APP_LEASE,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,

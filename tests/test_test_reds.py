@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -251,6 +252,112 @@ class PerTest(unittest.TestCase):
                      "Thread 0 Crashed:: EXC_BAD_ACCESS (SIGSEGV)"):
             with self.subTest(line):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
+
+
+def health(fresh=(), known=(), slow=(), **extra):
+    """A shard's health.json (scripts/gallery-matrix/health.ts): its broken states and its states over budget."""
+    return json.dumps({"fresh": [{"state": s, "reason": r} for s, r in fresh],
+                       "known": [{"state": s, "reason": r} for s, r in known], "fixed": [],
+                       "slow": [{"state": s, "ms": ms, "budget": b} for s, ms, b in slow], "lower": [], **extra})
+
+
+WAIT = "play: waitFor did not hold within 5000 ms"
+
+
+class GalleryHealth(unittest.TestCase):
+    """Gallery health's broken and over-budget states, judged per state against the same states rendered on the base
+    (gallery-health.yml): the base entries that held SHIP'd webview PRs (streaming-text#jump-during-stream over budget,
+    narrow#model-menu and model-picker#many-harnesses never reaching their state) are warnings, nothing else is."""
+
+    # Base run 40777215289 (feat-cmux-next 4e1a84f9), shards 0, 2 and 3.
+    BASE = health(fresh=[("agent-pane.empty-state#search", WAIT), ("agent-pane.narrow#model-menu", WAIT),
+                         ("agent-pane.model-picker#many-harnesses", WAIT)],
+                  slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)])
+
+    def test_states_broken_the_same_way_on_the_base_are_the_bases(self):
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT)],
+                      slow=[("agent-pane.streaming-text#jump-during-stream", 16890, 2000)])
+        verdict = reds.gallery_classify(head, self.BASE, "feat-cmux-next 4e1a84f9")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["agent-pane.narrow#model-menu: " + WAIT.replace("5000", "#"),
+                                          "agent-pane.streaming-text#jump-during-stream: over its ready-time budget"])
+
+    def test_a_state_the_allowlist_names_on_the_base_counts_as_broken_there(self):
+        verdict = reds.gallery_classify(health(fresh=[("a.b#c", WAIT)]), health(known=[("a.b#c", WAIT)]))
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_state_the_base_renders_is_the_heads_own(self):
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT), ("agent-pane.composer#new", WAIT)])
+        verdict = reds.gallery_classify(head, self.BASE)
+        self.assertTrue(verdict.own)
+        self.assertIn("agent-pane.composer#new", verdict.reasons[0])
+        self.assertNotIn("narrow", verdict.reasons[0])
+
+    def test_a_state_broken_another_way_on_the_base_is_the_heads_own(self):
+        # The base reaches the state slowly; the head never reaches it: another red.
+        base = health(slow=[("a.b#c", 4000, 2000)])
+        self.assertTrue(reds.gallery_classify(health(fresh=[("a.b#c", WAIT)]), base).own)
+        self.assertTrue(reds.gallery_classify(health(slow=[("a.b#c", 4000, 2000)]), health(fresh=[("a.b#c", WAIT)])).own)
+        thrown = health(fresh=[("a.b#c", "play threw: no tray")])
+        self.assertTrue(reds.gallery_classify(thrown, health(fresh=[("a.b#c", "play threw: no rows")])).own)
+        # Any budget miss is the same red, however far over; the numbers in a reason are not its kind.
+        self.assertFalse(reds.gallery_classify(health(slow=[("a.b#c", 9000, 2000)]), base).own)
+        within = health(fresh=[("a.b#c", "play: waitFor did not hold within 3000 ms")])
+        self.assertFalse(reds.gallery_classify(within, health(fresh=[("a.b#c", WAIT)])).own)
+
+    def test_a_crashed_render_is_never_the_bases(self):
+        crashed = health(fresh=[("a.b#c", "did not render: page.goto: Target crashed")])
+        verdict = reds.gallery_classify(crashed, crashed)
+        self.assertTrue(verdict.own)
+        self.assertIn("crashed", verdict.reasons[0])
+
+    def test_a_cut_short_or_unreadable_head_is_never_the_bases(self):
+        for head in (None, "", "{not json", json.dumps({"error": "gallery health could not render: browser launch"}),
+                     json.dumps({"fresh": []})):
+            with self.subTest(head=head):
+                verdict = reds.gallery_classify(head, self.BASE)
+                self.assertTrue(verdict.own)
+                self.assertIn("per-state results are not whole", verdict.reasons[0])
+
+    def test_no_base_or_a_cut_short_base_excuses_nothing(self):
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT)])
+        for base in (None, "", json.dumps({"error": "gallery health could not render: browser launch"})):
+            with self.subTest(base=base):
+                verdict = reds.gallery_classify(head, base)
+                self.assertTrue(verdict.own)
+                self.assertIn("no whole base result", verdict.reasons[-1])
+
+    def test_a_head_with_nothing_red_is_not_a_gallery_red(self):
+        self.assertIsNone(reds.gallery_classify(health(known=[("a.b#c", WAIT)]), None))
+
+    def test_the_entries_to_replay_are_the_heads_red_entries(self):
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT), ("agent-pane.narrow#effort", WAIT)],
+                      slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)], known=[("x.y#z", WAIT)])
+        self.assertEqual(reds.gallery_entries(head), ["agent-pane.narrow", "agent-pane.streaming-text"])
+
+    def test_the_command_line_warns_on_base_reds_and_fails_on_its_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base = Path(tmp, "head.json"), Path(tmp, "base.json")
+            base.write_text(self.BASE)
+            run = lambda *args: subprocess.run([sys.executable, str(ROOT / "scripts/ci/test_reds.py"), "gallery",
+                                                "--head", str(head), *args], capture_output=True, text=True)
+            head.write_text(health(fresh=[("agent-pane.narrow#model-menu", WAIT)]))
+            found = run("--entries")
+            self.assertEqual((found.returncode, found.stdout.strip()), (0, "agent-pane.narrow"))
+            found = run("--base", str(base), "--annotate")
+            self.assertEqual(found.returncode, 0, found.stdout + found.stderr)
+            self.assertIn("::warning title=gallery health: base red::agent-pane.narrow#model-menu", found.stdout)
+            head.write_text(health(fresh=[("agent-pane.composer#new", WAIT)]))
+            found = run("--base", str(base), "--annotate")
+            self.assertEqual(found.returncode, 1)
+            self.assertIn("::error title=gallery health::", found.stdout)
+            # A crash needs no replay: it is the head's whatever the base shows.
+            head.write_text(health(fresh=[("a.b#c", "did not render: Target crashed")]))
+            self.assertEqual(run("--entries").returncode, 1)
+            head.write_text(health())
+            self.assertEqual(run("--entries").returncode, 2)
+            head.unlink()
+            self.assertEqual(run("--base", str(base)).returncode, 1)
 
 
 class Demangle(unittest.TestCase):
