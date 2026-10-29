@@ -637,6 +637,19 @@ pub(super) async fn handle_request(
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
+    // A message's class is checked here, before a peer's prompt is forwarded: an older peer
+    // ignores the field, and a send queued for later would fail only once it is delivered.
+    match m {
+        method::SESSION_PROMPT => {
+            crate::prompt_class::declared(&params)?;
+        }
+        method::MUX_SEND_QUEUE => {
+            if let Some(request) = params.get("request") {
+                crate::prompt_class::declared(request)?;
+            }
+        }
+        _ => {}
+    }
     let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the

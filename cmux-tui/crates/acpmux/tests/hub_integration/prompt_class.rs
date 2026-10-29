@@ -101,6 +101,12 @@ async fn a_class_that_is_not_one_of_the_four_is_refused() {
             "{bad}: {refused:?}"
         );
     }
+    // A send handed to the outbox is checked when it is handed over, not when it is delivered,
+    // and so is one to a peer's session (checked before it is forwarded).
+    let mut later = from_agent(&id, "p-y", "lane-a", None);
+    later["_meta"]["acpmux"]["class"] = json!("urgent");
+    let refused = c.request(method::MUX_SEND_QUEUE, json!({"request": later})).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("class must be one of")), "{refused:?}");
 }
 
 /// A hub whose log lives in `dir`, so a second one there is the same daemon restarted.

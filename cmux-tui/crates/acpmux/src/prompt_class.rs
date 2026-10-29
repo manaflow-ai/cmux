@@ -130,4 +130,11 @@ mod tests {
         assert_eq!(recorded(&json!({"class": "nope"})), None);
         assert_eq!(recorded(&json!({})), None);
     }
+
+    #[test]
+    fn a_queued_record_from_before_classes_restores_an_agents_message_as_a_result() {
+        let old = json!({"promptId": "p", "fromAgent": "lane-a"});
+        assert_eq!(of_message(recorded(&old), true), Some(PromptClass::Result));
+        assert_eq!(of_message(recorded(&old), false), None);
+    }
 }
