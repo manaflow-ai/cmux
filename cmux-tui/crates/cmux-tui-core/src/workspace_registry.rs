@@ -3821,6 +3821,9 @@ fn skipped_by_open_check(table: &str) -> bool {
         || mutation_ledger_retention::is_quarantined_ledger(table)
 }
 
+/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
+pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
+
 /// The first row of a registry state table whose foreign key names a missing
 /// parent: `(table, rowid, parent, foreign key index)`. The open migrates
 /// state tables with foreign keys off and validates the resource topology, so
@@ -3829,7 +3832,7 @@ fn skipped_by_open_check(table: &str) -> bool {
 /// socket waited.
 pub(crate) fn first_state_foreign_key_violation(
     connection: &Connection,
-) -> anyhow::Result<Option<(String, i64, Option<String>, i64)>> {
+) -> anyhow::Result<Option<ForeignKeyViolation>> {
     let tables = {
         let mut statement = connection.prepare(
             "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)

@@ -5111,7 +5111,7 @@ fn upsert_resource_identity(
 fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     // The registry state tables only: the receipt ledgers and journal history
     // are validated when read, and walking them made a large registry's open slow.
-    let violation = super::first_state_foreign_key_violation(transaction)?;
+    let violation = first_state_foreign_key_violation(transaction)?;
     if let Some((table, rowid, parent, index)) = violation {
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"
