@@ -800,6 +800,8 @@ impl Translator {
                 // the next boundary (from a fresh compaction) remains visible.
                 if !self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst) {
                     out.push(upd(compaction_update("completed", line)));
+                } else {
+                    self.cancelled_compaction.store(false, Ordering::SeqCst);
                 }
             }
             // Claude Code 2.1.303 says `status: compacting` when a compaction
