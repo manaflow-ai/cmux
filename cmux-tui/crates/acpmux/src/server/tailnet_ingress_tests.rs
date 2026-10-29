@@ -350,7 +350,8 @@ async fn tailnet_restart_drains_device_and_waiting_ticket_with_1012() {
 async fn tailnet_restart_interrupts_a_blocked_reply_write() {
     use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role as WsRole};
     let h = hub();
-    let (device, _) = h.pairing.issue("blocked-reader", Role::Client).unwrap();
+    let (_, token) = h.pairing.issue("blocked-reader", Role::Client).unwrap();
+    let device = h.pairing.device_for(&token).unwrap();
     let (ours, theirs) = tokio::io::duplex(64);
     let ws = WebSocketStream::from_raw_socket(ours, WsRole::Server, None).await;
     let mut client = WebSocketStream::from_raw_socket(theirs, WsRole::Client, None).await;
