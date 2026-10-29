@@ -102,6 +102,7 @@ cmux-app-host.workspace = true
 # The generated SDK types decode server-stats sections (server_stats_tests.rs).
 cmux-sdk = { path = "../../bindings/rust", default-features = false }
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
+ghostty-vt = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
