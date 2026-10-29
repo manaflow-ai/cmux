@@ -1876,6 +1876,53 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     assert!(on_b.get("peer").is_none(), "{on_b}");
 }
 
+/// A secret method for a chat on a peer is refused on this daemon with the way that machine gets a
+/// value (a delivery to its file), and nothing reaches the peer: no value, no ref, no card.
+#[tokio::test]
+async fn a_secret_for_a_peer_chat_is_refused_here_and_never_reaches_the_peer() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "secrets").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "vaulted"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    for (m, p) in [
+        (
+            "_acpmux/secret_submit",
+            json!({"sessionId": remote_id, "secretId": "s1", "value": "sk-live-123"}),
+        ),
+        (
+            "_acpmux/secret_run",
+            json!({"sessionId": remote_id, "secretRef": "secret_x", "env": "API_KEY", "argv": ["true"]}),
+        ),
+        (
+            "_acpmux/secret_request",
+            json!({"sessionId": remote_id, "name": "API_KEY", "reason": "deploy"}),
+        ),
+    ] {
+        let refused = ca.call(m, p).await;
+        assert!(
+            refused.as_ref().is_err_and(|e| e.contains("runs on b")
+                && e.contains("cmux cloud deliver-secrets --target machine:b --names NAME")
+                && !e.contains("sk-live-123")),
+            "{m}: {refused:?}"
+        );
+    }
+    // B never heard of it: its chat holds no secret record.
+    let page =
+        cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 5000})).await.unwrap();
+    let events = page["events"].as_array().unwrap();
+    assert!(
+        events.iter().all(|e| !e["kind"].as_str().unwrap_or("").starts_with("secret_")),
+        "{page}"
+    );
+}
+
 /// A TCP relay in front of `port` that counts the bytes each way: what
 /// crosses the peer link between two daemons. Returns its port and the
 /// counters (toward the client, toward the server).
