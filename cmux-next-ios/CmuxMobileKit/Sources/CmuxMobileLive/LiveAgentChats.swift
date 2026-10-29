@@ -44,7 +44,8 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
 
     /// One acpmux `SessionSummary` as a listed chat; nil for one a chat list leaves out: a
     /// peer's session (it runs on another machine, which this Mac's tab cannot show), a side
-    /// chat (`side` tag) and a session another chat's agent started (it lists under its parent).
+    /// chat (`side` tag) and a session another chat's agent started (`spawnedBy`, or a
+    /// sub-session's `startedBy`, which stays set after its parent closes: it lists under its parent).
     nonisolated static func listing(_ value: JSONValue) -> AgentChatListing? {
         // A chat with no harness names no agent a tab of it could run.
         guard let id = value["sessionId"]?.stringValue, !id.isEmpty,
@@ -52,7 +53,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         if let peer = value["peer"]?.stringValue, !peer.isEmpty { return nil }
         let tags = value["tags"]
         if tags?["side"] != nil { return nil }
-        if value["spawnedBy"]?.stringValue != nil { return nil }
+        for parent in ["spawnedBy", "startedBy"] where value[parent]?.stringValue?.isEmpty == false { return nil }
         let archived = tags?["archived"] != nil || value["archived"] == .bool(true)
         let title = value["title"]?.stringValue ?? value["lastPrompt"]?.stringValue
         return AgentChatListing(
