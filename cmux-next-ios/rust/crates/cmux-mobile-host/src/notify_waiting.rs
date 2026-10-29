@@ -145,15 +145,15 @@ impl Waiting {
     }
 
     fn forget(&mut self, session: &str) {
-        if let Some((_, id)) = self.sessions.remove(session) {
-            if self.active != Some(id) {
-                self.requests.remove(&id);
-                self.queued.retain(|queued| *queued != id);
-            }
-            // A request already sent still occupies the server's slot until its
-            // response. Keep its deadline so a lost stale response cannot stall
-            // later work; the state check above discards its eventual payload.
+        if let Some((_, id)) = self.sessions.remove(session)
+            && self.active != Some(id)
+        {
+            self.requests.remove(&id);
+            self.queued.retain(|queued| *queued != id);
         }
+        // A request already sent still occupies the server's slot until its
+        // response. Keep its deadline so a lost stale response cannot stall
+        // later work; the state check above discards its eventual payload.
     }
 }
 
