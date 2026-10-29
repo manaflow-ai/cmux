@@ -95,6 +95,30 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.head.stop.left).toBe(first!.stop.left);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
+
+        const longState = await page.evaluate(() => {
+          const row = document.querySelector<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line");
+          const state = row?.querySelector<HTMLElement>(".acpmux-agent-line__status .acpmux-summary-agent__state");
+          const status = row?.querySelector<HTMLElement>(".acpmux-agent-line__status");
+          if (!state || !status) throw new Error("missing status state");
+          state.textContent = "A very long localized waiting state that must stay in its track";
+          const stateBox = state.getBoundingClientRect();
+          const statusBox = status.getBoundingClientRect();
+          const style = getComputedStyle(state);
+          return {
+            stateRight: stateBox.right,
+            statusRight: statusBox.right,
+            minWidth: style.minWidth,
+            overflow: style.overflow,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          };
+        });
+        expect(longState.stateRight).toBeLessThanOrEqual(longState.statusRight + 0.5);
+        expect(longState.minWidth).toBe("0px");
+        expect(longState.overflow).toBe("hidden");
+        expect(longState.textOverflow).toBe("ellipsis");
+        expect(longState.whiteSpace).toBe("nowrap");
       } finally {
         await page.close();
       }

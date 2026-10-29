@@ -502,8 +502,9 @@ button.cv-subagent > :last-child {
   gap: 8px;
 }
 .acpmux-running-tray .acpmux-summary-agent__state {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: calc(100% - 20px);
+  width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
