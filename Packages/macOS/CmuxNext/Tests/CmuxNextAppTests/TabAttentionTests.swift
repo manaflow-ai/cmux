@@ -103,7 +103,7 @@ import Testing
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
         let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
                                     paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-tab-attention-remote-unused")),
-                                    environment: { [:] })
+                                    environment: { [:] }, mainWork: services.mainWork)
         services.machines.add(ssh)
         let (remoteWorkspace, remoteTab) = try Self.markedWorkspace(in: ssh.daemon.store, name: "lab work", reason: "Log in to GitHub")
         let (localWorkspace, localTab) = try Self.markedWorkspace(in: services.daemon.store, name: "coord", reason: "Confirm access",
