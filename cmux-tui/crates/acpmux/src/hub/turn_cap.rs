@@ -145,8 +145,12 @@ impl Hub {
             return;
         }
         {
+            // The turn is read under the meta lock (nothing takes the meta lock under the turn's),
+            // so an attempt for a turn that has ended never replaces a later turn's marker.
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if meta.turn_cap_noticed.as_deref() == Some(turn_id) {
+            if meta.turn_cap_noticed.as_deref() == Some(turn_id)
+                || session.turn().is_none_or(|t| t.turn_id != turn_id)
+            {
                 return;
             }
             meta.turn_cap_noticed = Some(turn_id.to_owned());

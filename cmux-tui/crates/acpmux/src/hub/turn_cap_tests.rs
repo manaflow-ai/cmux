@@ -133,20 +133,27 @@ impl Fixture {
         turn.started_at = turn.started_at.saturating_sub(cap + 1);
     }
 
-    /// The notices the agent got, by the turn their provenance names.
+    /// The notices logged, by the turn their provenance names.
+    fn logged_notices(&self) -> Vec<String> {
+        let records = self.hub.events(&self.session.id, 0, 100_000).unwrap();
+        records
+            .iter()
+            .filter(|r| r.kind == "user_message")
+            .filter(|r| r.msg["_meta"]["provenance"]["kind"] == NOTICE_KIND)
+            .map(|r| r.msg["_meta"]["provenance"]["turnId"].as_str().unwrap_or("").to_owned())
+            .collect()
+    }
+
+    /// The notices the agent got, by the turn their provenance names: called once every notice
+    /// logged has been heard (none may still be on its way).
     fn notices(&self) -> Vec<String> {
+        let logged = self.logged_notices();
         let records = self.hub.events(&self.session.id, 0, 100_000).unwrap();
         let sent = records
             .iter()
             .filter(|r| r.dir == "out" && r.kind == "session/prompt")
             .filter(|r| r.msg["params"]["prompt"].to_string().contains(NOTICE))
             .count();
-        let logged: Vec<String> = records
-            .iter()
-            .filter(|r| r.kind == "user_message")
-            .filter(|r| r.msg["_meta"]["provenance"]["kind"] == NOTICE_KIND)
-            .map(|r| r.msg["_meta"]["provenance"]["turnId"].as_str().unwrap_or("").to_owned())
-            .collect();
         assert_eq!(sent, logged.len(), "every notice logged is one the agent got");
         logged
     }
@@ -272,10 +279,11 @@ async fn the_timer_sends_the_notice_at_the_cap_only_when_a_message_waits() {
     let started = f.session.turn().unwrap().started_at;
     let (queued, _) = f.send("report from lane a", Some("lane-a"), false, false).await;
     assert_eq!(queued.unwrap()["queued"], true);
-    // Checked only while the cap is still ahead: a slow machine may already be past it.
-    let notices = f.notices();
+    // Checked only while the cap is still ahead: a slow machine may already be past it, its
+    // notice logged and still on its way to the agent.
+    let logged = f.logged_notices();
     if now_ms().saturating_sub(started) < 2_500 {
-        assert!(notices.is_empty(), "nothing before the cap");
+        assert!(logged.is_empty(), "nothing before the cap");
     }
     f.heard(&format!("steer: {}", notice_text(3_000))).await;
     assert_eq!(f.notices(), [turn_id]);
