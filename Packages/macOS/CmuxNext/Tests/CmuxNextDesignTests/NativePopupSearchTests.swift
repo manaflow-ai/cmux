@@ -140,4 +140,23 @@ import Testing
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.isEmpty)
     }
+
+    @Test func delayedDescriptorEchoCannotOverwriteAnewerLocalEdit() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        search.stringValue = "ab"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        next.revision += 1
+        next.search?.value = "a"
+        next.search?.editSequence = 0
+        content.update(next)
+        #expect(search.stringValue == "ab")
+        next.revision += 1
+        next.search?.value = "AB"
+        next.search?.editSequence = content.lastEditSequence
+        content.update(next)
+        #expect(search.stringValue == "AB")
+    }
 }
