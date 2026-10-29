@@ -42,7 +42,7 @@ const USER = /^[a-z_][a-z0-9_-]{0,31}$/
 /** An id from the platform or acpmux (machine, join token, team, label): plain, short, and never token-shaped,
  * since it goes into URLs, log lines and the evidence before or without a mask. Anything else is null. */
 export const safeId = (v: unknown): string | null =>
-  typeof v === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(v) && !/cm[jm]_|^eyJ|bearer/i.test(v) ? v : null
+  typeof v === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(v) && !/^\.+$/.test(v) && !/cm[jm]_|^eyJ|bearer/i.test(v) ? v : null
 
 /** A log line that can start no workflow command: no `::` (v2 commands), no `##[` (v1), one line only. */
 export const plainLine = (text: string) =>
@@ -199,7 +199,8 @@ export function evidenceLeaks(text: string, secrets: ReadonlyArray<string>): str
   if (text.includes("cmm_")) found.push("credential prefix")
   if (new RegExp(JWT.source).test(text)) found.push("jwt")
   if (/bearer|authorization/i.test(text)) found.push("auth header")
-  if (secrets.some((s) => s.length >= 4 && text.includes(s))) found.push("held secret")
+  // A held value as JSON writes it, too: quotes, backslashes and control characters come out escaped.
+  if (secrets.some((s) => s.length >= 4 && (text.includes(s) || text.includes(JSON.stringify(s).slice(1, -1))))) found.push("held secret")
   return found
 }
 
@@ -344,11 +345,13 @@ export async function runE2E(
   }
   const left = () => cancelBy - reserve - deps.now()
   const budget = () => (cancelled ? Math.max(250, Math.min(3_000, left())) : 20_000)
-  const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
+  // `keep`: a cancel does not abort this request (its own timeout still bounds it), for a request whose
+  // effect cleanup must know of to undo it (the install's registration).
+  const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown; keep?: boolean }) => {
     const res = await deps.fetch(url, {
       method: init.method,
       redirect: "error",
-      signal: AbortSignal.any([deps.timeout(budget()), inFlight.signal]),
+      signal: init.keep ? deps.timeout(budget()) : AbortSignal.any([deps.timeout(budget()), inFlight.signal]),
       headers: { "user-agent": USER_AGENT, ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
@@ -382,11 +385,12 @@ export async function runE2E(
   let joinEnded = false
   const joinStop = new AbortController()
 
-  const op = async (name: string, params: unknown) => {
+  const op = async (name: string, params: unknown, keep = false) => {
     const r = await call(`${DEV_API}/v1/ops`, {
       method: "POST",
       headers: { authorization: `Bearer ${stack!.access}` },
-      body: { op: name, params, idempotency_key: crypto.randomUUID(), origin: "cli" }
+      body: { op: name, params, idempotency_key: crypto.randomUUID(), origin: "cli" },
+      keep
     })
     if (r.status !== 200 || r.json?.ok !== true) throw refusedBy(name, r)
     return r.json.value
@@ -529,7 +533,10 @@ export async function runE2E(
         }
       }
       if (evidence.joinTokenId && joinStarted && !machineRevoked && !evidence.machineId) say("no machine was listed for this join token; nothing to revoke")
-      if (authing) await settle(authing, 1_000, 20_000)
+      // The auth stage (a registration in flight survives a cancel) gets what is left of the cancel budget,
+      // less 1.5 s for the install's revoke and the sign-out. Its private key never leaves this process, so
+      // an install whose answer never comes cannot be used.
+      if (authing) await settle(authing, Math.max(250, cancelBy - deps.now() - 1_500), 20_000)
       if (install && stack) {
         await op("install.revoke", { install }).then(
           () => say("revoked the run's cmux install"),
@@ -593,7 +600,8 @@ export async function runE2E(
           name: `machine-join-e2e ${opts.runId}`.slice(0, 80),
           device_name: "machine-join-e2e runner",
           platform: "linux"
-        }))?.id ?? ""
+          // Kept through a cancel: cleanup must learn the install's id to revoke it.
+        }, true))?.id ?? ""
       )
       live()
       await accessToken()
@@ -686,7 +694,9 @@ export async function runE2E(
     evidence.status.joinIncomplete = s.joinIncomplete === true
     evidence.status.revoked = s.revoked === true
     evidence.status.hubReachable = s.hubReachable === true
-    evidence.consent = { screen: String(s.consent?.screen ?? "") || null, control: String(s.consent?.control ?? "") || null }
+    // Only the two values acpmux defines; anything else is recorded as null (and fails the consent check).
+    const consentValue = (v: unknown) => (v === "none" || v === "granted" ? v : null)
+    evidence.consent = { screen: consentValue(s.consent?.screen), control: consentValue(s.consent?.control) }
     expect(evidence.status.credentialPresent, "status: no credential")
     expect(!evidence.status.joinIncomplete, "status: join incomplete")
     expect(!evidence.status.revoked, "status: revoked before the revoke")

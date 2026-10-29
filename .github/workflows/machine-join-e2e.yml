@@ -173,7 +173,9 @@ jobs:
             HOME="$JOIN_HOME" USER="$JOIN_USER" LOGNAME="$JOIN_USER" \
             PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
             "$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN" --name ci-join-smoke --json >"$out" 2>&1 || code=$?
-          cat -- "$out"
+          # acpmux's output, made plain: no line can start a workflow command (::stop-commands:: would turn
+          # the later steps' masks into text).
+          sed -e 's/::/: :/g' -e 's/##\[/## [/g' -- "$out"
           if [ "$code" -eq 5 ]; then
             echo "::error::acpmux refused its state directory as the disposable user (exit 5, join.store)"
             exit 1

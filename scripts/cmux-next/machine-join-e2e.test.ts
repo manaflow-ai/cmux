@@ -87,6 +87,10 @@ interface Knobs {
   credentialStat?: string
   /** What stat says of the credential file before the daemon starts, when it differs from after. */
   credentialStatBeforeDaemon?: string
+  /** install.register answers this long after it arrives, and honours the request's abort meanwhile. */
+  registerDelayMs?: number
+  /** What status shows as consent.screen (default "none"). */
+  consentScreen?: unknown
   /** What `stat -c %F|%U|%h|%a` says of the state directory. */
   stateDirStat?: string
   /** Each kill command takes this long to return. */
@@ -210,6 +214,13 @@ function world(k: Knobs = {}) {
     if (url === `${DEV_API}/v1/ops`) {
       if (headers.authorization !== `Bearer ${STACK_ACCESS}`) return json(401, { code: "auth.unauthorized" })
       k.onOp?.(parsed.op)
+      if (parsed.op === "install.register" && k.registerDelayMs) {
+        const done = await Promise.race([
+          after(k.registerDelayMs).then(() => "answered"),
+          new Promise<string>((resolve) => init.signal?.addEventListener("abort", () => resolve("aborted"), { once: true }))
+        ])
+        if (done === "aborted") throw new DOMException("aborted", "AbortError")
+      }
       const value = parsed.op === "user.ensure" ? { id: "user_1" } : parsed.op === "install.register" ? { id: "inst_1" } : { id: "inst_1", revoked: true }
       return json(200, { ok: true, value })
     }
@@ -296,7 +307,7 @@ function world(k: Knobs = {}) {
         hubReachable: joined,
         lastHeartbeat: lastHeartbeat === null ? null : (k.heartbeatValue ?? String)(lastHeartbeat),
         revoked,
-        consent: { screen: "none", control: "none" },
+        consent: { screen: k.consentScreen === undefined ? "none" : k.consentScreen, control: "none" },
         credentialPath: k.statusCredentialPath ?? CRED_PATH,
         joinIncomplete: false
       }
@@ -1035,6 +1046,27 @@ describe("non-ASCII held values", () => {
   })
 })
 
+describe("consent and escaped values", () => {
+  test("a consent value other than none or granted is recorded as null, never echoed", async () => {
+    // A password with JSON-special characters, echoed back as the consent value.
+    const password = 'pa"ss\\word\nline-two'
+    const w = world({ consentScreen: password })
+    const e = await runE2E(opts, { ...env, CMUX_UITEST_STACK_PASSWORD: password }, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.consent).toEqual({ screen: null, control: "none" })
+    expect(e.reason).toContain("consent is not none for both screen and control")
+    const text = w.evidenceText()
+    expect(text).not.toContain(JSON.stringify(password).slice(1, -1))
+    expect(text).not.toContain("line-two")
+    assertNoSecretEscaped(w)
+  })
+
+  test("evidenceLeaks finds a held value in its JSON-escaped form", () => {
+    const held = 'se"cret\\val\nue'
+    expect(evidenceLeaks(JSON.stringify({ x: held }), [held])).toContain("held secret")
+  })
+})
+
 describe("heartbeats", () => {
   test("a read without a beat just before the deadline: the pause ends at the deadline", async () => {
     // Read 1 takes 59 s, the pause 3 s, read 2 27 s: it ends at 89 s with no beat, leaving 1 s for the pause.
@@ -1127,6 +1159,19 @@ describe("cancellation during sign-in", () => {
     assertNoSecretEscaped(w)
   })
 
+  test("a cancel during install.register does not abort it: its late answer is still revoked", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    // The server commits the install; its answer reaches us 1 s after the cancel.
+    const w = world({ registerDelayMs: 1_000, onOp: (op) => void (op === "install.register" && (cancelled = cancel!())) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    const ops = w.calls.filter((c) => c.url === `${DEV_API}/v1/ops`).map((c) => JSON.parse(c.body).op)
+    expect(ops).toEqual(["user.ensure", "install.register", "install.revoke"])
+    expect(e.result).toBe("fail")
+    assertNoSecretEscaped(w)
+  })
+
   test("an install registered while cleanup has begun is still revoked", async () => {
     let cancel: (() => Promise<void>) | undefined
     let cancelled: Promise<void> | undefined
@@ -1154,7 +1199,7 @@ describe("redaction helpers", () => {
 
   test("safeId keeps plain ids and refuses token shapes, paths and control characters", () => {
     for (const ok of ["m_1", "jt_1", "team_1", "ci-join-123", "01J9ZK-abc.def"]) expect(safeId(ok)).toBe(ok)
-    for (const bad of ["::stop-commands::pause", "a:b", `cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
+    for (const bad of [".", "..", "...", "::stop-commands::pause", "a:b", `cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
       expect(safeId(bad)).toBeNull()
   })
 

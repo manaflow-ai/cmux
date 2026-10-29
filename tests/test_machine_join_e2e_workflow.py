@@ -161,6 +161,9 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn('if [ "$code" -eq 5 ]', run)
         self.assertIn('if [ "$code" -ne 2 ]', run)
         self.assertIn('"$JOIN_HOME/.acpmux"', run)
+        # acpmux's output is printed only made plain, never raw: no line of it can start a workflow command.
+        self.assertIn("sed -e 's/::/: :/g' -e 's/##\\[/## [/g' -- \"$out\"", run)
+        self.assertNotRegex(run, r'(?m)^\s*cat\b')
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
