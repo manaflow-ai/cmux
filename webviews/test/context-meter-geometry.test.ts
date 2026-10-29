@@ -34,7 +34,6 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
   test("five equal categories end at exactly their 95% allocation", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     const shots = process.env.CMUX_CONTEXT_METER_SHOTS;
-    const captureOnly = process.env.CMUX_CONTEXT_METER_CAPTURE_ONLY === "1";
     const baseline = process.env.CMUX_CONTEXT_METER_BASELINE === "1";
     const cases = [
       {
@@ -120,7 +119,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
     }
   });
 
-  if (!captureOnly) {
+  if (process.env.CMUX_CONTEXT_METER_CAPTURE_ONLY !== "1") {
     test("tiny positive categories keep colored fill under their separator", async () => {
       const page: Page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
       try {
