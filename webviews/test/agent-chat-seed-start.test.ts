@@ -157,3 +157,24 @@ test("direct startSession success clears startup defaults after explicit creatio
     run.client.close();
   }
 });
+
+test("a rejected peer start retries on that peer when the first send asks for a session", async () => {
+  const run = await start(
+    { cwd: "/remote/project", peer: "dev-box", harness: "fake", model: "fixture-model" },
+    { failStarts: 1 },
+  );
+  try {
+    await expect(run.client.create("fake", "/remote/project", "dev-box", false, "fixture-model")).rejects.toThrow(
+      "fixture start failed",
+    );
+    await run.client.ensureSession();
+    expect(run.created()).toMatchObject([
+      { cwd: "/remote/project", peer: "dev-box", harness: "fake", model: "fixture-model" },
+    ]);
+    // The peer was a startup choice, so a later explicitly local chat does not inherit it.
+    await run.client.create("other", "/local/project");
+    expect(run.created()[1]?.peer).toBeUndefined();
+  } finally {
+    run.client.close();
+  }
+});
