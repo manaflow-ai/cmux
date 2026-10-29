@@ -43,7 +43,7 @@ const REPORT: Sent = {
 
 /// `message` as the transcript records it, with the provenance cmux gives it (agent_message_prompt.rs
 /// `provenance`).
-function received(id: string, at: number, message: Sent): AcpmuxRow {
+export function received(id: string, at: number, message: Sent): AcpmuxRow {
   const raw = envelope(message);
   const provenance = {
     kind: "agent_message",
