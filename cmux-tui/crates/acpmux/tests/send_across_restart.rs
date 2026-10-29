@@ -430,8 +430,8 @@ fn no_wait_lost_acceptance_keeps_the_generated_recovery_identity() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        let mut lines = BufReader::new(stream.try_clone().unwrap()).lines();
-        while let Some(line) = lines.next() {
+        let lines = BufReader::new(stream.try_clone().unwrap()).lines();
+        for line in lines {
             let msg: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
             let Some(id) = msg.get("id") else { continue };
             if msg["method"] == "_acpmux/send_queue" {
