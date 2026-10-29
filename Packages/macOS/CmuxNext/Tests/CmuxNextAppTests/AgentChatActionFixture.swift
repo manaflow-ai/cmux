@@ -3,7 +3,6 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemon
-import Foundation
 import Testing
 
 /// Real workspace-daemon creation and folder resolution, with an isolated handshake host.
@@ -12,7 +11,7 @@ import Testing
 enum AgentChatActionFixture {
     // The daemon canonicalizes local folders (/tmp is /private/tmp on a Mac). Supply the
     // canonical spelling so equality still tests exactly the requested directory.
-    static let localCwd = URL(fileURLWithPath: "/tmp").resolvingSymlinksInPath().path
+    static let localCwd = "/private/tmp"
 
     static let environment = [
         AgentPaneSource.devURLVariable: "http://127.0.0.1:9",

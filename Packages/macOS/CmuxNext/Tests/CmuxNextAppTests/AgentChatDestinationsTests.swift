@@ -9,6 +9,8 @@ import Testing
 
 @MainActor @Suite
 struct AgentChatDestinationsTests {
+    static let sameNameCloudID = "312fc5c9-13bd-4e68-a663-ea9f0c730d21"
+
     static func focusedCloud(_ services: AppServices) -> CloudMachineSession {
         let session = MachineIconTests.cloudMachine(services, id: "vm-chat-focus")
         let first = PaneSnapshot(id: PaneID(rawValue: 11), focusedAt: 1,
@@ -44,7 +46,7 @@ struct AgentChatDestinationsTests {
              AgentChatPeer(name: "cloud-peer", isSSH: false, connected: true, state: "connected")]
         }, cloud: {
             .init(signedIn: true, loaded: true, machines: [
-                .init(id: "duplicate", name: "CLOUD-PEER", stage: "ready"),
+                .init(id: Self.sameNameCloudID, name: "CLOUD-PEER", stage: "ready"),
                 .init(id: "vm-ready", name: "Cloud workspace", stage: "ready"),
                 .init(id: "vm-paused", name: "Paused workspace", stage: "paused"),
             ])
@@ -57,13 +59,39 @@ struct AgentChatDestinationsTests {
 
     @Test func peerAndAccountCloudRowsKeepTheirAuthoritativeState() async throws {
         let rows = await Self.source.load()
-        #expect(rows.map(\.id) == ["local", "dev-box", "build-box", "cloud-peer", "cloud-machine:vm-ready", "cloud-machine:vm-paused"])
+        #expect(rows.map(\.id) == ["local", "dev-box", "build-box", "cloud-peer", "cloud-machine:" + Self.sameNameCloudID,
+                                  "cloud-machine:vm-ready", "cloud-machine:vm-paused"])
         #expect(rows.first { $0.id == "build-box" }?.isReady == false)
         #expect(rows.first { $0.id == "build-box" }?.state == "reconnecting")
         #expect(rows.first { $0.id == "cloud-machine:vm-paused" }?.isReady == false)
         #expect(AgentChatDestinations.resolve("vm-ready", in: rows)?.route == .cloud("vm-ready"))
         #expect(AgentChatDestinations.resolve("dev-box", in: rows)?.route == .peer("dev-box"))
         #expect(AgentChatDestinations.resolve("missing", in: rows) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func sameNamePeerAndCloudKeepTheirIdentityAndOwnState(cloudReady: Bool) throws {
+        let cloudID = Self.sameNameCloudID
+        let peerState = cloudReady ? "reconnecting" : "connected"
+        let cloudState = cloudReady ? "ready" : "paused"
+        let rows = AgentChatDestinations.rows(localTitle: "This Mac", peers: [
+            AgentChatPeer(name: "cloud-peer", isSSH: false, connected: true, state: peerState),
+        ], cloud: .init(signedIn: true, loaded: true, machines: [
+            .init(id: cloudID, name: "CLOUD-PEER", stage: cloudState),
+            // A display name equal to another machine's UUID must not make that UUID ambiguous.
+            .init(id: "alternate-machine", name: cloudID, stage: "ready"),
+        ]))
+        #expect(rows.map(\.id) == ["local", "cloud-peer", "cloud-machine:" + cloudID, "cloud-machine:alternate-machine"])
+        let peer = try #require(AgentChatDestinations.resolve("cloud-peer", in: rows))
+        #expect(peer.route == .peer("cloud-peer"))
+        #expect(peer.state == peerState)
+        #expect(peer.isReady == !cloudReady)
+        let cloud = try #require(AgentChatDestinations.resolve(cloudID, in: rows))
+        #expect(cloud.route == .cloud(cloudID))
+        #expect(cloud.id == "cloud-machine:" + cloudID)
+        #expect(cloud.state == cloudState)
+        #expect(cloud.isReady == cloudReady)
+        #expect(AgentChatDestinations.resolve("cloud-machine:" + cloudID, in: rows) == cloud)
     }
 
     @Test func paletteLoadsTheSameRowsAndForwardsTheChosenHost() async throws {
@@ -85,6 +113,12 @@ struct AgentChatDestinationsTests {
         guard case .perform(let pick) = peer.primary.effect else { Issue.record("no pick"); return }
         pick()
         #expect(chosen == "dev-box")
+        let cloud = try #require(items.first { $0.id == "option:cloud-machine:" + Self.sameNameCloudID })
+        #expect(cloud.isEnabled)
+        #expect(items.contains { $0.id == "option:cloud-peer" })
+        guard case .perform(let pickCloud) = cloud.primary.effect else { Issue.record("no Cloud pick"); return }
+        pickCloud()
+        #expect(chosen == "cloud-machine:" + Self.sameNameCloudID, "the chooser forwards the stable Cloud ID, not its matching peer name")
         #expect(items.first { $0.id == "option:cloud-machine:vm-ready" }?.isEnabled == true)
         // Other machine actions still read their existing target source.
         #expect(source.targets(of: .machine, for: "workspace.newOnMachine").isEmpty)
@@ -185,7 +219,12 @@ struct AgentChatDestinationActionTests {
             let result = await AgentHandlers.createOnHost("dev-box", invocation: invocation,
                 destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
-            #expect(pane.pane.tabs.contains { $0.id == created.id }, "the peer chat keeps the requested local pane")
+            if targeted {
+                #expect(pane.pane.tabs.contains { $0.id == created.id }, "the peer chat keeps the requested local pane")
+            } else {
+                // Without a pane target the existing chat-dock placement may move the tab.
+                #expect(services.agentTabs.workspace(holding: created.id)?.id == pane.workspace?.workspace.id)
+            }
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")

@@ -178,3 +178,32 @@ test("a rejected peer start retries on that peer when the first send asks for a 
     run.client.close();
   }
 });
+
+for (const firstSend of [false, true]) {
+  test(`successful peer startup does not lend its folder to the next local chat (firstSend=${firstSend})`, async () => {
+    const run = await start({ cwd: "/remote/project", peer: "dev-box", harness: "fake", model: "fixture-model" });
+    try {
+      if (firstSend) await run.client.ensureSession();
+      else await run.client.create("fake", "/remote/project", "dev-box", false, "fixture-model");
+      await run.client.create("other");
+      expect(run.created()[0]).toMatchObject({ cwd: "/remote/project", peer: "dev-box" });
+      expect(run.created()[1]).toMatchObject({ harness: "other" });
+      expect(run.created()[1]?.cwd).toBeUndefined();
+      expect(run.created()[1]?.peer).toBeUndefined();
+    } finally {
+      run.client.close();
+    }
+  });
+}
+
+test("an explicitly started local chat keeps the existing local folder inheritance", async () => {
+  const run = await start({ cwd: "/local/project", harness: "fake" });
+  try {
+    await run.client.create("fake", "/local/project");
+    await run.client.create("other");
+    expect(run.created()[1]).toMatchObject({ cwd: "/local/project", harness: "other" });
+    expect(run.created()[1]?.peer).toBeUndefined();
+  } finally {
+    run.client.close();
+  }
+});
